@@ -1,6 +1,6 @@
-# Chat step 3 — R2 implementation contract
+# Chat step 3 — R3 implementation contract
 
-Status: implementation handoff for Orion review, not independent QA or integrated product acceptance. Supersedes the recovery assumptions in `chat-step3-runtime-patch.md`; historical probes and Sentinel counterexamples remain evidence. Baseline: `7c15f172cb8d6ed968629ac5ab41d9c989a8f1ea`. No `client/` changes.
+Status: implementation handoff for Orion review, not independent QA or integrated product acceptance. Supersedes the recovery assumptions in `chat-step3-runtime-patch.md`; historical probes and Sentinel counterexamples remain evidence. Common implementation baseline: `12ce1c054286315f76d7b38143060add6f3c39d2`. No `client/` changes.
 
 ## Sources of truth and ownership
 
@@ -69,49 +69,73 @@ Download start adds operation_id and consumer_session. Same authenticated accoun
 
 Client local events use the exported schema: version,event_id,account,consumer_session,type with peer/position for messages, task_id/operation_id/actual_path or error_code for downloads. Replay and session binding must precede adapter ingestion; event text IDs alone are never deduplication evidence.
 
-## Native recovery R2
+## Internal R3 client interfaces (not MCP tools)
 
-Only the version-locked, copied runtime is supported. `runtime-patch/lock.json` pins DSH 0.2.1-rc.5, Cordis 4.0.5, Linux x86_64, full dependency tree and target/helper/patch SHA256. Installer refuses mismatches, symlink destinations and existing targets; never modifies globally installed source. Global source is read-only. Ordinary non-event native tool behavior is unchanged.
+`VisibleMessage.presentation` is optional `{receipt_id,content_digest}`. New clients prepare and persist it for each returned message, bound to login account, consumer session, peer, message ID/position and the ordered blocks. It is a preparation receipt, not display or consumption. Old replies remain readable but cannot be confirmed. Client digest is opaque to the adapter; the adapter does not recanonicalize client JSON to reproduce it.
 
-Persisted identities are distinct:
+| Internal POST | Input | HTTP 200 output |
+| --- | --- | --- |
+| `/chat/confirm_presentation` | consumer_session,attempt_id,request_digest,receipt_ids | confirmed_receipt_ids |
+| `/events/subscribe` | consumer_session,peer_account | consumer_session,peer_account |
+| `/events/read` | consumer_session,after_cursor>=0,limit 1–100 (50) | items[{cursor,event}],next_cursor,has_more |
+| `/events/wait` | events/read input + timeout 30/60/120 | page + reason(events/timeout/cancelled/logout/disconnected) |
 
-- business key `(account, DSH session_id, event_id)` → stable accepted message and logical_turn_id;
-- claim → physical turn/step and retained full original content;
-- dispatch → unique inference attempt_id, actual projected member_ids and SHA256 of actual input;
-- durable model tool plan → fresh operation_id, original arguments digest and event members;
-- operation result → reconciled client receipt, independent of tool errors and native completion;
-- consumption ACK → separate client fact; runtime status returns consumed_through:null.
+These four interfaces are exported under `internal_operations` in the machine schema, never listed as model-callable MCP tools. Client account/consumer/peer subscription, event stream, prepared receipts, confirmations and ACK cursors must persist. Client source events are deduplicated; message events appear only when the corresponding message is readable. Download events bind to the creating consumer session, with no peer inference. Event cursor is per account+consumer, distinct from each conversation's message position and consumption watermark.
 
-Acceptance is native plugin record + retained content, flushed before receipt. Replays reconcile existing acceptance and re-drive the **native driver**, preserving event/logical IDs. Claimed-but-not-dispatched inputs can be reconstructed after restart. Twelve concurrent submissions serialize admission. Completed events do not generate new turns. The pre-step filter may remove claimed messages: only IDs in the built request receive dispatch records, filtered IDs remain deferred and can be retried after filter removal. They are never silently completed or ACKed.
+Confirm retries with the original attempt/receipts are idempotent; changed identity/content 409, other account/unknown receipt 404, logged out 401. Confirm never advances the ACK cursor. ACK stays `/chat/ack_messages {account,consumer_session,through_position}`: require confirmed receipts across the entire gap, return 409 consumption_gap otherwise; a lower/equal ACK is idempotent and later messages survive. UI rendering, a tool return, request intent or turn/end alone cannot confirm DSH display. Account switching and 401 must isolate the client ledgers; network failure must not silently log out or clear them.
 
-Before provider streaming, flush request member/digest/attempt intent. Stream fragments are provisional diagnostics; no callback publishes them to BB. With no persisted tool plan, a crash before or after provider entry permits another inference attempt under the same logical event. This is deliberately **not exactly once inference**.
+## Native recovery R3
 
-Before any event-driven tool execution, persist the returned model tool plan and stable operation_id, flush, then call the local boundary. send_message/send_attachment/start_download are the supported business-effect allowlist. The native local bridge first queries `/operations/get`; only 404 permits the corresponding idempotent submit. Unknown transport state throws and keeps the plan pending. Other non-read effects (including auth/profile mutations or arbitrary shell) are rejected as unsupported in event turns, with explicit failed operation evidence. This restricted profile is essential to the pure-reasoning recovery claim.
+Only the version-locked copied runtime is supported. `runtime-patch/lock.json` pins DSH 0.2.1-rc.5, Cordis 4.0.5, Linux x86_64, full dependency tree and target/helper/patch SHA256. Installer refuses mismatches, symlink destinations and existing targets; source remains read-only. No personal profile discovery or shared dependency mutation.
 
-On restart, reconcile retained plans **before new inference**. Do not re-emit old native tool/call events in a different physical turn: that violates V4 lifecycle validation. Append only actual operation receipts to the plugin record stream; do not modify old history. A recovered business plan settles that logical event without generating a fresh model continuation/output. Interrupted read-only plans are recorded as interrupted, not business success; an explicit subsequent read is needed. Generic arbitrary-provider/tool transactions are outside this patch.
+The two native primitives remain: durable acceptance retaining full content, and recoverable claim/redrive through the existing DSH driver. Business identity is `(account,session_id,event_id)`; repeated/concurrent admission reuses its native acceptance and logical ID. A plugin cursor is flushed only after acceptance. A crash between acceptance and cursor update replays the event key without refetching/changing its already accepted body. Deferred inputs are retried on explicit/native recovery or the next adapter pump; completed events never wake another turn.
 
-Compatibility: ordinary sessions without BB records resume unchanged. Prior `bb-recovery-1` acceptance/claim records are readable, but old dispatch records lack actual membership and effect barriers and are conservatively `legacy_uncertain`; they are not promoted to safe R2 proof. New records use bb-recovery-2 in the existing namespace. Unknown versions/owned IDs with missing acceptance fail closed. No rewriting/migrating JSONL history.
+Each actual model request records its attempt ID, actual member IDs and input digest. Claims removed by pre-step filtering remain deferred, never completed or ACKed. Provider request/stream fragments are provisional and never directly publish BB messages. A successful native model response is separately persisted; no terminal success is inferred from turn/end. Requests ending in max-tokens/error/abort do not create display confirmation. A pure inference attempt without a durable effect plan can retry under the original logical event.
+
+Model tool plans are flushed before effects: stable operation_id, complete arguments/digest, owning event members, native turn/step. send_message/send_attachment/start_download query the local operation result before submitting. Receipt status preserves pending/succeeded/failed; accepted download pending never becomes completed download. Unknown transport results stay uncertain and reconcile before continuation. Unsupported effects are rejected before execution in event/product sessions. Ordinary sessions without BB bindings/records retain their native behavior.
+
+**Continuation:** after resolving retained plans, append an explicitly marked `source.kind=runtime-context` recovery message, never a platform message or fabricated old tool/result. Its stable continuation_id points to original logical event/input and records plan IDs, actual receipts, phase and content revision. The original ordered text/image input remains in native history. Repeated restart reuses the same pending continuation/revision. The model actually runs again; only a successful terminal response completes the event. An interrupted read plan is reported as interrupted in recovery facts, so the model can explicitly read again rather than inventing a result.
+
+Cross-restart attempts to resend the same retained write intent (tool + canonical parameters, excluding caller operation_id) map to its existing persisted operation and receipt, even with a fresh provider call ID. This policy is scoped to old physical turns of the same logical event; multiple new calls in the original live plan are not collapsed. Changed intentional parameters create and flush a new plan. During recovery, an intentional exact repeat of an already executed write requires a new business event; a renamed operation_id alone cannot authorize duplicate output. Native plan aliases record this correlation. No provider transaction or semantic equivalence guessing is introduced.
+
+**Presentation mapping:** Python MCP results include reserved start/end markers and internal `bb_presentations` metadata (receipt, client digest, source message/position, sender/target, consumer, peer, expected image count). Native hooks compare the final canonical projection against the original MCP wire text/image structure, then bind its actual native message ID and segment digest. At request time only complete unchanged segments in the actual input are eligible; removed/truncated content, image admission fallback and binding conflicts cannot confirm. Passive inputs use the same markers, with actual image references saved by the isolated native attachment store after positive model image-capability admission. Actual model vision quality remains a separate acceptance gate.
+
+After a valid successful model response, persist response success and request/receipt evidence, then call confirm_presentation. On response/confirmation interruption, replay that same stored attempt+receipt set. A terminal response already persisted does not need another provider call merely to finish confirmation. Explicit ack_messages first drains pending confirmations and then calls the client's independent gap-checked ACK. Session binding is checked; native status does not invent a client consumption watermark.
+
+**Scheduling:** `RuntimeBridge` registers one configured peer per DSH session and reads/waits on the client event feed. It validates account, session, peer and monotonic cursor before admission. Idle input wakes the native driver; ordinary busy input and download events use next-turn. A message matching an active wait tool uses next-step in the current turn. Active waits are tracked by native call identity and cleared on tool/turn exit. A late event for a message already present in a successful read/wait request is explicitly linked to that request as satisfied, so it does not restart processing. Receipt confirmation is still retried independently and never implies ACK. Other sessions do not share delivery IDs, cursors or receipts.
+
+`setupRuntimeBridge` installs callbacks before publication; binding/subscription initialization occurs after the real session becomes live and before automatic resume. `setupProductBridge` additionally mounts the real Agent-scoped DSH MCP client with namespace `bb` (or configured unnormalized ASCII namespace <=30 chars) and `toolCallTimeoutMs=130000`; the DSH default 60000 is insufficient for 120-second waits. The internal HTTP wait allows requested time +5 seconds. Cordis owns/disposes the MCP subprocess with the Agent. The host must await `bridge.run(signal)` or explicitly call pumpOnce; no detached poller or second Agent scheduler is created. Cancellation stops the awaited loop; transport failures retain durable state for retry.
+
+Compatibility: ordinary old sessions resume unchanged. R2 acceptance/claim/effect records remain readable. R1 dispatches lacking actual membership/effect barriers remain legacy_uncertain. R2 sessions already terminal under their old semantics are not rewritten or silently rerun. Unknown versions and owned IDs with missing acceptance fail closed. No V4 history is rewritten.
 
 ## Reproduction and withdrawal
 
 From repository root (source must be the exact pinned package tree):
 
 ```sh
-uv run --no-project python dsh-plugin/runtime-patch/install.py --source "$DSH_SOURCE" --destination dsh-plugin/.runtime/dsh-r2
-uv run --no-project python dsh-plugin/runtime-patch/install.py --verify --destination dsh-plugin/.runtime/dsh-r2
-node dsh-plugin/runtime-patch/test.mjs "$DSH_SOURCE" dsh-plugin/.runtime/dsh-r2
-node dsh-plugin/runtime-patch/test-boundaries-r2.mjs dsh-plugin/.runtime/dsh-r2
-node dsh-plugin/runtime-patch/test-operations-r2.mjs dsh-plugin/.runtime/dsh-r2
+uv run --no-project python dsh-plugin/runtime-patch/install.py --source "$DSH_SOURCE" --destination dsh-plugin/.runtime/dsh-r3
+uv run --no-project python dsh-plugin/runtime-patch/install.py --verify --destination dsh-plugin/.runtime/dsh-r3
+node dsh-plugin/runtime-patch/test.mjs "$DSH_SOURCE" dsh-plugin/.runtime/dsh-r3
+node dsh-plugin/runtime-patch/test-boundaries-r2.mjs dsh-plugin/.runtime/dsh-r3
+node dsh-plugin/runtime-patch/test-continuation-r3.mjs dsh-plugin/.runtime/dsh-r3
+node dsh-plugin/runtime-patch/test-presentations-r3.mjs dsh-plugin/.runtime/dsh-r3
+node dsh-plugin/runtime-patch/test-mcp-r3.mjs dsh-plugin/.runtime/dsh-r3
 uv run --directory server pytest -q
 uv run --directory dsh-plugin pytest -q
 uv run --directory server python -m bb_server.export_openapi openapi.json
 uv run --directory server python contract/export_chat.py
 ```
 
-The native matrix starts the real Cordis/DSH/JSONL composition in synthetic profiles and terminates all workers before return. `local-bridge.mjs:setupLocalBridge(origin)` is passed as the native agents.create/resume setup callback; runtime resumes after setup. Model is a deterministic double. Operation tests use a durable synthetic local HTTP client; server pytest independently exercises real SQLite transactions. No configured personal runtime is started.
+The native matrix starts the real Cordis/DSH/JSONL composition in synthetic profiles and terminates all workers before return. `native-setup.mjs:setupProductBridge({mcpModule,pluginDirectory,origin,account,peer_account}, onReady)` is passed as the native agents.create/resume setup callback. Load mcpModule from the verified private runtime; pluginDirectory is an absolute project path. The callback supplies the RuntimeBridge to the host, which awaits its run(signal) lifetime; native recovery starts only after binding/subscription initialization. `setupLocalBridge` is retained only for the narrower operation fault tests. Model is a deterministic double. Operation tests use a durable synthetic local HTTP client; server pytest independently exercises real SQLite transactions. No configured personal runtime is started.
 
-Withdrawal: stop only the isolated worker/process you launched, retain its evidence/session directory, remove that build/profile when no longer needed; use the original installed executable for existing personal deployments. Do not open R2 product sessions with an unpatched runtime and assume delivery guarantees. Rebuild diff via `build-diff.py <pinned-source>` only for review; never regenerate locks against an unreviewed version.
+Withdrawal: stop only the isolated worker/process you launched, retain its evidence/session directory, remove that build/profile when no longer needed; use the original installed executable for existing personal deployments. Do not open R2/R3 product sessions with an unpatched runtime and assume delivery guarantees. Rebuild diff via `build-diff.py <pinned-source>` only for review; never regenerate locks against an unreviewed version.
 
 ## Remaining integration gates
 
-This code is not final product acceptance. Local client credential/download/display ledgers, durable event feed to native sessions, busy/matching-wait/turn-end scheduling integration, native consumption-evidence plumbing and full chat/MCP/DSH integration still require the shared client build. The event-turn effect allowlist currently refuses ack_messages: it must not advance consumption without that display-evidence plumbing. Python MCP exposes explicit ACK and its 409 contract for client work; no passing double substitutes for actual client behavior. Real models/vision, Flutter three layers, Android, Windows, physical foldables and Owner manual acceptance remain NOT RUN. Orion must review these compatibility/integration limits before treating the contract as frozen for the integrated product.
+Forge's native/bridge R3 fault matrix uses real Cordis/DSH/JSONL, the local native image store, real Python MCP stdio and actual native MCP projection. Its provider and synthetic client are explicitly labeled doubles. A separate `test-live-r3.py` runs the unmodified Dart client at `c684e29371b0236dadecb05f8ff18802175502ef`, real FastAPI/SQLite, Python MCP and the patched native runtime; only its provider is a double. It verifies actual receipt→confirmation→explicit ACK, the unpresented gap, durable events across Dart restart, and business-commit SIGKILL→continuation→two replays with one output. It does not verify visual understanding or Flutter rendering.
+
+**Integration remains FAIL:** that Dart revision rejects the R3 `events/wait.limit` field (422), overwrites a changed attempt/digest/receipt set (200 instead of 409, allowing the otherwise missing position to be ACKed), and gives a newly subscribed consumer no incoming backlog after another consumer advanced the account source cursor. The live runner deliberately exits 1 on these failures. Same-account receipt/session identity conflict returning 409 is valid; it is not confused with another account's 404. Shared R3 fixtures retain the required behavior. Coordinate fixes in client/ through Orion; do not work around these gaps by weakening the adapter or machine contract. Rerun on a reviewed combined SHA before independent QA.
+
+Real models/vision, complete client/server/runtime recovery and download/ACK flow, actual account-switch timing, Flutter three layers, Android, Windows, physical foldables and Owner manual acceptance remain separate NOT RUN gates in this Forge handoff. No main merge, release, personal deployment or workflow reassignment is authorized here.
+
+The frozen negative V4 reproducer is `runtime-patch/regressions/v4-failure/` (old helper, exact patch and lock, isolated installer). Build it into a separate `.runtime/v4-negative` and run `node dsh-plugin/runtime-patch/test-v4-negative.mjs <negative-copy>`. Wrapper exit 0 means it reproduced the expected second-restart corruption; it is not a product PASS. R2 original tests and Sentinel originals remain in the repository; R3 continuation expectations live in separate scripts.

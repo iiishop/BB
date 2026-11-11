@@ -42,3 +42,24 @@ export function localOperationClient(origin) {
 }
 // Pass setup to native agents.create/resume; resume recovery happens AFTER setup.
 export function setupLocalBridge(origin){const client=localOperationClient(origin);return (_ctx,agent)=>{agent.bbOperationClient=client;};}
+
+export function localTransport(origin) {
+ const url=new URL(origin);
+ if(url.protocol!=='http:'||url.hostname!=='127.0.0.1'||url.username||url.password||url.pathname!=='/'||url.search||url.hash)throw Error('Expected local client origin');
+ return async(path,body,{signal}={})=>{
+  const response=await fetch(new URL(path,url),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body),redirect:'error',signal:signal?AbortSignal.any([signal,AbortSignal.timeout(Math.max(15000,(body.timeout??0)*1000+5000))]):AbortSignal.timeout(Math.max(15000,(body.timeout??0)*1000+5000))});
+  const value=await response.json();
+  if(response.status!==200){const error=new Error('BB_LOCAL_'+response.status);error.status=response.status;throw error;}
+  return value;
+ };
+}
+export function bindLocalControl(agent,origin){
+ const post=localTransport(origin);
+ agent.bbOperationClient=localOperationClient(origin);
+ agent.bbConfirmPresentation=payload=>post('/chat/confirm_presentation',payload);
+ agent.bbAcknowledge=async payload=>{
+  try {const value=await post('/chat/ack_messages',payload);return {isError:false,content:[{type:'text',text:JSON.stringify({consumed_through:value.consumed_through})}]};}
+  catch(error){if(error.status===409)return {isError:true,content:[{type:'text',text:JSON.stringify({error:{code:'consumption_gap'}})}]};throw error;}
+ };
+ return post;
+}

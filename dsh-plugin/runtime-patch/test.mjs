@@ -93,7 +93,7 @@ try { await readFile(resolve(root, 'intent-before-provider-provider.json')); }
 catch (error) { assert.equal(error.code, 'ENOENT'); absentWitness = true; }
 assert.ok(absentWitness);
 const summary = {
-  patch: 'bb-recovery-2', baseline: 'Original failure assertions preserved and reproduced',
+  patch: 'bb-recovery-3', baseline: 'Original failure assertions preserved and reproduced',
   bounded_recovery_tests: 'PASS', overall_delivery_gate: 'Bounded R2 reasoning matrix PASS; business and client integration require separate evidence',
   model: 'DETERMINISTIC TEST DOUBLE; real model/vision NOT RUN',
   processes: runs.length, forced_sigkills: runs.filter(item => item.signal === 'SIGKILL').length,

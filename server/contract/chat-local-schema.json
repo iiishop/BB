@@ -1,5 +1,5 @@
 {
-  "version": "chat-step3-r2",
+  "version": "chat-step3-r3",
   "operations": {
     "list_users": {
       "method": "POST",
@@ -957,6 +957,27 @@
             "title": "Message",
             "type": "object"
           },
+          "Presentation": {
+            "additionalProperties": false,
+            "properties": {
+              "receipt_id": {
+                "minLength": 1,
+                "title": "Receipt Id",
+                "type": "string"
+              },
+              "content_digest": {
+                "minLength": 1,
+                "title": "Content Digest",
+                "type": "string"
+              }
+            },
+            "required": [
+              "receipt_id",
+              "content_digest"
+            ],
+            "title": "Presentation",
+            "type": "object"
+          },
           "Text": {
             "additionalProperties": false,
             "properties": {
@@ -1014,6 +1035,17 @@
             "properties": {
               "message": {
                 "$ref": "#/$defs/Message"
+              },
+              "presentation": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Presentation"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
               },
               "blocks": {
                 "items": {
@@ -1274,6 +1306,27 @@
             "title": "Message",
             "type": "object"
           },
+          "Presentation": {
+            "additionalProperties": false,
+            "properties": {
+              "receipt_id": {
+                "minLength": 1,
+                "title": "Receipt Id",
+                "type": "string"
+              },
+              "content_digest": {
+                "minLength": 1,
+                "title": "Content Digest",
+                "type": "string"
+              }
+            },
+            "required": [
+              "receipt_id",
+              "content_digest"
+            ],
+            "title": "Presentation",
+            "type": "object"
+          },
           "Text": {
             "additionalProperties": false,
             "properties": {
@@ -1331,6 +1384,17 @@
             "properties": {
               "message": {
                 "$ref": "#/$defs/Message"
+              },
+              "presentation": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Presentation"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
               },
               "blocks": {
                 "items": {
@@ -1916,6 +1980,681 @@
           "status"
         ],
         "title": "Operation",
+        "type": "object"
+      }
+    }
+  },
+  "internal_operations": {
+    "confirm_presentation": {
+      "method": "POST",
+      "path": "/chat/confirm_presentation",
+      "status": 200,
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "consumer_session": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Consumer Session",
+            "type": "string"
+          },
+          "attempt_id": {
+            "minLength": 1,
+            "title": "Attempt Id",
+            "type": "string"
+          },
+          "request_digest": {
+            "minLength": 1,
+            "title": "Request Digest",
+            "type": "string"
+          },
+          "receipt_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Receipt Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "consumer_session",
+          "attempt_id",
+          "request_digest",
+          "receipt_ids"
+        ],
+        "title": "ConfirmPresentation",
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "confirmed_receipt_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Confirmed Receipt Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "confirmed_receipt_ids"
+        ],
+        "title": "ConfirmedPresentation",
+        "type": "object"
+      }
+    },
+    "events_subscribe": {
+      "method": "POST",
+      "path": "/events/subscribe",
+      "status": 200,
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "consumer_session": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Consumer Session",
+            "type": "string"
+          },
+          "peer_account": {
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Peer Account",
+            "type": "string"
+          }
+        },
+        "required": [
+          "consumer_session",
+          "peer_account"
+        ],
+        "title": "Subscribe",
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "consumer_session": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Consumer Session",
+            "type": "string"
+          },
+          "peer_account": {
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Peer Account",
+            "type": "string"
+          }
+        },
+        "required": [
+          "consumer_session",
+          "peer_account"
+        ],
+        "title": "Subscribe",
+        "type": "object"
+      }
+    },
+    "events_read": {
+      "method": "POST",
+      "path": "/events/read",
+      "status": 200,
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "consumer_session": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Consumer Session",
+            "type": "string"
+          },
+          "after_cursor": {
+            "default": 0,
+            "minimum": 0,
+            "title": "After Cursor",
+            "type": "integer"
+          },
+          "limit": {
+            "default": 50,
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "consumer_session"
+        ],
+        "title": "EventsRead",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "LocalDownloadFailed": {
+            "additionalProperties": false,
+            "properties": {
+              "version": {
+                "const": 1,
+                "default": 1,
+                "title": "Version",
+                "type": "integer"
+              },
+              "event_id": {
+                "maxLength": 200,
+                "minLength": 1,
+                "title": "Event Id",
+                "type": "string"
+              },
+              "account": {
+                "pattern": "^[1-9][0-9]{7}$",
+                "title": "Account",
+                "type": "string"
+              },
+              "consumer_session": {
+                "maxLength": 200,
+                "minLength": 1,
+                "title": "Consumer Session",
+                "type": "string"
+              },
+              "type": {
+                "const": "download.failed",
+                "title": "Type",
+                "type": "string"
+              },
+              "task_id": {
+                "title": "Task Id",
+                "type": "string"
+              },
+              "operation_id": {
+                "pattern": "^[A-Za-z0-9_-]{1,128}$",
+                "title": "Operation Id",
+                "type": "string"
+              },
+              "error_code": {
+                "minLength": 1,
+                "title": "Error Code",
+                "type": "string"
+              }
+            },
+            "required": [
+              "event_id",
+              "account",
+              "consumer_session",
+              "type",
+              "task_id",
+              "operation_id",
+              "error_code"
+            ],
+            "title": "LocalDownloadFailed",
+            "type": "object"
+          },
+          "LocalDownloadSucceeded": {
+            "additionalProperties": false,
+            "properties": {
+              "version": {
+                "const": 1,
+                "default": 1,
+                "title": "Version",
+                "type": "integer"
+              },
+              "event_id": {
+                "maxLength": 200,
+                "minLength": 1,
+                "title": "Event Id",
+                "type": "string"
+              },
+              "account": {
+                "pattern": "^[1-9][0-9]{7}$",
+                "title": "Account",
+                "type": "string"
+              },
+              "consumer_session": {
+                "maxLength": 200,
+                "minLength": 1,
+                "title": "Consumer Session",
+                "type": "string"
+              },
+              "type": {
+                "const": "download.succeeded",
+                "title": "Type",
+                "type": "string"
+              },
+              "task_id": {
+                "title": "Task Id",
+                "type": "string"
+              },
+              "operation_id": {
+                "pattern": "^[A-Za-z0-9_-]{1,128}$",
+                "title": "Operation Id",
+                "type": "string"
+              },
+              "actual_path": {
+                "minLength": 1,
+                "title": "Actual Path",
+                "type": "string"
+              }
+            },
+            "required": [
+              "event_id",
+              "account",
+              "consumer_session",
+              "type",
+              "task_id",
+              "operation_id",
+              "actual_path"
+            ],
+            "title": "LocalDownloadSucceeded",
+            "type": "object"
+          },
+          "LocalEventEntry": {
+            "additionalProperties": false,
+            "properties": {
+              "cursor": {
+                "minimum": 1,
+                "title": "Cursor",
+                "type": "integer"
+              },
+              "event": {
+                "discriminator": {
+                  "mapping": {
+                    "download.failed": "#/$defs/LocalDownloadFailed",
+                    "download.succeeded": "#/$defs/LocalDownloadSucceeded",
+                    "message.available": "#/$defs/LocalMessageEvent"
+                  },
+                  "propertyName": "type"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/LocalMessageEvent"
+                  },
+                  {
+                    "$ref": "#/$defs/LocalDownloadSucceeded"
+                  },
+                  {
+                    "$ref": "#/$defs/LocalDownloadFailed"
+                  }
+                ],
+                "title": "Event"
+              }
+            },
+            "required": [
+              "cursor",
+              "event"
+            ],
+            "title": "LocalEventEntry",
+            "type": "object"
+          },
+          "LocalMessageEvent": {
+            "additionalProperties": false,
+            "properties": {
+              "version": {
+                "const": 1,
+                "default": 1,
+                "title": "Version",
+                "type": "integer"
+              },
+              "event_id": {
+                "maxLength": 200,
+                "minLength": 1,
+                "title": "Event Id",
+                "type": "string"
+              },
+              "account": {
+                "pattern": "^[1-9][0-9]{7}$",
+                "title": "Account",
+                "type": "string"
+              },
+              "consumer_session": {
+                "maxLength": 200,
+                "minLength": 1,
+                "title": "Consumer Session",
+                "type": "string"
+              },
+              "type": {
+                "const": "message.available",
+                "title": "Type",
+                "type": "string"
+              },
+              "peer_account": {
+                "pattern": "^[1-9][0-9]{7}$",
+                "title": "Peer Account",
+                "type": "string"
+              },
+              "position": {
+                "minimum": 1,
+                "title": "Position",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "event_id",
+              "account",
+              "consumer_session",
+              "type",
+              "peer_account",
+              "position"
+            ],
+            "title": "LocalMessageEvent",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/$defs/LocalEventEntry"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "minimum": 0,
+            "title": "Next Cursor",
+            "type": "integer"
+          },
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor",
+          "has_more"
+        ],
+        "title": "LocalEventPage",
+        "type": "object"
+      }
+    },
+    "events_wait": {
+      "method": "POST",
+      "path": "/events/wait",
+      "status": 200,
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "consumer_session": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Consumer Session",
+            "type": "string"
+          },
+          "after_cursor": {
+            "default": 0,
+            "minimum": 0,
+            "title": "After Cursor",
+            "type": "integer"
+          },
+          "limit": {
+            "default": 50,
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "timeout": {
+            "default": 60,
+            "enum": [
+              30,
+              60,
+              120
+            ],
+            "title": "Timeout",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "consumer_session"
+        ],
+        "title": "EventsWait",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "LocalDownloadFailed": {
+            "additionalProperties": false,
+            "properties": {
+              "version": {
+                "const": 1,
+                "default": 1,
+                "title": "Version",
+                "type": "integer"
+              },
+              "event_id": {
+                "maxLength": 200,
+                "minLength": 1,
+                "title": "Event Id",
+                "type": "string"
+              },
+              "account": {
+                "pattern": "^[1-9][0-9]{7}$",
+                "title": "Account",
+                "type": "string"
+              },
+              "consumer_session": {
+                "maxLength": 200,
+                "minLength": 1,
+                "title": "Consumer Session",
+                "type": "string"
+              },
+              "type": {
+                "const": "download.failed",
+                "title": "Type",
+                "type": "string"
+              },
+              "task_id": {
+                "title": "Task Id",
+                "type": "string"
+              },
+              "operation_id": {
+                "pattern": "^[A-Za-z0-9_-]{1,128}$",
+                "title": "Operation Id",
+                "type": "string"
+              },
+              "error_code": {
+                "minLength": 1,
+                "title": "Error Code",
+                "type": "string"
+              }
+            },
+            "required": [
+              "event_id",
+              "account",
+              "consumer_session",
+              "type",
+              "task_id",
+              "operation_id",
+              "error_code"
+            ],
+            "title": "LocalDownloadFailed",
+            "type": "object"
+          },
+          "LocalDownloadSucceeded": {
+            "additionalProperties": false,
+            "properties": {
+              "version": {
+                "const": 1,
+                "default": 1,
+                "title": "Version",
+                "type": "integer"
+              },
+              "event_id": {
+                "maxLength": 200,
+                "minLength": 1,
+                "title": "Event Id",
+                "type": "string"
+              },
+              "account": {
+                "pattern": "^[1-9][0-9]{7}$",
+                "title": "Account",
+                "type": "string"
+              },
+              "consumer_session": {
+                "maxLength": 200,
+                "minLength": 1,
+                "title": "Consumer Session",
+                "type": "string"
+              },
+              "type": {
+                "const": "download.succeeded",
+                "title": "Type",
+                "type": "string"
+              },
+              "task_id": {
+                "title": "Task Id",
+                "type": "string"
+              },
+              "operation_id": {
+                "pattern": "^[A-Za-z0-9_-]{1,128}$",
+                "title": "Operation Id",
+                "type": "string"
+              },
+              "actual_path": {
+                "minLength": 1,
+                "title": "Actual Path",
+                "type": "string"
+              }
+            },
+            "required": [
+              "event_id",
+              "account",
+              "consumer_session",
+              "type",
+              "task_id",
+              "operation_id",
+              "actual_path"
+            ],
+            "title": "LocalDownloadSucceeded",
+            "type": "object"
+          },
+          "LocalEventEntry": {
+            "additionalProperties": false,
+            "properties": {
+              "cursor": {
+                "minimum": 1,
+                "title": "Cursor",
+                "type": "integer"
+              },
+              "event": {
+                "discriminator": {
+                  "mapping": {
+                    "download.failed": "#/$defs/LocalDownloadFailed",
+                    "download.succeeded": "#/$defs/LocalDownloadSucceeded",
+                    "message.available": "#/$defs/LocalMessageEvent"
+                  },
+                  "propertyName": "type"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/LocalMessageEvent"
+                  },
+                  {
+                    "$ref": "#/$defs/LocalDownloadSucceeded"
+                  },
+                  {
+                    "$ref": "#/$defs/LocalDownloadFailed"
+                  }
+                ],
+                "title": "Event"
+              }
+            },
+            "required": [
+              "cursor",
+              "event"
+            ],
+            "title": "LocalEventEntry",
+            "type": "object"
+          },
+          "LocalMessageEvent": {
+            "additionalProperties": false,
+            "properties": {
+              "version": {
+                "const": 1,
+                "default": 1,
+                "title": "Version",
+                "type": "integer"
+              },
+              "event_id": {
+                "maxLength": 200,
+                "minLength": 1,
+                "title": "Event Id",
+                "type": "string"
+              },
+              "account": {
+                "pattern": "^[1-9][0-9]{7}$",
+                "title": "Account",
+                "type": "string"
+              },
+              "consumer_session": {
+                "maxLength": 200,
+                "minLength": 1,
+                "title": "Consumer Session",
+                "type": "string"
+              },
+              "type": {
+                "const": "message.available",
+                "title": "Type",
+                "type": "string"
+              },
+              "peer_account": {
+                "pattern": "^[1-9][0-9]{7}$",
+                "title": "Peer Account",
+                "type": "string"
+              },
+              "position": {
+                "minimum": 1,
+                "title": "Position",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "event_id",
+              "account",
+              "consumer_session",
+              "type",
+              "peer_account",
+              "position"
+            ],
+            "title": "LocalMessageEvent",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/$defs/LocalEventEntry"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "minimum": 0,
+            "title": "Next Cursor",
+            "type": "integer"
+          },
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "reason": {
+            "enum": [
+              "events",
+              "timeout",
+              "cancelled",
+              "logout",
+              "disconnected"
+            ],
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor",
+          "has_more",
+          "reason"
+        ],
+        "title": "LocalEventWait",
         "type": "object"
       }
     }
