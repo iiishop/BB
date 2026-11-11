@@ -1,20 +1,30 @@
-import 'package:bb_mobile/main.dart' as app;
-import 'package:bb_mobile/pipeline_smoke_page.dart';
+import 'package:bb_client/app.dart';
+import 'package:bb_client/pipeline_smoke_page.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
-/// Linux desktop integration coverage for the pipeline smoke surface.
+/// Linux desktop coverage of the pipeline smoke surface, kept from the
+/// skeleton so the migration does not drop it.
 ///
-/// Run with: flutter test integration_test -d linux
-void main() {
+/// Registered from `auth_flow_test.dart`: the Linux desktop device cannot start
+/// a second application inside one `flutter test` invocation, so all desktop
+/// integration cases run in a single `*_test.dart` file.
+void registerPipelineSmokeIntegrationTests() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+
+  Future<void> pumpSmokePage(WidgetTester tester) async {
+    await tester.pumpWidget(
+      MaterialApp(theme: buildAppTheme(), home: const PipelineSmokePage()),
+    );
+    await tester.pumpAndSettle();
+  }
 
   testWidgets('launch → Ready → tap → complete, repeatable', (
     WidgetTester tester,
   ) async {
-    app.main();
-    await tester.pumpAndSettle();
+    await pumpSmokePage(tester);
 
     expect(find.text(PipelineSmokePage.title), findsOneWidget);
     expect(find.text(PipelineSmokePage.readyLabel), findsOneWidget);
@@ -35,8 +45,7 @@ void main() {
   testWidgets('launch → Ready → keyboard activation → complete', (
     WidgetTester tester,
   ) async {
-    app.main();
-    await tester.pumpAndSettle();
+    await pumpSmokePage(tester);
 
     expect(find.text(PipelineSmokePage.readyLabel), findsOneWidget);
 

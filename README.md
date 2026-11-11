@@ -7,10 +7,9 @@ Flutter 客户端 + FastAPI 服务端的私人社交平台。三个一等模块�
 ## 目录
 
 ```
-apps/mobile/          Flutter 客户端（Muse 负责）
-services/api/         FastAPI + SQLite 业务服务（Forge 负责）
-services/bot/         DSH Bot Runtime 事件处理（Forge 负责）
-packages/contracts/   REST/WS/MCP 共享契约
+server/               FastAPI + SQLite 业务服务（Forge 负责）
+client/               Flutter 客户端，桌面 + Android（Muse 负责）
+dsh-plugin/           DSH MCP 插件，只暴露注册/登录两个工具（Forge 负责）
 docs/                 项目上下文、工程红线、接口契约种子、QA 模板
 scripts/              统一 QA runner
 ```
@@ -20,8 +19,8 @@ scripts/              统一 QA runner
 ## QA
 
 ```bash
-bash scripts/run_flutter_tests.sh apps/mobile                       # 常规
-QA_REQUIRE_INTEGRATION=1 bash scripts/run_flutter_tests.sh apps/mobile   # 端到端任务必须
+bash scripts/run_flutter_tests.sh client                       # 常规
+QA_REQUIRE_INTEGRATION=1 bash scripts/run_flutter_tests.sh client   # 端到端任务必须
 ```
 
 `0` = 所有已执行阶段通过；缺用例在严格模式下记 FAIL，不会被当成 PASS。逐阶段结果写进 `results.tsv`。

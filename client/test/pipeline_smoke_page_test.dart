@@ -1,11 +1,13 @@
-import 'package:bb_mobile/app.dart';
-import 'package:bb_mobile/pipeline_smoke_page.dart';
+import 'package:bb_client/app.dart';
+import 'package:bb_client/pipeline_smoke_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 Future<void> pumpApp(WidgetTester tester) async {
-  await tester.pumpWidget(const BbMobileApp());
+  await tester.pumpWidget(
+    MaterialApp(theme: buildAppTheme(), home: const PipelineSmokePage()),
+  );
   await tester.pumpAndSettle();
 }
 

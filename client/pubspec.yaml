@@ -1,0 +1,26 @@
+name: bb_client
+description: "BB social platform — Flutter client (desktop + Android)."
+publish_to: 'none'
+version: 0.2.0+1
+
+environment:
+  sdk: ^3.13.7
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  integration_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+# Standalone Dart entry for the local control API used by the DSH MCP plugin.
+# Run: dart run bb_client_api  (or dart run bin/bb_client_api.dart)
+executables:
+  bb_client_api:
+
+flutter:
+  uses-material-design: true
