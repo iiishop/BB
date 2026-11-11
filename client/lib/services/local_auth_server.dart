@@ -93,6 +93,9 @@ class LocalAuthServer {
   }
 
   Future<void> _handle(HttpRequest request) async {
+    // The session can change while an upstream request is in flight (MCP login
+    // of another account); a 401 then belongs to the old session only.
+    final String? requestToken = service.session.tokenForRequest;
     try {
       final String path = request.uri.path;
       if (path.startsWith('/profile/')) {
@@ -148,6 +151,8 @@ class LocalAuthServer {
       await _writeEnvelope(request, failure.status, failure.toEnvelope());
       if (failure.status == 401 &&
           failure.code == unauthenticated.code &&
+          requestToken != null &&
+          service.session.tokenForRequest == requestToken &&
           service.session.hasToken) {
         await _notifyUnauthorized();
       }

@@ -82,9 +82,8 @@ Future<ProfilePanelResult?> openProfilePanel(
   Uint8List? initialAvatar,
   required Future<LogoutResult> Function() onLogout,
 }) {
-  final ProfilePanelMode mode = resolveProfilePanelMode(context);
-  final double foldedWidth = foldedPanelWidth(context);
-  final bool desktop = mode == ProfilePanelMode.desktop;
+  final bool desktop =
+      resolveProfilePanelMode(context) == ProfilePanelMode.desktop;
 
   return showGeneralDialog<ProfilePanelResult>(
     context: context,
@@ -96,24 +95,16 @@ Future<ProfilePanelResult?> openProfilePanel(
     transitionDuration: Duration(milliseconds: desktop ? 200 : 320),
     pageBuilder:
         (BuildContext context, Animation<double> a1, Animation<double> a2) {
-          final Widget panel = ProfilePanel(
-            mode: mode,
+          // Recompute the presentation on every MediaQuery/metrics change while
+          // the dialog stays open; mode and fold width are never frozen at open
+          // time (QA-465-03).
+          return _ResponsiveProfileFrame(
             gateway: gateway,
             user: user,
             initialProfile: initialProfile,
             initialAvatar: initialAvatar,
             onLogout: onLogout,
           );
-          if (mode == ProfilePanelMode.mobile) {
-            return Material(
-              color: AppColors.paper,
-              child: SafeArea(child: panel),
-            );
-          }
-          if (mode == ProfilePanelMode.folded) {
-            return _FoldedFrame(width: foldedWidth, child: panel);
-          }
-          return _DesktopFrame(child: panel);
         },
     transitionBuilder:
         (
@@ -147,6 +138,51 @@ Future<ProfilePanelResult?> openProfilePanel(
           );
         },
   );
+}
+
+/// Rebuilds the Profile presentation from the live MediaQuery.
+///
+/// `showGeneralDialog`'s page builder runs once, so the old code kept the
+/// desktop/folded mode until the panel closed. This frame depends on
+/// `MediaQuery.sizeOf`/`displayFeaturesOf` and therefore reflows immediately
+/// when the window is resized or a flat hinge appears/disappears/moves.
+class _ResponsiveProfileFrame extends StatelessWidget {
+  const _ResponsiveProfileFrame({
+    required this.gateway,
+    required this.user,
+    required this.initialProfile,
+    required this.initialAvatar,
+    required this.onLogout,
+  });
+
+  final ProfileGateway gateway;
+  final AuthUser user;
+  final Profile? initialProfile;
+  final Uint8List? initialAvatar;
+  final Future<LogoutResult> Function() onLogout;
+
+  @override
+  Widget build(BuildContext context) {
+    final ProfilePanelMode mode = resolveProfilePanelMode(context);
+    final Widget panel = ProfilePanel(
+      mode: mode,
+      gateway: gateway,
+      user: user,
+      initialProfile: initialProfile,
+      initialAvatar: initialAvatar,
+      onLogout: onLogout,
+    );
+    if (mode == ProfilePanelMode.mobile) {
+      return Material(
+        color: AppColors.paper,
+        child: SafeArea(child: panel),
+      );
+    }
+    if (mode == ProfilePanelMode.folded) {
+      return _FoldedFrame(width: foldedPanelWidth(context), child: panel);
+    }
+    return _DesktopFrame(child: panel);
+  }
 }
 
 class _FoldedFrame extends StatelessWidget {

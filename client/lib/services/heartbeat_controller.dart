@@ -107,9 +107,17 @@ class HeartbeatController {
     }
     try {
       await auth.api.heartbeat(token);
+      // A late response from the previous session must not touch the state of a
+      // newly logged-in one (QA-465-02).
+      if (!_owns(token)) {
+        return;
+      }
       _missed = 0;
       _setPhase(HeartbeatPhase.online);
     } on AuthFailure catch (failure) {
+      if (!_owns(token)) {
+        return;
+      }
       if (failure.status == 401) {
         _timer?.cancel();
         _timer = null;
@@ -121,6 +129,9 @@ class HeartbeatController {
         _setPhase(HeartbeatPhase.reconnecting);
       }
     } catch (_) {
+      if (!_owns(token)) {
+        return;
+      }
       // Unknown transport errors are treated exactly like a missed beat: keep
       // credentials, count once, let the next tick recover.
       _missed += 1;
@@ -129,6 +140,10 @@ class HeartbeatController {
       }
     }
   }
+
+  /// True while the request's token is still the session's current token.
+  /// Login replaces the token; a pending old request must become a no-op.
+  bool _owns(String token) => auth.session.tokenForRequest == token;
 
   void _setPhase(HeartbeatPhase phase) {
     if (_disposed || _phase == phase) {

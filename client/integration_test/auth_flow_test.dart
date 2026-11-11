@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:bb_client/app.dart';
@@ -318,6 +319,158 @@ void main() {
       expect(backend.tokenValid, isFalse, reason: 'server session deleted');
       expect(service.session.hasToken, isFalse);
       expect(await store.read(), isNull);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'real HTTP + Linux: STEP-2 Profile edits, live reflow, avatar path and logout',
+    (WidgetTester tester) async {
+      final AuthService service = newService();
+      await service.login(account: '40218765', password: 'Secret42');
+      final ProfileService profile = ProfileService(
+        api: ProfileApiClient(baseUri: backendBaseUri),
+        auth: service,
+        cache: AvatarCache(),
+      );
+      final HeartbeatController heartbeat = HeartbeatController(auth: service);
+      addTearDown(heartbeat.dispose);
+
+      tester.view.physicalSize = const Size(1280, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(
+        BbClientApp(
+          authGateway: service,
+          profile: profile,
+          heartbeat: heartbeat,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(HomeView.avatarEntryKey));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<ProfilePanel>(find.byType(ProfilePanel)).mode,
+        ProfilePanelMode.desktop,
+      );
+
+      // QA-465-03 on the real Linux renderer: shrink while the panel is open.
+      tester.view.physicalSize = const Size(390, 844);
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<ProfilePanel>(find.byType(ProfilePanel)).mode,
+        ProfilePanelMode.mobile,
+      );
+      expect(
+        tester.getSize(find.byKey(ProfilePanel.panelKey)).width,
+        closeTo(390, 0.1),
+      );
+
+      await tester.tap(find.byKey(ProfilePanel.editSignatureKey));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('profile-edit-field')),
+        '集成签名',
+      );
+      await tester.tap(find.byKey(const Key('profile-edit-save')));
+      await tester.pumpAndSettle();
+      expect(backend.signature, '集成签名');
+      expect(find.text('集成签名'), findsWidgets);
+
+      await tester.tap(find.byKey(ProfilePanel.editNicknameKey));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('profile-edit-field')),
+        '集成昵称',
+      );
+      await tester.tap(find.byKey(const Key('profile-edit-save')));
+      await tester.pumpAndSettle();
+      expect(backend.username, '集成昵称');
+
+      final String versionBefore = backend.avatarVersion;
+      final File avatarFile = File('${directory.path}/linux-avatar.png');
+      await avatarFile.writeAsBytes(
+        base64Decode(
+          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+        ),
+      );
+      await tester.tap(find.text('更换头像').first);
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('avatar-source-field')),
+        avatarFile.path,
+      );
+      await tester.tap(find.byKey(const Key('avatar-source-apply')));
+      await tester.pumpAndSettle();
+      expect(backend.avatarVersion, isNot(versionBefore));
+      expect(find.text('头像已更新'), findsOneWidget);
+
+      backend.knownAccounts.add('87654321');
+      await tester.tap(find.byKey(ProfilePanel.otherProfileKey));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('account-lookup-field')),
+        '87654321',
+      );
+      await tester.tap(find.byKey(const Key('account-lookup-submit')));
+      await tester.pumpAndSettle();
+      expect(find.text('87654321'), findsWidgets);
+      await tester.tap(find.text('关闭'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(ProfilePanel.logoutButtonKey));
+      await tester.pumpAndSettle();
+      expect(find.byKey(LoginPage.submitButtonKey), findsOneWidget);
+      expect(backend.tokenValid, isFalse);
+      expect(service.session.hasToken, isFalse);
+      expect(await store.read(), isNull);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'real HTTP + Linux: heartbeat failures keep the session and banner',
+    (WidgetTester tester) async {
+      final AuthService service = newService();
+      await service.login(account: '40218765', password: 'Secret42');
+      final ProfileService profile = ProfileService(
+        api: ProfileApiClient(baseUri: backendBaseUri),
+        auth: service,
+        cache: AvatarCache(),
+      );
+      final HeartbeatController heartbeat = HeartbeatController(auth: service);
+      addTearDown(heartbeat.dispose);
+      addTearDown(() => backend.heartbeatStatus = 200);
+
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(
+        BbClientApp(
+          authGateway: service,
+          profile: profile,
+          heartbeat: heartbeat,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      backend.heartbeatStatus = 503;
+      for (int i = 0; i < 3; i++) {
+        await heartbeat.beatNow();
+      }
+      await tester.pumpAndSettle();
+      expect(find.byKey(HomeView.reconnectingBannerKey), findsOneWidget);
+      expect(find.text('连接已断开，正在重连'), findsOneWidget);
+      expect(service.session.hasToken, isTrue);
+      expect(await store.read(), isNotNull);
+
+      backend.heartbeatStatus = 200;
+      await heartbeat.beatNow();
+      await tester.pumpAndSettle();
+      expect(find.byKey(HomeView.reconnectingBannerKey), findsNothing);
       expect(tester.takeException(), isNull);
     },
   );

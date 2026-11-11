@@ -119,15 +119,18 @@ flutter test integration_test -d linux
 QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_tests.sh client
 ```
 
-- 默认 `flutter test`：193 例通过，4 例按环境 SKIP（真实 FastAPI 认证、真实 MCP 链路、
+- 默认 `flutter test`：206 例通过，4 例按环境 SKIP（真实 FastAPI 认证、真实 MCP 链路、
   真实独立入口链路、截图生成）。覆盖 49 组共享契约样例、Unicode code point 计数、三来源
   读取与校验、缓存 304/200 刷新、六条本地路由与 16 KiB/8 MiB 边界、心跳断线保留凭据、
   三形态 Profile 面板与编辑/登出流程。
+- `test/qa_metrics_test.dart` / `qa_session_race_test.dart` 保留独立 QA 的失败回归：
+  打开面板后实时缩放/折叠重排、旧会话延迟 401 不得清掉新登录会话。
 - `test/standalone_entry_test.dart` 会真正启动 `dart run bin/bb_client_api.dart` 子进程：
   `--help` 必须 exit 0（QA-465-01 回归），本地登录后 1s 测试心跳自动开启，401 后内存与
   磁盘凭据都被清除且 token 不落日志。
-- `integration_test/auth_flow_test.dart`：Linux 上真实 HTTP 的 STEP-1 流程 + STEP-2
-  Profile 编辑、头像上传、服务端登出；`flutter test integration_test -d linux` 8 例通过。
+- `integration_test/auth_flow_test.dart`：Linux 上真实 HTTP 的 STEP-1 流程 + 3 个 STEP-2
+  UI 链路（完整资料编辑/头像 path/实时重排/登出、心跳横幅保凭据、base64 头像/登出）；
+  `flutter test integration_test -d linux` 10 例通过。
 - 真实链路（需自行启动 `bb_server`）：设置 `BB_LIVE_SERVER_URL`、`BB_MCP_PROBE=1` 与
   `BB_PROBE_PNG_BASE64` / `BB_PROBE_AVATAR_PATH` / `BB_PROBE_AVATAR_URL_PATH` 后运行
   `flutter test test/live_profile_e2e_test.dart`，走真实 MCP stdio → Dart 本地接口 → FastAPI。
