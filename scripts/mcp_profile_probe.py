@@ -63,6 +63,20 @@ async def main() -> int:
             result["steps"].append(entry)
             return response
 
+        login_account = os.environ.get("BB_PROBE_LOGIN_ACCOUNT", "").strip()
+        login_password = os.environ.get("BB_PROBE_LOGIN_PASSWORD", "")
+        if login_account:
+            # Establish the session through the same MCP auth tool the product
+            # exposes; the client must arm its heartbeat from this call.
+            response = await call(
+                "login_account",
+                {"account": login_account, "password": login_password},
+            )
+            result["login_via_mcp"] = not response.isError
+            result["login_account"] = (response.structuredContent or {}).get(
+                "account"
+            )
+
         response = await call("view_nickname", {})
         self_name_before = response.structuredContent["username"]
 

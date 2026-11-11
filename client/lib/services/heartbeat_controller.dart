@@ -1,7 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
-
 import '../models/auth_models.dart';
 import 'auth_service.dart';
 
@@ -22,17 +20,36 @@ enum HeartbeatPhase {
 
 /// 30-second HTTP heartbeat with the STEP-2 offline-banner semantics.
 ///
+/// Pure Dart on purpose: the standalone `bb_client_api` entry must compile and
+/// run without Flutter (`package:flutter/foundation.dart` pulls `dart:ui`).
+/// The Flutter UI is just a listener at the boundary — it never owns the timer.
+///
 /// * a single network failure only counts as one missed beat;
 /// * three consecutive misses show the "连接已断开，正在重连" banner but never
 ///   clear the credential — Android may suspend timers when backgrounded;
-/// * a 401 means the session is genuinely gone, so the UI must return to login;
+/// * a 401 means the session is genuinely gone, so the owner (UI or standalone
+///   entry) must clear credentials and return to login;
 /// * success resets the counter and removes the banner.
-class HeartbeatController extends ChangeNotifier {
+class HeartbeatController {
   HeartbeatController({
     required this.auth,
     this.interval = const Duration(seconds: 30),
     this.missedThreshold = 3,
-  });
+  }) {
+    if (interval <= Duration.zero) {
+      throw ArgumentError.value(interval, 'interval', '心跳间隔必须为正数');
+    }
+    if (missedThreshold < 1) {
+      throw ArgumentError.value(
+        missedThreshold,
+        'missedThreshold',
+        '漏拍阈值必须至少为 1',
+      );
+    }
+  }
+
+  /// Default beat interval from the STEP-2 contract.
+  static const Duration defaultInterval = Duration(seconds: 30);
 
   final AuthService auth;
   final Duration interval;
@@ -42,12 +59,27 @@ class HeartbeatController extends ChangeNotifier {
   int _missed = 0;
   HeartbeatPhase _phase = HeartbeatPhase.idle;
   bool _disposed = false;
+  final List<void Function()> _listeners = <void Function()>[];
 
   HeartbeatPhase get phase => _phase;
   int get missedBeats => _missed;
   bool get isReconnecting => _phase == HeartbeatPhase.reconnecting;
+  bool get isRunning => _timer != null;
 
-  /// Begins the periodic beats for the current session. Safe to call twice.
+  /// Registers a change listener. Same shape as Flutter's `Listenable`, but
+  /// pure Dart so both the UI and the CLI can consume it.
+  void addListener(void Function() listener) {
+    if (!_listeners.contains(listener)) {
+      _listeners.add(listener);
+    }
+  }
+
+  void removeListener(void Function() listener) {
+    _listeners.remove(listener);
+  }
+
+  /// Begins the periodic beats for the current session. Safe to call twice;
+  /// this is also what a successful MCP/local-API login calls.
   void start() {
     if (_timer != null) {
       return;
@@ -103,14 +135,22 @@ class HeartbeatController extends ChangeNotifier {
       return;
     }
     _phase = phase;
-    notifyListeners();
+    _notify();
   }
 
-  @override
+  void _notify() {
+    // Copy so a listener may remove itself without mutating iteration.
+    for (final void Function() listener in List<void Function()>.of(
+      _listeners,
+    )) {
+      listener();
+    }
+  }
+
   void dispose() {
     _disposed = true;
     _timer?.cancel();
     _timer = null;
-    super.dispose();
+    _listeners.clear();
   }
 }

@@ -26,10 +26,15 @@ import 'package:bb_client/services/session_store.dart';
 ///                                             http://127.0.0.1:8000)
 ///   --session-file  persisted session file   (env BB_SESSION_FILE, default
 ///                                             platform data directory)
+///   --heartbeat-interval-seconds  beat period (env
+///                                             BB_HEARTBEAT_INTERVAL_SECONDS,
+///                                             default 30)
 ///
 /// Startup reads the persisted credential from the same store the Flutter UI
-/// uses and verifies it with `GET /auth/session`. Nothing about the token is
-/// printed or exposed to the local API callers.
+/// uses and verifies it with `GET /auth/session`. An MCP/local `POST /auth/login`
+/// starts the same 30-second heartbeat; a genuine 401 clears the in-memory and
+/// on-disk credential. Nothing about the token is printed or exposed to local
+/// API callers.
 Future<void> main(List<String> args) async {
   final _Options options;
   try {
@@ -53,7 +58,45 @@ Future<void> main(List<String> args) async {
     auth: service,
     cache: AvatarCache(directory: options.avatarCacheDirectory),
   );
-  final HeartbeatController heartbeat = HeartbeatController(auth: service);
+  final HeartbeatController heartbeat = HeartbeatController(
+    auth: service,
+    interval: options.heartbeatInterval,
+  );
+  bool expiring = false;
+
+  /// A genuine 401 is a revoked/expired session: clear both copies of the
+  /// credential and stop the timer. Network failures never reach this path.
+  Future<void> expireSession() async {
+    if (expiring) {
+      return;
+    }
+    expiring = true;
+    heartbeat.stop();
+    try {
+      await service.signOut();
+      stdout.writeln('本地会话已失效，已清除凭据');
+    } on AuthFailure catch (failure) {
+      // signOut keeps the in-memory session when the file cannot be removed;
+      // clear it anyway so the revoked token is never used again.
+      service.session.clear();
+      if (failure.code == sessionStorageUnavailable.code) {
+        stderr.writeln('本地会话已失效，但凭据文件删除失败，请手动检查会话目录');
+      } else {
+        stderr.writeln('本地会话已失效，清除凭据失败（${failure.code}）');
+      }
+    } catch (_) {
+      service.session.clear();
+      stderr.writeln('本地会话已失效，清除凭据失败');
+    } finally {
+      expiring = false;
+    }
+  }
+
+  heartbeat.addListener(() {
+    if (heartbeat.phase == HeartbeatPhase.unauthorized) {
+      unawaited(expireSession());
+    }
+  });
 
   // Restore before listening: a second launch re-validates the stored credential
   // with the shared session store. Status only — never account, token or body.
@@ -78,6 +121,11 @@ Future<void> main(List<String> args) async {
     profile: profile,
     host: options.host,
     port: options.port,
+    onSessionEstablished: () {
+      heartbeat.start();
+      stdout.writeln('本地控制接口会话已建立，心跳已启动');
+    },
+    onUnauthorized: expireSession,
   );
 
   final Uri address;
@@ -113,6 +161,7 @@ class _Options {
     required this.port,
     required this.sessionFile,
     required this.avatarCacheDirectory,
+    required this.heartbeatInterval,
   });
 
   final Uri serverBaseUri;
@@ -120,6 +169,7 @@ class _Options {
   final int port;
   final File sessionFile;
   final Directory avatarCacheDirectory;
+  final Duration heartbeatInterval;
 
   factory _Options.parse(List<String> args, Map<String, String> env) {
     String? serverUrl = env['BB_API_BASE_URL'];
@@ -127,6 +177,7 @@ class _Options {
     String? port = env['BB_LOCAL_API_PORT'];
     String? sessionFile = env[sessionFileEnvironmentVariable];
     String? avatarCacheDir = env['BB_AVATAR_CACHE_DIR'];
+    String? heartbeatSeconds = env['BB_HEARTBEAT_INTERVAL_SECONDS'];
 
     for (int i = 0; i < args.length; i++) {
       final String arg = args[i];
@@ -149,11 +200,14 @@ class _Options {
           sessionFile = next();
         case '--avatar-cache-dir':
           avatarCacheDir = next();
+        case '--heartbeat-interval-seconds':
+          heartbeatSeconds = next();
         case '--help' || '-h':
           stdout.writeln(
             '用法: dart run bb_client_api '
             '[--server-url URL] [--host 127.0.0.1] [--port 8787] '
-            '[--session-file PATH] [--avatar-cache-dir DIR]',
+            '[--session-file PATH] [--avatar-cache-dir DIR] '
+            '[--heartbeat-interval-seconds 30]',
           );
           exit(0);
         default:
@@ -190,12 +244,27 @@ class _Options {
             '${session.parent.path}${Platform.pathSeparator}avatar-cache',
           );
 
+    final double intervalSeconds = heartbeatSeconds == null
+        ? 30
+        : double.tryParse(heartbeatSeconds) ?? -1;
+    if (!intervalSeconds.isFinite || intervalSeconds <= 0) {
+      throw ArgumentError.value(
+        heartbeatSeconds,
+        '--heartbeat-interval-seconds',
+        '心跳间隔必须是正数秒',
+      );
+    }
+
     return _Options(
       serverBaseUri: parseServerBaseUrl(serverUrl ?? defaultServerBaseUrl),
       host: host,
       port: parsedPort,
       sessionFile: session,
       avatarCacheDirectory: cacheDirectory,
+      heartbeatInterval: Duration(
+        microseconds: (intervalSeconds * Duration.microsecondsPerSecond)
+            .round(),
+      ),
     );
   }
 }

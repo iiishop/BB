@@ -37,6 +37,20 @@ void main() {
     }
   });
 
+  test('ships the contract default of 30 seconds', () async {
+    final HeartbeatController heartbeat = HeartbeatController(auth: auth);
+    addTearDown(heartbeat.dispose);
+    expect(HeartbeatController.defaultInterval, const Duration(seconds: 30));
+    expect(heartbeat.interval, const Duration(seconds: 30));
+  });
+
+  test('rejects a non-positive interval', () async {
+    expect(
+      () => HeartbeatController(auth: auth, interval: Duration.zero),
+      throwsArgumentError,
+    );
+  });
+
   test('one beat reports online', () async {
     final HeartbeatController heartbeat = HeartbeatController(auth: auth);
     addTearDown(heartbeat.dispose);

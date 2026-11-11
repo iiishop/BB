@@ -31,12 +31,23 @@ class LocalAuthServer {
     this.profile,
     this.host = loopbackHost,
     this.port = defaultLocalPort,
+    this.onSessionEstablished,
+    this.onUnauthorized,
   });
 
   final AuthService service;
   final ProfileGateway? profile;
   final String host;
   final int port;
+
+  /// Called after `POST /auth/login` succeeds, so the standalone entry can
+  /// start its 30-second heartbeat for the newly established session.
+  final void Function()? onSessionEstablished;
+
+  /// Called when an authenticated local route receives a genuine 401
+  /// (`unauthenticated`, never `invalid_credentials`), so the owner can clear
+  /// both the in-memory session and the on-disk credential.
+  final Future<void> Function()? onUnauthorized;
 
   /// Small JSON routes keep the STEP-1 bound.
   static const int maxRequestBytes = 16 * 1024;
@@ -130,9 +141,16 @@ class LocalAuthServer {
         );
         // Token is intentionally absent: it lives in the client session only.
         await _writeJson(request, 200, user.toJson());
+        // MCP/local login is a real session establishment: start heartbeats.
+        onSessionEstablished?.call();
       }
     } on AuthFailure catch (failure) {
       await _writeEnvelope(request, failure.status, failure.toEnvelope());
+      if (failure.status == 401 &&
+          failure.code == unauthenticated.code &&
+          service.session.hasToken) {
+        await _notifyUnauthorized();
+      }
     } catch (_) {
       await _writeEnvelope(request, 500, <String, dynamic>{
         'error': <String, dynamic>{
@@ -253,6 +271,18 @@ class LocalAuthServer {
           },
         });
         return;
+    }
+  }
+
+  Future<void> _notifyUnauthorized() async {
+    final Future<void> Function()? callback = onUnauthorized;
+    if (callback == null) {
+      return;
+    }
+    try {
+      await callback();
+    } catch (_) {
+      // The owner reports its own storage faults; never leak them as response.
     }
   }
 

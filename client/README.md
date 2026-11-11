@@ -99,7 +99,12 @@ dart run bb_client_api \
   `update_avatar` 请求体上限 8 MiB，其余路由沿用 16 KiB；token 绝不出现在响应或日志。
 - 非约定路径 `404`，非 POST `405`，非法 JSON/未知字段/长度错误 `422`，媒体类型 `413/415`，
   上游不可达/超时 `502/504`。
-- 启动会恢复会话并在已登录时开始心跳；退出时停止心跳。
+- 启动会恢复会话并在已登录时开始心跳；**MCP/本地 `/auth/login` 成功后同样立即启动 30s 心跳**，
+  不要求重启入口。
+- 认证路由收到真正的 `401 unauthenticated`（不是 `invalid_credentials`）时，清空内存会话与
+  磁盘凭据并停止心跳；网络失败仍只累计漏拍。
+- 心跳核心是纯 Dart（无 `package:flutter`），独立入口可直接 `dart run`；Flutter UI 只作为
+  listener 使用，不拥有定时器。
 
 `dsh-plugin/` 只调用本地路由，**必须显式设置** `BB_CLIENT_BASE_URL`，不直连 FastAPI、
 不重试、不接触任何会话凭据。
@@ -114,15 +119,21 @@ flutter test integration_test -d linux
 QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_tests.sh client
 ```
 
-- 默认 `flutter test`：189 例通过，3 例按环境 SKIP（真实 FastAPI 认证、真实 MCP 链路、
-  截图生成）。覆盖 49 组共享契约样例、Unicode code point 计数、三来源读取与校验、
-  缓存 304/200 刷新、六条本地路由与 16 KiB/8 MiB 边界、心跳断线保留凭据、三形态
-  Profile 面板与编辑/登出流程。
+- 默认 `flutter test`：193 例通过，4 例按环境 SKIP（真实 FastAPI 认证、真实 MCP 链路、
+  真实独立入口链路、截图生成）。覆盖 49 组共享契约样例、Unicode code point 计数、三来源
+  读取与校验、缓存 304/200 刷新、六条本地路由与 16 KiB/8 MiB 边界、心跳断线保留凭据、
+  三形态 Profile 面板与编辑/登出流程。
+- `test/standalone_entry_test.dart` 会真正启动 `dart run bin/bb_client_api.dart` 子进程：
+  `--help` 必须 exit 0（QA-465-01 回归），本地登录后 1s 测试心跳自动开启，401 后内存与
+  磁盘凭据都被清除且 token 不落日志。
 - `integration_test/auth_flow_test.dart`：Linux 上真实 HTTP 的 STEP-1 流程 + STEP-2
   Profile 编辑、头像上传、服务端登出；`flutter test integration_test -d linux` 8 例通过。
 - 真实链路（需自行启动 `bb_server`）：设置 `BB_LIVE_SERVER_URL`、`BB_MCP_PROBE=1` 与
   `BB_PROBE_PNG_BASE64` / `BB_PROBE_AVATAR_PATH` / `BB_PROBE_AVATAR_URL_PATH` 后运行
   `flutter test test/live_profile_e2e_test.dart`，走真实 MCP stdio → Dart 本地接口 → FastAPI。
+- 独立入口真实链路：另设 `BB_LIVE_DB_PATH`，运行
+  `flutter test test/live_standalone_mcp_e2e_test.dart`；测试启动独立 `dart run` 子进程，
+  等待真实 30s 心跳落库，再由 MCP 六工具操作，最后服务端登出并验证 401 清凭据。
 
 ## 已知限制（本轮范围）
 
