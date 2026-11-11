@@ -82,9 +82,6 @@ Future<ProfilePanelResult?> openProfilePanel(
   Uint8List? initialAvatar,
   required Future<LogoutResult> Function() onLogout,
 }) {
-  final bool desktop =
-      resolveProfilePanelMode(context) == ProfilePanelMode.desktop;
-
   return showGeneralDialog<ProfilePanelResult>(
     context: context,
     barrierDismissible: true,
@@ -92,7 +89,9 @@ Future<ProfilePanelResult?> openProfilePanel(
     // Desktop must not dim the whole app; the other two presentations are
     // covered by the panel/blur itself.
     barrierColor: Colors.transparent,
-    transitionDuration: Duration(milliseconds: desktop ? 200 : 320),
+    // One duration for every presentation: the route must not cache an
+    // open-time mode for its exit timing (QA-465-05).
+    transitionDuration: const Duration(milliseconds: 300),
     pageBuilder:
         (BuildContext context, Animation<double> a1, Animation<double> a2) {
           // Recompute the presentation on every MediaQuery/metrics change while
@@ -113,27 +112,8 @@ Future<ProfilePanelResult?> openProfilePanel(
           Animation<double> secondary,
           Widget child,
         ) {
-          final CurvedAnimation curved = CurvedAnimation(
-            parent: animation,
-            curve: Curves.easeOutCubic,
-            reverseCurve: Curves.easeInCubic,
-          );
-          if (desktop) {
-            return FadeTransition(
-              opacity: curved,
-              child: ScaleTransition(
-                scale: Tween<double>(begin: 0.96, end: 1).animate(curved),
-                child: child,
-              ),
-            );
-          }
-          // Slides in from the left and back out to the left, as specified for
-          // both narrow and folded layouts.
-          return SlideTransition(
-            position: Tween<Offset>(
-              begin: const Offset(-1, 0),
-              end: Offset.zero,
-            ).animate(curved),
+          return _ResponsiveProfileTransition(
+            animation: animation,
             child: child,
           );
         },
@@ -146,6 +126,84 @@ Future<ProfilePanelResult?> openProfilePanel(
 /// desktop/folded mode until the panel closed. This frame depends on
 /// `MediaQuery.sizeOf`/`displayFeaturesOf` and therefore reflows immediately
 /// when the window is resized or a flat hinge appears/disappears/moves.
+/// Route transition driven by the same live MediaQuery as the panel content.
+///
+/// Desktop uses fade+scale, mobile/folded slide from/to the left. The widget
+/// tree is identical in every mode (`Slide -> Fade -> Scale -> child`) so a
+/// mid-open reflow cannot recreate the panel state; only the animation values
+/// switch. Consequently a desktop-opened panel shrunk to mobile exits left
+/// instead of fading out with the cached open-time branch (QA-465-05).
+class _ResponsiveProfileTransition extends StatefulWidget {
+  const _ResponsiveProfileTransition({
+    required this.animation,
+    required this.child,
+  });
+
+  final Animation<double> animation;
+  final Widget child;
+
+  @override
+  State<_ResponsiveProfileTransition> createState() =>
+      _ResponsiveProfileTransitionState();
+}
+
+class _ResponsiveProfileTransitionState
+    extends State<_ResponsiveProfileTransition> {
+  late CurvedAnimation _curved;
+
+  @override
+  void initState() {
+    super.initState();
+    _curved = _makeCurved(widget.animation);
+  }
+
+  @override
+  void didUpdateWidget(_ResponsiveProfileTransition oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.animation != widget.animation) {
+      _curved.dispose();
+      _curved = _makeCurved(widget.animation);
+    }
+  }
+
+  CurvedAnimation _makeCurved(Animation<double> animation) {
+    return CurvedAnimation(
+      parent: animation,
+      curve: Curves.easeOutCubic,
+      reverseCurve: Curves.easeInCubic,
+    );
+  }
+
+  @override
+  void dispose() {
+    _curved.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bool desktop =
+        resolveProfilePanelMode(context) == ProfilePanelMode.desktop;
+    return SlideTransition(
+      position: desktop
+          ? const AlwaysStoppedAnimation<Offset>(Offset.zero)
+          : Tween<Offset>(
+              begin: const Offset(-1, 0),
+              end: Offset.zero,
+            ).animate(_curved),
+      child: FadeTransition(
+        opacity: desktop ? _curved : const AlwaysStoppedAnimation<double>(1),
+        child: ScaleTransition(
+          scale: desktop
+              ? Tween<double>(begin: 0.96, end: 1).animate(_curved)
+              : const AlwaysStoppedAnimation<double>(1),
+          child: widget.child,
+        ),
+      ),
+    );
+  }
+}
+
 class _ResponsiveProfileFrame extends StatelessWidget {
   const _ResponsiveProfileFrame({
     required this.gateway,

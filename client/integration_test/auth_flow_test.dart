@@ -475,6 +475,59 @@ void main() {
     },
   );
 
+  testWidgets('real HTTP + Linux: resized Profile panel exits to the left', (
+    WidgetTester tester,
+  ) async {
+    final AuthService service = newService();
+    await service.login(account: '40218765', password: 'Secret42');
+    final ProfileService profile = ProfileService(
+      api: ProfileApiClient(baseUri: backendBaseUri),
+      auth: service,
+      cache: AvatarCache(),
+    );
+    final HeartbeatController heartbeat = HeartbeatController(auth: service);
+    addTearDown(heartbeat.dispose);
+
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      BbClientApp(authGateway: service, profile: profile, heartbeat: heartbeat),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(HomeView.avatarEntryKey));
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<ProfilePanel>(find.byType(ProfilePanel)).mode,
+      ProfilePanelMode.desktop,
+    );
+
+    tester.view.physicalSize = const Size(390, 844);
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<ProfilePanel>(find.byType(ProfilePanel)).mode,
+      ProfilePanelMode.mobile,
+    );
+    final double before = tester
+        .getTopLeft(find.byKey(ProfilePanel.panelKey))
+        .dx;
+    Navigator.of(tester.element(find.byType(ProfilePanel))).pop();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    final double during = tester
+        .getTopLeft(find.byKey(ProfilePanel.panelKey))
+        .dx;
+    expect(
+      during,
+      lessThan(before - 1),
+      reason: 'resized mobile panel must slide left, not fade in place',
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(ProfilePanel), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('restart: an unreachable server keeps the credential and warns', (
     WidgetTester tester,
   ) async {
