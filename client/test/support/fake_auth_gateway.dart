@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:bb_client/models/auth_models.dart';
 import 'package:bb_client/services/auth_service.dart';
 
@@ -7,6 +9,7 @@ class FakeAuthGateway implements AuthGateway {
       <({String username, String password})>[];
   final List<({String account, String password})> loginCalls =
       <({String account, String password})>[];
+  int restoreCalls = 0;
 
   AuthUser registerResult = const AuthUser(
     account: '12345678',
@@ -14,8 +17,16 @@ class FakeAuthGateway implements AuthGateway {
   );
   AuthUser loginResult = const AuthUser(account: '12345678', username: 'muse');
 
+  /// What `restoreSession()` returns. Null models "nothing stored".
+  AuthUser? restoreResult;
+
   AuthFailure? registerFailure;
   AuthFailure? loginFailure;
+  AuthFailure? restoreFailure;
+
+  /// When set, `restoreSession()` waits for it, letting tests assert the
+  /// in-flight restoring state.
+  Completer<void>? restoreGate;
   bool signedOut = false;
 
   @override
@@ -45,7 +56,21 @@ class FakeAuthGateway implements AuthGateway {
   }
 
   @override
-  void signOut() {
+  Future<AuthUser?> restoreSession() async {
+    restoreCalls += 1;
+    final Completer<void>? gate = restoreGate;
+    if (gate != null) {
+      await gate.future;
+    }
+    final AuthFailure? failure = restoreFailure;
+    if (failure != null) {
+      throw failure;
+    }
+    return restoreResult;
+  }
+
+  @override
+  Future<void> signOut() async {
     signedOut = true;
   }
 }

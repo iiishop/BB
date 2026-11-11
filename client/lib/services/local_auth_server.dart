@@ -32,6 +32,14 @@ class LocalAuthServer {
 
   static const int maxRequestBytes = 16 * 1024;
 
+  /// Field names the shared contract knows; an unknown extra key must not be
+  /// echoed verbatim (it may contain a secret).
+  static const Set<String> _knownFields = <String>{
+    'username',
+    'password',
+    'account',
+  };
+
   HttpServer? _httpServer;
 
   /// Binds the listener and returns its `http://127.0.0.1:<port>` address.
@@ -80,12 +88,18 @@ class LocalAuthServer {
       }
 
       final Map<String, dynamic> body = await _readJsonObject(request);
+      final bool registering = path == '/auth/register';
+      _rejectUnknownFields(
+        body,
+        registering
+            ? const <String>{'username', 'password'}
+            : const <String>{'account', 'password'},
+      );
       final String usernameOrAccount = _requireString(
         body,
-        path == '/auth/register' ? 'username' : 'account',
-        path == '/auth/register' ? '用户名' : '账号',
+        registering ? 'username' : 'account',
       );
-      final String password = _requireString(body, 'password', '密码');
+      final String password = _requireString(body, 'password');
 
       if (path == '/auth/register') {
         final AuthUser user = await service.register(
@@ -147,16 +161,35 @@ class LocalAuthServer {
       code: 'validation_error',
       message: '输入有误',
       fields: <AuthFieldError>[
+        AuthFieldError(field: 'body', code: 'type', message: '请求必须为有效 JSON 对象'),
+      ],
+    );
+  }
+
+  /// Mirrors the server contract: unknown keys are rejected, never echoed.
+  void _rejectUnknownFields(Map<String, dynamic> body, Set<String> allowed) {
+    final String unknown = body.keys.firstWhere(
+      (String key) => !allowed.contains(key),
+      orElse: () => '',
+    );
+    if (unknown.isEmpty) {
+      return;
+    }
+    throw AuthFailure(
+      status: 422,
+      code: 'validation_error',
+      message: '输入有误',
+      fields: <AuthFieldError>[
         AuthFieldError(
-          field: 'body',
-          code: 'format',
-          message: '请求体必须是 JSON 对象',
+          field: _knownFields.contains(unknown) ? unknown : 'body',
+          code: 'extra',
+          message: '不允许的字段',
         ),
       ],
     );
   }
 
-  String _requireString(Map<String, dynamic> body, String field, String label) {
+  String _requireString(Map<String, dynamic> body, String field) {
     final Object? value = body[field];
     if (value == null) {
       throw AuthFailure(
@@ -164,7 +197,7 @@ class LocalAuthServer {
         code: 'validation_error',
         message: '输入有误',
         fields: <AuthFieldError>[
-          AuthFieldError(field: field, code: 'required', message: '$label不能为空'),
+          AuthFieldError(field: field, code: 'required', message: '此字段必填'),
         ],
       );
     }
@@ -174,7 +207,7 @@ class LocalAuthServer {
         code: 'validation_error',
         message: '输入有误',
         fields: <AuthFieldError>[
-          AuthFieldError(field: field, code: 'type', message: '$label格式不正确'),
+          AuthFieldError(field: field, code: 'type', message: '字段类型错误'),
         ],
       );
     }

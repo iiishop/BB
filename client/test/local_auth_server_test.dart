@@ -5,12 +5,15 @@ import 'package:bb_client/services/auth_api_client.dart';
 import 'package:bb_client/services/auth_service.dart';
 import 'package:bb_client/services/auth_session.dart';
 import 'package:bb_client/services/local_auth_server.dart';
+import 'package:bb_client/services/session_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/fake_auth_backend.dart';
 
 void main() {
   late FakeAuthBackend backend;
+  late Directory directory;
+  late SessionStore store;
   late AuthSession session;
   late AuthService service;
   late LocalAuthServer server;
@@ -18,10 +21,13 @@ void main() {
 
   setUp(() async {
     backend = await FakeAuthBackend.start();
+    directory = await Directory.systemTemp.createTemp('bb-local-api-');
+    store = SessionStore.atPath('${directory.path}/session.json');
     session = AuthSession();
     service = AuthService(
       api: AuthApiClient(baseUri: backend.baseUri),
       session: session,
+      store: store,
     );
     server = LocalAuthServer(service: service, port: 0);
     address = await server.start();
@@ -30,6 +36,9 @@ void main() {
   tearDown(() async {
     await server.close();
     await backend.close();
+    if (await directory.exists()) {
+      await directory.delete(recursive: true);
+    }
   });
 
   test('register returns 201 with account and username only', () async {
@@ -66,6 +75,23 @@ void main() {
       expect(session.tokenForRequest, backend.issuedToken);
     },
   );
+
+  test('login through the local API writes the shared session store', () async {
+    await _post(address.resolve('/auth/login'), <String, dynamic>{
+      'account': '40218765',
+      'password': 'Secret42',
+    });
+
+    final PersistedSession? stored = await store.read();
+    expect(stored?.account, '40218765');
+    expect(stored?.token, backend.issuedToken);
+    expect(
+      (await store.file.readAsString()).contains('Secret42'),
+      isFalse,
+      reason: 'never persist a password',
+    );
+    expect(session.hasToken, isTrue);
+  });
 
   test('wrong password returns the shared 401 envelope', () async {
     final _Response response = await _post(
@@ -104,6 +130,26 @@ void main() {
       fields.map((dynamic field) => (field as Map<String, dynamic>)['message']),
       contains('密码至少 6 位'),
     );
+  });
+
+  test('unknown fields are rejected with code=extra', () async {
+    final _Response response = await _post(
+      address.resolve('/auth/register'),
+      <String, dynamic>{
+        'username': 'muse',
+        'password': 'Secret42',
+        'account': '12345678',
+      },
+    );
+
+    expect(response.status, 422);
+    final Map<String, dynamic> error =
+        response.body['error'] as Map<String, dynamic>;
+    final List<dynamic> fields = error['fields'] as List<dynamic>;
+    final Map<String, dynamic> field = fields.single as Map<String, dynamic>;
+    expect(field['field'], 'account');
+    expect(field['code'], 'extra');
+    expect(field['message'], '不允许的字段');
   });
 
   test('missing password is rejected locally with code=required', () async {

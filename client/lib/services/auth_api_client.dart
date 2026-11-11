@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data' show BytesBuilder;
 import 'dart:io';
+import 'dart:typed_data' show BytesBuilder;
 
 import '../models/auth_models.dart';
 
@@ -26,10 +26,11 @@ class AuthApiClient {
     required String username,
     required String password,
   }) async {
-    final Map<String, dynamic> body = await _postJson(<String, String>{
-      'username': username,
-      'password': password,
-    }, path: '/auth/register');
+    final Map<String, dynamic> body = await _requestJson(
+      'POST',
+      '/auth/register',
+      payload: <String, String>{'username': username, 'password': password},
+    );
     return _userFrom(body);
   }
 
@@ -37,15 +38,27 @@ class AuthApiClient {
     required String account,
     required String password,
   }) async {
-    final Map<String, dynamic> body = await _postJson(<String, String>{
-      'account': account,
-      'password': password,
-    }, path: '/auth/login');
+    final Map<String, dynamic> body = await _requestJson(
+      'POST',
+      '/auth/login',
+      payload: <String, String>{'account': account, 'password': password},
+    );
     final Object? token = body['token'];
     if (token is! String || token.isEmpty) {
       throw upstreamMalformed;
     }
     return LoginResult(user: _userFrom(body), token: token);
+  }
+
+  /// `GET /auth/session` — verifies a stored bearer token and returns the
+  /// account it belongs to.
+  Future<AuthUser> fetchSession(String token) async {
+    final Map<String, dynamic> body = await _requestJson(
+      'GET',
+      '/auth/session',
+      headers: <String, String>{'Authorization': 'Bearer $token'},
+    );
+    return _userFrom(body);
   }
 
   AuthUser _userFrom(Map<String, dynamic> json) {
@@ -57,20 +70,25 @@ class AuthApiClient {
     return AuthUser(account: account, username: username);
   }
 
-  Future<Map<String, dynamic>> _postJson(
-    Map<String, String> payload, {
-    required String path,
+  Future<Map<String, dynamic>> _requestJson(
+    String method,
+    String path, {
+    Map<String, String>? payload,
+    Map<String, String>? headers,
   }) async {
     final Uri url = baseUri.resolve(path);
     final HttpClient client = HttpClient()..connectionTimeout = timeout;
     try {
-      final HttpClientRequest request = await client
-          .postUrl(url)
-          .timeout(timeout);
-      request.headers.contentType = ContentType.json;
-      final List<int> bodyBytes = utf8.encode(jsonEncode(payload));
-      request.contentLength = bodyBytes.length;
-      request.add(bodyBytes);
+      final HttpClientRequest request =
+          await (method == 'GET' ? client.getUrl(url) : client.postUrl(url))
+              .timeout(timeout);
+      headers?.forEach(request.headers.set);
+      if (payload != null) {
+        request.headers.contentType = ContentType.json;
+        final List<int> bodyBytes = utf8.encode(jsonEncode(payload));
+        request.contentLength = bodyBytes.length;
+        request.add(bodyBytes);
+      }
 
       final HttpClientResponse response = await request.close().timeout(
         timeout,

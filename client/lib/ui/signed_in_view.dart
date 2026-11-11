@@ -9,10 +9,18 @@ import 'auth_shell.dart';
 /// Deliberately not a profile page: this step only proves the session was
 /// established and lets the user leave it.
 class SignedInView extends StatelessWidget {
-  const SignedInView({super.key, required this.user, required this.onSignOut});
+  const SignedInView({
+    super.key,
+    required this.user,
+    required this.onSignOut,
+    this.restored = false,
+  });
 
   final AuthUser user;
   final VoidCallback onSignOut;
+
+  /// True when the session came from the persisted credential on startup.
+  final bool restored;
 
   static const Key accountValueKey = Key('signed-in-account');
   static const Key signOutButtonKey = Key('sign-out');
@@ -21,9 +29,9 @@ class SignedInView extends StatelessWidget {
   Widget build(BuildContext context) {
     final TextTheme text = Theme.of(context).textTheme;
     return AuthShell(
-      eyebrow: 'STEP-1 · 已登录',
-      title: '登录成功',
-      subtitle: '会话只保留在本次运行中，退出后需要重新登录。',
+      eyebrow: restored ? 'STEP-1 · 已恢复登录' : 'STEP-1 · 已登录',
+      title: restored ? '欢迎回来' : '登录成功',
+      subtitle: '登录凭据保存在本机，重启后会自动验证；退出登录会清除本地凭据。',
       card: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,

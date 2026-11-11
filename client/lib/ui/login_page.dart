@@ -16,6 +16,9 @@ class LoginPage extends StatefulWidget {
     required this.onAuthenticated,
     required this.onRequestRegister,
     this.initialAccount,
+    this.notice,
+    this.noticeIsError = false,
+    this.onRetryRestore,
   });
 
   final AuthGateway gateway;
@@ -25,10 +28,16 @@ class LoginPage extends StatefulWidget {
   /// Prefilled after a successful registration.
   final String? initialAccount;
 
+  /// Startup status from the persisted-session restore (expired or unverified).
+  final String? notice;
+  final bool noticeIsError;
+  final VoidCallback? onRetryRestore;
+
   static const Key accountFieldKey = Key('login-account');
   static const Key passwordFieldKey = Key('login-password');
   static const Key submitButtonKey = Key('login-submit');
   static const Key errorBannerKey = Key('login-error');
+  static const Key noticeKey = Key('login-notice');
   static const Key registerLinkKey = Key('login-register-link');
 
   @override
@@ -144,6 +153,15 @@ class _LoginPageState extends State<LoginPage> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
+            if (widget.notice != null) ...<Widget>[
+              AuthNotice(
+                key: LoginPage.noticeKey,
+                message: widget.notice!,
+                isError: widget.noticeIsError,
+                onRetry: widget.onRetryRestore,
+              ),
+              const SizedBox(height: AppSpacing.md),
+            ],
             if (_formError != null) ...<Widget>[
               AuthErrorBanner(
                 key: LoginPage.errorBannerKey,
@@ -183,6 +201,7 @@ class _LoginPageState extends State<LoginPage> {
               onToggleObscure: () =>
                   setState(() => _obscurePassword = !_obscurePassword),
               onChanged: (_) => _clearServerError('password'),
+              onSubmitted: _submit,
               validator: _validatePassword,
               prefixIcon: const Icon(Icons.lock_outline, size: 20),
             ),

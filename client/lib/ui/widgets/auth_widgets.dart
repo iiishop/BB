@@ -140,6 +140,83 @@ class AuthErrorBanner extends StatelessWidget {
   }
 }
 
+/// Informational / warning notice with an optional retry action.
+///
+/// Used for persisted-session restore outcomes: an expired credential (error)
+/// or an unreachable server (warning, credential kept, never shown as logged in).
+class AuthNotice extends StatelessWidget {
+  const AuthNotice({
+    super.key,
+    required this.message,
+    this.isError = false,
+    this.onRetry,
+    this.retryLabel = '重试验证',
+  });
+
+  final String message;
+  final bool isError;
+  final VoidCallback? onRetry;
+  final String retryLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color foreground = isError ? AppColors.danger : AppColors.warning;
+    return Semantics(
+      liveRegion: true,
+      label: '${isError ? '错误' : '提示'}：$message',
+      child: ExcludeSemantics(
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.md,
+            AppSpacing.sm + AppSpacing.xs,
+            AppSpacing.sm,
+            AppSpacing.sm + AppSpacing.xs,
+          ),
+          decoration: BoxDecoration(
+            color: isError ? AppColors.dangerSurface : AppColors.warningSurface,
+            borderRadius: BorderRadius.circular(AppRadius.field),
+            border: Border.all(
+              color: isError ? AppColors.dangerBorder : AppColors.warningBorder,
+            ),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: <Widget>[
+              Icon(
+                isError ? Icons.error_outline : Icons.wifi_off_outlined,
+                size: 18,
+                color: foreground,
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Text(
+                  message,
+                  style: Theme.of(context).textTheme.bodySmall
+                      ?.copyWith(color: foreground, fontSize: 13, height: 1.45),
+                ),
+              ),
+              if (onRetry != null) ...<Widget>[
+                const SizedBox(width: AppSpacing.xs),
+                TextButton(
+                  onPressed: onRetry,
+                  style: TextButton.styleFrom(
+                    foregroundColor: foreground,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.sm,
+                    ),
+                    minimumSize: const Size(48, 40),
+                  ),
+                  child: Text(retryLabel),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// Full-width primary action with a busy state that keeps its height stable.
 class AuthPrimaryButton extends StatelessWidget {
   const AuthPrimaryButton({
@@ -197,6 +274,7 @@ class AuthTextField extends StatelessWidget {
     this.inputFormatters,
     this.maxLength,
     this.onChanged,
+    this.onSubmitted,
     this.prefixIcon,
   });
 
@@ -214,6 +292,9 @@ class AuthTextField extends StatelessWidget {
   final List<TextInputFormatter>? inputFormatters;
   final int? maxLength;
   final ValueChanged<String>? onChanged;
+
+  /// Invoked when the keyboard's done/enter action is used on the last field.
+  final VoidCallback? onSubmitted;
   final Widget? prefixIcon;
 
   @override
@@ -229,9 +310,9 @@ class AuthTextField extends StatelessWidget {
       inputFormatters: inputFormatters,
       maxLength: maxLength,
       onChanged: onChanged,
-      onFieldSubmitted: nextFocusNode == null
-          ? null
-          : (String _) => nextFocusNode!.requestFocus(),
+      onFieldSubmitted: nextFocusNode != null
+          ? (String _) => nextFocusNode!.requestFocus()
+          : (String _) => onSubmitted?.call(),
       style: const TextStyle(
         color: AppColors.ink,
         fontSize: 16,

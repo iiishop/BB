@@ -41,6 +41,9 @@ abstract final class AppColors {
   static const Color danger = Color(0xFFB3261E);
   static const Color dangerSurface = Color(0xFFFBEDEB);
   static const Color dangerBorder = Color(0xFFEFC9C4);
+  static const Color warning = Color(0xFF8A5B00);
+  static const Color warningSurface = Color(0xFFFCF4E4);
+  static const Color warningBorder = Color(0xFFEAD6A8);
 }
 
 /// Material 3 theme for the BB client.

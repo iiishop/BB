@@ -254,6 +254,7 @@ class _RegisterPageState extends State<RegisterPage> {
                 autofillHints: const <String>[AutofillHints.newPassword],
                 onToggleObscure: () =>
                     setState(() => _obscureConfirm = !_obscureConfirm),
+                onSubmitted: _submit,
                 validator: _validateConfirm,
                 prefixIcon: const Icon(Icons.verified_user_outlined, size: 20),
               ),

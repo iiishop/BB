@@ -18,7 +18,7 @@ class FakeAuthBackend {
   /// Username attached to both responses.
   String username = 'muse.tester';
 
-  /// Token the fake login returns; the client must never expose it locally.
+  /// Token the fake login returns; it is also what `GET /auth/session` accepts.
   String issuedToken = 'fake-token-0123456789abcdef0123456789abcdef';
 
   /// Artificial upstream latency, used for timeout coverage.
@@ -26,6 +26,10 @@ class FakeAuthBackend {
 
   /// Every request body received, in order.
   final List<Map<String, dynamic>> requests = <Map<String, dynamic>>[];
+
+  /// Every request method/path/authorization header, in order.
+  final List<({String method, String path, String? authorization})> log =
+      <({String method, String path, String? authorization})>[];
 
   Uri get baseUri => Uri.parse('http://127.0.0.1:${_server.port}');
 
@@ -42,14 +46,24 @@ class FakeAuthBackend {
   Future<void> close() => _server.close(force: true);
 
   Future<void> _handle(HttpRequest request) async {
+    log.add((
+      method: request.method,
+      path: request.uri.path,
+      authorization: request.headers.value(HttpHeaders.authorizationHeader),
+    ));
     final String body = await utf8.decoder.bind(request).join();
-    final Map<String, dynamic> json =
-        (jsonDecode(body) as Map<String, dynamic>?) ?? <String, dynamic>{};
+    final Map<String, dynamic> json = body.isEmpty
+        ? <String, dynamic>{}
+        : (jsonDecode(body) as Map<String, dynamic>? ?? <String, dynamic>{});
     requests.add(json);
     if (delay > Duration.zero) {
       await Future<void>.delayed(delay);
     }
 
+    if (request.method == 'GET' && request.uri.path == '/auth/session') {
+      await _handleSession(request);
+      return;
+    }
     if (request.method != 'POST') {
       await _write(request, 405, _error('method_not_allowed', '只支持 POST'));
       return;
@@ -62,6 +76,20 @@ class FakeAuthBackend {
       default:
         await _write(request, 404, _error('not_found', '未知接口'));
     }
+  }
+
+  Future<void> _handleSession(HttpRequest request) async {
+    final String? header = request.headers.value(
+      HttpHeaders.authorizationHeader,
+    );
+    if (header == 'Bearer $issuedToken') {
+      await _write(request, 200, <String, dynamic>{
+        'account': validAccount,
+        'username': username,
+      });
+      return;
+    }
+    await _write(request, 401, _error('unauthenticated', '请重新登录'));
   }
 
   Future<void> _handleRegister(

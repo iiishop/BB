@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:bb_client/app.dart';
 import 'package:bb_client/models/auth_models.dart';
 import 'package:bb_client/ui/auth_shell.dart';
 import 'package:bb_client/ui/login_page.dart';
 import 'package:bb_client/ui/register_page.dart';
+import 'package:bb_client/ui/restoring_view.dart';
 import 'package:bb_client/ui/signed_in_view.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -52,6 +55,75 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  testWidgets('a persisted session shows a restoring state until verified', (
+    WidgetTester tester,
+  ) async {
+    gateway.restoreResult = const AuthUser(
+      account: '40218765',
+      username: 'muse.restored',
+    );
+    final Completer<void> gate = Completer<void>();
+    gateway.restoreGate = gate;
+
+    tester.view.physicalSize = _phone;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(BbClientApp(authGateway: gateway));
+    await tester.pump();
+
+    expect(find.byKey(RestoringView.viewKey), findsOneWidget);
+    expect(find.byKey(LoginPage.submitButtonKey), findsNothing);
+
+    gate.complete();
+    await tester.pumpAndSettle();
+    expect(find.byKey(SignedInView.accountValueKey), findsOneWidget);
+    expect(find.text('40218765'), findsOneWidget);
+    expect(gateway.restoreCalls, 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('an expired credential returns to login with a clear message', (
+    WidgetTester tester,
+  ) async {
+    gateway.restoreFailure = unauthenticated;
+    await pumpApp(tester);
+
+    expect(find.byKey(LoginPage.noticeKey), findsOneWidget);
+    expect(find.text('登录已失效，请重新登录'), findsOneWidget);
+    expect(find.byKey(LoginPage.submitButtonKey), findsOneWidget);
+    expect(
+      find.text('重试验证'),
+      findsNothing,
+      reason: 'the credential was deleted, only a new login helps',
+    );
+    expect(find.byKey(SignedInView.accountValueKey), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('an unreachable server keeps the credential and offers retry', (
+    WidgetTester tester,
+  ) async {
+    gateway.restoreFailure = upstreamUnavailable;
+    await pumpApp(tester);
+
+    expect(find.byKey(LoginPage.noticeKey), findsOneWidget);
+    expect(find.text('暂时无法验证登录状态，请检查网络后重试'), findsOneWidget);
+    expect(find.byKey(SignedInView.accountValueKey), findsNothing);
+
+    gateway.restoreFailure = null;
+    gateway.restoreResult = const AuthUser(
+      account: '40218765',
+      username: 'muse.restored',
+    );
+    await tester.tap(find.text('重试验证'));
+    await tester.pumpAndSettle();
+
+    expect(gateway.restoreCalls, 2);
+    expect(find.byKey(SignedInView.accountValueKey), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('compact login shows one column and no brand panel', (
     WidgetTester tester,
   ) async {
@@ -96,6 +168,20 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('the keyboard action submits the login form', (
+    WidgetTester tester,
+  ) async {
+    await pumpApp(tester);
+    await fillLogin(tester);
+
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+
+    expect(gateway.loginCalls.length, 1);
+    expect(find.byKey(SignedInView.accountValueKey), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('401 shows a readable error and a retry signs in', (
     WidgetTester tester,
   ) async {
@@ -118,9 +204,24 @@ void main() {
 
     expect(gateway.loginCalls.length, 2);
     expect(find.byKey(SignedInView.accountValueKey), findsOneWidget);
-    expect(find.text('12345678'), findsOneWidget);
     expect(find.text('欢迎回来，muse'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('the error banner is announced as a live region', (
+    WidgetTester tester,
+  ) async {
+    final SemanticsHandle handle = tester.ensureSemantics();
+    gateway.loginFailure = upstreamUnavailable;
+    await pumpApp(tester);
+    await fillLogin(tester);
+    await submitLogin(tester);
+
+    expect(
+      tester.getSemantics(find.byKey(LoginPage.errorBannerKey)),
+      isSemantics(label: '错误：无法连接服务器，请检查服务地址或网络后重试', isLiveRegion: true),
+    );
+    handle.dispose();
   });
 
   testWidgets('unreachable server guidance is shown for 502', (

@@ -110,3 +110,10 @@ const AuthFailure upstreamMalformed = AuthFailure(
   code: 'upstream_unavailable',
   message: '服务器响应无法识别，请稍后重试',
 );
+
+/// The stored credential was rejected by `GET /auth/session`.
+const AuthFailure unauthenticated = AuthFailure(
+  status: 401,
+  code: 'unauthenticated',
+  message: '请重新登录',
+);
