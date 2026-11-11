@@ -63,6 +63,7 @@ def create_app(
     database_path: str | Path,
     avatar_directory: str | Path | None = None,
     *,
+    media_directory: str | Path | None = None,
     clock=time.time,
     maintenance_interval: float = 5.0,
 ) -> FastAPI:
@@ -103,7 +104,7 @@ def create_app(
             stop.set()
             await worker
 
-    app = FastAPI(title="BB Auth & Profile", version="2.0.0", lifespan=lifespan)
+    app = FastAPI(title="BB Auth, Profile & Chat", version="3.0.0", lifespan=lifespan)
     app.add_middleware(UploadLimit)
 
     @app.exception_handler(ContractError)
@@ -307,4 +308,15 @@ def create_app(
             return Response(status_code=304, headers=headers)
         return Response(png, media_type="image/png", headers=headers)
 
+    from .chat import install
+
+    install(
+        app,
+        path,
+        Path(media_directory)
+        if media_directory
+        else path.parent / (path.name + ".media"),
+        current_session,
+        clock,
+    )
     return app

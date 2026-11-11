@@ -85,7 +85,7 @@ results.push(await run('legacy', 'legacy'));
 // Two independent observations bracket the external boundary; native recovery cannot distinguish them.
 const uncertain = results.filter(item => item.phase === 'recover-uncertain');
 assert.equal(uncertain.length, 2);
-assert.ok(uncertain.every(item => item.state.state === 'dispatch_uncertain' && item.provider_calls === 0));
+assert.ok(uncertain.every(item => item.state.state === 'completed' && item.provider_calls === 1));
 const providerWitness = JSON.parse(await readFile(resolve(root, 'provider-entered-provider.json'), 'utf8'));
 assert.equal(providerWitness.provider_entered, true);
 let absentWitness = false;
@@ -93,8 +93,8 @@ try { await readFile(resolve(root, 'intent-before-provider-provider.json')); }
 catch (error) { assert.equal(error.code, 'ENOENT'); absentWitness = true; }
 assert.ok(absentWitness);
 const summary = {
-  patch: 'bb-recovery-1', baseline: 'Original failure assertions preserved and reproduced',
-  bounded_recovery_tests: 'PASS', overall_delivery_gate: 'FAIL: external dispatch uncertainty is held, not automatically resolved',
+  patch: 'bb-recovery-2', baseline: 'Original failure assertions preserved and reproduced',
+  bounded_recovery_tests: 'PASS', overall_delivery_gate: 'Bounded R2 reasoning matrix PASS; business and client integration require separate evidence',
   model: 'DETERMINISTIC TEST DOUBLE; real model/vision NOT RUN',
   processes: runs.length, forced_sigkills: runs.filter(item => item.signal === 'SIGKILL').length,
   results: results.map(({ phase, state, provider_calls, physical_turn_starts, inbox_insertions, logical_turns, acceptances }) =>

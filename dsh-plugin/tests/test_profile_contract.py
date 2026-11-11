@@ -4,6 +4,7 @@ from pathlib import Path
 import httpx
 import pytest
 from bb_auth_contract.profile import PROFILE_RESPONSES, PROFILE_TOOLS
+
 from bb_dsh_plugin.plugin import LocalClient, invoke
 
 ROOT = Path(__file__).parents[2]

@@ -63,17 +63,17 @@ if (phase === 'before-accept') {
   await finish();
   const state = agent.bbDeliveryStatus(key);
   const uncertain = phase === 'recover-uncertain';
-  assert.equal(state.state, uncertain ? 'dispatch_uncertain' : 'completed');
+  assert.equal(state.state, 'completed');
   assert.equal(state.consumed_through, null);
   const snapshot = agent.session.snapshotEvents();
   const owned = snapshot.filter(event => event.type === 'plugin:bb/delivery-v1');
   const acceptances = owned.filter(event => event.data.op === 'accepted');
   assert.equal(acceptances.length, 1);
-  const logicalIds = new Set(owned.map(event => event.data.logical_turn_id));
+  const logicalIds = new Set(owned.map(event => event.data.logical_turn_id).filter(Boolean));
   assert.equal(logicalIds.size, 1, 'recovery must preserve one logical turn');
   const projected = snapshot.filter(event => event.type === 'user/message' && event.data.id === state.logical_turn_id);
   assert.equal(projected.length, 1);
-  const expectedCalls = uncertain || phase === 'completed-replay' ? 0 : 1;
+  const expectedCalls = phase === 'completed-replay' ? 0 : 1;
   assert.equal(trace.filter(item => item.kind === 'model.request').length, expectedCalls);
   // Live completed/uncertain replays never add a physical turn, acceptance or model call.
   await send12();

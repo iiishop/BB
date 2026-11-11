@@ -2,8 +2,9 @@ import json
 from pathlib import Path
 
 import pytest
-from bb_server.app import create_app
 from fastapi.testclient import TestClient
+
+from bb_server.app import create_app
 
 CASES = json.loads(
     (Path(__file__).parents[1] / "contract/cases.json").read_text(encoding="utf-8")

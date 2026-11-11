@@ -2,10 +2,11 @@ import shutil
 import sqlite3
 
 import pytest
-from bb_server.app import create_app
-from bb_server.backup import backup
 from fastapi.testclient import TestClient
 from test_profile import image_bytes, login, upload
+
+from bb_server.app import create_app
+from bb_server.backup import backup
 
 
 def test_restore_account_and_session_from_backup(tmp_path):

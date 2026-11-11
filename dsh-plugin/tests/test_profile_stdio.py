@@ -74,7 +74,7 @@ async def test_six_profile_tools_via_stdio_without_credentials(tmp_path):
         ):
             await session.initialize()
             tools = (await session.list_tools()).tools
-            assert len(tools) == 8
+            assert len(tools) == 17
             for tool in tools:
                 if tool.name.startswith("update_"):
                     assert "account" not in tool.inputSchema["properties"]

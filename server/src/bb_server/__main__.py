@@ -15,7 +15,12 @@ def main():
         raise ValueError("BB_PORT must be between 1 and 65535")
     interval = float(os.environ.get("BB_SESSION_MAINTENANCE_SECONDS", "5"))
     uvicorn.run(
-        create_app(database, avatars, maintenance_interval=interval),
+        create_app(
+            database,
+            avatars,
+            media_directory=os.environ["BB_MEDIA_DIRECTORY"],
+            maintenance_interval=interval,
+        ),
         host=host,
         port=port,
         access_log=False,

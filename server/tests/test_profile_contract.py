@@ -2,9 +2,10 @@ import json
 from pathlib import Path
 
 import pytest
-from bb_server.app import create_app
 from fastapi.testclient import TestClient
 from test_profile import login
+
+from bb_server.app import create_app
 
 ROOT = Path(__file__).parents[1]
 CASES = json.loads((ROOT / "contract/profile-cases.json").read_text(encoding="utf-8"))

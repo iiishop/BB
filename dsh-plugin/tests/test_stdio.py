@@ -6,6 +6,7 @@ import threading
 from datetime import timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from bb_auth_contract.chat import LOCAL
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
@@ -56,7 +57,7 @@ async def test_stdio_eight_tools_and_stateless_http(tmp_path):
         ):
             await session.initialize()
             tools = await session.list_tools()
-            assert {tool.name for tool in tools.tools} == {
+            assert {tool.name for tool in tools.tools} == set(LOCAL) | {
                 "register_account",
                 "login_account",
                 "view_avatar",

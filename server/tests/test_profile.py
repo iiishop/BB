@@ -6,10 +6,11 @@ from pathlib import Path
 
 import pytest
 from bb_auth_contract.profile import MAX_AVATAR_BYTES
-from bb_server.app import create_app
-from bb_server.avatars import identicon
 from fastapi.testclient import TestClient
 from PIL import Image
+
+from bb_server.app import create_app
+from bb_server.avatars import identicon
 
 
 def login(api, name="Alice"):

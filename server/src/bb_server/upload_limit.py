@@ -12,14 +12,16 @@ class UploadLimit:
     async def __call__(self, scope, receive, send):
         if (
             scope["type"] != "http"
-            or scope["path"] != "/me/avatar"
+            or scope["path"] not in ("/me/avatar", "/media")
             or scope["method"] != "POST"
         ):
             return await self.app(scope, receive, send)
-        limit = MAX_AVATAR_BYTES + 64 * 1024  # bounded multipart overhead
+        limit = (
+            MAX_AVATAR_BYTES if scope["path"] == "/me/avatar" else 32 * 1024 * 1024
+        ) + 64 * 1024  # bounded multipart overhead
         length = dict(scope.get("headers", [])).get(b"content-length")
         if length and length.isdigit() and int(length) > limit:
-            error = ContractError(413, "payload_too_large", "头像请求体过大")
+            error = ContractError(413, "payload_too_large", "上传请求体过大")
             return await JSONResponse(error.body, status_code=413)(scope, receive, send)
         body = bytearray()
         while True:
@@ -28,7 +30,7 @@ class UploadLimit:
                 return
             body.extend(message.get("body", b""))
             if len(body) > limit:
-                error = ContractError(413, "payload_too_large", "头像请求体过大")
+                error = ContractError(413, "payload_too_large", "上传请求体过大")
                 return await JSONResponse(error.body, status_code=413)(
                     scope, receive, send
                 )

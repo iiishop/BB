@@ -5,7 +5,25 @@
  import { Service } from "@deepseek-ai/cordis";
  import { randomUUID } from "node:crypto";
  import z from "@deepseek-ai/schemastery";
-@@ -797,6 +798,9 @@
+@@ -569,6 +570,7 @@
+ 			const call = group[committed];
+ 			const result = slot.needsPost ? await ctx.tools[TOOL_RUNTIME_SCHEDULER].finalize(slot.exec, slot.result) : ctx.tools[TOOL_RUNTIME_SCHEDULER].finish(slot.exec, slot.result);
+ 			appendToolResult(session, turn, step, call.block, result, callSeqs[committed]);
++			await bbRecovery.afterTool(ctx.agents.requireInitiator(), call.block, result, turn, step);
+ 			for (const context of result.additionalContexts ?? []) acceptContext(context);
+ 			concluded ||= result.concludesTurn === true;
+ 			committed++;
+@@ -579,7 +581,8 @@
+ 		const call = group[index];
+ 		callSeqs[index] = appendToolCall(session, turn, step, call.block);
+ 		started++;
+-		const prepared = await ctx.tools[TOOL_RUNTIME_SCHEDULER].prepare(call.exec);
++		const cached = await bbRecovery.beforeTool(ctx.agents.requireInitiator(), call.block, turn, step);
++		const prepared = cached ? {kind: "final-result", exec: call.exec, result: cached} : await ctx.tools[TOOL_RUNTIME_SCHEDULER].prepare(call.exec);
+ 		throwSchedulerFailure();
+ 		switch (prepared.kind) {
+ 			case "dispatch": {
+@@ -797,6 +800,9 @@
  		const status = this.status;
  		if (status !== previousStatus) this.dispatch.emit("agent/status", { status });
  	}
@@ -15,7 +33,7 @@
  	send(message, target, wakeup) {
  		const wakingAfterAbort = wakeup && this.phase.kind !== "idle" && this.phase.abort.signal.aborted;
  		const resolvedTarget = wakingAfterAbort ? "next-turn" : target;
-@@ -904,6 +908,7 @@
+@@ -904,6 +910,7 @@
  		if (this.phase.kind !== "running") throw new Error(`agent "${this.id}": pre-step outside running phase`);
  		const signal = this.phase.abort.signal;
  		const claimed = this.inbox.claim(target, position.turn);
@@ -23,7 +41,7 @@
  		const assembly = await this.loopCtx.systemPrompt.assemble(assembleContextFor(this, signal));
  		signal.throwIfAborted();
  		const decision = await this.dispatch.waterfall("agent/pre-step", {
-@@ -1030,6 +1035,7 @@
+@@ -1030,6 +1037,7 @@
  					turn,
  					reason: turnEnds
  				});
@@ -31,7 +49,7 @@
  			} catch (error) {
  				this.throwError(error);
  			}
-@@ -1069,7 +1075,7 @@
+@@ -1069,7 +1077,7 @@
  					this.session.append("user/message", context, { surfaceOp: "append" });
  					contextAdmitted = true;
  				}
@@ -40,27 +58,36 @@
  			if (context !== void 0 && !contextAdmitted) this.session.append("user/message", context, { surfaceOp: "append" });
  			firstAttempt = false;
  			const request = this.buildRequest(config, preparedCall, assembly.tools, {
-@@ -1081,6 +1087,7 @@
+@@ -1081,7 +1089,13 @@
  			});
  			let started = false;
  			try {
-+				await bbRecovery.beforeModel(this, turn, step);
- 				const stream = preparedCall?.stream(request) ?? this.loopCtx.llm.stream(request);
+-				const stream = preparedCall?.stream(request) ?? this.loopCtx.llm.stream(request);
++				if (bbRecovery.recoveredPlan(this, turn)) {
++                    await bbRecovery.recoverPlans(this, turn);
++                    await bbRecovery.finishRecovered(this, turn, step, request);
++                    return { kind: "completed" };
++                }
++                await bbRecovery.beforeModel(this, turn, step, request);
++                const stream = preparedCall?.stream(request) ?? this.loopCtx.llm.stream(request);
  				signal.throwIfAborted();
  				live.start();
-@@ -2009,7 +2016,14 @@
+ 				started = true;
+@@ -1153,6 +1167,7 @@
+ 						...live.replayState !== void 0 ? { replayState: live.replayState } : {}
+ 					}
+ 				});
++				await bbRecovery.modelResult(this, turn, step, message);
+ 				live.settle("assistant/message", () => this.session.append("assistant/message", {
+ 					turn,
+ 					step,
+@@ -2009,7 +2024,8 @@
  				if (!this.ownership.isActive()) throw new Error("agent loop is not active");
  				const owned = stored;
  				handle = void 0;
 -				return await this.setupAndPublish(ownerCtx, id, preparation, options.agentOptions ?? {}, options.setup, options.signal, "resume", owned, options.parentAgent);
 +				const resumed = await this.setupAndPublish(ownerCtx, id, preparation, options.agentOptions ?? {}, options.setup, options.signal, "resume", owned, options.parentAgent);
-+				try {
-+					await resumed.agent.bbRecoverDeliveries();
-+					return resumed;
-+				} catch (error) {
-+					await resumed.dispose();
-+					throw error;
-+				}
++				try { await resumed.agent.bbRecoverDeliveries(); return resumed; } catch (error) { await resumed.dispose(); throw error; }
  			} finally {
  				preparation?.[Symbol.dispose]();
  				await handle?.close().catch(() => {});

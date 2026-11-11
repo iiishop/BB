@@ -4,10 +4,11 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-from bb_server.app import create_app
-from bb_server.storage import cleanup_sessions
 from fastapi.testclient import TestClient
 from test_profile import login
+
+from bb_server.app import create_app
+from bb_server.storage import cleanup_sessions
 
 
 def test_heartbeat_offline_recovery_and_logout(tmp_path):

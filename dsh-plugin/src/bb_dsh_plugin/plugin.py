@@ -11,7 +11,9 @@ from bb_auth_contract import (
     LoginRequest,
     RegisterRequest,
     parse_request,
+    structural_error,
 )
+from bb_auth_contract.chat import LOCAL
 from bb_auth_contract.profile import (
     PROFILE_RESPONSES,
     PROFILE_TOOLS,
@@ -48,7 +50,9 @@ class LocalClient:
     async def call(self, operation: str, payload: dict):
         # Each call owns a short-lived client: no cookies, token, session, or retry state.
         async with httpx.AsyncClient(
-            timeout=self.timeout,
+            timeout=max(self.timeout, payload.get("timeout", 0) + 5)
+            if operation == "wait_messages"
+            else self.timeout,
             transport=self.transport,
             follow_redirects=False,
             trust_env=False,
@@ -56,7 +60,13 @@ class LocalClient:
             try:
                 group = "profile" if operation in PROFILE_TOOLS else "auth"
                 response = await client.post(
-                    f"{self.base_url}/{group}/{operation}", json=payload
+                    self.base_url
+                    + (
+                        LOCAL[operation][0]
+                        if operation in LOCAL
+                        else f"/{group}/{operation}"
+                    ),
+                    json=payload,
                 )
             except httpx.TimeoutException:
                 raise ContractError(504, "upstream_timeout", "客户端请求超时") from None
@@ -70,11 +80,21 @@ class LocalClient:
 def decode_response(response: httpx.Response, operation: str) -> dict:
     try:
         body = response.json()
-        if response.status_code == (201 if operation == "register" else 200):
+        if response.status_code == (
+            LOCAL[operation][3]
+            if operation in LOCAL
+            else 201
+            if operation == "register"
+            else 200
+        ):
             # Whitelist fields even if a misconfigured client returns a server token.
-            model = PROFILE_RESPONSES.get(operation, AccountResponse)
+            model = (
+                LOCAL[operation][2]
+                if operation in LOCAL
+                else PROFILE_RESPONSES.get(operation, AccountResponse)
+            )
             return model.model_validate(body).model_dump()
-        if response.status_code in (401, 404, 413, 415, 422, 502, 503, 504):
+        if response.status_code in (401, 404, 409, 413, 415, 422, 502, 503, 504):
             error = ErrorResponse.model_validate(body).error
             raise ContractError(
                 response.status_code,
@@ -97,6 +117,54 @@ def result(body: dict, *, error: bool = False) -> CallToolResult:
 
 async def invoke(client: LocalClient, name: str, arguments: dict) -> CallToolResult:
     try:
+        if name in LOCAL:
+            try:
+                payload = LOCAL[name][1].model_validate(arguments).model_dump()
+            except ValidationError as error:
+                raise structural_error(error.errors(include_input=False)) from None
+            body = await client.call(name, payload)
+            if name in ("read_messages", "wait_messages"):
+                blocks = []
+                for item in body["items"]:
+                    blocks.append(
+                        TextContent(
+                            type="text",
+                            text=json.dumps(item["message"], ensure_ascii=False),
+                        )
+                    )
+                    for block in item["blocks"]:
+                        if block["type"] == "text":
+                            blocks.append(TextContent(type="text", text=block["text"]))
+                        else:
+                            try:
+                                raw = base64.b64decode(block["data"], validate=True)
+                                valid = {
+                                    "image/png": raw.startswith(b"\x89PNG\r\n\x1a\n"),
+                                    "image/jpeg": raw.startswith(b"\xff\xd8"),
+                                    "image/webp": raw.startswith(b"RIFF")
+                                    and raw[8:12] == b"WEBP",
+                                }
+                                if not valid[block["mime_type"]]:
+                                    raise ValueError()
+                            except ValueError:
+                                raise ContractError(
+                                    502, "upstream_unavailable", "Invalid image bytes"
+                                ) from None
+                            blocks.append(
+                                ImageContent(
+                                    type="image",
+                                    data=block["data"],
+                                    mimeType=block["mime_type"],
+                                )
+                            )
+                metadata = {key: value for key, value in body.items() if key != "items"}
+                return CallToolResult(
+                    isError=False,
+                    structuredContent=metadata,
+                    content=blocks
+                    or [TextContent(type="text", text=json.dumps(metadata))],
+                )
+            return result(body)
         if name in PROFILE_TOOLS:
             body = await client.call(name, parse_profile_tool(name, arguments))
             if name == "view_avatar":
@@ -144,25 +212,38 @@ def create_server(client: LocalClient) -> Server:
             "view_signature": "读取签名；未设置返回 null，省略 account 表示本人。",
             "update_signature": "仅更新本人签名，最多 49 个 Unicode 字符；省略 value、null 或空串清空。",
         }
-        return [
-            Tool(
-                name="register_account",
-                description="通过本地客户端注册，返回分配的账号和展示名。密码至少 6 位，包含 ASCII 大写、小写和数字。",
-                inputSchema=RegisterRequest.model_json_schema(),
-            ),
-            Tool(
-                name="login_account",
-                description="通过本地客户端使用八位账号及密码登录；会话由客户端管理。",
-                inputSchema=LoginRequest.model_json_schema(),
-            ),
-        ] + [
-            Tool(
-                name=name,
-                description=descriptions[name],
-                inputSchema=model.model_json_schema(),
-            )
-            for name, model in PROFILE_TOOLS.items()
-        ]
+        return (
+            [
+                Tool(
+                    name="register_account",
+                    description="通过本地客户端注册，返回分配的账号和展示名。密码至少 6 位，包含 ASCII 大写、小写和数字。",
+                    inputSchema=RegisterRequest.model_json_schema(),
+                ),
+                Tool(
+                    name="login_account",
+                    description="通过本地客户端使用八位账号及密码登录；会话由客户端管理。",
+                    inputSchema=LoginRequest.model_json_schema(),
+                ),
+            ]
+            + [
+                Tool(
+                    name=name,
+                    description=descriptions[name],
+                    inputSchema=model.model_json_schema(),
+                )
+                for name, model in PROFILE_TOOLS.items()
+            ]
+            + [
+                Tool(
+                    name=name,
+                    description="BB local client R2: "
+                    + route
+                    + "; explicit ACK only; operations are idempotent and queryable.",
+                    inputSchema=model.model_json_schema(),
+                )
+                for name, (route, model, _, _) in LOCAL.items()
+            ]
+        )
 
     # The shared parser emits the agreed structured 422 envelope, including missing/type.
     @server.call_tool(validate_input=False)

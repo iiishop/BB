@@ -4,9 +4,10 @@ import time
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
+
 from bb_server.app import create_app
 from bb_server.storage import migrate
-from fastapi.testclient import TestClient
 
 
 def test_failed_migration_rolls_back_entire_schema(tmp_path, monkeypatch):
@@ -29,11 +30,11 @@ def test_failed_migration_rolls_back_entire_schema(tmp_path, monkeypatch):
 def test_newer_schema_is_never_downgraded(tmp_path):
     path = tmp_path / "future.db"
     with sqlite3.connect(path) as db:
-        db.execute("PRAGMA user_version=3")
+        db.execute("PRAGMA user_version=4")
     with pytest.raises(RuntimeError, match="newer"):
         migrate(path)
     with sqlite3.connect(path) as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 4
 
 
 def test_upgrade_step1_preserves_old_accounts_and_sessions(tmp_path):
@@ -63,7 +64,7 @@ def test_upgrade_step1_preserves_old_accounts_and_sessions(tmp_path):
         )
     migrate(path)
     with sqlite3.connect(path) as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 3
         assert db.execute("SELECT last_seen_at FROM sessions").fetchone()[0] >= int(
             before
         )

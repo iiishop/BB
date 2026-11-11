@@ -3,6 +3,7 @@ import json
 
 import httpx
 import pytest
+
 from bb_dsh_plugin.plugin import LocalClient, invoke
 
 PNG = base64.b64encode(b"\x89PNG\r\n\x1a\nimage-test-double").decode()

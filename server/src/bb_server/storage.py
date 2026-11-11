@@ -22,9 +22,13 @@ def migrate(path: Path):
     with connection(path) as db:
         db.execute("BEGIN IMMEDIATE")
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 2:
+        if version > 3:
             raise RuntimeError("Database schema is newer than this server")
-        for number, filename in [(1, "001_auth.sql"), (2, "002_profile.sql")]:
+        for number, filename in [
+            (1, "001_auth.sql"),
+            (2, "002_profile.sql"),
+            (3, "003_chat.sql"),
+        ]:
             if version >= number:
                 continue
             sql = (Path(__file__).parent / "migrations" / filename).read_text(
