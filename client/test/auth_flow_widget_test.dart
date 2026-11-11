@@ -192,6 +192,18 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets(
+    'wide session copy describes persistence, not a run-only session',
+    (WidgetTester tester) async {
+      await pumpApp(tester, size: _desktop);
+
+      expect(find.text(AuthShell.sessionHint), findsOneWidget);
+      expect(find.textContaining('本次运行'), findsNothing);
+      expect(find.textContaining('重启'), findsWidgets);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('small phone viewport stays overflow-free', (
     WidgetTester tester,
   ) async {
