@@ -93,6 +93,41 @@ void main() {
     expect(session.hasToken, isTrue);
   });
 
+  test('login cannot succeed when the credential cannot be stored', () async {
+    final AuthService failing = AuthService(
+      api: AuthApiClient(baseUri: backend.baseUri),
+      session: AuthSession(),
+      store: SessionStore.atPath(
+        '${directory.path}/failing.json',
+        replace: (File temporary, File target) async {
+          throw FileSystemException('injected replace failure', temporary.path);
+        },
+      ),
+    );
+    final LocalAuthServer failingServer = LocalAuthServer(
+      service: failing,
+      port: 0,
+    );
+    final Uri failingAddress = await failingServer.start();
+    addTearDown(failingServer.close);
+
+    final _Response response = await _post(
+      failingAddress.resolve('/auth/login'),
+      <String, dynamic>{'account': '40218765', 'password': 'Secret42'},
+    );
+
+    expect(response.status, 500);
+    expect(response.body, <String, dynamic>{
+      'error': <String, dynamic>{
+        'code': 'session_storage_unavailable',
+        'message': '会话存储不可用',
+        'fields': <Object>[],
+      },
+    });
+    expect(response.raw.contains(backend.issuedToken), isFalse);
+    expect(failing.session.hasToken, isFalse);
+  });
+
   test('wrong password returns the shared 401 envelope', () async {
     final _Response response = await _post(
       address.resolve('/auth/login'),

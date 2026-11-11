@@ -215,6 +215,33 @@ void main() {
     expect(find.byKey(AuthShell.brandPanelKey), findsNothing);
     expect(tester.takeException(), isNull);
   });
+  testWidgets('a storage failure after a real server login is not success', (
+    WidgetTester tester,
+  ) async {
+    final AuthService failing = AuthService(
+      api: AuthApiClient(baseUri: backendBaseUri),
+      session: AuthSession(),
+      store: SessionStore.atPath(
+        '${directory.path}/failing.json',
+        replace: (File temporary, File target) async {
+          throw FileSystemException('injected replace failure', temporary.path);
+        },
+      ),
+    );
+    await pumpApp(tester, failing);
+
+    await tester.enterText(editable(LoginPage.accountFieldKey), '40218765');
+    await tester.enterText(editable(LoginPage.passwordFieldKey), 'Secret42');
+    await tester.tap(find.byKey(LoginPage.submitButtonKey));
+    await tester.pumpAndSettle();
+
+    expect(backend.log.any((record) => record.path == '/auth/login'), isTrue);
+    expect(find.text('会话存储不可用'), findsOneWidget);
+    expect(find.byKey(SignedInView.accountValueKey), findsNothing);
+    expect(failing.session.hasToken, isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('restart: an unreachable server keeps the credential and warns', (
     WidgetTester tester,
   ) async {

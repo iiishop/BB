@@ -53,6 +53,8 @@ Future<void> main(List<String> args) async {
   } on AuthFailure catch (failure) {
     if (failure.status == 401) {
       stdout.writeln('本地会话已失效，已清除凭据');
+    } else if (failure.code == sessionStorageUnavailable.code) {
+      stdout.writeln('会话存储不可用，无法验证本地会话');
     } else {
       stdout.writeln('暂时无法验证本地会话（${failure.code}），凭据已保留');
     }

@@ -23,6 +23,7 @@ class FakeAuthGateway implements AuthGateway {
   AuthFailure? registerFailure;
   AuthFailure? loginFailure;
   AuthFailure? restoreFailure;
+  AuthFailure? signOutFailure;
 
   /// When set, `restoreSession()` waits for it, letting tests assert the
   /// in-flight restoring state.
@@ -71,6 +72,10 @@ class FakeAuthGateway implements AuthGateway {
 
   @override
   Future<void> signOut() async {
+    final AuthFailure? failure = signOutFailure;
+    if (failure != null) {
+      throw failure;
+    }
     signedOut = true;
   }
 }

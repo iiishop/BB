@@ -33,9 +33,11 @@ class _AuthFlowState extends State<AuthFlow> {
   bool _restored = false;
   String? _restoreNotice;
   bool _restoreNoticeIsError = false;
+  bool _restoreNoticeRetryable = false;
 
   static const String _expiredMessage = '登录已失效，请重新登录';
   static const String _unverifiedMessage = '暂时无法验证登录状态，请检查网络后重试';
+  static const String _storageMessage = '会话存储不可用，请检查本机存储权限后重试';
 
   @override
   void initState() {
@@ -47,6 +49,7 @@ class _AuthFlowState extends State<AuthFlow> {
     setState(() {
       _step = _AuthStep.restoring;
       _restoreNotice = null;
+      _restoreNoticeRetryable = false;
     });
     try {
       final AuthUser? user = await widget.gateway.restoreSession();
@@ -68,11 +71,17 @@ class _AuthFlowState extends State<AuthFlow> {
         return;
       }
       final bool expired = failure.status == 401;
+      final bool storageFault = failure.code == sessionStorageUnavailable.code;
       setState(() {
         _user = null;
         _step = _AuthStep.login;
-        _restoreNotice = expired ? _expiredMessage : _unverifiedMessage;
-        _restoreNoticeIsError = expired;
+        _restoreNotice = expired
+            ? _expiredMessage
+            : storageFault
+            ? _storageMessage
+            : _unverifiedMessage;
+        _restoreNoticeIsError = expired || storageFault;
+        _restoreNoticeRetryable = !expired;
       });
     } catch (_) {
       if (!mounted) {
@@ -83,6 +92,7 @@ class _AuthFlowState extends State<AuthFlow> {
         _step = _AuthStep.login;
         _restoreNotice = _unverifiedMessage;
         _restoreNoticeIsError = false;
+        _restoreNoticeRetryable = true;
       });
     }
   }
@@ -91,6 +101,7 @@ class _AuthFlowState extends State<AuthFlow> {
     setState(() {
       _step = _AuthStep.register;
       _restoreNotice = null;
+      _restoreNoticeRetryable = false;
     });
   }
 
@@ -99,6 +110,7 @@ class _AuthFlowState extends State<AuthFlow> {
       _step = _AuthStep.login;
       _pendingAccount = account;
       _restoreNotice = null;
+      _restoreNoticeRetryable = false;
     });
   }
 
@@ -106,6 +118,7 @@ class _AuthFlowState extends State<AuthFlow> {
     setState(() {
       _step = _AuthStep.login;
       _restoreNotice = null;
+      _restoreNoticeRetryable = false;
     });
   }
 
@@ -115,6 +128,7 @@ class _AuthFlowState extends State<AuthFlow> {
       _restored = false;
       _step = _AuthStep.signedIn;
       _restoreNotice = null;
+      _restoreNoticeRetryable = false;
     });
   }
 
@@ -123,7 +137,25 @@ class _AuthFlowState extends State<AuthFlow> {
   }
 
   Future<void> _performSignOut() async {
-    await widget.gateway.signOut();
+    try {
+      await widget.gateway.signOut();
+    } on AuthFailure catch (failure) {
+      if (!mounted) {
+        return;
+      }
+      // The credential could not be removed: stay signed in so a restart does
+      // not silently undo the logout the UI just claimed.
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            failure.code == sessionStorageUnavailable.code
+                ? '退出登录失败：会话存储不可用'
+                : '退出登录失败：${failure.message}',
+          ),
+        ),
+      );
+      return;
+    }
     if (!mounted) {
       return;
     }
@@ -132,6 +164,7 @@ class _AuthFlowState extends State<AuthFlow> {
       _restored = false;
       _pendingAccount = null;
       _restoreNotice = null;
+      _restoreNoticeRetryable = false;
       _step = _AuthStep.login;
     });
   }
@@ -147,9 +180,7 @@ class _AuthFlowState extends State<AuthFlow> {
           initialAccount: _pendingAccount,
           notice: _restoreNotice,
           noticeIsError: _restoreNoticeIsError,
-          onRetryRestore: (_restoreNotice != null && !_restoreNoticeIsError)
-              ? _restore
-              : null,
+          onRetryRestore: _restoreNoticeRetryable ? _restore : null,
           onAuthenticated: _handleAuthenticated,
           onRequestRegister: _openRegister,
         );

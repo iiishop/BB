@@ -117,3 +117,13 @@ const AuthFailure unauthenticated = AuthFailure(
   code: 'unauthenticated',
   message: '请重新登录',
 );
+
+/// Reading/writing/clearing the local session file failed.
+///
+/// Returned as a normal contract envelope (`500`) so the UI can explain it and
+/// the local HTTP API never reports a false success.
+const AuthFailure sessionStorageUnavailable = AuthFailure(
+  status: 500,
+  code: 'session_storage_unavailable',
+  message: '会话存储不可用',
+);

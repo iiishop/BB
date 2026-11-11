@@ -124,6 +124,51 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('a storage failure on login is shown and stays signed out', (
+    WidgetTester tester,
+  ) async {
+    gateway.loginFailure = sessionStorageUnavailable;
+    await pumpApp(tester);
+    await fillLogin(tester);
+    await submitLogin(tester);
+
+    expect(find.text('会话存储不可用'), findsOneWidget);
+    expect(find.byKey(LoginPage.errorBannerKey), findsOneWidget);
+    expect(find.byKey(SignedInView.accountValueKey), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a storage failure during restore is explained, not signed in', (
+    WidgetTester tester,
+  ) async {
+    gateway.restoreFailure = sessionStorageUnavailable;
+    await pumpApp(tester);
+
+    expect(find.text('会话存储不可用，请检查本机存储权限后重试'), findsOneWidget);
+    expect(find.byKey(LoginPage.noticeKey), findsOneWidget);
+    expect(find.text('重试验证'), findsOneWidget);
+    expect(find.byKey(SignedInView.accountValueKey), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a failed logout keeps the signed-in view and explains why', (
+    WidgetTester tester,
+  ) async {
+    await pumpApp(tester);
+    await fillLogin(tester);
+    await submitLogin(tester);
+
+    gateway.signOutFailure = sessionStorageUnavailable;
+    await tester.tap(find.byKey(SignedInView.signOutButtonKey));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(SignedInView.accountValueKey), findsOneWidget);
+    expect(find.text('退出登录失败：会话存储不可用'), findsOneWidget);
+    expect(gateway.signedOut, isFalse);
+    expect(find.byKey(LoginPage.submitButtonKey), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('compact login shows one column and no brand panel', (
     WidgetTester tester,
   ) async {

@@ -1,5 +1,13 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
+
+/// Replacement strategy for the session file.
+///
+/// The default implementation renames the new file over the old one (atomic on
+/// POSIX) and falls back to a backup-and-restore dance on Windows. Injecting a
+/// different implementation is only used by fault-injection tests.
+typedef SessionReplace = Future<void> Function(File temporary, File target);
 
 /// On-disk session record.
 ///
@@ -42,27 +50,51 @@ class PersistedSession {
   };
 }
 
+/// A client-side credential-store failure.
+///
+/// The auth service turns it into the shared `session_storage_unavailable`
+/// error so the UI can explain it and the local HTTP API can refuse success.
+class SessionStorageException implements Exception {
+  const SessionStorageException(this.message, [this.cause]);
+
+  final String message;
+  final Object? cause;
+
+  @override
+  String toString() => 'SessionStorageException($message)';
+}
+
 /// File-backed session storage shared by the Flutter UI and the standalone
 /// local control API entry.
 ///
-/// The file is written atomically and restricted to the current user
-/// (`0600`, parent directory `0700` on POSIX). Windows relies on the user
-/// profile ACL for the same guarantee.
+/// * the new record is written to a per-operation unique temporary file in the
+///   same directory, then renamed into place;
+/// * the previous credential is never deleted before the replacement exists:
+///   on POSIX the rename is atomic, on Windows the old file is moved to a
+///   backup and restored if the new one cannot be put in place;
+/// * the file is restricted to the current user (`0600`, parent `0700`).
+///
+/// Windows relies on the user profile ACL for the same guarantee.
 class SessionStore {
-  SessionStore(this.file);
+  SessionStore(this.file, {SessionReplace? replace})
+    : _replace = replace ?? replaceFile;
 
-  /// Session file at an explicit location (used by tests and configuration).
-  SessionStore.atPath(String path) : file = File(path);
+  /// Session file at an explicit location (tests and configuration).
+  SessionStore.atPath(String path, {SessionReplace? replace})
+    : this(File(path), replace: replace);
 
   final File file;
+  final SessionReplace _replace;
 
   /// Default POSIX permissions for a credential file (owner read/write only).
   static const int fileMode = 0x180; // 0600
 
-  /// Returns the stored session, or null when absent/unreadable.
+  /// Returns the stored session, or null when absent/corrupt.
   ///
-  /// A corrupt file is deleted so a later write starts from a clean state; an
-  /// IO error leaves it untouched (it may be a transient mount problem).
+  /// A corrupt file is removed on a best-effort basis (it is not a usable
+  /// credential); IO errors are raised as [SessionStorageException] because
+  /// silently treating an unreadable credential as "logged out" hides a real
+  /// storage fault.
   Future<PersistedSession?> read() async {
     try {
       if (!await file.exists()) {
@@ -73,38 +105,102 @@ class SessionStore {
     } on FormatException {
       await _deleteQuietly(file);
       return null;
-    } on FileSystemException {
-      return null;
+    } on FileSystemException catch (error) {
+      throw SessionStorageException('无法读取会话凭据', error);
     }
   }
 
-  /// Writes the session atomically and restricts access to the current user.
+  /// Writes the session without ever dropping the previous credential first.
   Future<void> write(PersistedSession session) async {
     final Directory parent = file.parent;
-    await parent.create(recursive: true);
-    await _restrict(parent.path, '700');
-
-    final File temporary = File('${file.path}.tmp');
-    await temporary.writeAsString(jsonEncode(session.toJson()), flush: true);
-    await _restrict(temporary.path, '600');
-
-    // rename(2) replaces the target atomically on POSIX; Windows needs the
-    // previous file gone first.
-    await _deleteQuietly(file);
-    await temporary.rename(file.path);
-    await _restrict(file.path, '600');
+    final File temporary = File('${file.path}.$pid.${_nonce()}.tmp');
+    try {
+      await parent.create(recursive: true);
+      await _restrict(parent.path, '700');
+      await temporary.writeAsString(jsonEncode(session.toJson()), flush: true);
+      await _restrict(temporary.path, '600');
+      await _replace(temporary, file);
+      await _restrict(file.path, '600');
+    } on SessionStorageException {
+      rethrow;
+    } on FileSystemException catch (error) {
+      throw SessionStorageException('无法写入会话凭据', error);
+    } on ProcessException catch (error) {
+      throw SessionStorageException('无法设置会话文件权限', error);
+    } on StateError catch (error) {
+      throw SessionStorageException('无法设置会话文件权限', error);
+    } finally {
+      // The rename consumed the temporary file on success; remove it when any
+      // step failed, and never leave stray credential copies behind.
+      await _deleteQuietly(temporary);
+    }
   }
 
-  Future<void> clear() => _deleteQuietly(file);
+  /// Removes the stored credential and reports failures instead of pretending.
+  Future<void> clear() async {
+    try {
+      if (await file.exists()) {
+        await file.delete();
+      }
+    } on FileSystemException catch (error) {
+      throw SessionStorageException('无法删除会话凭据', error);
+    }
+  }
 
-  Future<void> _deleteQuietly(File target) async {
+  /// Default replacement: atomic rename, with a safe fallback for Windows.
+  static Future<void> replaceFile(File temporary, File target) async {
+    try {
+      await temporary.rename(target.path);
+      return;
+    } on FileSystemException {
+      // Windows cannot rename over an existing file; use a backup so the old
+      // credential survives if the new one cannot be moved into place.
+    }
+
+    final File backup = File('${target.path}.bak');
+    bool oldMoved = false;
     try {
       if (await target.exists()) {
-        await target.delete();
+        await _deleteIfExists(backup);
+        await target.rename(backup.path);
+        oldMoved = true;
       }
+      await temporary.rename(target.path);
+      await _deleteIfExists(backup);
+    } on FileSystemException catch (error) {
+      if (oldMoved) {
+        try {
+          await backup.rename(target.path);
+        } on FileSystemException {
+          // The old credential is still in the backup file; report the
+          // original failure rather than losing it.
+        }
+      }
+      throw SessionStorageException('无法替换会话凭据', error);
+    }
+  }
+
+  static String _nonce() {
+    final Random random = Random.secure();
+    final StringBuffer buffer = StringBuffer();
+    for (int i = 0; i < 4; i++) {
+      buffer.write(random.nextInt(1 << 16).toRadixString(16).padLeft(4, '0'));
+    }
+    return buffer.toString();
+  }
+
+  static Future<void> _deleteIfExists(File target) async {
+    if (await target.exists()) {
+      await target.delete();
+    }
+  }
+
+  static Future<void> _deleteQuietly(File target) async {
+    try {
+      await _deleteIfExists(target);
     } on FileSystemException {
-      // Nothing to clean up, or the volume is read-only: the next read/write
-      // reports its own state.
+      // Best-effort cleanup of corrupt data / temporary files. The credential
+      // itself is never deleted quietly; that is [clear]'s job.
     }
   }
 

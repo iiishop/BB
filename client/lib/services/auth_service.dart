@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import '../models/auth_models.dart';
 import 'auth_api_client.dart';
 import 'auth_session.dart';
@@ -56,7 +54,15 @@ class AuthService implements AuthGateway {
       password: password,
     );
     session.establish(token: result.token, user: result.user);
-    await _persist(result.user, result.token);
+    try {
+      await _persist(result.user, result.token);
+    } on SessionStorageException {
+      // Login succeeded at the server, but the restart capability did not. Do
+      // not report success: drop the half-established session so the caller
+      // cannot mistake it for a durable login.
+      session.clear();
+      throw sessionStorageUnavailable;
+    }
     return result.user;
   }
 
@@ -66,7 +72,13 @@ class AuthService implements AuthGateway {
     if (store == null) {
       return null;
     }
-    final PersistedSession? stored = await store.read();
+    final PersistedSession? stored;
+    try {
+      stored = await store.read();
+    } on SessionStorageException {
+      session.clear();
+      throw sessionStorageUnavailable;
+    }
     if (stored == null) {
       return null;
     }
@@ -79,39 +91,49 @@ class AuthService implements AuthGateway {
       return user;
     } on AuthFailure catch (failure) {
       if (failure.status == 401) {
-        await store.clear();
+        try {
+          await store.clear();
+        } on SessionStorageException {
+          session.clear();
+          // The credential is invalid but the stale file could not be removed;
+          // report the storage fault instead of claiming a clean logout.
+          throw sessionStorageUnavailable;
+        }
         session.clear();
       }
       rethrow;
+    } on SessionStorageException {
+      session.clear();
+      throw sessionStorageUnavailable;
     }
   }
 
   @override
   Future<void> signOut() async {
+    final SessionStore? store = this.store;
+    if (store != null) {
+      try {
+        await store.clear();
+      } on SessionStorageException {
+        // Keep the in-memory session: reporting a logout that a restart would
+        // undo is worse than surfacing the storage fault.
+        throw sessionStorageUnavailable;
+      }
+    }
     session.clear();
-    await store?.clear();
   }
 
-  /// Persistence is best-effort for the running session: a disk failure must not
-  /// make a successful login look failed. The only consequence is that the next
-  /// launch will not be remembered.
   Future<void> _persist(AuthUser user, String token) async {
     final SessionStore? store = this.store;
     if (store == null) {
       return;
     }
-    try {
-      await store.write(
-        PersistedSession(
-          account: user.account,
-          username: user.username,
-          token: token,
-        ),
-      );
-    } on FileSystemException {
-      // Disk not writable: keep the in-memory login only.
-    } on StateError {
-      // chmod unavailable: same as above.
-    }
+    await store.write(
+      PersistedSession(
+        account: user.account,
+        username: user.username,
+        token: token,
+      ),
+    );
   }
 }

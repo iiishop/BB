@@ -231,6 +231,76 @@ void main() {
     expect(failure.message, '请求超时，请稍后重试');
   });
 
+  test(
+    'login reports session_storage_unavailable when the write fails',
+    () async {
+      final AuthService failing = AuthService(
+        api: AuthApiClient(baseUri: backend.baseUri),
+        session: session,
+        store: SessionStore.atPath(
+          store.file.path,
+          replace: (File temporary, File target) async {
+            throw FileSystemException(
+              'injected replace failure',
+              temporary.path,
+            );
+          },
+        ),
+      );
+
+      final AuthFailure failure = await _captureFailure(
+        () => failing.login(account: '40218765', password: 'Secret42'),
+      );
+
+      expect(failure.status, 500);
+      expect(failure.code, 'session_storage_unavailable');
+      expect(failure.message, '会话存储不可用');
+      expect(
+        session.hasToken,
+        isFalse,
+        reason: 'no durable session means no reported success',
+      );
+      expect(await store.read(), isNull);
+    },
+  );
+
+  test('restoreSession reports session_storage_unavailable on an unreadable '
+      'credential', () async {
+    await service.login(account: '40218765', password: 'Secret42');
+    if (Platform.isWindows) {
+      return;
+    }
+    await Process.run('chmod', <String>['000', store.file.path]);
+    addTearDown(() => Process.run('chmod', <String>['600', store.file.path]));
+
+    final AuthFailure failure = await _captureFailure(service.restoreSession);
+
+    expect(failure.status, 500);
+    expect(failure.code, 'session_storage_unavailable');
+    expect(session.hasToken, isFalse);
+  });
+
+  test('signOut keeps the session and reports when deletion fails', () async {
+    await service.login(account: '40218765', password: 'Secret42');
+    if (Platform.isWindows) {
+      return;
+    }
+    final String parent = store.file.parent.path;
+    await Process.run('chmod', <String>['500', parent]);
+    addTearDown(() => Process.run('chmod', <String>['700', parent]));
+
+    final AuthFailure failure = await _captureFailure(service.signOut);
+
+    expect(failure.status, 500);
+    expect(failure.code, 'session_storage_unavailable');
+    expect(
+      session.hasToken,
+      isTrue,
+      reason: 'the credential is still on disk, so the UI must stay signed in',
+    );
+    expect(await store.read(), isNotNull);
+  });
+
   test('signOut clears the session and the stored credential', () async {
     await service.login(account: '40218765', password: 'Secret42');
     expect(await store.read(), isNotNull);
