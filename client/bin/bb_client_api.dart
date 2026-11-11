@@ -7,7 +7,11 @@ import 'package:bb_client/models/auth_models.dart';
 import 'package:bb_client/services/auth_api_client.dart';
 import 'package:bb_client/services/auth_service.dart';
 import 'package:bb_client/services/auth_session.dart';
+import 'package:bb_client/services/avatar_cache.dart';
+import 'package:bb_client/services/heartbeat_controller.dart';
 import 'package:bb_client/services/local_auth_server.dart';
+import 'package:bb_client/services/profile_api_client.dart';
+import 'package:bb_client/services/profile_service.dart';
 import 'package:bb_client/services/session_store.dart';
 
 /// Standalone Dart entry for the client's local control API.
@@ -44,12 +48,21 @@ Future<void> main(List<String> args) async {
     session: AuthSession(),
     store: SessionStore(options.sessionFile),
   );
+  final ProfileService profile = ProfileService(
+    api: ProfileApiClient(baseUri: options.serverBaseUri),
+    auth: service,
+    cache: AvatarCache(directory: options.avatarCacheDirectory),
+  );
+  final HeartbeatController heartbeat = HeartbeatController(auth: service);
 
   // Restore before listening: a second launch re-validates the stored credential
   // with the shared session store. Status only — never account, token or body.
   try {
     final bool restored = await service.restoreSession() != null;
     stdout.writeln(restored ? '已恢复本地会话' : '本地无有效会话');
+    if (restored) {
+      heartbeat.start();
+    }
   } on AuthFailure catch (failure) {
     if (failure.status == 401) {
       stdout.writeln('本地会话已失效，已清除凭据');
@@ -62,6 +75,7 @@ Future<void> main(List<String> args) async {
 
   final LocalAuthServer server = LocalAuthServer(
     service: service,
+    profile: profile,
     host: options.host,
     port: options.port,
   );
@@ -82,6 +96,7 @@ Future<void> main(List<String> args) async {
   stdout.writeln('Upstream server: ${options.serverBaseUri}');
 
   Future<void> stop() async {
+    heartbeat.stop();
     await server.close();
     exit(0);
   }
@@ -97,18 +112,21 @@ class _Options {
     required this.host,
     required this.port,
     required this.sessionFile,
+    required this.avatarCacheDirectory,
   });
 
   final Uri serverBaseUri;
   final String host;
   final int port;
   final File sessionFile;
+  final Directory avatarCacheDirectory;
 
   factory _Options.parse(List<String> args, Map<String, String> env) {
     String? serverUrl = env['BB_API_BASE_URL'];
     String host = env['BB_CLIENT_HOST'] ?? loopbackHost;
     String? port = env['BB_LOCAL_API_PORT'];
     String? sessionFile = env[sessionFileEnvironmentVariable];
+    String? avatarCacheDir = env['BB_AVATAR_CACHE_DIR'];
 
     for (int i = 0; i < args.length; i++) {
       final String arg = args[i];
@@ -129,11 +147,13 @@ class _Options {
           port = next();
         case '--session-file':
           sessionFile = next();
+        case '--avatar-cache-dir':
+          avatarCacheDir = next();
         case '--help' || '-h':
           stdout.writeln(
             '用法: dart run bb_client_api '
             '[--server-url URL] [--host 127.0.0.1] [--port 8787] '
-            '[--session-file PATH]',
+            '[--session-file PATH] [--avatar-cache-dir DIR]',
           );
           exit(0);
         default:
@@ -163,11 +183,19 @@ class _Options {
         ? File(sessionFile.trim())
         : resolveSessionFile(environment: env);
 
+    final Directory cacheDirectory =
+        (avatarCacheDir != null && avatarCacheDir.trim().isNotEmpty)
+        ? Directory(avatarCacheDir.trim())
+        : Directory(
+            '${session.parent.path}${Platform.pathSeparator}avatar-cache',
+          );
+
     return _Options(
       serverBaseUri: parseServerBaseUrl(serverUrl ?? defaultServerBaseUrl),
       host: host,
       port: parsedPort,
       sessionFile: session,
+      avatarCacheDirectory: cacheDirectory,
     );
   }
 }

@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 
 import '../models/auth_models.dart';
 import '../services/auth_service.dart';
+import '../services/heartbeat_controller.dart';
+import '../services/profile_service.dart';
+import 'home_view.dart';
 import 'login_page.dart';
 import 'register_page.dart';
 import 'restoring_view.dart';
@@ -16,9 +19,18 @@ import 'signed_in_view.dart';
 /// credential returns to login with a clear message, and an unreachable server
 /// keeps the credential while showing "暂时无法验证" with a retry action.
 class AuthFlow extends StatefulWidget {
-  const AuthFlow({super.key, required this.gateway});
+  const AuthFlow({
+    super.key,
+    required this.gateway,
+    this.profile,
+    this.heartbeat,
+  });
 
   final AuthGateway gateway;
+
+  /// Non-null switches the signed-in surface to the STEP-2 Profile home.
+  final ProfileGateway? profile;
+  final HeartbeatController? heartbeat;
 
   @override
   State<AuthFlow> createState() => _AuthFlowState();
@@ -34,6 +46,7 @@ class _AuthFlowState extends State<AuthFlow> {
   String? _restoreNotice;
   bool _restoreNoticeIsError = false;
   bool _restoreNoticeRetryable = false;
+  bool _handlingExpiry = false;
 
   static const String _expiredMessage = '登录已失效，请重新登录';
   static const String _unverifiedMessage = '暂时无法验证登录状态，请检查网络后重试';
@@ -42,7 +55,51 @@ class _AuthFlowState extends State<AuthFlow> {
   @override
   void initState() {
     super.initState();
+    widget.heartbeat?.addListener(_onHeartbeatChanged);
     unawaited(_restore());
+  }
+
+  @override
+  void dispose() {
+    widget.heartbeat?.removeListener(_onHeartbeatChanged);
+    super.dispose();
+  }
+
+  void _onHeartbeatChanged() {
+    final HeartbeatController? heartbeat = widget.heartbeat;
+    if (!mounted ||
+        heartbeat == null ||
+        heartbeat.phase != HeartbeatPhase.unauthorized ||
+        _step != _AuthStep.signedIn ||
+        _handlingExpiry) {
+      return;
+    }
+    unawaited(_handleExpiredSession());
+  }
+
+  Future<void> _handleExpiredSession() async {
+    _handlingExpiry = true;
+    widget.heartbeat?.stop();
+    try {
+      // The server rejected the token: local removal is the only safe action.
+      await widget.gateway.signOut();
+    } catch (_) {
+      // Even if the local file cannot be removed, do not keep using the token.
+    }
+    if (!mounted) {
+      _handlingExpiry = false;
+      return;
+    }
+    setState(() {
+      _user = null;
+      _restored = false;
+      _pendingAccount = null;
+      _step = _AuthStep.login;
+      _restoreNotice = _expiredMessage;
+      _restoreNoticeIsError = true;
+      _restoreNoticeRetryable = false;
+    });
+    _handlingExpiry = false;
   }
 
   Future<void> _restore() async {
@@ -66,6 +123,7 @@ class _AuthFlowState extends State<AuthFlow> {
           _step = _AuthStep.signedIn;
         }
       });
+      widget.heartbeat?.start();
     } on AuthFailure catch (failure) {
       if (!mounted) {
         return;
@@ -130,6 +188,7 @@ class _AuthFlowState extends State<AuthFlow> {
       _restoreNotice = null;
       _restoreNoticeRetryable = false;
     });
+    widget.heartbeat?.start();
   }
 
   void _signOut() {
@@ -137,6 +196,7 @@ class _AuthFlowState extends State<AuthFlow> {
   }
 
   Future<void> _performSignOut() async {
+    widget.heartbeat?.stop();
     try {
       await widget.gateway.signOut();
     } on AuthFailure catch (failure) {
@@ -169,6 +229,21 @@ class _AuthFlowState extends State<AuthFlow> {
     });
   }
 
+  void _handleSignedOut(LogoutResult? result) {
+    widget.heartbeat?.stop();
+    setState(() {
+      _user = null;
+      _restored = false;
+      _pendingAccount = null;
+      _step = _AuthStep.login;
+      _restoreNotice = result?.serverNotified == false
+          ? '已退出登录，但服务器暂时无法确认，该会话会在稍后过期'
+          : null;
+      _restoreNoticeIsError = false;
+      _restoreNoticeRetryable = false;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     switch (_step) {
@@ -191,6 +266,18 @@ class _AuthFlowState extends State<AuthFlow> {
           onBackToLogin: _backToLogin,
         );
       case _AuthStep.signedIn:
+        final ProfileGateway? profile = widget.profile;
+        final HeartbeatController? heartbeat = widget.heartbeat;
+        if (profile != null && heartbeat != null) {
+          return HomeView(
+            user: _user!,
+            profile: profile,
+            auth: widget.gateway,
+            heartbeat: heartbeat,
+            onSignedOut: _handleSignedOut,
+            onSessionExpired: () => unawaited(_handleExpiredSession()),
+          );
+        }
         return SignedInView(
           user: _user!,
           restored: _restored,

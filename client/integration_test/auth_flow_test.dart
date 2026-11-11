@@ -4,8 +4,14 @@ import 'package:bb_client/app.dart';
 import 'package:bb_client/services/auth_api_client.dart';
 import 'package:bb_client/services/auth_service.dart';
 import 'package:bb_client/services/auth_session.dart';
+import 'package:bb_client/services/avatar_cache.dart';
+import 'package:bb_client/services/heartbeat_controller.dart';
+import 'package:bb_client/services/profile_api_client.dart';
+import 'package:bb_client/services/profile_service.dart';
 import 'package:bb_client/services/session_store.dart';
 import 'package:bb_client/ui/auth_shell.dart';
+import 'package:bb_client/ui/home_view.dart';
+import 'package:bb_client/ui/profile/profile_panel.dart';
 import 'package:bb_client/ui/login_page.dart';
 import 'package:bb_client/ui/register_page.dart';
 import 'package:bb_client/ui/signed_in_view.dart';
@@ -241,6 +247,80 @@ void main() {
     expect(failing.session.hasToken, isFalse);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'real HTTP + Linux render: Profile edit, avatar upload and logout',
+    (WidgetTester tester) async {
+      final AuthService service = newService();
+      await service.login(account: '40218765', password: 'Secret42');
+      final ProfileService profile = ProfileService(
+        api: ProfileApiClient(baseUri: backendBaseUri),
+        auth: service,
+        cache: AvatarCache(),
+      );
+      final HeartbeatController heartbeat = HeartbeatController(auth: service);
+      addTearDown(heartbeat.dispose);
+
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(
+        BbClientApp(
+          authGateway: service,
+          profile: profile,
+          heartbeat: heartbeat,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(HomeView), findsOneWidget);
+      expect(find.byKey(HomeView.greetingKey), findsOneWidget);
+      expect(find.textContaining(backend.issuedToken), findsNothing);
+
+      await tester.tap(find.byKey(HomeView.avatarEntryKey));
+      await tester.pumpAndSettle();
+      expect(find.byType(ProfilePanel), findsOneWidget);
+      expect(
+        tester.widget<Text>(find.byKey(ProfilePanel.accountValueKey)).data,
+        '40218765',
+      );
+
+      await tester.tap(find.byKey(ProfilePanel.editNicknameKey));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('profile-edit-field')),
+        '桌面昵称',
+      );
+      await tester.tap(find.byKey(const Key('profile-edit-save')));
+      await tester.pumpAndSettle();
+      expect(backend.username, '桌面昵称');
+      expect(find.text('桌面昵称'), findsWidgets);
+
+      await tester.tap(find.text('更换头像').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Base64'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('avatar-source-field')),
+        'data:image/png;base64,'
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+      );
+      await tester.tap(find.byKey(const Key('avatar-source-apply')));
+      await tester.pumpAndSettle();
+      expect(backend.avatarUploaded, isTrue);
+      expect(find.text('头像已更新'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+
+      await tester.tap(find.byKey(ProfilePanel.logoutButtonKey));
+      await tester.pumpAndSettle();
+      expect(find.byKey(LoginPage.submitButtonKey), findsOneWidget);
+      expect(backend.tokenValid, isFalse, reason: 'server session deleted');
+      expect(service.session.hasToken, isFalse);
+      expect(await store.read(), isNull);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('restart: an unreachable server keeps the credential and warns', (
     WidgetTester tester,

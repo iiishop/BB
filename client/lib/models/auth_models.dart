@@ -127,3 +127,15 @@ const AuthFailure sessionStorageUnavailable = AuthFailure(
   code: 'session_storage_unavailable',
   message: '会话存储不可用',
 );
+
+/// Outcome of a "退出登录" action.
+///
+/// [serverNotified] is false when the server could not be reached; the local
+/// credential is still cleared (the user asked to leave), but the UI can say the
+/// server-side session was not confirmed and will expire/clean up later.
+class LogoutResult {
+  const LogoutResult({required this.serverNotified, this.warning});
+
+  final bool serverNotified;
+  final AuthFailure? warning;
+}

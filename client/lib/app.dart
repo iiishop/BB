@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import 'services/auth_service.dart';
+import 'services/heartbeat_controller.dart';
+import 'services/profile_service.dart';
 import 'ui/auth_flow.dart';
 
 /// Spacing scale shared by the Flutter client. Keep new screens on these
@@ -221,9 +223,19 @@ ThemeData buildAppTheme() {
 
 /// Root widget for the BB client.
 class BbClientApp extends StatelessWidget {
-  const BbClientApp({super.key, required this.authGateway});
+  const BbClientApp({
+    super.key,
+    required this.authGateway,
+    this.profile,
+    this.heartbeat,
+  });
 
   final AuthGateway authGateway;
+
+  /// STEP-2 Profile gateway. When null the STEP-1 signed-in screen is kept,
+  /// which is what the focused auth tests still construct.
+  final ProfileGateway? profile;
+  final HeartbeatController? heartbeat;
 
   @override
   Widget build(BuildContext context) {
@@ -231,7 +243,11 @@ class BbClientApp extends StatelessWidget {
       title: 'BB',
       debugShowCheckedModeBanner: false,
       theme: buildAppTheme(),
-      home: AuthFlow(gateway: authGateway),
+      home: AuthFlow(
+        gateway: authGateway,
+        profile: profile,
+        heartbeat: heartbeat,
+      ),
     );
   }
 }

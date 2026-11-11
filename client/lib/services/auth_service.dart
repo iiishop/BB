@@ -25,6 +25,15 @@ abstract class AuthGateway {
 
   /// Drops the in-memory session and the stored credential.
   Future<void> signOut();
+
+  /// Server-side logout followed by the local credential clear.
+  ///
+  /// Default keeps STEP-1 gateways working (local-only logout); [AuthService]
+  /// overrides it to call `POST /auth/logout`.
+  Future<LogoutResult> logout() async {
+    await signOut();
+    return const LogoutResult(serverNotified: false);
+  }
 }
 
 /// Default gateway: talks to the FastAPI service, owns the session and its
@@ -121,6 +130,46 @@ class AuthService implements AuthGateway {
       }
     }
     session.clear();
+  }
+
+  /// Updates the cached identity after a successful profile edit.
+  ///
+  /// Best effort on disk: the server change already happened, so a storage
+  /// fault must not turn a successful nickname update into an error.
+  Future<void> rememberUser(AuthUser user) async {
+    session.updateUser(user);
+    final String? token = session.tokenForRequest;
+    if (token == null) {
+      return;
+    }
+    try {
+      await _persist(user, token);
+    } on SessionStorageException {
+      // The in-memory identity is correct; a restart re-reads the server.
+    }
+  }
+
+  @override
+  Future<LogoutResult> logout() async {
+    final String? token = session.tokenForRequest;
+    bool serverNotified = false;
+    AuthFailure? warning;
+    if (token != null) {
+      try {
+        await api.logout(token);
+        serverNotified = true;
+      } on AuthFailure catch (failure) {
+        if (failure.status == 401) {
+          // The session was already invalid; local cleanup is still correct.
+          serverNotified = true;
+        } else {
+          // Network/timeout: keep the credential only if the local clear fails.
+          warning = failure;
+        }
+      }
+    }
+    await signOut();
+    return LogoutResult(serverNotified: serverNotified, warning: warning);
   }
 
   Future<void> _persist(AuthUser user, String token) async {

@@ -26,6 +26,13 @@ class AuthSession {
   /// Credential for future authenticated requests. Not for serialization.
   String? get tokenForRequest => _token;
 
+  /// Refreshes the cached identity after a Profile edit (nickname == username).
+  void updateUser(AuthUser user) {
+    if (_token != null) {
+      _user = user;
+    }
+  }
+
   void clear() {
     _token = null;
     _user = null;

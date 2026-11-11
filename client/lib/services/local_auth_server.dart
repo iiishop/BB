@@ -5,32 +5,44 @@ import 'dart:io';
 
 import '../config/client_config.dart';
 import '../models/auth_models.dart';
-import 'auth_service.dart';
+import '../models/profile_models.dart';
+import '../services/auth_service.dart';
+import '../services/profile_service.dart';
+import '../validation/profile_rules.dart';
 
 /// Loopback-only local control API used by the DSH MCP plugin.
 ///
-/// It reuses [AuthService], so the UI and the plugin share one auth
-/// implementation:
+/// It reuses [AuthService] and [ProfileGateway], so the UI, the standalone Dart
+/// entry and the plugin share one implementation:
 ///
 /// * `POST /auth/register` -> 201 `{account, username}`
 /// * `POST /auth/login`    -> 200 `{account, username}` (token never leaves the
-///   client process; it is kept in [AuthSession])
+///   client process)
+/// * `POST /profile/view_avatar|update_avatar|view_nickname|update_nickname|`
+///   `view_signature|update_signature`
 ///
 /// Errors keep the server contract: 422 `validation_error` with `fields`,
-/// 401 `invalid_credentials`, and 502/504 `upstream_unavailable` /
-/// `upstream_timeout` when the server cannot be reached.
+/// 401 `invalid_credentials`/`unauthenticated`, 413/415 for media, and
+/// 502/504 when the server cannot be reached. The session token is never part
+/// of a response.
 class LocalAuthServer {
   LocalAuthServer({
     required this.service,
+    this.profile,
     this.host = loopbackHost,
     this.port = defaultLocalPort,
   });
 
   final AuthService service;
+  final ProfileGateway? profile;
   final String host;
   final int port;
 
+  /// Small JSON routes keep the STEP-1 bound.
   static const int maxRequestBytes = 16 * 1024;
+
+  /// `update_avatar` carries a base64 image; the contract recommends 8 MiB.
+  static const int maxAvatarRequestBytes = 8 * 1024 * 1024;
 
   /// Field names the shared contract knows; an unknown extra key must not be
   /// echoed verbatim (it may contain a secret).
@@ -38,6 +50,12 @@ class LocalAuthServer {
     'username',
     'password',
     'account',
+    'value',
+    'path',
+    'url',
+    'base64',
+    'signature',
+    'nickname',
   };
 
   HttpServer? _httpServer;
@@ -66,6 +84,10 @@ class LocalAuthServer {
   Future<void> _handle(HttpRequest request) async {
     try {
       final String path = request.uri.path;
+      if (path.startsWith('/profile/')) {
+        await _handleProfile(request, path);
+        return;
+      }
       if (path != '/auth/register' && path != '/auth/login') {
         await _writeEnvelope(request, 404, <String, dynamic>{
           'error': <String, dynamic>{
@@ -77,13 +99,7 @@ class LocalAuthServer {
         return;
       }
       if (request.method != 'POST') {
-        await _writeEnvelope(request, 405, <String, dynamic>{
-          'error': <String, dynamic>{
-            'code': 'method_not_allowed',
-            'message': '只支持 POST',
-            'fields': <Object>[],
-          },
-        });
+        await _methodNotAllowed(request);
         return;
       }
 
@@ -128,12 +144,137 @@ class LocalAuthServer {
     }
   }
 
-  Future<Map<String, dynamic>> _readJsonObject(HttpRequest request) async {
+  Future<void> _handleProfile(HttpRequest request, String path) async {
+    if (request.method != 'POST') {
+      await _methodNotAllowed(request);
+      return;
+    }
+    final ProfileGateway? gateway = profile;
+    if (gateway == null) {
+      await _writeEnvelope(request, 503, <String, dynamic>{
+        'error': <String, dynamic>{
+          'code': 'storage_unavailable',
+          'message': '资料功能不可用',
+          'fields': <Object>[],
+        },
+      });
+      return;
+    }
+    if (!service.session.hasToken || service.session.user == null) {
+      throw unauthenticated;
+    }
+    final String selfAccount = service.session.user!.account;
+    final bool avatarUpload = path == '/profile/update_avatar';
+    final Map<String, dynamic> body = await _readJsonObject(
+      request,
+      maxBytes: avatarUpload ? maxAvatarRequestBytes : maxRequestBytes,
+    );
+
+    switch (path) {
+      case '/profile/view_avatar':
+        _rejectUnknownFields(body, const <String>{'account'});
+        final String account =
+            normalizeAccount(_optionalString(body, 'account')) ?? selfAccount;
+        final AvatarImage image = await gateway.loadAvatar(account: account);
+        await _writeJson(request, 200, <String, dynamic>{
+          'account': image.account,
+          'mime_type': image.mimeType,
+          'data': base64Encode(image.bytes),
+          'avatar_version': image.version,
+        });
+        return;
+      case '/profile/update_avatar':
+        _rejectUnknownFields(body, const <String>{'path', 'url', 'base64'});
+        final ({String source, String value}) source = resolveAvatarSource(
+          body,
+        );
+        final AvatarInfo info;
+        switch (source.source) {
+          case 'path':
+            info = await gateway.updateAvatarFromPath(source.value);
+          case 'url':
+            info = await gateway.updateAvatarFromUrl(source.value);
+          default:
+            info = await gateway.updateAvatarFromBase64(source.value);
+        }
+        await _writeJson(request, 200, info.toJson());
+        return;
+      case '/profile/view_nickname':
+        _rejectUnknownFields(body, const <String>{'account'});
+        final String account =
+            normalizeAccount(_optionalString(body, 'account')) ?? selfAccount;
+        final String username = await gateway.viewNickname(account: account);
+        await _writeJson(request, 200, <String, dynamic>{
+          'account': account,
+          'username': username,
+        });
+        return;
+      case '/profile/update_nickname':
+        _rejectUnknownFields(body, const <String>{'value'});
+        final String value = _requireString(body, 'value');
+        // Validate here so the local contract is enforced even if a gateway
+        // implementation forgets; trim is idempotent.
+        normalizeUsername(value);
+        final String username = await gateway.updateNickname(value);
+        await _writeJson(request, 200, <String, dynamic>{
+          'account': selfAccount,
+          'username': username,
+        });
+        return;
+      case '/profile/view_signature':
+        _rejectUnknownFields(body, const <String>{'account'});
+        final String account =
+            normalizeAccount(_optionalString(body, 'account')) ?? selfAccount;
+        final String? signature = await gateway.viewSignature(account: account);
+        await _writeJson(request, 200, <String, dynamic>{
+          'account': account,
+          'signature': signature,
+        });
+        return;
+      case '/profile/update_signature':
+        _rejectUnknownFields(body, const <String>{'value'});
+        final Object? raw = body['value'];
+        if (raw != null && raw is! String) {
+          throw _fieldFailure('value', 'type', '字段类型错误');
+        }
+        final String? signature = normalizeSignature(raw as String?);
+        final String? updated = await gateway.updateSignature(signature);
+        await _writeJson(request, 200, <String, dynamic>{
+          'account': selfAccount,
+          'signature': updated,
+        });
+        return;
+      default:
+        await _writeEnvelope(request, 404, <String, dynamic>{
+          'error': <String, dynamic>{
+            'code': 'not_found',
+            'message': '未知接口',
+            'fields': <Object>[],
+          },
+        });
+        return;
+    }
+  }
+
+  Future<void> _methodNotAllowed(HttpRequest request) {
+    return _writeEnvelope(request, 405, <String, dynamic>{
+      'error': <String, dynamic>{
+        'code': 'method_not_allowed',
+        'message': '只支持 POST',
+        'fields': <Object>[],
+      },
+    });
+  }
+
+  Future<Map<String, dynamic>> _readJsonObject(
+    HttpRequest request, {
+    int maxBytes = maxRequestBytes,
+  }) async {
     final BytesBuilder builder = BytesBuilder(copy: false);
     await for (final List<int> chunk in request) {
       builder.add(chunk);
-      if (builder.length > maxRequestBytes) {
-        throw const AuthFailure(
+      if (builder.length > maxBytes) {
+        throw AuthFailure(
           status: 413,
           code: 'validation_error',
           message: '请求体过大',
@@ -141,7 +282,7 @@ class LocalAuthServer {
             AuthFieldError(
               field: 'body',
               code: 'too_large',
-              message: '请求体超过 16KB',
+              message: '请求体超过 ${maxBytes ~/ 1024}KB',
             ),
           ],
         );
@@ -189,29 +330,42 @@ class LocalAuthServer {
     );
   }
 
-  String _requireString(Map<String, dynamic> body, String field) {
+  String? _optionalString(Map<String, dynamic> body, String field) {
+    if (!body.containsKey(field)) {
+      return null;
+    }
     final Object? value = body[field];
     if (value == null) {
-      throw AuthFailure(
-        status: 422,
-        code: 'validation_error',
-        message: '输入有误',
-        fields: <AuthFieldError>[
-          AuthFieldError(field: field, code: 'required', message: '此字段必填'),
-        ],
-      );
+      return null;
     }
     if (value is! String) {
-      throw AuthFailure(
-        status: 422,
-        code: 'validation_error',
-        message: '输入有误',
-        fields: <AuthFieldError>[
-          AuthFieldError(field: field, code: 'type', message: '字段类型错误'),
-        ],
-      );
+      throw _fieldFailure(field, 'type', '字段类型错误');
     }
     return value;
+  }
+
+  String _requireString(Map<String, dynamic> body, String field) {
+    if (!body.containsKey(field)) {
+      throw _fieldFailure(field, 'required', '此字段必填');
+    }
+    final Object? value = body[field];
+    // Explicit null is a type error, not "missing": the shared PATCH contract
+    // distinguishes omission (preserve) from null.
+    if (value is! String) {
+      throw _fieldFailure(field, 'type', '字段类型错误');
+    }
+    return value;
+  }
+
+  AuthFailure _fieldFailure(String field, String code, String message) {
+    return AuthFailure(
+      status: 422,
+      code: 'validation_error',
+      message: '输入有误',
+      fields: <AuthFieldError>[
+        AuthFieldError(field: field, code: code, message: message),
+      ],
+    );
   }
 
   Future<void> _writeJson(

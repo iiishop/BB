@@ -78,4 +78,12 @@ class FakeAuthGateway implements AuthGateway {
     }
     signedOut = true;
   }
+
+  @override
+  Future<LogoutResult> logout() async {
+    await signOut();
+    return LogoutResult(serverNotified: serverNotified);
+  }
+
+  bool serverNotified = true;
 }
