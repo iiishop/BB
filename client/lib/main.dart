@@ -10,6 +10,9 @@ import 'services/auth_api_client.dart';
 import 'services/auth_service.dart';
 import 'services/auth_session.dart';
 import 'services/avatar_cache.dart';
+import 'services/chat_api_client.dart';
+import 'services/chat_ledger.dart';
+import 'services/chat_service.dart';
 import 'services/heartbeat_controller.dart';
 import 'services/profile_api_client.dart';
 import 'services/profile_service.dart';
@@ -32,9 +35,21 @@ Future<void> main() async {
     cache: AvatarCache(directory: await _avatarCacheDirectory(sessionFile)),
   );
   final HeartbeatController heartbeat = HeartbeatController(auth: auth);
+  final ChatService chat = ChatService(
+    api: ChatApiClient(baseUri: config.serverBaseUri),
+    session: session,
+    ledger: ChatLedger.atPath(await _chatLedgerPath(sessionFile)),
+    cacheRoot: await _chatCacheDirectory(sessionFile),
+  );
+  chat.start();
 
   runApp(
-    BbClientApp(authGateway: auth, profile: profile, heartbeat: heartbeat),
+    BbClientApp(
+      authGateway: auth,
+      profile: profile,
+      heartbeat: heartbeat,
+      chat: chat,
+    ),
   );
 }
 
@@ -47,13 +62,31 @@ Future<void> main() async {
 Future<File> _resolveSessionFile() async {
   final String? override = sessionFileFromEnvironment();
   if (override != null) {
-    return File(override);
+    return File(override).absolute;
   }
   if (Platform.isAndroid || Platform.isIOS) {
     final Directory directory = await getApplicationSupportDirectory();
     return File('${directory.path}${Platform.pathSeparator}session.json');
   }
   return File(defaultDesktopSessionFilePath());
+}
+
+Future<String> _chatLedgerPath(File sessionFile) async {
+  return '${sessionFile.parent.path}${Platform.pathSeparator}'
+      'chat-ledger.json';
+}
+
+Future<Directory> _chatCacheDirectory(File sessionFile) async {
+  const String compiled = String.fromEnvironment('BB_CHAT_CACHE_DIR');
+  final String? override = compiled.trim().isNotEmpty
+      ? compiled.trim()
+      : Platform.environment['BB_CHAT_CACHE_DIR']?.trim();
+  if (override != null && override.isNotEmpty) {
+    return Directory(override);
+  }
+  return Directory(
+    '${sessionFile.parent.path}${Platform.pathSeparator}chat-cache',
+  );
 }
 
 /// Avatar cache lives next to the session by default so it is per-install and

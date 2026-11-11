@@ -2,15 +2,20 @@
 
 Flutter 客户端，一套代码出 Linux/Windows 桌面与 Android APK（`linux/`、`windows/`、
 `android/` runner 均已就位）。STEP-1 交付注册、登录、会话持久化；STEP-2 增加
-**Profile（头像 / 昵称 / 签名）、三形态资料面板、六个 MCP 本地接口、服务端登出与心跳**。
+**Profile（头像 / 昵称 / 签名）、三形态资料面板、六个 MCP 本地接口、服务端登出与心跳**；
+STEP-3 增加**注册用户主页、一对一有序图文/独立附件、媒体选择/封面/播放/另存为、
+幂等发送、异步下载、持久事件、展示凭据与消费 ACK**。STEP-3 细节见
+`docs/chat-step3-client.md`。
 
 ```text
 client/
   lib/main.dart              Flutter 入口（API 地址 / 会话 / 头像缓存目录）
   lib/app.dart               设计 tokens、ThemeData、根 Widget
   lib/ui/                    恢复中 / 登录 / 注册 / 首页 / Profile 面板与三形态外壳
-  lib/services/              auth、profile、avatar 源与缓存、心跳、本地控制接口
-  lib/models/                认证 + Profile DTO 与 {error:{code,message,fields}} 错误模型
+  lib/services/              auth、profile、chat、媒体源、下载、持久事件、本地控制接口
+  lib/models/                认证 + Profile + Chat DTO 与 {error:{code,message,fields}}
+  lib/ui/chat/               用户列表、聊天页、有序输入区、气泡/附件、媒体动作
+  lib/services/chat_ledger.dart  账号级 operation/download/event/receipt/ACK 持久账本
   lib/validation/            与服务端一致的即时校验（服务端是唯一判定方）
   lib/config/                API base URL、本地接口地址、会话文件路径
   bin/bb_client_api.dart     独立 Dart 逻辑入口（Flutter UI 与本入口共用 services）
@@ -25,7 +30,8 @@ flutter pub get
 flutter run -d linux --dart-define=BB_API_BASE_URL=http://127.0.0.1:8000
 ```
 
-登录成功后进入 STEP-2 首页：左下角头像打开 Profile。资料面板按视口分为三种形态：
+登录成功后进入 STEP-3 首页：当前服务器全部注册用户的逐行列表（含未联系用户），点行进入
+一对一聊天；左下角头像仍打开 Profile。资料面板按视口分为三种形态：
 
 - **手机（窄，< 600 逻辑像素）**：从左侧滑入，占满屏幕，左上角返回/系统返回键向左滑出；
 - **折叠屏展开**：`MediaQuery.displayFeaturesOf` 中存在 `fold`/`hinge` 且
@@ -76,6 +82,27 @@ Linux 默认窗口 1180×780，Windows 同样 1180×780。Windows 构建/运行�
   校验重定向、超时、≤5MB、仅 PNG/JPEG/WebP）、原始或 `data:image/...;base64,`。
 - 缓存目录默认是会话文件同级的 `avatar-cache/`，可用 `BB_AVATAR_CACHE_DIR` 覆盖。
 
+## STEP-3 Chat 客户端
+
+- **主页**：`GET /users` 的账号升序 keyset 分页（1–100），每行头像、username、在线状态、
+  最后联系时间、最后消息“谁：预览”（本人显示“我”）；无历史显示“尚未联系 / 暂无消息”；
+  30s 静默刷新 + 下拉刷新；列表按 account 路由，重名 username 不串会话。预览不下载附件原文件。
+- **正文**：`POST /messages` 的 content 是有序 text/image；图片先由客户端上传为媒体资源，
+  发送/存储/接收/UI/MCP read 均保持原顺序。空正文不发消息。
+- **独立附件**：视频/音频/PDF 等走 `POST /messages/attachments`；消息只带元信息，默认不下载
+  原文件；视频带真实封面（桌面 ffmpeg 抽帧、Android `video_thumbnail`）。
+- **幂等**：正文与每个附件各自使用稳定 operation id；重试复用同一 id，成功项不重发；
+  409 冲突、uncertain 先查询再原样重试；部分成功保留成功项。
+- **异步下载**：`/downloads/start` 立即返回 202 + 计划路径；`/downloads/get` 查询完成/失败；
+  完成/失败事件写到发起任务的 consumer session；默认按媒体类型分 cache 子目录，重名追加
+  序号，拒绝目录穿越，不静默覆盖。
+- **持久事件/展示/ACK**：`/events/{subscribe,read,wait}`、`/chat/confirm_presentation`、
+  `/chat/ack_messages`；receipt 绑定账号/consumer/peer/message/有序 blocks；未确认的位置
+  ACK 返回 409 `consumption_gap`；下载完成不推进消息水位。
+- **UI**：日期/5 分钟时间分组、有序文本+图片、附件卡右击/长按“下载/播放/另存为”、
+  输入区图片/文件/粘贴与草稿顺序、失败重试提示；手机 390×844、桌面 1440×900、折叠
+  1024×768 均无溢出。
+
 ## 本地控制接口（给 dsh-plugin）
 
 独立于 Flutter 视图运行，与页面共用 `AuthService`、`ProfileService`、DTO、错误处理、
@@ -92,11 +119,15 @@ dart run bb_client_api \
 ```
 
 - 只允许监听 `127.0.0.1`，非回环地址以退出码 64 拒绝；端口 0 由系统分配。
-- 保留 `POST /auth/register`、`POST /auth/login`；新增六个 Profile 路由
+- 保留 `POST /auth/register`、`POST /auth/login`；STEP-2 六个 Profile 路由
   `POST /profile/{view_avatar,update_avatar,view_nickname,update_nickname,view_signature,update_signature}`
   （字段与错误码以 `server/contract/profile-local-schema.json` 和 49 组样例为准）。
 - `view_avatar` 返回 `{account,mime_type:"image/png",data:<raw base64>,avatar_version}`；
   `update_avatar` 请求体上限 8 MiB，其余路由沿用 16 KiB；token 绝不出现在响应或日志。
+- STEP-3 增加九工具 `/chat/list_users`、`/chat/send_message`、`/chat/send_attachment`、
+  `/chat/read_messages`、`/chat/wait_messages`、`/chat/ack_messages`、`/downloads/start`、
+  `/downloads/get`、`/operations/get`，以及 R3 内部路由 `/chat/confirm_presentation`、
+  `/events/subscribe`、`/events/read`、`/events/wait`；后四条不导出为 MCP 工具。
 - 非约定路径 `404`，非 POST `405`，非法 JSON/未知字段/长度错误 `422`，媒体类型 `413/415`，
   上游不可达/超时 `502/504`。
 - 启动会恢复会话并在已登录时开始心跳；**MCP/本地 `/auth/login` 成功后同样立即启动 30s 心跳**，
@@ -119,10 +150,11 @@ flutter test integration_test -d linux
 QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_tests.sh client
 ```
 
-- 默认 `flutter test`：221 例通过，4 例按环境 SKIP（真实 FastAPI 认证、真实 MCP 链路、
-  真实独立入口链路、截图生成）。覆盖 49 组共享契约样例、Unicode code point 计数、三来源
-  读取与校验、缓存 304/200 刷新、六条本地路由与 16 KiB/8 MiB 边界、心跳断线保留凭据、
-  三形态 Profile 面板与编辑/登出流程。
+- 默认 `flutter test`：最新严格 runner 为 **241 passed / 8 skipped / exit 0**。新增覆盖
+  有序图文发送、幂等/冲突、read→receipt→ACK 缺口、附件只读元信息、异步下载内容、持久事件、
+  wait 积压/提前到达、用户列表分页/预览/在线状态、聊天输入与附件卡、账本重启与媒体源解析。
+- 严格命令：`QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_tests.sh client`
+  → `RESULT=PASS`（analyze PASS、flutter-test PASS、linux-integration 12 PASS）。
 - `test/qa_metrics_test.dart` / `qa_session_race_test.dart` 保留独立 QA 的失败回归：
   打开面板后实时缩放/折叠重排、旧会话延迟 401 不得清掉新登录会话。
 - `test/qa_resize_transition_test.dart`、`profile_transition_reflow_test.dart` 保留并覆盖
@@ -131,9 +163,14 @@ QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_test
 - `test/standalone_entry_test.dart` 会真正启动 `dart run bin/bb_client_api.dart` 子进程：
   `--help` 必须 exit 0（QA-465-01 回归），本地登录后 1s 测试心跳自动开启，401 后内存与
   磁盘凭据都被清除且 token 不落日志。
-- `integration_test/auth_flow_test.dart`：Linux 上真实 HTTP 的 STEP-1 流程 + 3 个 STEP-2
-  UI 链路（完整资料编辑/头像 path/实时重排/登出、心跳横幅保凭据、base64 头像/登出）；
-  `flutter test integration_test -d linux` 11 例通过。
+- `integration_test/auth_flow_test.dart`：Linux 上真实 HTTP 的 STEP-1 流程 + STEP-2
+  UI 链路 + STEP-3 用户主页→聊天→图片渲染→文本发送；`flutter test integration_test -d linux`
+  12 例通过。
+- STEP-3 真实链路（需自行启动 `bb_server`）：`BB_LIVE_SERVER_URL=http://127.0.0.1:8171
+  flutter test test/live_chat_e2e_test.dart`，覆盖真实 FastAPI 的有序图文、receipt/ACK、
+  第三方 ACL、视频封面、异步下载与持久事件；本次实际 3 例通过。
+- 独立入口真实链路：启动 `dart run bin/bb_client_api.dart` 后经本地 `/auth/login` 与
+  `/chat/*`、`/downloads/*`、`/events/*` 访问真实 FastAPI；本次实际 `STANDALONE CHAIN: PASS`。
 - 真实链路（需自行启动 `bb_server`）：设置 `BB_LIVE_SERVER_URL`、`BB_MCP_PROBE=1` 与
   `BB_PROBE_PNG_BASE64` / `BB_PROBE_AVATAR_PATH` / `BB_PROBE_AVATAR_URL_PATH` 后运行
   `flutter test test/live_profile_e2e_test.dart`，走真实 MCP stdio → Dart 本地接口 → FastAPI。
@@ -144,7 +181,11 @@ QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_test
 ## 已知限制（本轮范围）
 
 - 不做 token 过期/刷新；真正重新登录只有主动退出或服务端清理 24h 离线会话后 401。
-- 不做好友/搜索/在线状态展示/头像裁剪/相册/聊天/动态/推送；「查看其他账号资料」是本轮
-  为验证缓存刷新保留的最小入口。
+- 不做群聊、好友申请/搜索、动态、产品已读回执、跨机器文件传输、附件自动解析。
 - Android 真机与 Windows 构建/运行 **NOT RUN**；折叠屏形态为注入 `DisplayFeature` 的
-  widget 渲染验证，未在真实折叠设备运行。
+  widget 渲染验证，未在真实折叠设备运行。Android 图片剪贴板、Linux 内嵌视频播放为平台
+  限制（分别 NOT RUN / 改系统播放器），不得记作通过。
+- 聊天初始最多加载 6 页×100 条；更早历史未做“加载更早”。事件日志不设有限内存丢弃窗口，
+  长期清理策略未实现。
+- 真实 DSH 模型展示、continuation、九工具真实 MCP 端到端仍由 Forge/集成 QA 验证，本客户端
+  只覆盖本机 FastAPI 与本地 loopback 契约。

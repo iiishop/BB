@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../models/auth_models.dart';
 import '../services/auth_service.dart';
+import '../services/chat_service.dart';
 import '../services/heartbeat_controller.dart';
 import '../services/profile_service.dart';
 import 'home_view.dart';
@@ -24,6 +25,7 @@ class AuthFlow extends StatefulWidget {
     required this.gateway,
     this.profile,
     this.heartbeat,
+    this.chat,
   });
 
   final AuthGateway gateway;
@@ -31,6 +33,9 @@ class AuthFlow extends StatefulWidget {
   /// Non-null switches the signed-in surface to the STEP-2 Profile home.
   final ProfileGateway? profile;
   final HeartbeatController? heartbeat;
+
+  /// STEP-3 chat service, forwarded to the signed-in home.
+  final ChatService? chat;
 
   @override
   State<AuthFlow> createState() => _AuthFlowState();
@@ -274,6 +279,7 @@ class _AuthFlowState extends State<AuthFlow> {
             profile: profile,
             auth: widget.gateway,
             heartbeat: heartbeat,
+            chat: widget.chat,
             onSignedOut: _handleSignedOut,
             onSessionExpired: () => unawaited(_handleExpiredSession()),
           );

@@ -2,15 +2,23 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:bb_client/app.dart';
+import 'package:bb_client/models/auth_models.dart';
+import 'package:bb_client/models/chat_models.dart';
 import 'package:bb_client/services/auth_api_client.dart';
 import 'package:bb_client/services/auth_service.dart';
 import 'package:bb_client/services/auth_session.dart';
 import 'package:bb_client/services/avatar_cache.dart';
+import 'package:bb_client/services/chat_api_client.dart';
+import 'package:bb_client/services/chat_ledger.dart';
+import 'package:bb_client/services/chat_service.dart';
 import 'package:bb_client/services/heartbeat_controller.dart';
 import 'package:bb_client/services/profile_api_client.dart';
 import 'package:bb_client/services/profile_service.dart';
 import 'package:bb_client/services/session_store.dart';
 import 'package:bb_client/ui/auth_shell.dart';
+import 'package:bb_client/ui/chat/chat_composer.dart';
+import 'package:bb_client/ui/chat/chat_page.dart';
+import 'package:bb_client/ui/chat/users_view.dart';
 import 'package:bb_client/ui/home_view.dart';
 import 'package:bb_client/ui/profile/profile_panel.dart';
 import 'package:bb_client/ui/login_page.dart';
@@ -22,6 +30,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
 import '../test/support/fake_auth_backend.dart';
+import '../test/support/fake_auth_gateway.dart';
+import '../test/support/fake_chat_backend.dart';
+import '../test/support/fake_profile_gateway.dart';
 
 /// Linux desktop end-to-end coverage of STEP-1 against a real HTTP upstream.
 ///
@@ -545,4 +556,97 @@ void main() {
     expect(restarted.session.hasToken, isFalse);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('real HTTP: users home opens chat, image renders, text sends', (
+    WidgetTester tester,
+  ) async {
+    final FakeChatBackend chatBackend = await FakeChatBackend.start(
+      users: <String, String>{'10000001': 'alice', '10000002': 'bob'},
+    );
+    final Directory chatRoot = await Directory.systemTemp.createTemp(
+      'bb-chat-integration-',
+    );
+    final AuthSession chatSession = AuthSession()
+      ..establish(
+        token: chatBackend.tokenFor('10000001'),
+        user: const AuthUser(account: '10000001', username: 'alice'),
+      );
+    final ChatService chatService = ChatService(
+      api: ChatApiClient(baseUri: chatBackend.baseUri),
+      session: chatSession,
+      ledger: ChatLedger.atPath('${chatRoot.path}/ledger.json'),
+      cacheRoot: Directory('${chatRoot.path}/cache'),
+      webSocketHints: false,
+    );
+    final String imageId = await chatBackend.addImage(
+      owner: '10000002',
+      peer: '10000001',
+      bytes: base64Decode(_chatPng),
+      filename: 'photo.png',
+    );
+    await chatBackend.seedMessage(
+      sender: '10000002',
+      target: '10000001',
+      text: '你好，图片在下面',
+      mediaId: imageId,
+    );
+    final HeartbeatController chatHeartbeat = HeartbeatController(
+      auth: AuthService(
+        api: AuthApiClient(baseUri: chatBackend.baseUri),
+        session: chatSession,
+      ),
+    );
+    addTearDown(chatHeartbeat.dispose);
+    addTearDown(chatService.dispose);
+    addTearDown(chatBackend.close);
+    addTearDown(() async {
+      if (await chatRoot.exists()) {
+        await chatRoot.delete(recursive: true);
+      }
+    });
+
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final FakeAuthGateway chatAuth = FakeAuthGateway()
+      ..restoreResult = const AuthUser(account: '10000001', username: 'alice');
+    await tester.pumpWidget(
+      BbClientApp(
+        authGateway: chatAuth,
+        profile: FakeProfileGateway(),
+        heartbeat: chatHeartbeat,
+        chat: chatService,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(UsersListView.rowKey('10000002')), findsOneWidget);
+    await tester.tap(find.byKey(UsersListView.rowKey('10000002')));
+    await tester.pumpAndSettle();
+    expect(find.byType(ChatPage), findsOneWidget);
+    expect(find.text('你好，图片在下面'), findsOneWidget);
+    expect(find.byType(Image), findsWidgets);
+
+    await tester.enterText(find.byKey(ChatComposer.inputKey), 'Linux 集成发送');
+    await tester.tap(find.byKey(ChatComposer.sendKey));
+    await tester.pumpAndSettle();
+    expect(find.text('Linux 集成发送'), findsOneWidget);
+
+    final MessagePage page = await chatService.loadConversation(
+      peerAccount: '10000002',
+    );
+    expect(
+      page.items.any(
+        (ChatMessage message) => message.parts.any(
+          (MessagePart part) => part is TextPart && part.text == 'Linux 集成发送',
+        ),
+      ),
+      isTrue,
+    );
+  });
 }
+
+const String _chatPng =
+    'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR4nGP8z8Dwn4GBgYGJAQoAHxcCAk+Uzr4AAAAASUVORK5CYII=';

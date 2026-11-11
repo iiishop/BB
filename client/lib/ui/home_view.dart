@@ -7,8 +7,12 @@ import '../app.dart';
 import '../models/auth_models.dart';
 import '../models/profile_models.dart';
 import '../services/auth_service.dart';
+import '../services/chat_service.dart';
 import '../services/heartbeat_controller.dart';
 import '../services/profile_service.dart';
+import '../models/chat_models.dart';
+import 'chat/chat_page.dart';
+import 'chat/users_view.dart';
 import 'profile/profile_panel.dart';
 import 'widgets/profile_avatar.dart';
 
@@ -27,12 +31,17 @@ class HomeView extends StatefulWidget {
     required this.heartbeat,
     required this.onSignedOut,
     required this.onSessionExpired,
+    this.chat,
   });
 
   final AuthUser user;
   final ProfileGateway profile;
   final AuthGateway auth;
   final HeartbeatController heartbeat;
+
+  /// STEP-3 chat service. When present the signed-in home is the registered
+  /// user list; when null the STEP-2 profile-only home is kept.
+  final ChatService? chat;
   final void Function(LogoutResult? result) onSignedOut;
   final void Function() onSessionExpired;
 
@@ -133,6 +142,18 @@ class _HomeViewState extends State<HomeView> {
     await _load();
   }
 
+  void _openChat(ChatUser user) {
+    final ChatService? chat = widget.chat;
+    if (chat == null) {
+      return;
+    }
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) => ChatPage(peer: user, chat: chat),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final TextTheme text = Theme.of(context).textTheme;
@@ -155,70 +176,119 @@ class _HomeViewState extends State<HomeView> {
                       ? _ReconnectBanner(key: HomeView.reconnectingBannerKey)
                       : const SizedBox(width: double.infinity),
                 ),
-                Expanded(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.lg,
-                      AppSpacing.xl,
-                      AppSpacing.lg,
-                      120,
+                if (widget.chat != null)
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: <Widget>[
+                        Center(
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 760),
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(
+                                AppSpacing.lg,
+                                AppSpacing.sm,
+                                AppSpacing.lg,
+                                AppSpacing.xs,
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: <Widget>[
+                                  _BrandRow(account: widget.user.account),
+                                  const SizedBox(height: AppSpacing.md),
+                                  Text(
+                                    '消息',
+                                    style: text.headlineMedium?.copyWith(
+                                      fontSize: 30,
+                                      letterSpacing: -0.6,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    '当前服务器的注册用户都在这里，点一行开始聊天。',
+                                    style: text.bodySmall,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: UsersListView(
+                            chat: widget.chat!,
+                            profile: widget.profile,
+                            onOpenChat: _openChat,
+                            onSessionExpired: widget.onSessionExpired,
+                          ),
+                        ),
+                      ],
                     ),
-                    child: Center(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 720),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: <Widget>[
-                            _BrandRow(account: widget.user.account),
-                            const SizedBox(height: AppSpacing.xl),
-                            Text(
-                              '你好，$nickname',
-                              key: HomeView.greetingKey,
-                              style: text.headlineMedium?.copyWith(
-                                fontSize: 30,
-                                letterSpacing: -0.6,
-                              ),
-                            ),
-                            const SizedBox(height: AppSpacing.sm),
-                            Text(
-                              (_profile?.signature?.isNotEmpty ?? false)
-                                  ? _profile!.signature!
-                                  : '还没有签名。点左下角头像，写下第一句自我介绍。',
-                              key: HomeView.signatureKey,
-                              style: text.bodyLarge?.copyWith(
-                                color:
-                                    (_profile?.signature?.isNotEmpty ?? false)
-                                    ? AppColors.ink
-                                    : AppColors.inkMuted,
-                                fontStyle:
-                                    (_profile?.signature?.isNotEmpty ?? false)
-                                    ? null
-                                    : FontStyle.italic,
-                              ),
-                            ),
-                            const SizedBox(height: AppSpacing.xxl),
-                            const _ComingSoonCard(),
-                            if (_error != null) ...<Widget>[
-                              const SizedBox(height: AppSpacing.lg),
+                  )
+                else
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.fromLTRB(
+                        AppSpacing.lg,
+                        AppSpacing.xl,
+                        AppSpacing.lg,
+                        120,
+                      ),
+                      child: Center(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 720),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: <Widget>[
+                              _BrandRow(account: widget.user.account),
+                              const SizedBox(height: AppSpacing.xl),
                               Text(
-                                _error!,
-                                key: HomeView.errorKey,
-                                style: text.bodySmall?.copyWith(
-                                  color: AppColors.danger,
+                                '你好，$nickname',
+                                key: HomeView.greetingKey,
+                                style: text.headlineMedium?.copyWith(
+                                  fontSize: 30,
+                                  letterSpacing: -0.6,
                                 ),
                               ),
                               const SizedBox(height: AppSpacing.sm),
-                              TextButton(
-                                onPressed: _load,
-                                child: const Text('重新加载资料'),
+                              Text(
+                                (_profile?.signature?.isNotEmpty ?? false)
+                                    ? _profile!.signature!
+                                    : '还没有签名。点左下角头像，写下第一句自我介绍。',
+                                key: HomeView.signatureKey,
+                                style: text.bodyLarge?.copyWith(
+                                  color:
+                                      (_profile?.signature?.isNotEmpty ?? false)
+                                      ? AppColors.ink
+                                      : AppColors.inkMuted,
+                                  fontStyle:
+                                      (_profile?.signature?.isNotEmpty ?? false)
+                                      ? null
+                                      : FontStyle.italic,
+                                ),
                               ),
+                              const SizedBox(height: AppSpacing.xxl),
+                              const _ComingSoonCard(),
+                              if (_error != null) ...<Widget>[
+                                const SizedBox(height: AppSpacing.lg),
+                                Text(
+                                  _error!,
+                                  key: HomeView.errorKey,
+                                  style: text.bodySmall?.copyWith(
+                                    color: AppColors.danger,
+                                  ),
+                                ),
+                                const SizedBox(height: AppSpacing.sm),
+                                TextButton(
+                                  onPressed: _load,
+                                  child: const Text('重新加载资料'),
+                                ),
+                              ],
                             ],
-                          ],
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
               ],
             ),
             Positioned(

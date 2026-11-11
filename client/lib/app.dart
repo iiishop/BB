@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'services/auth_service.dart';
+import 'services/chat_service.dart';
 import 'services/heartbeat_controller.dart';
 import 'services/profile_service.dart';
 import 'ui/auth_flow.dart';
@@ -228,6 +229,7 @@ class BbClientApp extends StatelessWidget {
     required this.authGateway,
     this.profile,
     this.heartbeat,
+    this.chat,
   });
 
   final AuthGateway authGateway;
@@ -236,6 +238,9 @@ class BbClientApp extends StatelessWidget {
   /// which is what the focused auth tests still construct.
   final ProfileGateway? profile;
   final HeartbeatController? heartbeat;
+
+  /// STEP-3 chat service. Null keeps the focused STEP-1/2 test surfaces.
+  final ChatService? chat;
 
   @override
   Widget build(BuildContext context) {
@@ -247,6 +252,7 @@ class BbClientApp extends StatelessWidget {
         gateway: authGateway,
         profile: profile,
         heartbeat: heartbeat,
+        chat: chat,
       ),
     );
   }

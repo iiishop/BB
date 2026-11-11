@@ -8,6 +8,9 @@ import 'package:bb_client/services/auth_api_client.dart';
 import 'package:bb_client/services/auth_service.dart';
 import 'package:bb_client/services/auth_session.dart';
 import 'package:bb_client/services/avatar_cache.dart';
+import 'package:bb_client/services/chat_api_client.dart';
+import 'package:bb_client/services/chat_ledger.dart';
+import 'package:bb_client/services/chat_service.dart';
 import 'package:bb_client/services/heartbeat_controller.dart';
 import 'package:bb_client/services/local_auth_server.dart';
 import 'package:bb_client/services/profile_api_client.dart';
@@ -62,6 +65,13 @@ Future<void> main(List<String> args) async {
     auth: service,
     interval: options.heartbeatInterval,
   );
+  final ChatService chat = ChatService(
+    api: ChatApiClient(baseUri: options.serverBaseUri),
+    session: service.session,
+    ledger: ChatLedger.atPath(options.chatLedgerPath),
+    cacheRoot: options.chatCacheDirectory,
+  );
+  chat.start();
   bool expiring = false;
 
   /// A genuine 401 is a revoked/expired session: clear both copies of the
@@ -100,8 +110,9 @@ Future<void> main(List<String> args) async {
 
   // Restore before listening: a second launch re-validates the stored credential
   // with the shared session store. Status only — never account, token or body.
+  bool restored = false;
   try {
-    final bool restored = await service.restoreSession() != null;
+    restored = await service.restoreSession() != null;
     stdout.writeln(restored ? '已恢复本地会话' : '本地无有效会话');
     if (restored) {
       heartbeat.start();
@@ -116,9 +127,14 @@ Future<void> main(List<String> args) async {
     }
   }
 
+  if (restored) {
+    unawaited(chat.downloads.resumePending());
+  }
+
   final LocalAuthServer server = LocalAuthServer(
     service: service,
     profile: profile,
+    chat: chat,
     host: options.host,
     port: options.port,
     onSessionEstablished: () {
@@ -146,6 +162,7 @@ Future<void> main(List<String> args) async {
   Future<void> stop() async {
     heartbeat.stop();
     await server.close();
+    await chat.dispose();
     exit(0);
   }
 
@@ -161,6 +178,8 @@ class _Options {
     required this.port,
     required this.sessionFile,
     required this.avatarCacheDirectory,
+    required this.chatLedgerPath,
+    required this.chatCacheDirectory,
     required this.heartbeatInterval,
   });
 
@@ -169,6 +188,8 @@ class _Options {
   final int port;
   final File sessionFile;
   final Directory avatarCacheDirectory;
+  final String chatLedgerPath;
+  final Directory chatCacheDirectory;
   final Duration heartbeatInterval;
 
   factory _Options.parse(List<String> args, Map<String, String> env) {
@@ -233,9 +254,11 @@ class _Options {
       );
     }
 
-    final File session = (sessionFile != null && sessionFile.trim().isNotEmpty)
-        ? File(sessionFile.trim())
-        : resolveSessionFile(environment: env);
+    final File session =
+        ((sessionFile != null && sessionFile.trim().isNotEmpty)
+                ? File(sessionFile.trim())
+                : resolveSessionFile(environment: env))
+            .absolute;
 
     final Directory cacheDirectory =
         (avatarCacheDir != null && avatarCacheDir.trim().isNotEmpty)
@@ -243,6 +266,7 @@ class _Options {
         : Directory(
             '${session.parent.path}${Platform.pathSeparator}avatar-cache',
           );
+    final Directory absoluteCache = cacheDirectory.absolute;
 
     final double intervalSeconds = heartbeatSeconds == null
         ? 30
@@ -255,12 +279,19 @@ class _Options {
       );
     }
 
+    final Directory chatCache = Directory(
+      '${session.parent.path}${Platform.pathSeparator}chat-cache',
+    );
+
     return _Options(
       serverBaseUri: parseServerBaseUrl(serverUrl ?? defaultServerBaseUrl),
       host: host,
       port: parsedPort,
       sessionFile: session,
-      avatarCacheDirectory: cacheDirectory,
+      avatarCacheDirectory: absoluteCache,
+      chatLedgerPath:
+          '${session.parent.path}${Platform.pathSeparator}chat-ledger.json',
+      chatCacheDirectory: chatCache,
       heartbeatInterval: Duration(
         microseconds: (intervalSeconds * Duration.microsecondsPerSecond)
             .round(),
