@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { readFile } from 'node:fs/promises';
 
-export async function boot(packageRoot, storageRoot, observe = () => {}) {
+export async function boot(packageRoot, storageRoot, observe = () => {}, modelHook = async () => {}) {
   const require = createRequire(resolve(packageRoot, 'package.json'));
   const load = async name => import(pathToFileURL(require.resolve(`@deepseek-ai/${name}`)));
   const { Context } = await load('cordis');
@@ -37,6 +37,7 @@ export async function boot(packageRoot, storageRoot, observe = () => {}) {
     }
     async *stream(options) {
       observe('model.request', { ids: options.messages.map(message => message.id) });
+      await modelHook(options);
       yield { type: 'block-start', index: 0, blockType: 'text' };
       yield { type: 'text-delta', index: 0, text: 'synthetic acknowledgment' };
       yield { type: 'block-end', index: 0, block: { type: 'text', text: 'synthetic acknowledgment' } };
