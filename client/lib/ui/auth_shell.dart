@@ -32,6 +32,10 @@ class AuthShell extends StatelessWidget {
   /// Form column key so tests can measure the compact/wide arrangement.
   static const Key formColumnKey = Key('auth-form-column');
 
+  /// Wide-panel session hint. Must describe the persisted session: the client
+  /// stores the credential locally and verifies it on the next launch.
+  static const String sessionHint = '8 位账号登录 · 凭据保存在本机，重启后自动验证';
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -310,7 +314,7 @@ class _BrandPanel extends StatelessWidget {
                       const SizedBox(width: AppSpacing.sm),
                       Expanded(
                         child: Text(
-                          '8 位账号登录 · 会话仅保留在本次运行',
+                          AuthShell.sessionHint,
                           style: text.bodySmall?.copyWith(
                             color: AppColors.surface.withValues(alpha: 0.7),
                           ),

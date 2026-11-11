@@ -92,7 +92,7 @@ flutter test integration_test -d linux
 QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_tests.sh client
 ```
 
-- `test/` 61 例 + 1 个默认 SKIP 的真实链路用例：校验规则、真实 HTTP 桩上的 service
+- `test/` 62 例 + 1 个默认 SKIP 的真实链路用例：校验规则、真实 HTTP 桩上的 service
   行为、`GET /auth/session` 恢复路径（成功 / 401 清除 / 502 保留）、会话文件权限与内容
   （0600、无密码、替换失败保留旧记录、并发写不损坏、删除失败报错）、存储故障
   `session_storage_unavailable` 的登录/恢复/退出行为、本地控制接口（token 不外泄、
