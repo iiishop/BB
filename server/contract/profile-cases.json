@@ -1,0 +1,453 @@
+[
+  {
+    "id": "patch-trim",
+    "operation": "patch_profile",
+    "input": {
+      "username": " Alice ",
+      "signature": " 你好🌏 "
+    },
+    "normalized": {
+      "username": "Alice",
+      "signature": "你好🌏"
+    }
+  },
+  {
+    "id": "patch-omit",
+    "operation": "patch_profile",
+    "input": {},
+    "normalized": {}
+  },
+  {
+    "id": "patch-clear-null",
+    "operation": "patch_profile",
+    "input": {
+      "signature": null
+    },
+    "normalized": {
+      "signature": null
+    }
+  },
+  {
+    "id": "patch-clear-empty",
+    "operation": "patch_profile",
+    "input": {
+      "signature": " \t "
+    },
+    "normalized": {
+      "signature": null
+    }
+  },
+  {
+    "id": "name-3",
+    "operation": "patch_profile",
+    "input": {
+      "username": "🌏🌏🌏"
+    },
+    "normalized": {
+      "username": "🌏🌏🌏"
+    }
+  },
+  {
+    "id": "name-24",
+    "operation": "patch_profile",
+    "input": {
+      "username": "🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏"
+    },
+    "normalized": {
+      "username": "🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏"
+    }
+  },
+  {
+    "id": "bad-name-0",
+    "operation": "patch_profile",
+    "input": {
+      "username": ""
+    },
+    "status": 422,
+    "field_code": "length"
+  },
+  {
+    "id": "bad-name-2",
+    "operation": "patch_profile",
+    "input": {
+      "username": "xx"
+    },
+    "status": 422,
+    "field_code": "length"
+  },
+  {
+    "id": "bad-name-25",
+    "operation": "patch_profile",
+    "input": {
+      "username": "xxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "status": 422,
+    "field_code": "length"
+  },
+  {
+    "id": "name-null",
+    "operation": "patch_profile",
+    "input": {
+      "username": null
+    },
+    "status": 422,
+    "field_code": "type"
+  },
+  {
+    "id": "signature-49",
+    "operation": "patch_profile",
+    "input": {
+      "signature": "🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏"
+    },
+    "normalized": {
+      "signature": "🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏"
+    }
+  },
+  {
+    "id": "bad-signature-50",
+    "operation": "patch_profile",
+    "input": {
+      "signature": "中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中"
+    },
+    "status": 422,
+    "field_code": "length"
+  },
+  {
+    "id": "bad-signature-51",
+    "operation": "patch_profile",
+    "input": {
+      "signature": "中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中"
+    },
+    "status": 422,
+    "field_code": "length"
+  },
+  {
+    "id": "patch-account-forbidden",
+    "operation": "patch_profile",
+    "input": {
+      "account": "12345678"
+    },
+    "status": 422,
+    "field_code": "extra"
+  },
+  {
+    "id": "view_avatar-self",
+    "operation": "view_avatar",
+    "input": {},
+    "normalized": {}
+  },
+  {
+    "id": "view_avatar-other",
+    "operation": "view_avatar",
+    "input": {
+      "account": "12345678"
+    },
+    "normalized": {
+      "account": "12345678"
+    }
+  },
+  {
+    "id": "view_avatar-null",
+    "operation": "view_avatar",
+    "input": {
+      "account": null
+    },
+    "normalized": {
+      "account": null
+    }
+  },
+  {
+    "id": "view_avatar-bad-account",
+    "operation": "view_avatar",
+    "input": {
+      "account": "１２３４５６７８"
+    },
+    "status": 422,
+    "field_code": "format"
+  },
+  {
+    "id": "view_nickname-self",
+    "operation": "view_nickname",
+    "input": {},
+    "normalized": {}
+  },
+  {
+    "id": "view_nickname-other",
+    "operation": "view_nickname",
+    "input": {
+      "account": "12345678"
+    },
+    "normalized": {
+      "account": "12345678"
+    }
+  },
+  {
+    "id": "view_nickname-null",
+    "operation": "view_nickname",
+    "input": {
+      "account": null
+    },
+    "normalized": {
+      "account": null
+    }
+  },
+  {
+    "id": "view_nickname-bad-account",
+    "operation": "view_nickname",
+    "input": {
+      "account": "１２３４５６７８"
+    },
+    "status": 422,
+    "field_code": "format"
+  },
+  {
+    "id": "view_signature-self",
+    "operation": "view_signature",
+    "input": {},
+    "normalized": {}
+  },
+  {
+    "id": "view_signature-other",
+    "operation": "view_signature",
+    "input": {
+      "account": "12345678"
+    },
+    "normalized": {
+      "account": "12345678"
+    }
+  },
+  {
+    "id": "view_signature-null",
+    "operation": "view_signature",
+    "input": {
+      "account": null
+    },
+    "normalized": {
+      "account": null
+    }
+  },
+  {
+    "id": "view_signature-bad-account",
+    "operation": "view_signature",
+    "input": {
+      "account": "１２３４５６７８"
+    },
+    "status": 422,
+    "field_code": "format"
+  },
+  {
+    "id": "update_nickname-other-denied",
+    "operation": "update_nickname",
+    "input": {
+      "value": "valid",
+      "account": "12345678"
+    },
+    "status": 422,
+    "field_code": "extra"
+  },
+  {
+    "id": "update_signature-other-denied",
+    "operation": "update_signature",
+    "input": {
+      "value": "valid",
+      "account": "12345678"
+    },
+    "status": 422,
+    "field_code": "extra"
+  },
+  {
+    "id": "nickname-trim",
+    "operation": "update_nickname",
+    "input": {
+      "value": " Alice "
+    },
+    "normalized": {
+      "value": "Alice"
+    }
+  },
+  {
+    "id": "nickname-missing",
+    "operation": "update_nickname",
+    "input": {},
+    "status": 422,
+    "field_code": "required"
+  },
+  {
+    "id": "nickname-null",
+    "operation": "update_nickname",
+    "input": {
+      "value": null
+    },
+    "status": 422,
+    "field_code": "type"
+  },
+  {
+    "id": "nickname-short",
+    "operation": "update_nickname",
+    "input": {
+      "value": "ab"
+    },
+    "status": 422,
+    "field_code": "length"
+  },
+  {
+    "id": "clear-0",
+    "operation": "update_signature",
+    "input": {},
+    "normalized": {
+      "value": null
+    }
+  },
+  {
+    "id": "clear-1",
+    "operation": "update_signature",
+    "input": {
+      "value": null
+    },
+    "normalized": {
+      "value": null
+    }
+  },
+  {
+    "id": "clear-2",
+    "operation": "update_signature",
+    "input": {
+      "value": " \t "
+    },
+    "normalized": {
+      "value": null
+    }
+  },
+  {
+    "id": "signature-tool-49",
+    "operation": "update_signature",
+    "input": {
+      "value": "🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏"
+    },
+    "normalized": {
+      "value": "🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏"
+    }
+  },
+  {
+    "id": "signature-tool-50",
+    "operation": "update_signature",
+    "input": {
+      "value": "🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏🌏"
+    },
+    "status": 422,
+    "field_code": "length"
+  },
+  {
+    "id": "avatar-source-37",
+    "operation": "update_avatar",
+    "input": {
+      "path": "/synthetic/avatar.png"
+    },
+    "normalized": {
+      "path": "/synthetic/avatar.png"
+    }
+  },
+  {
+    "id": "avatar-source-38",
+    "operation": "update_avatar",
+    "input": {
+      "path": "C:\\synthetic\\avatar.png"
+    },
+    "normalized": {
+      "path": "C:\\synthetic\\avatar.png"
+    }
+  },
+  {
+    "id": "avatar-source-39",
+    "operation": "update_avatar",
+    "input": {
+      "url": "https://example.invalid/avatar"
+    },
+    "normalized": {
+      "url": "https://example.invalid/avatar"
+    }
+  },
+  {
+    "id": "avatar-source-40",
+    "operation": "update_avatar",
+    "input": {
+      "base64": "YWJj"
+    },
+    "normalized": {
+      "base64": "YWJj"
+    }
+  },
+  {
+    "id": "avatar-source-41",
+    "operation": "update_avatar",
+    "input": {
+      "base64": "data:image/png;base64,YWJj"
+    },
+    "normalized": {
+      "base64": "data:image/png;base64,YWJj"
+    }
+  },
+  {
+    "id": "ambiguous-42",
+    "operation": "update_avatar",
+    "input": {},
+    "status": 422,
+    "field_code": "one_source"
+  },
+  {
+    "id": "ambiguous-43",
+    "operation": "update_avatar",
+    "input": {
+      "path": "/x",
+      "url": "https://example.invalid/x"
+    },
+    "status": 422,
+    "field_code": "one_source"
+  },
+  {
+    "id": "ambiguous-44",
+    "operation": "update_avatar",
+    "input": {
+      "base64": "a",
+      "path": null
+    },
+    "status": 422,
+    "field_code": "one_source"
+  },
+  {
+    "id": "bad-source-45",
+    "operation": "update_avatar",
+    "input": {
+      "path": "relative.png"
+    },
+    "status": 422,
+    "field_code": "format"
+  },
+  {
+    "id": "bad-source-46",
+    "operation": "update_avatar",
+    "input": {
+      "url": "file:///tmp/x"
+    },
+    "status": 422,
+    "field_code": "format"
+  },
+  {
+    "id": "bad-source-47",
+    "operation": "update_avatar",
+    "input": {
+      "base64": ""
+    },
+    "status": 422,
+    "field_code": "required"
+  },
+  {
+    "id": "bad-source-48",
+    "operation": "update_avatar",
+    "input": {
+      "base64": null
+    },
+    "status": 422,
+    "field_code": "required"
+  }
+]

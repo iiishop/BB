@@ -28,6 +28,12 @@ async def check():
         assert {t.name for t in (await session.list_tools()).tools} == {
             "register_account",
             "login_account",
+            "view_avatar",
+            "update_avatar",
+            "view_nickname",
+            "update_nickname",
+            "view_signature",
+            "update_signature",
         }
         accounts = []
         for _ in range(2):

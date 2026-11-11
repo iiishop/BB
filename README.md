@@ -9,7 +9,7 @@ Flutter 客户端 + FastAPI 服务端的私人社交平台。三个一等模块�
 ```
 server/               FastAPI + SQLite 业务服务（Forge 负责）
 client/               Flutter 客户端，桌面 + Android（Muse 负责）
-dsh-plugin/           DSH MCP 插件，只暴露注册/登录两个工具（Forge 负责）
+dsh-plugin/           DSH MCP 插件，注册/登录 + 六个 Profile 工具（Forge 负责）
 docs/                 项目上下文、工程红线、接口契约种子、QA 模板
 scripts/              统一 QA runner
 ```

@@ -77,7 +77,18 @@ def structural_error(errors: list[dict]) -> ContractError:
             (
                 str(part)
                 for part in error["loc"]
-                if part in ("username", "password", "account")
+                if part
+                in (
+                    "username",
+                    "password",
+                    "account",
+                    "signature",
+                    "value",
+                    "path",
+                    "url",
+                    "base64",
+                    "file",
+                )
             ),
             "body",
         )

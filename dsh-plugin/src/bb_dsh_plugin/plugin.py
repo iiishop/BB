@@ -1,3 +1,4 @@
+import base64
 import json
 import math
 from urllib.parse import urlsplit
@@ -11,8 +12,13 @@ from bb_auth_contract import (
     RegisterRequest,
     parse_request,
 )
+from bb_auth_contract.profile import (
+    PROFILE_RESPONSES,
+    PROFILE_TOOLS,
+    parse_profile_tool,
+)
 from mcp.server.lowlevel import Server
-from mcp.types import CallToolResult, TextContent, Tool
+from mcp.types import CallToolResult, ImageContent, TextContent, Tool
 from pydantic import ValidationError
 
 
@@ -48,8 +54,9 @@ class LocalClient:
             trust_env=False,
         ) as client:
             try:
+                group = "profile" if operation in PROFILE_TOOLS else "auth"
                 response = await client.post(
-                    f"{self.base_url}/auth/{operation}", json=payload
+                    f"{self.base_url}/{group}/{operation}", json=payload
                 )
             except httpx.TimeoutException:
                 raise ContractError(504, "upstream_timeout", "客户端请求超时") from None
@@ -65,8 +72,9 @@ def decode_response(response: httpx.Response, operation: str) -> dict:
         body = response.json()
         if response.status_code == (201 if operation == "register" else 200):
             # Whitelist fields even if a misconfigured client returns a server token.
-            return AccountResponse.model_validate(body).model_dump()
-        if response.status_code in (401, 422, 502, 503, 504):
+            model = PROFILE_RESPONSES.get(operation, AccountResponse)
+            return model.model_validate(body).model_dump()
+        if response.status_code in (401, 404, 413, 415, 422, 502, 503, 504):
             error = ErrorResponse.model_validate(body).error
             raise ContractError(
                 response.status_code,
@@ -89,6 +97,31 @@ def result(body: dict, *, error: bool = False) -> CallToolResult:
 
 async def invoke(client: LocalClient, name: str, arguments: dict) -> CallToolResult:
     try:
+        if name in PROFILE_TOOLS:
+            body = await client.call(name, parse_profile_tool(name, arguments))
+            if name == "view_avatar":
+                try:
+                    data = base64.b64decode(body["data"], validate=True)
+                    if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+                        raise ValueError("Not PNG")
+                except ValueError:
+                    raise ContractError(
+                        502, "upstream_unavailable", "客户端响应格式错误"
+                    ) from None
+                metadata = {key: value for key, value in body.items() if key != "data"}
+                return CallToolResult(
+                    isError=False,
+                    structuredContent=metadata,
+                    content=[
+                        ImageContent(
+                            type="image", data=body["data"], mimeType="image/png"
+                        ),
+                        TextContent(
+                            type="text", text=json.dumps(metadata, ensure_ascii=False)
+                        ),
+                    ],
+                )
+            return result(body)
         operation = {"register_account": "register", "login_account": "login"}.get(name)
         if operation is None:
             raise ContractError(404, "unknown_tool", "未知工具")
@@ -99,10 +132,18 @@ async def invoke(client: LocalClient, name: str, arguments: dict) -> CallToolRes
 
 
 def create_server(client: LocalClient) -> Server:
-    server = Server("bb-auth-client-tools")
+    server = Server("bb-client-tools")
 
     @server.list_tools()
     async def list_tools():
+        descriptions = {
+            "view_avatar": "通过本地客户端重新校验服务端当前头像，返回模型可见的 PNG 图片；省略 account 表示本人。",
+            "update_avatar": "仅更新本人头像。path/url/base64 必须且只能提供一个，由客户端读取、下载或解码后上传；插件不访问文件或远程 URL。",
+            "view_nickname": "读取昵称 username；省略 account 表示本人。",
+            "update_nickname": "仅更新本人昵称，去首尾空白后 3–24 个 Unicode 字符。",
+            "view_signature": "读取签名；未设置返回 null，省略 account 表示本人。",
+            "update_signature": "仅更新本人签名，最多 49 个 Unicode 字符；省略 value、null 或空串清空。",
+        }
         return [
             Tool(
                 name="register_account",
@@ -114,6 +155,13 @@ def create_server(client: LocalClient) -> Server:
                 description="通过本地客户端使用八位账号及密码登录；会话由客户端管理。",
                 inputSchema=LoginRequest.model_json_schema(),
             ),
+        ] + [
+            Tool(
+                name=name,
+                description=descriptions[name],
+                inputSchema=model.model_json_schema(),
+            )
+            for name, model in PROFILE_TOOLS.items()
         ]
 
     # The shared parser emits the agreed structured 422 envelope, including missing/type.

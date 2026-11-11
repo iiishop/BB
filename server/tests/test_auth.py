@@ -152,7 +152,7 @@ def test_migration_restart_and_constraints(api):
         )
     with sqlite3.connect(path) as db:
         db.execute("PRAGMA foreign_keys=ON")
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 2
         with pytest.raises(sqlite3.IntegrityError):
             db.execute(
                 "INSERT INTO sessions(token_hash,account) VALUES (?,?)",
