@@ -125,7 +125,33 @@ async def invoke(client: LocalClient, name: str, arguments: dict) -> CallToolRes
             body = await client.call(name, payload)
             if name in ("read_messages", "wait_messages"):
                 blocks = []
+                presentations = []
                 for item in body["items"]:
+                    proof = item.get("presentation")
+                    if proof:
+                        presentations.append(
+                            {
+                                **proof,
+                                "message_id": item["message"]["id"],
+                                "sender_account": item["message"]["sender_account"],
+                                "target_account": item["message"]["target_account"],
+                                "position": item["message"]["position"],
+                                "peer_account": payload["account"],
+                                "consumer_session": payload["consumer_session"],
+                                "image_count": sum(
+                                    b["type"] == "image" for b in item["blocks"]
+                                ),
+                            }
+                        )
+                        blocks.append(
+                            TextContent(
+                                type="text",
+                                text="BB_PRESENTATION_START:"
+                                + json.dumps(
+                                    proof, ensure_ascii=False, separators=(",", ":")
+                                ),
+                            )
+                        )
                     blocks.append(
                         TextContent(
                             type="text",
@@ -157,7 +183,21 @@ async def invoke(client: LocalClient, name: str, arguments: dict) -> CallToolRes
                                     mimeType=block["mime_type"],
                                 )
                             )
+                    if proof:
+                        blocks.append(
+                            TextContent(
+                                type="text",
+                                text="BB_PRESENTATION_END:"
+                                + json.dumps(
+                                    proof["receipt_id"],
+                                    ensure_ascii=False,
+                                    separators=(",", ":"),
+                                ),
+                            )
+                        )
                 metadata = {key: value for key, value in body.items() if key != "items"}
+                if presentations:
+                    metadata["bb_presentations"] = presentations
                 return CallToolResult(
                     isError=False,
                     structuredContent=metadata,

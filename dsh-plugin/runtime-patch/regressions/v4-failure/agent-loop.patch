@@ -1,0 +1,94 @@
+--- a/node_modules/@deepseek-ai/dsh-agent-loop/lib/index.js
++++ b/node_modules/@deepseek-ai/dsh-agent-loop/lib/index.js
+@@ -1,3 +1,4 @@
++import * as bbRecovery from "./bb-recovery.mjs";
+ import { Service } from "@deepseek-ai/cordis";
+ import { randomUUID } from "node:crypto";
+ import z from "@deepseek-ai/schemastery";
+@@ -569,6 +570,7 @@
+ 			const call = group[committed];
+ 			const result = slot.needsPost ? await ctx.tools[TOOL_RUNTIME_SCHEDULER].finalize(slot.exec, slot.result) : ctx.tools[TOOL_RUNTIME_SCHEDULER].finish(slot.exec, slot.result);
+ 			appendToolResult(session, turn, step, call.block, result, callSeqs[committed]);
++			await bbRecovery.afterTool(ctx.agents.requireInitiator(), call.block, result, turn, step);
+ 			for (const context of result.additionalContexts ?? []) acceptContext(context);
+ 			concluded ||= result.concludesTurn === true;
+ 			committed++;
+@@ -579,7 +581,8 @@
+ 		const call = group[index];
+ 		callSeqs[index] = appendToolCall(session, turn, step, call.block);
+ 		started++;
+-		const prepared = await ctx.tools[TOOL_RUNTIME_SCHEDULER].prepare(call.exec);
++		const cached = await bbRecovery.beforeTool(ctx.agents.requireInitiator(), call.block, turn, step);
++		const prepared = cached ? {kind: "final-result", exec: call.exec, result: cached} : await ctx.tools[TOOL_RUNTIME_SCHEDULER].prepare(call.exec);
+ 		throwSchedulerFailure();
+ 		switch (prepared.kind) {
+ 			case "dispatch": {
+@@ -797,6 +800,9 @@
+ 		const status = this.status;
+ 		if (status !== previousStatus) this.dispatch.emit("agent/status", { status });
+ 	}
++	bbDeliver(key, content) { return bbRecovery.deliver(this, key, content); }
++	bbDeliveryStatus(key) { return bbRecovery.status(this, key); }
++	bbRecoverDeliveries() { return bbRecovery.recover(this); }
+ 	send(message, target, wakeup) {
+ 		const wakingAfterAbort = wakeup && this.phase.kind !== "idle" && this.phase.abort.signal.aborted;
+ 		const resolvedTarget = wakingAfterAbort ? "next-turn" : target;
+@@ -904,6 +910,7 @@
+ 		if (this.phase.kind !== "running") throw new Error(`agent "${this.id}": pre-step outside running phase`);
+ 		const signal = this.phase.abort.signal;
+ 		const claimed = this.inbox.claim(target, position.turn);
++		await bbRecovery.claimed(this, claimed, position);
+ 		const assembly = await this.loopCtx.systemPrompt.assemble(assembleContextFor(this, signal));
+ 		signal.throwIfAborted();
+ 		const decision = await this.dispatch.waterfall("agent/pre-step", {
+@@ -1030,6 +1037,7 @@
+ 					turn,
+ 					reason: turnEnds
+ 				});
++				await bbRecovery.afterTurn(this);
+ 			} catch (error) {
+ 				this.throwError(error);
+ 			}
+@@ -1069,7 +1077,7 @@
+ 					this.session.append("user/message", context, { surfaceOp: "append" });
+ 					contextAdmitted = true;
+ 				}
+-			} else this.session.append("user/message", message, { surfaceOp: "append" });
++			} else if (bbRecovery.shouldAppend(this, message)) this.session.append("user/message", message, { surfaceOp: "append" });
+ 			if (context !== void 0 && !contextAdmitted) this.session.append("user/message", context, { surfaceOp: "append" });
+ 			firstAttempt = false;
+ 			const request = this.buildRequest(config, preparedCall, assembly.tools, {
+@@ -1081,7 +1089,14 @@
+ 			});
+ 			let started = false;
+ 			try {
+-				const stream = preparedCall?.stream(request) ?? this.loopCtx.llm.stream(request);
++				if (bbRecovery.recoveredPlan(this, turn)) {
++                    const pending = bbRecovery.pendingTools(this);
++                    if (pending.length) await executeToolCalls(this.loopCtx, turn, step, pending, signal, context => this.inbox.splice("next-step", this.inbox.nextStep.length, 0, [context]));
++                    await bbRecovery.finishRecovered(this, turn, step, request);
++                    return { kind: "completed" };
++                }
++                await bbRecovery.beforeModel(this, turn, step, request);
++                const stream = preparedCall?.stream(request) ?? this.loopCtx.llm.stream(request);
+ 				signal.throwIfAborted();
+ 				live.start();
+ 				started = true;
+@@ -1153,6 +1168,7 @@
+ 						...live.replayState !== void 0 ? { replayState: live.replayState } : {}
+ 					}
+ 				});
++				await bbRecovery.modelResult(this, turn, step, message);
+ 				live.settle("assistant/message", () => this.session.append("assistant/message", {
+ 					turn,
+ 					step,
+@@ -2009,7 +2025,8 @@
+ 				if (!this.ownership.isActive()) throw new Error("agent loop is not active");
+ 				const owned = stored;
+ 				handle = void 0;
+-				return await this.setupAndPublish(ownerCtx, id, preparation, options.agentOptions ?? {}, options.setup, options.signal, "resume", owned, options.parentAgent);
++				const resumed = await this.setupAndPublish(ownerCtx, id, preparation, options.agentOptions ?? {}, options.setup, options.signal, "resume", owned, options.parentAgent);
++				try { await resumed.agent.bbRecoverDeliveries(); return resumed; } catch (error) { await resumed.dispose(); throw error; }
+ 			} finally {
+ 				preparation?.[Symbol.dispose]();
+ 				await handle?.close().catch(() => {});

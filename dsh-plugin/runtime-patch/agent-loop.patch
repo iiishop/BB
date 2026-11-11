@@ -5,9 +5,12 @@
  import { Service } from "@deepseek-ai/cordis";
  import { randomUUID } from "node:crypto";
  import z from "@deepseek-ai/schemastery";
-@@ -569,6 +570,7 @@
+@@ -567,8 +568,9 @@
+ 			const slot = slots[committed];
+ 			if (slot === void 0) break;
  			const call = group[committed];
- 			const result = slot.needsPost ? await ctx.tools[TOOL_RUNTIME_SCHEDULER].finalize(slot.exec, slot.result) : ctx.tools[TOOL_RUNTIME_SCHEDULER].finish(slot.exec, slot.result);
+-			const result = slot.needsPost ? await ctx.tools[TOOL_RUNTIME_SCHEDULER].finalize(slot.exec, slot.result) : ctx.tools[TOOL_RUNTIME_SCHEDULER].finish(slot.exec, slot.result);
++			const result = bbRecovery.guardResult(ctx.agents.requireInitiator(), slot.needsPost ? await ctx.tools[TOOL_RUNTIME_SCHEDULER].finalize(slot.exec, slot.result) : ctx.tools[TOOL_RUNTIME_SCHEDULER].finish(slot.exec, slot.result));
  			appendToolResult(session, turn, step, call.block, result, callSeqs[committed]);
 +			await bbRecovery.afterTool(ctx.agents.requireInitiator(), call.block, result, turn, step);
  			for (const context of result.additionalContexts ?? []) acceptContext(context);
@@ -23,17 +26,20 @@
  		throwSchedulerFailure();
  		switch (prepared.kind) {
  			case "dispatch": {
-@@ -797,6 +800,9 @@
+@@ -797,6 +800,12 @@
  		const status = this.status;
  		if (status !== previousStatus) this.dispatch.emit("agent/status", { status });
  	}
-+	bbDeliver(key, content) { return bbRecovery.deliver(this, key, content); }
++	bbDeliver(key, content, options) { return bbRecovery.deliver(this, key, content, options); }
++	bbConfigure(account, peer) { return bbRecovery.configure(this, account, peer); }
++	bbEventCursor() { return bbRecovery.cursor(this); }
++	bbAdvanceCursor(account, cursor) { return bbRecovery.advanceCursor(this, account, cursor); }
 +	bbDeliveryStatus(key) { return bbRecovery.status(this, key); }
 +	bbRecoverDeliveries() { return bbRecovery.recover(this); }
  	send(message, target, wakeup) {
  		const wakingAfterAbort = wakeup && this.phase.kind !== "idle" && this.phase.abort.signal.aborted;
  		const resolvedTarget = wakingAfterAbort ? "next-turn" : target;
-@@ -904,6 +910,7 @@
+@@ -904,6 +913,7 @@
  		if (this.phase.kind !== "running") throw new Error(`agent "${this.id}": pre-step outside running phase`);
  		const signal = this.phase.abort.signal;
  		const claimed = this.inbox.claim(target, position.turn);
@@ -41,7 +47,7 @@
  		const assembly = await this.loopCtx.systemPrompt.assemble(assembleContextFor(this, signal));
  		signal.throwIfAborted();
  		const decision = await this.dispatch.waterfall("agent/pre-step", {
-@@ -1030,6 +1037,7 @@
+@@ -1030,6 +1040,7 @@
  					turn,
  					reason: turnEnds
  				});
@@ -49,7 +55,7 @@
  			} catch (error) {
  				this.throwError(error);
  			}
-@@ -1069,7 +1077,7 @@
+@@ -1069,9 +1080,10 @@
  					this.session.append("user/message", context, { surfaceOp: "append" });
  					contextAdmitted = true;
  				}
@@ -57,37 +63,43 @@
 +			} else if (bbRecovery.shouldAppend(this, message)) this.session.append("user/message", message, { surfaceOp: "append" });
  			if (context !== void 0 && !contextAdmitted) this.session.append("user/message", context, { surfaceOp: "append" });
  			firstAttempt = false;
++			await bbRecovery.prepareContinuation(this, turn, step, decision.messages);
  			const request = this.buildRequest(config, preparedCall, assembly.tools, {
-@@ -1081,7 +1089,13 @@
+ 				turn,
+ 				step
+@@ -1081,6 +1093,7 @@
  			});
  			let started = false;
  			try {
--				const stream = preparedCall?.stream(request) ?? this.loopCtx.llm.stream(request);
-+				if (bbRecovery.recoveredPlan(this, turn)) {
-+                    await bbRecovery.recoverPlans(this, turn);
-+                    await bbRecovery.finishRecovered(this, turn, step, request);
-+                    return { kind: "completed" };
-+                }
-+                await bbRecovery.beforeModel(this, turn, step, request);
-+                const stream = preparedCall?.stream(request) ?? this.loopCtx.llm.stream(request);
++				await bbRecovery.beforeModel(this, turn, step, request);
+ 				const stream = preparedCall?.stream(request) ?? this.loopCtx.llm.stream(request);
  				signal.throwIfAborted();
  				live.start();
- 				started = true;
-@@ -1153,6 +1167,7 @@
+@@ -1153,6 +1166,7 @@
  						...live.replayState !== void 0 ? { replayState: live.replayState } : {}
  					}
  				});
-+				await bbRecovery.modelResult(this, turn, step, message);
++				await bbRecovery.modelResult(this, turn, step, message, finish.kind);
  				live.settle("assistant/message", () => this.session.append("assistant/message", {
  					turn,
  					step,
+@@ -1906,7 +1920,8 @@
+ 				preparation[Symbol.dispose]();
+ 				throw error;
+ 			}
+-			return this.setupAndPublish(ownerCtx, options.sessionId, preparation, options.agentOptions ?? {}, options.setup, options.signal, "startup", stored, options.parentAgent);
++			const created = await this.setupAndPublish(ownerCtx, options.sessionId, preparation, options.agentOptions ?? {}, options.setup, options.signal, "startup", stored, options.parentAgent);
++			try { await bbRecovery.ready(created.agent); return created; } catch (error) { await created.dispose(); throw error; }
+ 		})();
+ 		this.ownership.trackWrapper(published);
+ 		return published;
 @@ -2009,7 +2024,8 @@
  				if (!this.ownership.isActive()) throw new Error("agent loop is not active");
  				const owned = stored;
  				handle = void 0;
 -				return await this.setupAndPublish(ownerCtx, id, preparation, options.agentOptions ?? {}, options.setup, options.signal, "resume", owned, options.parentAgent);
 +				const resumed = await this.setupAndPublish(ownerCtx, id, preparation, options.agentOptions ?? {}, options.setup, options.signal, "resume", owned, options.parentAgent);
-+				try { await resumed.agent.bbRecoverDeliveries(); return resumed; } catch (error) { await resumed.dispose(); throw error; }
++				try { await bbRecovery.ready(resumed.agent); await resumed.agent.bbRecoverDeliveries(); return resumed; } catch (error) { await resumed.dispose(); throw error; }
  			} finally {
  				preparation?.[Symbol.dispose]();
  				await handle?.close().catch(() => {});

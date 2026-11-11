@@ -1,5 +1,5 @@
 {
-  "version": "chat-step3-r2",
+  "version": "chat-step3-r3",
   "synthetic_only": true,
   "inputs": {
     "send_message": {
@@ -73,6 +73,58 @@
       "operation_id": "example-send-1"
     }
   },
+  "internal_inputs": {
+    "confirm_presentation": {
+      "consumer_session": "example-session",
+      "attempt_id": "example-attempt",
+      "request_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "receipt_ids": [
+        "example-receipt"
+      ]
+    },
+    "events_subscribe": {
+      "consumer_session": "example-session",
+      "peer_account": "10000002"
+    },
+    "events_read": {
+      "consumer_session": "example-session",
+      "after_cursor": 0,
+      "limit": 50
+    },
+    "events_wait": {
+      "consumer_session": "example-session",
+      "after_cursor": 2,
+      "limit": 50,
+      "timeout": 120
+    }
+  },
+  "visible_message": {
+    "message": {
+      "id": "example-message",
+      "position": 1,
+      "sender_account": "10000002",
+      "target_account": "10000001",
+      "created_at": "2026-11-11T00:00:00Z",
+      "kind": "body",
+      "content": [
+        {
+          "type": "text",
+          "text": "hello"
+        }
+      ],
+      "attachment": null
+    },
+    "presentation": {
+      "receipt_id": "example-receipt",
+      "content_digest": "client-owned-opaque-digest"
+    },
+    "blocks": [
+      {
+        "type": "text",
+        "text": "hello"
+      }
+    ]
+  },
   "consumption_cases": [
     {
       "displayed": [
@@ -111,6 +163,57 @@
       "ack": 2,
       "expected_consumed": 2
     }
+  ],
+  "presentation_cases": [
+    "A/B read, only A fully projected -> confirm A only; ACK B ->409",
+    "image admission failure -> no confirmation",
+    "successful response persisted then confirmation receipt lost -> retry original attempt without model",
+    "login account/session change -> reject old receipt"
+  ],
+  "confirmation_cases": [
+    {
+      "first": {
+        "attempt_id": "a",
+        "request_digest": "request-A",
+        "receipt_ids": [
+          "A"
+        ]
+      },
+      "retry": {
+        "attempt_id": "a",
+        "request_digest": "request-A",
+        "receipt_ids": [
+          "A"
+        ]
+      },
+      "expected_status": 200
+    },
+    {
+      "first": {
+        "attempt_id": "a",
+        "request_digest": "request-A",
+        "receipt_ids": [
+          "A"
+        ]
+      },
+      "retry": {
+        "attempt_id": "a",
+        "request_digest": "request-B",
+        "receipt_ids": [
+          "B"
+        ]
+      },
+      "expected_status": 409,
+      "must_not_confirm": [
+        "B"
+      ],
+      "ack_through_B": 409
+    }
+  ],
+  "subscription_cases": [
+    "consumer A drains server source cursor; consumer B subscribes -> its readable incoming backlog remains recoverable",
+    "restart -> same per-account/consumer events and cursors; no consumption change",
+    "events/wait accepts events/read limit and after_cursor with timeout"
   ],
   "operation_cases": [
     "lost receipt -> query result -> same message_id",

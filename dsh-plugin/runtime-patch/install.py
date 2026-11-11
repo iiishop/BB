@@ -88,9 +88,9 @@ def main():
             require(not os.path.samefile(path, source / path.relative_to(target)), 'Shared inode detected')
     subprocess.run(['patch', '--batch', '--fuzz=0', '-p1', '-i', str(HERE / 'agent-loop.patch')], cwd=target, check=True)
     shutil.copyfile(HERE / 'recovery.mjs', target / HELPER)
-    (target / MARKER).write_text(json.dumps({'patch': 'bb-recovery-2', 'lock': LOCK}, indent=2) + '\n')
+    (target / MARKER).write_text(json.dumps({'patch': 'bb-recovery-3', 'lock': LOCK}, indent=2) + '\n')
     verify(target)
-    print(json.dumps({'installed': True, 'patch': 'bb-recovery-2', 'runtime': str(target)}))
+    print(json.dumps({'installed': True, 'patch': 'bb-recovery-3', 'runtime': str(target)}))
 
 
 if __name__ == '__main__':

@@ -178,8 +178,14 @@ class VisibleImage(Wire):
     mime_type: Literal["image/png", "image/jpeg", "image/webp"]
 
 
+class Presentation(Wire):
+    receipt_id: str = Field(min_length=1)
+    content_digest: str = Field(min_length=1)
+
+
 class VisibleMessage(Wire):
     message: Message
+    presentation: Presentation | None = None
     blocks: list[Annotated[Text | VisibleImage, Field(discriminator="type")]]
 
 
@@ -269,3 +275,57 @@ LocalEvent = Annotated[
     LocalMessageEvent | LocalDownloadSucceeded | LocalDownloadFailed,
     Field(discriminator="type"),
 ]
+
+
+class ConfirmPresentation(Wire):
+    consumer_session: str = Field(min_length=1, max_length=200)
+    attempt_id: str = Field(min_length=1)
+    request_digest: str = Field(min_length=1)
+    receipt_ids: list[str] = Field(min_length=1, max_length=100)
+
+
+class ConfirmedPresentation(Wire):
+    confirmed_receipt_ids: list[str]
+
+
+class Subscribe(Wire):
+    consumer_session: str = Field(min_length=1, max_length=200)
+    peer_account: Account
+
+
+class EventsRead(Wire):
+    consumer_session: str = Field(min_length=1, max_length=200)
+    after_cursor: int = Field(default=0, ge=0)
+    limit: int = Field(default=50, ge=1, le=100)
+
+
+class EventsWait(EventsRead):
+    timeout: Literal[30, 60, 120] = 60
+
+
+class LocalEventEntry(Wire):
+    cursor: int = Field(ge=1)
+    event: LocalEvent
+
+
+class LocalEventPage(Wire):
+    items: list[LocalEventEntry]
+    next_cursor: int = Field(ge=0)
+    has_more: bool
+
+
+class LocalEventWait(LocalEventPage):
+    reason: Literal["events", "timeout", "cancelled", "logout", "disconnected"]
+
+
+INTERNAL = {
+    "confirm_presentation": (
+        "/chat/confirm_presentation",
+        ConfirmPresentation,
+        ConfirmedPresentation,
+        200,
+    ),
+    "events_subscribe": ("/events/subscribe", Subscribe, Subscribe, 200),
+    "events_read": ("/events/read", EventsRead, LocalEventPage, 200),
+    "events_wait": ("/events/wait", EventsWait, LocalEventWait, 200),
+}

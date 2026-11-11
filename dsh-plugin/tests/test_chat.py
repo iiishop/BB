@@ -205,3 +205,100 @@ async def test_explicit_ack_gap_contract_double():
                 == case["expected_consumed"]
             )
         assert calls == ["/chat/ack_messages"]
+
+
+@pytest.mark.asyncio
+async def test_r3_presentation_metadata_tracks_full_ordered_content():
+    fixture = json.loads(
+        (Path(__file__).parents[2] / "server/contract/chat-cases.json").read_text()
+    )
+    png = fixture["inputs"]["send_message"]["content"][1]["source"]["base64"]
+    message = {
+        "id": "m",
+        "position": 1,
+        "sender_account": "10000002",
+        "target_account": "10000001",
+        "created_at": "2026-11-11T00:00:00Z",
+        "kind": "body",
+        "content": [
+            {"type": "text", "text": "a"},
+            {"type": "image", "media_id": "image"},
+            {"type": "text", "text": "b"},
+        ],
+    }
+    proof = {"receipt_id": "receipt-A", "content_digest": "opaque-client-digest"}
+
+    def handler(request):
+        return httpx.Response(
+            200,
+            json={
+                "items": [
+                    {
+                        "message": message,
+                        "presentation": proof,
+                        "blocks": [
+                            {"type": "text", "text": "a"},
+                            {"type": "image", "data": png, "mime_type": "image/png"},
+                            {"type": "text", "text": "b"},
+                        ],
+                    }
+                ],
+                "next_position": 1,
+                "has_more": False,
+            },
+        )
+
+    result = await invoke(
+        LocalClient("http://127.0.0.1", transport=httpx.MockTransport(handler)),
+        "read_messages",
+        {"account": "10000002", "consumer_session": "s"},
+    )
+    assert not result.isError
+    assert [b.type for b in result.content] == [
+        "text",
+        "text",
+        "text",
+        "image",
+        "text",
+        "text",
+    ]
+    assert result.content[0].text.startswith("BB_PRESENTATION_START:")
+    assert result.content[-1].text == 'BB_PRESENTATION_END:"receipt-A"'
+    metadata = result.structuredContent["bb_presentations"][0]
+    assert (
+        metadata["receipt_id"] == proof["receipt_id"]
+        and metadata["content_digest"] == proof["content_digest"]
+    )
+    assert metadata["consumer_session"] == "s" and metadata["image_count"] == 1
+    assert (
+        metadata["sender_account"] == "10000002"
+        and metadata["target_account"] == "10000001"
+    )
+
+
+def test_r3_internal_machine_contract_is_not_model_tool_inventory():
+    from bb_auth_contract.chat import INTERNAL, VisibleMessage
+    from pydantic import ValidationError
+
+    schema = json.loads(
+        (
+            Path(__file__).parents[2] / "server/contract/chat-local-schema.json"
+        ).read_text()
+    )
+    assert schema["version"] == "chat-step3-r3"
+    assert len(LOCAL) == 9
+    assert set(INTERNAL).isdisjoint(LOCAL)
+    assert set(schema["internal_operations"]) == set(INTERNAL)
+    for name, (_, request, response, _) in INTERNAL.items():
+        assert (
+            schema["internal_operations"][name]["input"] == request.model_json_schema()
+        )
+        assert (
+            schema["internal_operations"][name]["output"]
+            == response.model_json_schema()
+        )
+    with pytest.raises(ValidationError):
+        INTERNAL["events_wait"][1].model_validate(
+            {"consumer_session": "s", "after_cursor": -1, "timeout": 10}
+        )
+    assert "presentation" not in VisibleMessage.model_json_schema()["required"]
