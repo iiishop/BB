@@ -16,7 +16,8 @@ from mcp.client.stdio import stdio_client
 config = json.loads(Path(sys.argv[1]).read_text())
 repo = Path(__file__).resolve().parents[3]
 cases = json.loads((repo / "server/contract/chat-v2-cases.json").read_text())
-owner = secrets.token_urlsafe(32)
+owners = {}
+owner = None
 identity = None
 
 
@@ -34,8 +35,10 @@ async def post(path, body, key=None):
 
 
 async def bind():
-    global identity
+    global identity, owner
     auth = (await post("/v2/status", {})).json()["auth"]
+    # Match bundle/client.js: each account has its own persisted capability.
+    owner = owners.setdefault(auth["account"], secrets.token_urlsafe(32))
     session_id = "profile-" + auth["account"]
     made = await post(
         "/v2/consumers/create",
