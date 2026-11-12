@@ -37,7 +37,7 @@ def run(
                 json={"username": "gap-context-peer", "password": "Abc123"},
                 trust_env=False,
             )
-            assert registered.status_code == 200, registered.status_code
+            assert registered.status_code == 201, registered.status_code
             peer = registered.json()["account"]
             token = httpx.post(
                 api + "/auth/login",
