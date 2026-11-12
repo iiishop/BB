@@ -9,6 +9,7 @@ import '../models/chat_models.dart';
 import 'auth_session.dart';
 import 'chat_api_client.dart';
 import 'chat_ledger.dart';
+import 'chat_query.dart';
 import 'client_identity.dart';
 import 'download_manager.dart';
 import 'event_feed.dart';
@@ -148,6 +149,14 @@ class ChatService {
   late final EventFeed eventFeed;
   late DownloadManager downloads;
   late MediaStreamProxy mediaStreams;
+
+  /// Unified conversation/message/context queries (shared v2 query routes will
+  /// delegate here once Forge's schema lands).
+  late final ChatQueryService query = ChatQueryService(
+    api: api,
+    session: session,
+    ledger: ledger,
+  );
 
   final Map<String, Uint8List> _mediaCache = <String, Uint8List>{};
   final List<String> _mediaCacheOrder = <String>[];
