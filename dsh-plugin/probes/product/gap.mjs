@@ -181,6 +181,36 @@ try {
     );
     old.close();
     assert.equal(await cursor(), phase === "recover" ? 0 : 4);
+    const identity = client.identity,
+      owner = client.owner;
+    const guards = [];
+    for (const [fault, code] of [
+      ["wrong-owner", "stale_binding"],
+      ["old-generation", "stale_identity"],
+      ["old-revision", "stale_binding"],
+    ]) {
+      if (fault === "wrong-owner") client.owner = "x".repeat(43);
+      if (fault === "old-generation")
+        client.identity = {
+          ...identity,
+          auth_generation: "obsolete-generation",
+        };
+      if (fault === "old-revision")
+        client.identity = {
+          ...identity,
+          binding_revision: identity.binding_revision - 1,
+        };
+      try {
+        await assert.rejects(
+          bridge.recover(),
+          (e) => e.status === 409 && e.code === code,
+        );
+        guards.push({ fault, code, status: 409 });
+      } finally {
+        client.identity = identity;
+        client.owner = owner;
+      }
+    }
     try {
       await bridge.recover();
     } catch (error) {
@@ -270,6 +300,7 @@ try {
       business_messages: messages.items.length,
       outbound_native_calls_total: 1,
       restored_binding_rejects_old: true,
+      recovery_guard_rejections: guards,
     });
   }
 } finally {

@@ -483,11 +483,22 @@ export class Bridge {
         const cursor = await this.client.call("chat/consumption", {
           account: row.peer,
         });
-        if (cursor.consumed_through < row.position)
-          await this.client.call("chat/ack_messages", {
-            account: row.peer,
-            through_position: row.position,
-          });
+        if (cursor.consumed_through < row.position) {
+          try {
+            await this.client.call("chat/ack_messages", {
+              account: row.peer,
+              through_position: row.position,
+            });
+          } catch (error) {
+            // A successful query can present a later position first. Keep its
+            // durable proof, but let startup/observers/polling fill the gap.
+            // Only this ACK conflict is deferrable; identity, ownership and
+            // migration failures must still stop the caller.
+            if (error.status === 409 && error.code === "consumption_gap")
+              return;
+            throw error;
+          }
+        }
         await this.checkpoint("acked");
       }
       await this.check();
@@ -670,12 +681,7 @@ export class Bridge {
             e.data.turn === row.turn &&
             e.data.reason.kind === "completed",
         );
-      if (completed)
-        try {
-          await this.settle(row);
-        } catch (error) {
-          if (error.code !== "consumption_gap") throw error;
-        }
+      if (completed) await this.settle(row);
     }
     const peers = [];
     if (peer) peers.push(peer);
