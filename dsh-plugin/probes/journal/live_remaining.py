@@ -396,7 +396,7 @@ def run(
             status="FAIL" if failures else "PARTIAL",
             failed_cases=failures,
             NOT_RUN=[
-                "known 18-case regressions pending Muse integration",
+                "original 18-case suite (separate --faults invocation)",
                 "real model/vision",
                 "whole plugin lifecycle",
                 "Flutter/CI/independent QA",
