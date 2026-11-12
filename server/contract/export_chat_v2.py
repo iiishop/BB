@@ -1,0 +1,322 @@
+"""Deterministic exports: uv run --project server --locked python server/contract/export_chat_v2.py."""
+
+import copy
+import json
+from pathlib import Path
+
+from bb_auth_contract import chat_v2 as v2
+from pydantic import TypeAdapter
+
+ROOT = Path(__file__).parent
+AUTH = {"account": "10000001", "auth_generation": "generation-A-1"}
+IDENTITY = {**AUTH, "consumer_id": "consumer-A", "binding_revision": 1}
+
+
+def schema():
+    components = {}
+
+    def model(model):
+        result = model.model_json_schema(ref_template="#/components/schemas/{model}")
+        for name, value in result.pop("$defs", {}).items():
+            assert name not in components or components[name] == value, name
+            components[name] = value
+        name = result["title"]
+        # Pydantic generic titles contain brackets; use deterministic operation-specific roots.
+        name = name.replace("[", "_").replace("]", "").replace(", ", "_")
+        assert name not in components or components[name] == result, name
+        components[name] = result
+        return {"$ref": f"#/components/schemas/{name}"}
+
+    error = model(v2.ErrorEnvelope)
+    paths = {}
+    for name, (path, request, response, status, owner) in v2.OPERATIONS.items():
+        paths[path] = {
+            "post": {
+                "operationId": name,
+                "security": [{"consumerOwner": []}] if owner else [],
+                "requestBody": {
+                    "required": True,
+                    "content": {"application/json": {"schema": model(request)}},
+                },
+                "responses": {
+                    str(status): {
+                        "description": "Success",
+                        "content": {"application/json": {"schema": model(response)}},
+                    },
+                    **{
+                        str(code): {
+                            "description": "See x-bb-errors; no input or capability echo",
+                            "content": {"application/json": {"schema": error}},
+                        }
+                        for code in sorted({e[0] for e in v2.ERRORS.values()})
+                    },
+                },
+            }
+        }
+    return {
+        "openapi": "3.1.0",
+        "info": {"title": "BB local client guarded chat", "version": v2.VERSION},
+        "servers": [{"url": "http://127.0.0.1:9187"}],
+        "paths": paths,
+        "components": {
+            "schemas": components,
+            "securitySchemes": {
+                "consumerOwner": {
+                    "type": "apiKey",
+                    "in": "header",
+                    "name": v2.OWNER_HEADER,
+                    "description": "32 random bytes, unpadded base64url, persisted before enrollment; local consumer capability, never a server credential.",
+                    "x-value-schema": TypeAdapter(v2.OwnerKey).json_schema(),
+                }
+            },
+        },
+        "x-bb-errors": {
+            name: {"status": code, "recovery": recovery}
+            for name, (code, recovery) in v2.ERRORS.items()
+        },
+        "x-bb-contract": "docs/contracts/dea467-local-v2.md",
+        "x-bb-v1-policy": "Strict payloads unchanged. Verified legacy alias only; never automatically downgrade.",
+    }
+
+
+def fixtures():
+    old = json.loads((ROOT / "chat-cases.json").read_text())
+    inputs = {}
+    for name in v2.BUSINESS:
+        value = copy.deepcopy(
+            (
+                old["inputs"]
+                | old["internal_inputs"]
+                | {"get_consumption": {"account": "10000002"}}
+            )[name]
+        )
+        value.pop("consumer_session", None)
+        value["expected_identity"] = IDENTITY
+        inputs[name] = value
+    inputs.update(
+        {
+            "negotiate": {"supported_versions": [2]},
+            "status": {},
+            "consumer_create": {"expected_auth": AUTH, "session_id": "session-one"},
+            "consumer_get": {"expected_auth": AUTH, "consumer_id": "consumer-A"},
+            "consumer_bind": {
+                "expected_auth": AUTH,
+                "consumer_id": "consumer-A",
+                "expected_binding_revision": 1,
+                "session_id": "session-two",
+            },
+        }
+    )
+    inputs["ack_messages"]["through_position"] = 1
+    inputs["wait_messages"]["seen_position"] = 0
+    inputs["events_wait"]["after_cursor"] = 0
+    inputs["get_download"]["task_id"] = "task-one"
+    binding = {
+        "identity": IDENTITY,
+        "session_id": "session-one",
+        "active": True,
+        "migration": "ready",
+    }
+    message = old["visible_message"]["message"]
+    sent_message = {
+        **message,
+        "id": "sent-message",
+        "sender_account": AUTH["account"],
+        "target_account": "10000002",
+        "content": [
+            {"type": "text", "text": "before"},
+            {"type": "image", "media_id": "uploaded-image"},
+            {"type": "text", "text": "after"},
+        ],
+    }
+    page = {"items": [old["visible_message"]], "next_position": 1, "has_more": False}
+    download = {
+        "task_id": "task-one",
+        "operation_id": "example-download-1",
+        "origin_identity": IDENTITY,
+        "status": "pending",
+        "planned_path": "/synthetic/pending-file",
+        "actual_path": None,
+        "error_code": None,
+    }
+    event = {
+        "version": 2,
+        "event_id": "event-one",
+        "origin_identity": IDENTITY,
+        "type": "message.available",
+        "peer_account": "10000002",
+        "position": 1,
+    }
+    event_page = {
+        "items": [{"cursor": 1, "event": event}],
+        "next_cursor": 1,
+        "has_more": False,
+    }
+    results = {
+        "list_users": {"items": [], "next_cursor": None},
+        "send_message": sent_message,
+        "send_attachment": {
+            **sent_message,
+            "id": "sent-attachment",
+            "kind": "attachment",
+            "content": None,
+            "attachment": {
+                "media_id": "media-one",
+                "media_type": "document",
+                "filename": "example.pdf",
+                "mime_type": "application/pdf",
+                "byte_size": 10,
+            },
+        },
+        "read_messages": page,
+        "wait_messages": {**page, "reason": "messages"},
+        "ack_messages": {"consumed_through": 1},
+        "confirm_presentation": {"confirmed_receipt_ids": ["example-receipt"]},
+        "get_consumption": {"consumed_through": 1, "migration": "ready"},
+        "start_download": download,
+        "get_download": download,
+        "get_operation": {
+            "operation_id": "example-send-1",
+            "kind": "message",
+            "status": "succeeded",
+            "message": sent_message,
+        },
+        "events_subscribe": {"peer_account": "10000002"},
+        "events_read": event_page,
+        "events_wait": {**event_page, "reason": "events"},
+    }
+    outputs = {
+        name: {"identity": IDENTITY, "result": value} for name, value in results.items()
+    }
+    outputs.update(
+        {
+            "negotiate": {
+                "selected_version": 2,
+                "contract": v2.VERSION,
+                "owner_header": v2.OWNER_HEADER,
+            },
+            "status": {"protocol_version": 2, "auth": AUTH},
+            "consumer_create": binding,
+            "consumer_get": binding,
+            "consumer_bind": {
+                **binding,
+                "identity": {**IDENTITY, "binding_revision": 2},
+                "session_id": "session-two",
+            },
+        }
+    )
+    invalid = []
+    for name in v2.BUSINESS:
+        body = copy.deepcopy(inputs[name])
+        body.pop("expected_identity")
+        invalid.append(
+            {"id": name + "-missing-identity", "operation": name, "input": body}
+        )
+    for field, value in [
+        ("auth_generation", ""),
+        ("consumer_id", ""),
+        ("binding_revision", 0),
+        ("binding_revision", True),
+        ("binding_revision", "1"),
+        ("account", "10000002x"),
+    ]:
+        body = copy.deepcopy(inputs["ack_messages"])
+        body["expected_identity"][field] = value
+        invalid.append(
+            {
+                "id": "identity-" + field + "-" + str(value),
+                "operation": "ack_messages",
+                "input": body,
+            }
+        )
+    for extra in ["consumer_session", "token", "expected_account"]:
+        body = copy.deepcopy(inputs["send_message"])
+        body[extra] = "synthetic-rejected"
+        invalid.append(
+            {"id": "extra-" + extra, "operation": "send_message", "input": body}
+        )
+    return {
+        "version": v2.VERSION,
+        "synthetic_only": True,
+        "owner_header": {"name": v2.OWNER_HEADER, "value": "A" * 43},
+        "inputs": {
+            n: v2.OPERATIONS[n][1].model_validate(v).model_dump()
+            for n, v in inputs.items()
+        },
+        "outputs": {
+            n: v2.OPERATIONS[n][2].model_validate(v).model_dump()
+            for n, v in outputs.items()
+        },
+        "invalid_inputs": invalid,
+        "errors": {
+            n: {
+                "status": s,
+                "body": {
+                    "error": {
+                        "code": n,
+                        "message": "Synthetic contract error",
+                        "fields": [],
+                    }
+                },
+            }
+            for n, (s, _) in v2.ERRORS.items()
+        },
+        "semantic_cases": [
+            {
+                "id": "consumer-isolation",
+                "given": "A confirmed and ACKed 2; B has zero receipts",
+                "operation": "ack_messages",
+                "expect": {"status": 409, "code": "consumption_gap", "b_cursor": 0},
+            },
+            {
+                "id": "aba-auth",
+                "given": "A to B to A or same-account login; old identity",
+                "operation": "send_message",
+                "expect": {"status": 409, "code": "stale_identity", "new_sends": 0},
+            },
+            {
+                "id": "competing-bind",
+                "given": "two owner processes bind with revision 1",
+                "operation": "consumer_bind",
+                "expect": {"successes": 1, "conflicts": 1, "code": "stale_binding"},
+            },
+            {
+                "id": "wrong-owner",
+                "given": "known consumer ID with another owner capability",
+                "operation": "consumer_get",
+                "expect": {
+                    "status": 409,
+                    "code": "stale_binding",
+                    "disclosed_bindings": 0,
+                },
+            },
+            {
+                "id": "receipt-loss-restart",
+                "given": "successful send; local reply lost; client restarted; explicit rebind",
+                "operation": "get_operation",
+                "expect": {"status": 200, "same_operation_id": True, "new_sends": 0},
+            },
+            {
+                "id": "legacy-gap",
+                "given": "legacy account cursor 2; own confirmed receipts only 1",
+                "operation": "ack_messages",
+                "expect": {
+                    "status": 409,
+                    "code": "migration_required",
+                    "inherited_cursor": False,
+                },
+            },
+        ],
+    }
+
+
+def export():
+    for name, value in [
+        ("chat-v2-openapi.json", schema()),
+        ("chat-v2-cases.json", fixtures()),
+    ]:
+        (ROOT / name).write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n")
+
+
+if __name__ == "__main__":
+    export()

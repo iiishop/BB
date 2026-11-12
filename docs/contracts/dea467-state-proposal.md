@@ -1,11 +1,13 @@
 DEA-467 状态、查询与兼容提案（待 Orion 协调）
 ==========================================
 
-这是第一阶段设计提案，不是生效的 wire contract，也不改变当前实现。
+这是第一阶段设计提案，不改变当前实现。Orion 已统一的隔离增量现以
+`dea467-local-v2.md`、`server/contract/chat-v2-openapi.json` 为接线权威；
+本文其余 bundle/status 设想不自动成为该 v2 的已实现能力。
 最新授权已允许持续公开插件探索，无需再等 Owner 选择路线；外部 DSH/依赖固定，
 旧补丁路线撤销。恢复实测进展及当前客户端缺口见 `dea467-journal-recovery.md`。
-六项完整门槛尚未通过；Orion 协调 Muse 的客户端字段后，才生成生效 v2 schema/fixture、
-迁移与集成测试。沿用当前 Account（八位数字字符串）、Message、position、
+六项完整门槛尚未通过；共享 schema/fixtures 已生成，客户端迁移及集成仍需实测。
+沿用当前 Account（八位数字字符串）、Message、position、
 operation_id、客户端认证所有权；不新增密码/token 存储或插件直连服务端路径。
 register_account/login_account 始终是 MCP 工具。
 
