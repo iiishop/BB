@@ -33,6 +33,11 @@ parser.add_argument(
     action="store_true",
     help="Real v2 with BB public-DI fault barriers (no client source edits)",
 )
+parser.add_argument(
+    "--remaining",
+    action="store_true",
+    help="Independent native/ownership/download/migration gates",
+)
 args = parser.parse_args()
 repo = Path(__file__).resolve().parents[3]
 parent = Path(args.output).resolve()
@@ -208,7 +213,7 @@ try:
     control_port = port()
     dart_entry = (
         Path(__file__).with_name("client_fault_host.dart")
-        if args.faults
+        if args.faults or args.remaining
         else repo / "client/bin/bb_client_api.dart"
     )
     dart_command = [
@@ -222,7 +227,7 @@ try:
         "--session-file",
         str(private / "dart/session.json"),
     ]
-    if args.faults:
+    if args.faults or args.remaining:
         dart_command += ["--control-port", str(control_port)]
     dart = launch(dart_command, "client-first")
     ready(client, dart)
@@ -232,8 +237,10 @@ try:
         ).status_code
         == 200
     )
-    if args.v2 or args.faults:
-        if args.faults:
+    if args.v2 or args.faults or args.remaining:
+        if args.remaining:
+            from live_remaining import run
+        elif args.faults:
             from live_faults import run
         else:
             from live_v2 import run
@@ -252,7 +259,7 @@ try:
                     "dart_executable": args.dart,
                     "packages": str(config),
                 }
-                if args.faults
+                if args.faults or args.remaining
                 else {}
             )
             run(

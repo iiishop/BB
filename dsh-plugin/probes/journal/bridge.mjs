@@ -42,6 +42,7 @@ export class JournalBridge {
       ctx.on('agent/pre-step', async (payload, next) => {
         if (payload.agent !== self.agent) return next();
         self.check();
+        self.currentTurn = payload.turn;
         await self.serial(async () => {
           for (const message of payload.messages) {
             const key = self.ownedKey(message.id);
@@ -61,9 +62,10 @@ export class JournalBridge {
       ctx.on('llm/stream', async function* (options, next) {
         if (options.sessionId !== self.agent.session.id) { yield* next(); return; }
         self.check();
-        const current = [...self.active.entries()].at(-1);
-        assert.ok(current, 'no owned active event');
-        const [turn, key] = current;
+        const turn = self.currentTurn, key = self.active.get(turn);
+        // A shared session can contain unrelated native turns. Never reuse the
+        // previous owned turn's claim or settle its receipts for this request.
+        if (!key) { yield* next(); return; }
         await self.serial(async () => {
           const row = self.journal.get('events', key);
           const attempt = row.attempts.findLast(a => a.turn === turn);
