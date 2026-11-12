@@ -10,7 +10,8 @@ const config = JSON.parse(await readFile(configPath));
 const client = new Client(config.origin, resolve(root, "state"));
 const requests = [],
   native = [];
-let modelCalls = 0;
+let modelCalls = 0,
+  downloadMediaId;
 const raw = client.raw.bind(client);
 client.raw = async (path, body, owner) => {
   try {
@@ -31,7 +32,9 @@ const rt = await boot(
     const wait =
       cut.startsWith("wait-") && phase === "crash" && modelCalls === 1;
     const send =
-      cut === "operation-result" && phase === "crash" && modelCalls === 1;
+      ["operation-result", "download-result"].includes(cut) &&
+      phase === "crash" &&
+      modelCalls === 1;
     if (wait) {
       yield { type: "block-start", index: 0, blockType: "tool-call" };
       yield {
@@ -57,11 +60,23 @@ const rt = await boot(
         block: {
           type: "tool-call",
           id: "real-send",
-          name: "mcp__bb__send_message",
-          arguments: JSON.stringify({
-            target_account: config.peer,
-            content: [{ type: "text", text: "synthetic stable product send" }],
-          }),
+          name:
+            cut === "download-result"
+              ? "mcp__bb__start_download"
+              : "mcp__bb__send_message",
+          arguments: JSON.stringify(
+            cut === "download-result"
+              ? {
+                  media_id: downloadMediaId,
+                  directory: resolve(root, "downloads"),
+                }
+              : {
+                  target_account: config.peer,
+                  content: [
+                    { type: "text", text: "synthetic stable product send" },
+                  ],
+                },
+          ),
         },
       };
     }
@@ -80,6 +95,19 @@ const old = oldName
   ? JSON.parse(await readFile(resolve(root, "state", oldName)))
   : null;
 await client.bind(agent.session.id);
+if (cut === "download-result" && phase === "crash") {
+  const attachment = await client.call("chat/send_attachment", {
+    target_account: config.peer,
+    operation_id: "download-cut-setup",
+    source: {
+      base64: Buffer.from("synthetic download recovery").toString("base64"),
+      mime_type: "text/plain",
+      filename: "recovery.txt",
+    },
+    cover: null,
+  });
+  downloadMediaId = attachment.attachment.media_id;
+}
 if (old) {
   const stale = new Client(config.origin, root);
   stale.identity = old.identity;
@@ -112,7 +140,7 @@ const mcpFiber = await rt.ctx.plugin(mcp, {
   failOnStartupError: true,
 });
 const before = await client.call("chat/consumption", { account: config.peer });
-async function checkpoint(name) {
+async function checkpoint(name, data) {
   if (
     phase === "crash" &&
     name ===
@@ -120,8 +148,23 @@ async function checkpoint(name) {
         ? "claimed"
         : cut === "wait-confirmed"
           ? "confirmed"
-          : cut)
+          : cut === "download-result"
+            ? "operation-result"
+            : cut)
   ) {
+    if (cut === "download-result") {
+      assert.equal(data.tool, "mcp__bb__start_download");
+      let fact;
+      const deadline = Date.now() + 10000;
+      do {
+        fact = await client.call("downloads/get", {
+          task_id: data.result.task_id,
+        });
+        if (["succeeded", "failed"].includes(fact.status)) break;
+        await new Promise((r) => setTimeout(r, 25));
+      } while (Date.now() < deadline);
+      assert.equal(fact.status, "succeeded");
+    }
     await writeFile(
       resolve(root, "before.json"),
       JSON.stringify({ modelCalls, requests, native }),
@@ -149,7 +192,14 @@ try {
           { type: "text", text: "synthetic instruction: wait for BB input" },
         ],
       });
-    else await bridge.poll(config.peer);
+    else if (cut === "download-result") {
+      const page = await client.call("chat/read_messages", {
+        account: config.peer,
+        after_position: 0,
+        limit: 1,
+      });
+      await bridge.claim(page.items[0]);
+    } else await bridge.poll(config.peer);
     await bridge.drain();
     throw new Error("Did not reach crash barrier");
   }
@@ -158,7 +208,14 @@ try {
   const after = await client.call("chat/consumption", { account: config.peer });
   const rows = bridge.status().items;
   assert.equal(rows.length, 1);
-  if (["dispatching", "provider-unknown", "operation-result"].includes(cut)) {
+  if (
+    [
+      "dispatching",
+      "provider-unknown",
+      "operation-result",
+      "download-result",
+    ].includes(cut)
+  ) {
     assert.equal(rows[0].state, "uncertain");
     assert.equal(after.consumed_through, 0);
     assert.equal(modelCalls, 0);
@@ -186,6 +243,17 @@ try {
     assert.ok(requests.some((r) => r.path === "/v2/operations/get"));
     assert.equal(
       requests.filter((r) => r.path === "/v2/chat/send_message").length,
+      0,
+    );
+  }
+  if (cut === "download-result") {
+    const operations = bridge.operations.status();
+    assert.equal(operations.length, 1);
+    assert.equal(operations[0].state, "succeeded");
+    assert.ok(requests.some((r) => r.path === "/v2/events/read"));
+    assert.ok(requests.some((r) => r.path === "/v2/downloads/get"));
+    assert.equal(
+      requests.filter((r) => r.path === "/v2/downloads/start").length,
       0,
     );
   }

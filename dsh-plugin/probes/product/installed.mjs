@@ -334,6 +334,70 @@ try {
       (r) => r.kind === "download" && r.state === "completed",
     ),
   );
+  await until(async () =>
+    (await tool("bb_bridge_status")).recovery.items.some(
+      (r) => r.messageId === attachment.id && r.state === "completed",
+    ),
+  );
+  const previousJobs = (await tool("bb_bridge_status")).recovery.items.length;
+  await settings({ enabled: false });
+  await until(async () =>
+    ctx.tools.schemas().every((t) => !t.name.startsWith("mcp__bb__")),
+  );
+  await handle.dispose();
+  handle = await ctx.agents.create({
+    sessionId: "installed-settled-rebuilt",
+    agentOptions: { provider: "product-double", model: "fixed" },
+  });
+  await settings({ enabled: true, targetSession: "installed-settled-rebuilt" });
+  await until(async () => (await tool("bb_bridge_status")).state === "bound");
+  const increment = await tool("mcp__bb__send_message", {
+    target_account: client.peer,
+    content: [{ type: "text", text: "new session increment" }],
+  });
+  await until(async () =>
+    (await tool("bb_bridge_status")).recovery.items.some(
+      (r) => r.messageId === increment.id && r.state === "completed",
+    ),
+  );
+  const current = modelRequests
+    .at(-1)
+    .find((m) =>
+      m.content.some((b) => b.type === "text" && b.text.includes(increment.id)),
+    );
+  const bootstrap = current.content
+    .filter((b) => b.type === "text")
+    .map((b) => {
+      try {
+        return JSON.parse(b.text);
+      } catch {
+        return {};
+      }
+    })
+    .find((m) => m.kind === "history_context");
+  assert.ok(bootstrap);
+  assert.equal(bootstrap.consumed_through, 3);
+  assert.deepEqual(
+    bootstrap.included.map((m) => m.message_id),
+    [id, mixed.id, attachment.id],
+  );
+  assert.equal(
+    (await tool("bb_bridge_status")).recovery.items.length,
+    previousJobs + 1,
+  );
+  const historicalImages = current.content.filter((b) => b.type === "image");
+  assert.equal(historicalImages.length, 2);
+  for (const [i, block] of historicalImages.entries())
+    assert.deepEqual(
+      Buffer.from((await ctx.attachments.readImage(block.attachment)).data),
+      Buffer.from(client.images[i], "base64"),
+    );
+  assert.equal(
+    handle.agent.session
+      .snapshotEvents()
+      .filter((e) => e.type === "user/message").length,
+    1,
+  );
   await settings({ enabled: false });
   await until(async () =>
     ctx.tools.schemas().every((t) => !t.name.startsWith("mcp__bb__")),
@@ -351,7 +415,10 @@ try {
     register_login: "real MCP/real client",
     queries: "real MCP/real client",
     automatic_consumption: true,
-    explicit_sends: 3,
+    explicit_sends: 4,
+    settled_new_session_context: true,
+    historical_image_bytes_order: "red,blue",
+    historical_jobs: 0,
     two_ordered_images: true,
     download_callback: true,
     model_calls: count,

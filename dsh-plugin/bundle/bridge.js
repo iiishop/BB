@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { History } from "./history.js";
 import { Operations } from "./operations.js";
 import { digest, Journal } from "./store.js";
 
@@ -8,6 +9,7 @@ export class Bridge {
     Object.assign(this, { ctx, agent, client, root, checkpoint });
     this.journal = new Journal(root, client.identity);
     this.operations = new Operations(client, root);
+    this.history = new History(this);
     this.tail = Promise.resolve();
     this.observers = Promise.resolve();
     this.closed = false;
@@ -191,9 +193,10 @@ export class Bridge {
               const items = page?.item ? [page.item] : page?.items;
               if (!Array.isArray(items))
                 throw new Error("Missing BB query metadata");
+              const context = [];
               for (const item of items)
-                if (item.presentation)
-                  await self.claim(item, {
+                if (item.presentation) {
+                  const claimed = await self.claim(item, {
                     callId: exec.callId,
                     projectionImageCount: items.reduce(
                       (n, i) =>
@@ -201,6 +204,44 @@ export class Bridge {
                       0,
                     ),
                   });
+                  context.push(...(claimed?.bootstrapContent ?? []));
+                }
+              if (context.length) {
+                const totalImages =
+                  context.filter((x) => x.type === "image").length +
+                  items.reduce(
+                    (n, i) =>
+                      n + i.blocks.filter((x) => x.type === "image").length,
+                    0,
+                  );
+                await self.serial(async () => {
+                  for (const row of self.journal
+                    .list()
+                    .filter(
+                      (r) =>
+                        r.callId === exec.callId &&
+                        r.claimTurn === self.turn &&
+                        r.state === "prepared",
+                    ))
+                    await self.journal.put({
+                      ...row,
+                      projectionImageCount: totalImages,
+                    });
+                });
+                const decision = await next();
+                if (decision.kind !== "accept") return decision;
+                if ("value" in decision)
+                  throw new Error(
+                    "BB history projection conflicts with replacement tool value",
+                  );
+                return {
+                  ...decision,
+                  content: [
+                    ...context,
+                    ...(decision.content ?? result.content),
+                  ],
+                };
+              }
             }
             return await next();
           } finally {
@@ -241,8 +282,13 @@ export class Bridge {
               { ...args, operation_id: plan.operation_id },
               exec,
             );
-            await this.checkpoint("operation-result");
-            await this.serial(() => this.operations.query(plan));
+            await this.checkpoint("operation-result", {
+              tool: exec.name,
+              result: value.structuredContent,
+            });
+            await this.serial(() =>
+              this.operations.query(plan, value.structuredContent),
+            );
             return {
               ...value,
               structuredContent: {
@@ -323,14 +369,17 @@ export class Bridge {
         ) {
           if (prior.nativeId) this.agent.inbox.remove(prior.nativeId);
           await this.flush();
-          return this.journal.put({
+          const bootstrap = await this.history.prepare(prior);
+          const updated = await this.journal.put({
             ...prior,
+            ...(bootstrap.metadata ? { bootstrap: bootstrap.metadata } : {}),
             callId,
             claimTurn: this.turn,
             projectionImageCount,
             nativeId: undefined,
             state: "prepared",
           });
+          return { ...updated, bootstrapContent: bootstrap.content };
         }
         return prior;
       }
@@ -347,6 +396,7 @@ export class Bridge {
         imageCount: item.blocks.filter((b) => b.type === "image").length,
         state: "claimed",
         session: this.agent.session.id,
+        sessionCreatedAt: this.agent.session.header.createdAt,
         attempt: "bb-" + randomUUID(),
         ...(callId
           ? { callId, claimTurn: this.turn, projectionImageCount }
@@ -356,19 +406,26 @@ export class Bridge {
       row = await this.journal.put(row);
       await this.checkpoint("claimed");
       if (callId) {
+        const bootstrap = await this.history.prepare(row);
         row.state = "prepared";
-        return this.journal.put(row);
+        if (bootstrap.metadata) row.bootstrap = bootstrap.metadata;
+        await this.journal.put(row);
+        return { ...row, bootstrapContent: bootstrap.content };
       }
       return this.deliver(row, item);
     });
   }
   async deliver(row, item) {
     await this.check();
-    const content = await this.content(item);
+    const bootstrap = await this.history.prepare(row);
+    const content = [...bootstrap.content, ...(await this.content(item))];
     row = {
       ...row,
       state: "prepared",
+      ...(bootstrap.metadata ? { bootstrap: bootstrap.metadata } : {}),
+      projectionImageCount: content.filter((x) => x.type === "image").length,
       session: this.agent.session.id,
+      sessionCreatedAt: this.agent.session.header.createdAt,
       nativeId: "bb-" + randomUUID(),
       attempt: "bb-" + randomUUID(),
     };
@@ -453,7 +510,45 @@ export class Bridge {
     return item;
   }
   async recover() {
+    const mismatches = this.journal
+      .list()
+      .filter(
+        (row) =>
+          row.state !== "completed" &&
+          (row.session !== this.agent.session.id ||
+            (row.sessionCreatedAt !== undefined &&
+              row.sessionCreatedAt !== this.agent.session.header.createdAt)),
+      );
+    if (mismatches.length)
+      throw Object.assign(
+        new Error(
+          "Original native session is required; unsettled work was not discarded",
+        ),
+        {
+          code: "recovery_session_required",
+          required_sessions: [...new Set(mismatches.map((r) => r.session))],
+        },
+      );
     await this.operations.reconcile();
+    const unfinishedPlans = [...this.operations.rows.values()].filter(
+      (row) =>
+        !["succeeded", "failed"].includes(row.state) &&
+        (row.session !== this.agent.session.id ||
+          (row.sessionCreatedAt !== undefined &&
+            row.sessionCreatedAt !== this.agent.session.header.createdAt)),
+    );
+    if (unfinishedPlans.length)
+      throw Object.assign(
+        new Error(
+          "Original native session is required for unresolved operations",
+        ),
+        {
+          code: "recovery_session_required",
+          required_sessions: [
+            ...new Set(unfinishedPlans.map((row) => row.session)),
+          ],
+        },
+      );
     for (let row of this.journal
       .list()
       .sort((a, b) => a.position - b.position)) {
@@ -525,6 +620,10 @@ export class Bridge {
       task_id: event.task_id,
     });
     if (!["succeeded", "failed"].includes(fact.status)) return;
+    // Repair old metadata-only plans too, but only using a verified client fact.
+    await this.serial(() =>
+      this.operations.query({ ...plan, kind: "download" }, fact),
+    );
     const key = digest(["download", event.event_id]);
     await this.serial(async () => {
       await this.check();

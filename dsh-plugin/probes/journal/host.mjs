@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 import assert from 'node:assert/strict';
 
-export async function boot(pkg, root, provider, observe) {
+export async function boot(pkg, root, provider, observe, options = {}) {
   const require = createRequire(resolve(pkg, 'package.json'));
   const load = name => import(pathToFileURL(require.resolve(`@deepseek-ai/${name}`)));
   const { Context } = await load('cordis');
@@ -15,6 +15,7 @@ export async function boot(pkg, root, provider, observe) {
     return mod;
   };
   const llm = await mount('dsh-llm');
+  if (options.images) await mount('dsh-attachment-local', { dshHome: resolve(root, 'home') });
   await mount('dsh-session');
   await mount('dsh-session-projection');
   await mount('dsh-system-prompt', { includeHarnessIdentity: false, includeRuntimeContext: false });
@@ -28,7 +29,7 @@ export async function boot(pkg, root, provider, observe) {
   const domainRequire = createRequire(require.resolve('@deepseek-ai/dsh-storage-domain'));
   const { z } = await import(pathToFileURL(domainRequire.resolve('zod')));
   class Model extends llm.LlmAdapter {
-    async resolveModel(provider, id) { return { provider, id, name: 'JOURNAL PROBE DOUBLE', inputModalities: ['text'], context: { contextWindow: 8192 } }; }
+    async resolveModel(provider, id) { return { provider, id, name: 'JOURNAL PROBE DOUBLE', inputModalities: options.images ? ['text', 'image'] : ['text'], context: { contextWindow: 8192 } }; }
     async *stream(options) { observe('provider', { ids: options.messages.map(m => m.id) }); yield* provider(options); }
   }
   const unregister = ctx.llm.registerAdapter(['journal-probe'], new Model());

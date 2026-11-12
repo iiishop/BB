@@ -41,6 +41,9 @@ parser.add_argument(
 parser.add_argument(
     "--product", action="store_true", help="Product bundle recovery gates"
 )
+parser.add_argument(
+    "--context", action="store_true", help="Real native session history initialization"
+)
 args = parser.parse_args()
 repo = Path(__file__).resolve().parents[3]
 parent = Path(args.output).resolve()
@@ -247,8 +250,10 @@ try:
         ).status_code
         == 200
     )
-    if args.v2 or args.faults or args.remaining or args.product:
-        if args.product:
+    if args.v2 or args.faults or args.remaining or args.product or args.context:
+        if args.context:
+            from live_context import run
+        elif args.product:
             from live_product import run
         elif args.remaining:
             from live_remaining import run
@@ -271,7 +276,7 @@ try:
                     "dart_executable": args.dart,
                     "packages": str(config),
                 }
-                if args.faults or args.remaining or args.product
+                if args.faults or args.remaining or args.product or args.context
                 else {}
             )
             run(

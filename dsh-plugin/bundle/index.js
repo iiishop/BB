@@ -41,6 +41,7 @@ export async function apply(ctx, config) {
     pending = Promise.resolve(),
     configuration,
     lastError,
+    requiredSessions,
     fenced = false,
     ready = false;
   const get = (key) => config[key].get();
@@ -123,10 +124,12 @@ export async function apply(ctx, config) {
         bridge.installOperations();
         await bridge.recover();
         lastError = undefined;
+        requiredSessions = undefined;
       } catch (error) {
         candidate.close();
         await stop();
         lastError = error.code ?? "binding_unavailable";
+        requiredSessions = error.required_sessions;
         if (error.status !== 401) fenced = true;
       }
     }
@@ -179,6 +182,7 @@ export async function apply(ctx, config) {
         state:
           ready && bridge && mcpFiber ? "bound" : "awaiting_login_or_session",
         error: lastError ?? null,
+        required_sessions: requiredSessions ?? [],
         ...(bridge ? { recovery: bridge.status() } : {}),
       }),
     }),

@@ -83,6 +83,7 @@ def run(
         "confirmed",
         "acked",
         "operation-result",
+        "download-result",
     ]
     if os.environ.get("BB_PRODUCT_CASES") == "installed":
         cuts = []
