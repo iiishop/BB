@@ -153,34 +153,28 @@ void main() {
     expect(badSource.status, 422, reason: '${badSource.body}');
   });
 
-  test('v1 attachment keeps omitted/null/legacy behavior', () async {
+  test('the removed v1 attachment route is not callable', () async {
     final Map<String, dynamic> v1Body = <String, dynamic>{
       'target_account': _peer,
       'operation_id': 'v1-cover-omitted',
       'source': source(),
     };
-    final _Response omitted = await _post(
-      address,
-      '/chat/send_attachment',
+    for (final Map<String, dynamic> body in <Map<String, dynamic>>[
       v1Body,
-    );
-    expect(omitted.status, 200, reason: '${omitted.body}');
-    final _Response explicit = await _post(
-      address,
-      '/chat/send_attachment',
       <String, dynamic>{...v1Body, 'operation_id': 'v1-cover-null', 'cover': null},
-    );
-    expect(explicit.status, 200, reason: '${explicit.body}');
-    final _Response invalid = await _post(
-      address,
-      '/chat/send_attachment',
       <String, dynamic>{
         ...v1Body,
         'operation_id': 'v1-cover-invalid',
         'cover': 'not-a-source',
       },
-    );
-    expect(invalid.status, 500);
+    ]) {
+      final _Response response = await _post(
+        address,
+        '/chat/send_attachment',
+        body,
+      );
+      expect(response.status, 404, reason: '${response.body}');
+    }
   });
 }
 

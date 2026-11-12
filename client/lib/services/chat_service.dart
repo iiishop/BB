@@ -470,18 +470,6 @@ class ChatService {
     }
   }
 
-  /// Legacy v1 calls carry no owner capability or expected revision, so only
-  /// the alias that is still the consumer's current mapping may act. A CAS
-  /// rebind leaves old aliases resolvable for history, but they must never
-  /// confirm or advance the rebound consumer.
-  bool _legacyAliasCurrent(ConsumerBinding binding, String consumerSession) {
-    if (binding.sessionId.isNotEmpty) {
-      return binding.sessionId == consumerSession;
-    }
-    return binding.aliases.length == 1 &&
-        binding.aliases.contains(consumerSession);
-  }
-
   // --------------------------------------------------------------- account --
 
   Future<UserPage> listUsers({String afterAccount = '', int limit = 50}) async {
@@ -1719,10 +1707,6 @@ class ChatService {
     final ({AuthIdentity identity, ConsumerBinding binding}) context =
         await _captureBinding(consumerSession, create: false);
     final AuthIdentity captured = context.identity;
-    if (expectedIdentity == null &&
-        !_legacyAliasCurrent(context.binding, consumerSession)) {
-      throw staleBinding('旧会话别名已失效，请重新绑定后再试');
-    }
     _expectCurrentIdentity(expectedIdentity, context.binding, captured);
     final List<String> confirmed = await ledger.confirmPresentationAttempt(
       account: captured.account,
@@ -1759,10 +1743,6 @@ class ChatService {
     final ({AuthIdentity identity, ConsumerBinding binding}) context =
         await _captureBinding(consumerSession, create: false);
     final AuthIdentity captured = context.identity;
-    if (expectedIdentity == null &&
-        !_legacyAliasCurrent(context.binding, consumerSession)) {
-      throw staleBinding('旧会话别名已失效，请重新绑定后再试');
-    }
     _expectCurrentIdentity(expectedIdentity, context.binding, captured);
     // Everything below happens inside one ledger lock: identity and binding are
     // re-verified, the gap is recomputed and only then is the watermark

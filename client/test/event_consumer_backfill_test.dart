@@ -144,6 +144,8 @@ void main() {
 
       // Restart with the same ledger: a new login does not silently rebind the
       // old consumer alias; an explicit revision-checked rebind is required.
+      final String consumerB =
+          (await alice.identityFor('consumer-b')).consumerId;
       final ChatService restarted = service(_accountA);
       addTearDown(restarted.dispose);
       await expectLater(
@@ -159,8 +161,9 @@ void main() {
           ),
         ),
       );
-      final ExpectedIdentity oldIdentity = (await restarted.ledger
-          .expectedIdentityForSession(_accountA, 'consumer-b'))!;
+      final ConsumerBinding oldIdentity = (await restarted.ledger.bindingById(
+        consumerB,
+      ))!;
       await restarted.ledger.bindConsumer(
         account: _accountA,
         authGeneration: restarted.session.identity!.authGeneration,

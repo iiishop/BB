@@ -17,10 +17,6 @@ const String staleBindingCode = 'stale_binding';
 /// Error code identifying a missing display fact before an ACK.
 const String consumptionGapCode = 'consumption_gap';
 
-/// Error code identifying old consumption state that cannot be migrated
-/// without inventing evidence.
-const String migrationRequiredCode = 'migration_required';
-
 /// Same operation/attempt id with different intent. Distinct from
 /// [staleIdentity] so callers never retry a conflicting plan.
 const String idempotencyConflictCode = 'idempotency_conflict';
@@ -46,14 +42,6 @@ AuthFailure consumptionGap(String message, {List<AuthFieldError> fields = const 
     AuthFailure(
       status: 409,
       code: consumptionGapCode,
-      message: message,
-      fields: fields,
-    );
-
-AuthFailure migrationRequired(String message, {List<AuthFieldError> fields = const <AuthFieldError>[]}) =>
-    AuthFailure(
-      status: 409,
-      code: migrationRequiredCode,
       message: message,
       fields: fields,
     );
