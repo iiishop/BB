@@ -985,9 +985,8 @@ class ChatV2Router {
   }
 
   OutgoingAttachment _attachment(_Request request) {
-    if (!request.contains('cover')) {
-      throw _validation('cover');
-    }
+    // Shared schema: `cover: Source | None = None`. Omission and explicit null
+    // are both valid; a present non-null cover must still be a strict Source.
     final Map<String, dynamic> source = request.object(
       'source',
       const <String>{'base64', 'path', 'url', 'mime_type', 'filename'},
