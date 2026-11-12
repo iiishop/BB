@@ -1,5 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+
+import 'package:crypto/crypto.dart';
 
 import '../models/auth_models.dart';
 import '../models/chat_models.dart';
@@ -84,7 +87,7 @@ class DownloadManager {
         }
         if (prior.status == DownloadStatus.pending ||
             prior.status == DownloadStatus.running) {
-          _spawn(account, captured.token, prior);
+          _spawn(account, captured.token, prior, resumed: true);
         }
         return prior;
       }
@@ -151,7 +154,7 @@ class DownloadManager {
       } else if ((task.status == DownloadStatus.pending ||
               task.status == DownloadStatus.running) &&
           !_active.containsKey(task.taskId)) {
-        _spawn(account, captured.token, task);
+        _spawn(account, captured.token, task, resumed: true);
       }
       if (!session.isCurrent(captured)) {
         throw unauthenticated;
@@ -170,7 +173,7 @@ class DownloadManager {
     for (final DownloadTask task in tasks) {
       if (task.status == DownloadStatus.pending ||
           task.status == DownloadStatus.running) {
-        _spawn(captured.account, captured.token, task);
+        _spawn(captured.account, captured.token, task, resumed: true);
       } else if (task.status.terminal) {
         final LocalEvent event = _terminalEvent(captured.account, task);
         await ledger.finishDownload(
@@ -187,11 +190,16 @@ class DownloadManager {
     }
   }
 
-  void _spawn(String account, String token, DownloadTask task) {
+  void _spawn(
+    String account,
+    String token,
+    DownloadTask task, {
+    bool resumed = false,
+  }) {
     if (_disposed || _active.containsKey(task.taskId)) {
       return;
     }
-    final Future<void> work = _run(account, token, task);
+    final Future<void> work = _run(account, token, task, resumed: resumed);
     _active[task.taskId] = work;
     unawaited(
       work.whenComplete(() {
@@ -200,7 +208,22 @@ class DownloadManager {
     );
   }
 
-  Future<void> _run(String account, String token, DownloadTask task) async {
+  Future<void> _run(
+    String account,
+    String token,
+    DownloadTask task, {
+    bool resumed = false,
+  }) async {
+    if (resumed) {
+      final DownloadTask? saved = await _recoverSaved(account, task);
+      if (saved != null) {
+        final bool committed = await _commitSucceeded(account, saved);
+        if (committed) {
+          await _removeMarker(task.taskId);
+        }
+        return;
+      }
+    }
     File target;
     try {
       final MediaResponse media = await api.fetchMedia(
@@ -239,6 +262,11 @@ class DownloadManager {
         }
       }
     } catch (error) {
+      if (resumed) {
+        // A reopened task may already own a saved file. Never turn a recovery
+        // transport failure into a new download.failed fact.
+        return;
+      }
       if (error is AuthFailure &&
           (error.status == 401 || error.status == 403)) {
         // A stale/expired token must not become a permanent business failure;
@@ -251,12 +279,21 @@ class DownloadManager {
 
     // The bytes are saved. A ledger commit failure below is a persistence
     // problem, not a transfer failure: retry it, and never relabel the file as
-    // a failed download.
+    // a failed download. The marker is a durable, identity-bound proof that
+    // this task owns this exact file across a process restart.
     final DownloadTask done = task.copyWith(
       status: DownloadStatus.succeeded,
       plannedPath: target.path,
       actualPath: target.path,
     );
+    await _writeMarker(account, done);
+    final bool committed = await _commitSucceeded(account, done);
+    if (committed) {
+      await _removeMarker(task.taskId);
+    }
+  }
+
+  Future<bool> _commitSucceeded(String account, DownloadTask done) async {
     final LocalEvent event = _terminalEvent(account, done);
     bool committed = false;
     for (int attempt = 0; attempt < 3 && !committed; attempt++) {
@@ -270,16 +307,111 @@ class DownloadManager {
       }
     }
     if (!committed) {
-      // Leave the accepted task pending/recoverable rather than inventing a
-      // failed download fact. The saved file and task remain for a later
-      // repair/read.
-      return;
+      // Leave the accepted task pending/recoverable; the marker still proves
+      // which file completed.
+      return false;
     }
     try {
       await onEvent(event);
     } catch (_) {
       // The durable pending event is retried on the origin account's next
       // read/wait or restart; a successful saved file is never reclassified.
+    }
+    return true;
+  }
+
+  String _markerPath(String taskId) =>
+      '${cacheRoot.path}${Platform.pathSeparator}.terminal'
+      '${Platform.pathSeparator}$taskId.json';
+
+  Future<void> _writeMarker(String account, DownloadTask done) async {
+    final String actualPath = done.actualPath ?? done.plannedPath;
+    try {
+      final File file = File(actualPath);
+      if (!await file.exists()) {
+        return;
+      }
+      final String digest = sha256.convert(await file.readAsBytes()).toString();
+      final Map<String, dynamic> marker = <String, dynamic>{
+        'version': 1,
+        'task_id': done.taskId,
+        'operation_id': done.operationId,
+        'account': account,
+        'consumer_session': done.consumerSession,
+        'actual_path': actualPath,
+        'size': await file.length(),
+        'sha256': digest,
+      };
+      final File target = File(_markerPath(done.taskId));
+      await target.parent.create(recursive: true);
+      final File temporary = File(
+        '${target.path}.part-${DateTime.now().microsecondsSinceEpoch}',
+      );
+      try {
+        await temporary.writeAsString(jsonEncode(marker), flush: true);
+        await temporary.rename(target.path);
+      } finally {
+        if (await temporary.exists()) {
+          await temporary.delete();
+        }
+      }
+    } catch (_) {
+      // No marker means no proof; callers keep the task recoverable rather
+      // than treating an arbitrary same-name file as this task's result.
+    }
+  }
+
+  Future<DownloadTask?> _recoverSaved(String account, DownloadTask task) async {
+    final File markerFile = File(_markerPath(task.taskId));
+    if (!await markerFile.exists()) {
+      return null;
+    }
+    try {
+      final Object? decoded = jsonDecode(await markerFile.readAsString());
+      if (decoded is! Map<String, dynamic>) {
+        return null;
+      }
+      final String? actualPath = decoded['actual_path'] as String?;
+      final int? size = decoded['size'] as int?;
+      final String? digest = decoded['sha256'] as String?;
+      if (decoded['version'] != 1 ||
+          decoded['task_id'] != task.taskId ||
+          decoded['operation_id'] != task.operationId ||
+          decoded['account'] != account ||
+          decoded['consumer_session'] != task.consumerSession ||
+          actualPath == null ||
+          size == null ||
+          digest == null) {
+        return null;
+      }
+      final File file = File(actualPath);
+      if (!await file.exists() || await file.length() != size) {
+        return null;
+      }
+      final String actualDigest = sha256
+          .convert(await file.readAsBytes())
+          .toString();
+      if (actualDigest != digest) {
+        return null;
+      }
+      return task.copyWith(
+        status: DownloadStatus.succeeded,
+        plannedPath: actualPath,
+        actualPath: actualPath,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _removeMarker(String taskId) async {
+    try {
+      final File marker = File(_markerPath(taskId));
+      if (await marker.exists()) {
+        await marker.delete();
+      }
+    } catch (_) {
+      // A stale marker is harmless: recovery verifies identity and hashes.
     }
   }
 
