@@ -1,33 +1,91 @@
-# BB — Social Platform
+# BB — 私人社交平台
 
-Flutter 客户端 + FastAPI 服务端的私人社交平台。三个一等模块：Profile / Chat / Space。
+Flutter 客户端 + FastAPI 服务端。账号由服务端分配，消息留在自己的机器上，AI 参与者与真人用户共享同一套业务规则。
 
-本仓库是 Multica Squad `Social Platform Delivery` 的交付仓库。
+[![CI](https://github.com/iiishop/BB/actions/workflows/ci.yml/badge.svg)](https://github.com/iiishop/BB/actions/workflows/ci.yml)
+
+![聊天界面](docs/images/chat.png)
+
+## 现在能做什么
+
+| 模块 | 状态 | 内容 |
+| --- | --- | --- |
+| Profile | 已完成 | 8 位账号注册登录、头像上传、昵称、签名、按账号查看资料 |
+| Chat | 已完成 | 一对一文字与图片、有序历史、附件异步下载、WebSocket 事件流、断线补拉 |
+| Space | 未开始 | 动态 / 心情 / 日记只写在产品定义里，代码里没有 |
+
+桌面三平台（Linux / Windows / macOS）与 Android 都能构建，产物由 CI 打包。
+
+## 界面
+
+| 登录 | 会话列表 | 个人资料 |
+| --- | --- | --- |
+| ![登录](docs/images/login.png) | ![会话](docs/images/messages.png) | ![资料](docs/images/profile.png) |
+
+截图来自实际构建的 Linux 客户端，跑在 Xvfb 里连本地服务端，不是设计稿。
+
+## 架构
+
+![架构](docs/images/architecture.png)
+
+- **客户端**：Flutter。本地维护一份 operation 账本（client nonce + 状态），发送失败重试时复用同一个 nonce，服务端据此去重。
+- **服务端**：FastAPI + SQLite。认证、资料、聊天、媒体各自成模块；写事务在锁竞争时有 3 秒预算，超时返回 `503 storage_busy` 并带 `Retry-After`，客户端按值退避重试；IO 类失败单独报 `storage_io_error`。
+- **Bot 接入**：DSH Runtime 通过 MCP 插件操作平台，插件只暴露 17 个业务工具（发消息、读消息、等待新消息、上传附件、下载媒体、改资料等），不直接碰数据库。
 
 ## 目录
 
 ```
-server/               FastAPI + SQLite 业务服务（Forge 负责）
-client/               Flutter 客户端，桌面 + Android（Muse 负责）
-dsh-plugin/           DSH MCP 插件，注册/登录 + 六个 Profile 工具（Forge 负责）
-docs/                 项目上下文、工程红线、接口契约种子、QA 模板
-scripts/              统一 QA runner
+client/        Flutter 客户端（lib / test / integration_test / android / linux / windows / macos）
+server/        FastAPI 服务端（src / tests / migrations / contract / probes）
+dsh-plugin/    DSH MCP 插件，包装 17 个 bb__* 工具
+scripts/       统一 QA runner 与打包脚本
+docs/          项目上下文、工程红线、接口契约、CI 说明
 ```
 
-目录尚未创建时，由接手的 Agent 按任务需要初始化，不要提前塞空壳。
+## 本地跑起来
 
-## QA
+服务端（Python ≥ 3.12，用 uv）：
 
 ```bash
-bash scripts/run_flutter_tests.sh client                       # 常规
-QA_REQUIRE_INTEGRATION=1 bash scripts/run_flutter_tests.sh client   # 端到端任务必须
+cd server
+uv sync --frozen
+BB_DATABASE_PATH=/tmp/bb/app.db \
+BB_AVATAR_DIRECTORY=/tmp/bb/avatars \
+BB_MEDIA_DIRECTORY=/tmp/bb/media \
+BB_HOST=127.0.0.1 BB_PORT=8000 \
+  uv run python -m bb_server
 ```
 
-`0` = 所有已执行阶段通过；缺用例在严格模式下记 FAIL，不会被当成 PASS。逐阶段结果写进 `results.tsv`。
-无 Android 模拟器/真机：Android 相关一律 NOT RUN，Linux 截图不等于 Android 验证。
+客户端：
 
-## 团队与流程
+```bash
+cd client
+flutter pub get
+flutter run -d linux --dart-define=BB_API_BASE_URL=http://127.0.0.1:8000
+```
 
-Orion（调度/契约）· Muse（Flutter 前端）· Forge（后端）· Sentinel（独立 QA）· Owner（人工验收）。
-状态流：Backlog → Ready → In Progress → Automated QA → Owner Review → Done，另有 Blocked。
-合并 main、正式发布、父需求 Done 只有 Owner 能批准。
+没有账号就先注册，服务端会分配一个 8 位账号，用它登录（用户名不能当登录名）。
+
+## 测试
+
+```bash
+bash scripts/run_flutter_tests.sh client                        # analyze + widget
+QA_REQUIRE_INTEGRATION=1 bash scripts/run_flutter_tests.sh client   # 加上 Linux integration
+cd server && uv run pytest -q && uv run ruff check src tests
+cd dsh-plugin && uv run pytest -q && uv run ruff check src tests
+```
+
+`0` 表示所有已执行阶段通过。缺用例在严格模式下记 FAIL，不会被当成 PASS；没跑的一律 NOT RUN。
+
+CI 在每次 PR 上跑四个作业：范围探测、Flutter 三层 QA、服务端 pytest、插件 pytest。发布打包见 [docs/CI-CD.md](docs/CI-CD.md)。
+
+## 已知边界
+
+- 没有群聊、好友关系、推送通知、消息撤回、视频转码。客户端关掉就收不到消息。
+- APK 目前用仓库自带的 debug keystore 签名，能装不能上架；macOS 与 Windows 未做代码签名。
+- 数据库是单文件 SQLite，适合单机个人部署；没有分片、没有读写分离。
+- Android、真实模型与视觉、网络文件系统这几条链路还没做人工验收。
+
+## 流程
+
+本仓库由 Multica 上的多 agent 小队交付：Orion（调度与契约）、Muse（Flutter）、Forge（服务端）、Sentinel（独立 QA）、Owner（人工验收）。状态流转 Backlog → In Progress → Automated QA → Owner Review → Done，合并 main 与发布只有 Owner 能批准。
