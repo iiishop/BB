@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:crypto/crypto.dart';
 
@@ -161,10 +162,7 @@ class DownloadManager {
         } catch (_) {
           // Pending delivery remains durable for the origin account.
         }
-        await _cleanupPrepare(
-          task.taskId,
-          finalPath: task.actualPath ?? task.plannedPath,
-        );
+        await _cleanupPrepare(task.taskId);
       } else if ((task.status == DownloadStatus.pending ||
               task.status == DownloadStatus.running) &&
           !_active.containsKey(task.taskId)) {
@@ -200,10 +198,7 @@ class DownloadManager {
         } catch (_) {
           // Pending delivery remains durable.
         }
-        await _cleanupPrepare(
-          task.taskId,
-          finalPath: task.actualPath ?? task.plannedPath,
-        );
+        await _cleanupPrepare(task.taskId);
       }
     }
   }
@@ -238,10 +233,7 @@ class DownloadManager {
       if (recovery.task != null) {
         final bool committed = await _commitSucceeded(account, recovery.task!);
         if (committed) {
-          await _cleanupPrepare(
-            task.taskId,
-            finalPath: recovery.task!.actualPath ?? recovery.task!.plannedPath,
-          );
+          await _cleanupPrepare(task.taskId);
         }
         return;
       }
@@ -301,7 +293,15 @@ class DownloadManager {
       )) {
         return;
       }
-      if (!await _placePrepared(staging, target, size, digest, task.taskId)) {
+      if (!await _placePrepared(
+        staging,
+        target,
+        size,
+        digest,
+        task.taskId,
+        account,
+        task.consumerSession,
+      )) {
         return;
       }
     } catch (error) {
@@ -325,7 +325,7 @@ class DownloadManager {
     );
     final bool committed = await _commitSucceeded(account, done);
     if (committed) {
-      await _cleanupPrepare(task.taskId, finalPath: target.path);
+      await _cleanupPrepare(task.taskId);
     }
   }
 
@@ -367,8 +367,114 @@ class DownloadManager {
       '${cacheRoot.path}${Platform.pathSeparator}.staging'
       '${Platform.pathSeparator}$taskId.expect.json';
 
-  String _temporaryPath(String targetPath, String taskId) =>
-      '$targetPath.part-$taskId';
+  String _cleanupPath(String taskId) =>
+      '${cacheRoot.path}${Platform.pathSeparator}.terminal'
+      '${Platform.pathSeparator}$taskId.cleanup.json';
+
+  String _newTemporaryPath(String targetPath, String taskId) {
+    final String nonce = Random.secure().nextInt(1 << 32).toRadixString(16);
+    return '$targetPath.part-$taskId-$nonce';
+  }
+
+  Future<String?> _claimTemporary({
+    required String targetPath,
+    required String taskId,
+    required String account,
+    required String consumerSession,
+  }) async {
+    final File record = File(_cleanupPath(taskId));
+    if (await record.exists()) {
+      try {
+        final Object? decoded = jsonDecode(await record.readAsString());
+        if (decoded is Map<String, dynamic> &&
+            decoded['version'] == 1 &&
+            decoded['task_id'] == taskId &&
+            decoded['account'] == account &&
+            decoded['consumer_session'] == consumerSession &&
+            decoded['temporary_path'] is String) {
+          return decoded['temporary_path'] as String;
+        }
+      } catch (_) {
+        // A corrupt ownership record cannot authorize deleting or reusing an
+        // arbitrary file.
+        return null;
+      }
+      return null;
+    }
+    for (int attempt = 0; attempt < 5; attempt++) {
+      final String path = _newTemporaryPath(targetPath, taskId);
+      final File temporary = File(path);
+      try {
+        await temporary.create(exclusive: true);
+      } on FileSystemException {
+        continue;
+      }
+      final Map<String, dynamic> ownership = <String, dynamic>{
+        'version': 1,
+        'task_id': taskId,
+        'account': account,
+        'consumer_session': consumerSession,
+        'temporary_path': path,
+      };
+      try {
+        await record.parent.create(recursive: true);
+        final File recordTemp = File(
+          '${record.path}.part-${DateTime.now().microsecondsSinceEpoch}',
+        );
+        try {
+          await recordTemp.writeAsString(jsonEncode(ownership), flush: true);
+          await recordTemp.rename(record.path);
+        } finally {
+          if (await recordTemp.exists()) {
+            await recordTemp.delete();
+          }
+        }
+        return path;
+      } catch (_) {
+        try {
+          await temporary.delete();
+        } catch (_) {
+          // Leave the empty object rather than claim/delete unknown content.
+        }
+        return null;
+      }
+    }
+    return null;
+  }
+
+  Future<bool> _cleanupOwnedTemporary(String taskId) async {
+    final File record = File(_cleanupPath(taskId));
+    if (!await record.exists()) {
+      return true;
+    }
+    try {
+      final Object? decoded = jsonDecode(await record.readAsString());
+      if (decoded is! Map<String, dynamic> ||
+          decoded['version'] != 1 ||
+          decoded['task_id'] != taskId ||
+          decoded['temporary_path'] is! String) {
+        return false;
+      }
+      final File temporary = File(decoded['temporary_path'] as String);
+      if (await temporary.exists()) {
+        await temporary.delete();
+      }
+      if (await temporary.exists()) {
+        return false;
+      }
+      await record.delete();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _discardOwnedTemporary(String taskId) async {
+    if (await _cleanupOwnedTemporary(taskId)) {
+      return;
+    }
+    // Keep the ownership record for a later authorized retry.
+  }
 
   Future<bool> _writePrepare({
     required String account,
@@ -417,16 +523,24 @@ class DownloadManager {
     int size,
     String digest,
     String taskId,
+    String account,
+    String consumerSession,
   ) async {
     File? temporary;
     try {
       if (await target.exists() && await target.length() > 0) {
         return false;
       }
-      // Copy through a task-specific temporary file in the *destination*
-      // directory. This works across filesystems (EXDEV) and keeps the final
-      // rename atomic on the target filesystem.
-      temporary = File(_temporaryPath(target.path, taskId));
+      final String? temporaryPath = await _claimTemporary(
+        targetPath: target.path,
+        taskId: taskId,
+        account: account,
+        consumerSession: consumerSession,
+      );
+      if (temporaryPath == null) {
+        return false;
+      }
+      temporary = File(temporaryPath);
       final IOSink sink = temporary.openWrite();
       try {
         await sink.addStream(staging.openRead());
@@ -450,7 +564,14 @@ class DownloadManager {
       return false;
     } finally {
       if (temporary != null && await temporary.exists()) {
-        await temporary.delete();
+        try {
+          await temporary.delete();
+        } catch (_) {
+          // Keep the ownership record; recovery retries the exact path.
+        }
+      }
+      if (temporary != null) {
+        await _discardOwnedTemporary(taskId);
       }
     }
   }
@@ -578,6 +699,8 @@ class DownloadManager {
             size,
             digest,
             task.taskId,
+            account,
+            task.consumerSession,
           )) {
             return const _Recovery.blocked();
           }
@@ -652,7 +775,12 @@ class DownloadManager {
     return const _Recovery.normal();
   }
 
-  Future<void> _cleanupPrepare(String taskId, {String? finalPath}) async {
+  Future<void> _cleanupPrepare(String taskId) async {
+    // Cleanup only an exact temporary path backed by a live ownership record.
+    // Never infer ownership from finalPath+taskId.
+    if (!await _cleanupOwnedTemporary(taskId)) {
+      return;
+    }
     try {
       final File record = File(_preparePath(taskId));
       if (await record.exists()) {
@@ -666,14 +794,8 @@ class DownloadManager {
       if (await expected.exists()) {
         await expected.delete();
       }
-      if (finalPath != null) {
-        final File temporary = File(_temporaryPath(finalPath, taskId));
-        if (await temporary.exists()) {
-          await temporary.delete();
-        }
-      }
     } catch (_) {
-      // A stale record/staging is harmless: recovery validates identity/hash.
+      // Cleanup is retried from the retained ownership record on restart.
     }
   }
 

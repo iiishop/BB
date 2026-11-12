@@ -226,16 +226,19 @@ Owner/独立 QA 执行。
   `cacheRoot/.staging/<task_id>.expect.json`；再写任务专属暂存并核对，再写 `.terminal`
   `version:2` 准备记录，最后落位。无记录的残留暂存绝不重算“期望值”晋升成功。
 - 落位通过**目标目录内任务专属临时文件**复制、flush、按期望摘要校验，再同文件系统 rename；
-  临时文件固定为 `<final>.part-<task_id>`，不使用随机/时间戳命名。支持跨文件系统（如
-  `/dev/shm`），不覆盖非空目标，不依赖调大重试或仅限 cache。
-- 目标复制被 SIGKILL 留下的任务专属 `.part-<task_id>` 由下一次已验证归属的恢复覆盖并清理；
-  清理只删除这个精确任务路径，不做相似文件名 glob，不删除第三方文件。
+  临时文件名带随机 nonce，以 `File.create(exclusive:true)` 排他创建；目标已有未知对象时
+  换 nonce，绝不覆盖。支持跨文件系统（如 `/dev/shm`），不依赖调大重试或仅限 cache。
+- 创建临时对象前原子写 `.terminal/<task_id>.cleanup.json`，保存 task/account/consumer 与
+  **精确临时路径**。清理只读取该有效归属记录并删除精确路径；无记录/记录损坏不推导、
+  不 glob。终态后后来出现的同名用户文件不会被 `get` 删除；旧 `<final>.part-<task_id>`
+  无可靠归属记录时保留不迁移。
+- 清理失败保留 cleanup 记录，重启/再次 get 重试；终态成功与唯一事件不被改写，最后才删记录。
 - 恢复：准备记录的最终文件哈希匹配则原路径补终态；仅暂存匹配则安全落位；无准备记录时
   必须有独立期望记录且暂存完全匹配才可恢复。无记录截断/损坏暂存、记录损坏、摘要不符、
   目标替换、旧 pending 非空目标均保持 pending 不确定，不发成功事件；旧 v1 标记兼容。
 - 准备/期望/暂存只在终态+pending event 持久化后清理；故障恢复可重复重启，事件 ID 稳定。
-- 新增期望记录/跨文件系统/截断暂存不成功/目标替换回归；严格 runner 更新为
-  **269 passed / 8 skipped**，Linux integration 13。
+- 新增期望记录/跨文件系统/截断暂存不成功/目标替换/第三方文件清理边界回归；严格 runner
+  更新为 **269 passed / 8 skipped**，Linux integration 13。
 
 ## 12. NOT RUN / 已知限制
 
