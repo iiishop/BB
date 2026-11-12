@@ -7,9 +7,10 @@ from pathlib import Path
 import httpx
 import pytest
 from bb_auth_contract import chat_v2 as v2
+from mcp.types import ListToolsRequest
+
 from bb_dsh_plugin.guarded import GuardedTransport, invoke_guarded
 from bb_dsh_plugin.plugin import LocalClient, create_server
-from mcp.types import ListToolsRequest
 
 CASES = json.loads(
     (Path(__file__).parents[2] / "server/contract/chat-v2-cases.json").read_text()
