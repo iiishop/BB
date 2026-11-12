@@ -435,9 +435,10 @@ void main() {
         reason: 'staging bytes must be preserved when prepare fails',
       );
 
-      // Simulate a target-copy interruption leaving a task-owned partial file.
+      // A later user file at the old predictable name has no ownership record
+      // and must not be deleted by terminal cleanup.
       final File partial = File('${pending.plannedPath}.part-${task.taskId}');
-      await partial.writeAsBytes(List<int>.filled(4096, 1), flush: true);
+      await partial.writeAsString('USER OWNED FILE', flush: true);
       final DownloadManager second = DownloadManager(
         api: ChatApiClient(baseUri: Uri.parse('http://127.0.0.1:1')),
         session: session,
@@ -452,7 +453,8 @@ void main() {
       } finally {
         await second.dispose();
       }
-      expect(await partial.exists(), isFalse);
+      expect(await partial.exists(), isTrue);
+      expect(await partial.readAsString(), 'USER OWNED FILE');
       final DownloadTask recovered = (await backing.download(
         _accountA,
         task.taskId,
