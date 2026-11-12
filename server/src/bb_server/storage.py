@@ -89,9 +89,19 @@ def cleanup_sessions(path: Path, now: float):
 
 
 def find_session(path: Path, token_hash: str, now: float | None = None):
+    timestamp = time.time() if now is None else now
     with connection(path) as db:
-        db.execute("BEGIN IMMEDIATE")
-        maintain_sessions(db, time.time() if now is None else now)
+        # Authentication is normally read-only. Taking the sole writer lock for
+        # every lookup competes with message commits even when no session is due.
+        # Do not retain a read transaction while acquiring the writer lock: the
+        # maintenance statements recheck their predicates after BEGIN IMMEDIATE.
+        due = db.execute(
+            "SELECT 1 FROM sessions WHERE (status='online' AND last_seen_at<=?) OR (status='offline' AND offline_since<?) LIMIT 1",
+            (timestamp - 90, timestamp - 86400),
+        ).fetchone()
+        if due:
+            db.execute("BEGIN IMMEDIATE")
+            maintain_sessions(db, timestamp)
         return db.execute(
             "SELECT users.account, users.username FROM sessions JOIN users USING(account) WHERE token_hash=?",
             (token_hash,),
