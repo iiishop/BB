@@ -1,4 +1,71 @@
 {
+  "query_revision": "dea467-query-v1",
+  "query_pagination": [
+    {
+      "request": {
+        "limit": 2
+      },
+      "positions": [
+        1,
+        2
+      ],
+      "next_position": 2,
+      "has_more": true
+    },
+    {
+      "request": {
+        "after_position": 2,
+        "limit": 2
+      },
+      "positions": [
+        3,
+        4
+      ],
+      "next_position": 4,
+      "has_more": true
+    },
+    {
+      "request": {
+        "before_position": 4,
+        "limit": 2
+      },
+      "positions": [
+        2,
+        3
+      ],
+      "next_position": 2,
+      "has_more": true
+    },
+    {
+      "request": {
+        "before_position": 2,
+        "limit": 2
+      },
+      "positions": [
+        1
+      ],
+      "next_position": 1,
+      "has_more": false
+    },
+    {
+      "request": {
+        "before_position": 1,
+        "limit": 2
+      },
+      "positions": [],
+      "next_position": 1,
+      "has_more": false
+    },
+    {
+      "request": {
+        "after_position": 6,
+        "limit": 2
+      },
+      "positions": [],
+      "next_position": 6,
+      "has_more": false
+    }
+  ],
   "version": "dea467-local-v2",
   "synthetic_only": true,
   "owner_header": {
@@ -6,6 +73,36 @@
     "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
   },
   "inputs": {
+    "list_conversations": {
+      "after_account": "",
+      "limit": 50,
+      "expected_identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      }
+    },
+    "get_message": {
+      "message_id": "example-message",
+      "expected_identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      }
+    },
+    "get_context": {
+      "message_id": "example-message",
+      "before_limit": 10,
+      "after_limit": 10,
+      "expected_identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      }
+    },
     "list_users": {
       "after_account": "",
       "limit": 50,
@@ -65,15 +162,16 @@
       }
     },
     "read_messages": {
+      "after_position": 0,
+      "before_position": null,
+      "limit": 50,
       "expected_identity": {
         "account": "10000001",
         "auth_generation": "generation-A-1",
         "consumer_id": "consumer-A",
         "binding_revision": 1
       },
-      "account": "10000002",
-      "after_position": 0,
-      "limit": 50
+      "account": "10000002"
     },
     "wait_messages": {
       "expected_identity": {
@@ -208,6 +306,130 @@
     }
   },
   "outputs": {
+    "list_conversations": {
+      "identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      },
+      "result": {
+        "items": [
+          {
+            "peer_account": "10000002",
+            "last_message": {
+              "id": "example-message",
+              "position": 1,
+              "sender_account": "10000002",
+              "target_account": "10000001",
+              "created_at": "2026-11-11T00:00:00Z",
+              "kind": "body",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "hello"
+                }
+              ],
+              "attachment": null
+            },
+            "last_activity_at": "2026-11-11T00:00:00Z",
+            "latest_position": 1,
+            "consumed_through": 0,
+            "unconsumed_positions": 1
+          }
+        ],
+        "next_cursor": null
+      }
+    },
+    "get_message": {
+      "identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      },
+      "result": {
+        "item": {
+          "message": {
+            "id": "example-message",
+            "position": 1,
+            "sender_account": "10000002",
+            "target_account": "10000001",
+            "created_at": "2026-11-11T00:00:00Z",
+            "kind": "body",
+            "content": [
+              {
+                "type": "text",
+                "text": "hello"
+              }
+            ],
+            "attachment": null
+          },
+          "presentation": {
+            "receipt_id": "example-receipt",
+            "content_digest": "client-owned-opaque-digest"
+          },
+          "blocks": [
+            {
+              "type": "text",
+              "text": "hello"
+            }
+          ]
+        },
+        "missing_media_ids": []
+      }
+    },
+    "get_context": {
+      "identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      },
+      "result": {
+        "peer_account": "10000002",
+        "anchor_message_id": "example-message",
+        "range": {
+          "start_position": 1,
+          "end_position": 1
+        },
+        "before_has_more": false,
+        "after_has_more": false,
+        "missing_positions": [],
+        "missing_truncated": false,
+        "reply_relations": "unsupported",
+        "items": [
+          {
+            "message": {
+              "id": "example-message",
+              "position": 1,
+              "sender_account": "10000002",
+              "target_account": "10000001",
+              "created_at": "2026-11-11T00:00:00Z",
+              "kind": "body",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "hello"
+                }
+              ],
+              "attachment": null
+            },
+            "presentation": {
+              "receipt_id": "example-receipt",
+              "content_digest": "client-owned-opaque-digest"
+            },
+            "blocks": [
+              {
+                "type": "text",
+                "text": "hello"
+              }
+            ]
+          }
+        ],
+        "missing_media_ids": []
+      }
+    },
     "list_users": {
       "identity": {
         "account": "10000001",
@@ -597,6 +819,30 @@
   },
   "invalid_inputs": [
     {
+      "id": "list_conversations-missing-identity",
+      "operation": "list_conversations",
+      "input": {
+        "after_account": "",
+        "limit": 50
+      }
+    },
+    {
+      "id": "get_message-missing-identity",
+      "operation": "get_message",
+      "input": {
+        "message_id": "example-message"
+      }
+    },
+    {
+      "id": "get_context-missing-identity",
+      "operation": "get_context",
+      "input": {
+        "message_id": "example-message",
+        "before_limit": 10,
+        "after_limit": 10
+      }
+    },
+    {
       "id": "list_users-missing-identity",
       "operation": "list_users",
       "input": {
@@ -926,6 +1172,50 @@
           "binding_revision": 1
         },
         "expected_account": "synthetic-rejected"
+      }
+    },
+    {
+      "id": "history-exclusive-boundaries",
+      "operation": "read_messages",
+      "input": {
+        "account": "10000002",
+        "after_position": 0,
+        "limit": 50,
+        "expected_identity": {
+          "account": "10000001",
+          "auth_generation": "generation-A-1",
+          "consumer_id": "consumer-A",
+          "binding_revision": 1
+        },
+        "before_position": 2
+      }
+    },
+    {
+      "id": "context-budget",
+      "operation": "get_context",
+      "input": {
+        "message_id": "example-message",
+        "before_limit": 50,
+        "after_limit": 10,
+        "expected_identity": {
+          "account": "10000001",
+          "auth_generation": "generation-A-1",
+          "consumer_id": "consumer-A",
+          "binding_revision": 1
+        }
+      }
+    },
+    {
+      "id": "unsafe-message-id",
+      "operation": "get_message",
+      "input": {
+        "message_id": "../other",
+        "expected_identity": {
+          "account": "10000001",
+          "auth_generation": "generation-A-1",
+          "consumer_id": "consumer-A",
+          "binding_revision": 1
+        }
       }
     }
   ],

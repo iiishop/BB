@@ -8,6 +8,7 @@ from typing import Annotated, Generic, Literal, TypeVar
 from pydantic import Field, model_validator
 
 from . import chat as v1
+from . import chat_query as query
 
 VERSION = "dea467-local-v2"
 Opaque = Annotated[
@@ -90,9 +91,20 @@ class Peer(Protected):
     account: v1.Account  # Peer, NOT expected_identity.account.
 
 
-class Read(Peer):
-    after_position: Position = 0
-    limit: int = Field(default=50, ge=1, le=100)
+class Read(Peer, query.HistoryQuery):
+    pass
+
+
+class Conversations(Protected, query.ConversationQuery):
+    pass
+
+
+class GetMessage(Protected, query.MessageQuery):
+    pass
+
+
+class GetContext(Protected, query.ContextQuery):
+    pass
 
 
 class Wait(Peer):
@@ -265,6 +277,27 @@ BOOTSTRAP = {
     "consumer_bind": ("/v2/consumers/bind", BindConsumer, Binding, 200, True),
 }
 BUSINESS = {
+    "list_conversations": (
+        "/v2/chat/list_conversations",
+        Conversations,
+        Reply[query.ConsumerConversationPage],
+        200,
+        True,
+    ),
+    "get_message": (
+        "/v2/chat/get_message",
+        GetMessage,
+        Reply[query.VisibleQueryMessage],
+        200,
+        True,
+    ),
+    "get_context": (
+        "/v2/chat/get_context",
+        GetContext,
+        Reply[query.VisibleContext],
+        200,
+        True,
+    ),
     "list_users": ("/v2/chat/list_users", Users, Reply[v1.UserPage], 200, True),
     "send_message": ("/v2/chat/send_message", Send, Reply[v1.Message], 200, True),
     "send_attachment": (

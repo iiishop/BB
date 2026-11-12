@@ -87,7 +87,16 @@ def fixtures():
             (
                 old["inputs"]
                 | old["internal_inputs"]
-                | {"get_consumption": {"account": "10000002"}}
+                | {
+                    "get_consumption": {"account": "10000002"},
+                    "list_conversations": {"after_account": "", "limit": 50},
+                    "get_message": {"message_id": "m1"},
+                    "get_context": {
+                        "message_id": "m1",
+                        "before_limit": 10,
+                        "after_limit": 10,
+                    },
+                }
             )[name]
         )
         value.pop("consumer_session", None)
@@ -152,7 +161,41 @@ def fixtures():
         "next_cursor": 1,
         "has_more": False,
     }
+    context = {
+        "peer_account": "10000002",
+        "anchor_message_id": message["id"],
+        "range": {
+            "start_position": message["position"],
+            "end_position": message["position"],
+        },
+        "before_has_more": False,
+        "after_has_more": False,
+        "missing_positions": [],
+        "missing_truncated": False,
+        "reply_relations": "unsupported",
+    }
+    for name in ["get_message", "get_context"]:
+        inputs[name]["message_id"] = message["id"]
     results = {
+        "list_conversations": {
+            "items": [
+                {
+                    "peer_account": "10000002",
+                    "last_message": message,
+                    "last_activity_at": message["created_at"],
+                    "latest_position": message["position"],
+                    "consumed_through": 0,
+                    "unconsumed_positions": message["position"],
+                }
+            ],
+            "next_cursor": None,
+        },
+        "get_message": {"item": old["visible_message"], "missing_media_ids": []},
+        "get_context": {
+            **context,
+            "items": [old["visible_message"]],
+            "missing_media_ids": [],
+        },
         "list_users": {"items": [], "next_cursor": None},
         "send_message": sent_message,
         "send_attachment": {
@@ -235,7 +278,67 @@ def fixtures():
         invalid.append(
             {"id": "extra-" + extra, "operation": "send_message", "input": body}
         )
+    invalid += [
+        {
+            "id": "history-exclusive-boundaries",
+            "operation": "read_messages",
+            "input": {
+                **inputs["read_messages"],
+                "after_position": 0,
+                "before_position": 2,
+            },
+        },
+        {
+            "id": "context-budget",
+            "operation": "get_context",
+            "input": {**inputs["get_context"], "before_limit": 50},
+        },
+        {
+            "id": "unsafe-message-id",
+            "operation": "get_message",
+            "input": {**inputs["get_message"], "message_id": "../other"},
+        },
+    ]
     return {
+        "query_revision": "dea467-query-v1",
+        "query_pagination": [
+            {
+                "request": {"limit": 2},
+                "positions": [1, 2],
+                "next_position": 2,
+                "has_more": True,
+            },
+            {
+                "request": {"after_position": 2, "limit": 2},
+                "positions": [3, 4],
+                "next_position": 4,
+                "has_more": True,
+            },
+            {
+                "request": {"before_position": 4, "limit": 2},
+                "positions": [2, 3],
+                "next_position": 2,
+                "has_more": True,
+            },
+            {
+                "request": {"before_position": 2, "limit": 2},
+                "positions": [1],
+                "next_position": 1,
+                "has_more": False,
+            },
+            {
+                "request": {"before_position": 1, "limit": 2},
+                "positions": [],
+                "next_position": 1,
+                "has_more": False,
+            },
+            {
+                "request": {"after_position": 6, "limit": 2},
+                "positions": [],
+                "next_position": 6,
+                "has_more": False,
+            },
+        ],
         "version": v2.VERSION,
         "synthetic_only": True,
         "owner_header": {"name": v2.OWNER_HEADER, "value": "A" * 43},

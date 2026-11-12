@@ -37,3 +37,13 @@ BB_CLIENT_BASE_URL=http://127.0.0.1:9187 uv run --project dsh-plugin --locked py
 该检查覆盖 MCP 列表、同名注册、登录、业务错误及输出字段；客户端重启恢复、401 清除凭据、网络失败保留凭据需在集成版本的客户端测试中验证。端口配置必须指向逻辑客户端；仅凭相同路由无法自动识别操作者误填的本机服务端端口。
 
 未接入真实产品 DSH Runtime；标准 MCP stdio 已测试，不宣称 DSH 安装验收完成。实现采用[官方 MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk)，版本固定在 `uv.lock`。
+
+DEA-467 受保护查询模式
+---------------------
+
+`BB_CONSUMER_STATE_FILE` 可指向宿主管理的私有 `{owner_key,identity}` JSON。
+该模式增加 list_conversations/get_message/get_context，read_messages 支持
+前后定位；身份由宿主注入，查询不消费，内部 ACK/confirm 不向模型开放。
+绑定变化后由宿主重启 MCP，旧实例不自动重绑或重试。未配置时保持 legacy
+接口。完整路由、分页和退役策略见 `docs/contracts/dea467-query-v1.md`。
+此 Python 接线不等同独立 DSH bundle 安装或真实 Dart 查询链路验收。

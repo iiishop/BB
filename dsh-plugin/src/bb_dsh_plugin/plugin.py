@@ -239,7 +239,7 @@ async def invoke(client: LocalClient, name: str, arguments: dict) -> CallToolRes
         return result({"status": error.status, **error.body}, error=True)
 
 
-def create_server(client: LocalClient) -> Server:
+def create_server(client: LocalClient, guarded=None) -> Server:
     server = Server("bb-client-tools")
 
     @server.list_tools()
@@ -252,6 +252,8 @@ def create_server(client: LocalClient) -> Server:
             "view_signature": "读取签名；未设置返回 null，省略 account 表示本人。",
             "update_signature": "仅更新本人签名，最多 49 个 Unicode 字符；省略 value、null 或空串清空。",
         }
+        from .guarded import TOOL_MODELS
+
         return (
             [
                 Tool(
@@ -282,12 +284,38 @@ def create_server(client: LocalClient) -> Server:
                     inputSchema=model.model_json_schema(),
                 )
                 for name, (route, model, _, _) in LOCAL.items()
+                if guarded is None
+            ]
+            + [
+                Tool(
+                    name=name,
+                    description="BB guarded client: query never consumes; send only on explicit tool call.",
+                    inputSchema=model.model_json_schema(),
+                )
+                for name, model in TOOL_MODELS.items()
+                if guarded is not None
             ]
         )
 
     # The shared parser emits the agreed structured 422 envelope, including missing/type.
     @server.call_tool(validate_input=False)
     async def call_tool(name: str, arguments: dict):
+        from .guarded import TOOL_MODELS, invoke_guarded
+
+        if guarded is not None and name in TOOL_MODELS:
+            return await invoke_guarded(guarded, name, arguments)
+        if guarded is not None and name in LOCAL:
+            return result(
+                {
+                    "status": 404,
+                    "error": {
+                        "code": "unknown_tool",
+                        "message": "内部消费工具不对模型开放",
+                        "fields": [],
+                    },
+                },
+                error=True,
+            )
         return await invoke(client, name, arguments)
 
     return server

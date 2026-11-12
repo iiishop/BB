@@ -662,6 +662,402 @@
         }
       }
     },
+    "/v2/chat/list_conversations": {
+      "post": {
+        "operationId": "list_conversations",
+        "security": [
+          {
+            "consumerOwner": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Conversations"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Reply_ConsumerConversationPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v2/chat/get_message": {
+      "post": {
+        "operationId": "get_message",
+        "security": [
+          {
+            "consumerOwner": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetMessage"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Reply_VisibleQueryMessage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v2/chat/get_context": {
+      "post": {
+        "operationId": "get_context",
+        "security": [
+          {
+            "consumerOwner": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetContext"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Reply_VisibleContext"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v2/chat/list_users": {
       "post": {
         "operationId": "list_users",
@@ -2809,6 +3205,613 @@
         "title": "BindConsumer",
         "type": "object"
       },
+      "Conversations": {
+        "additionalProperties": false,
+        "properties": {
+          "after_account": {
+            "default": "",
+            "pattern": "^([1-9][0-9]{7})?$",
+            "title": "After Account",
+            "type": "string"
+          },
+          "limit": {
+            "default": 50,
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "expected_identity": {
+            "$ref": "#/components/schemas/ExpectedIdentity"
+          }
+        },
+        "required": [
+          "expected_identity"
+        ],
+        "title": "Conversations",
+        "type": "object"
+      },
+      "ConsumerConversation": {
+        "additionalProperties": false,
+        "properties": {
+          "peer_account": {
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Peer Account",
+            "type": "string"
+          },
+          "last_message": {
+            "$ref": "#/components/schemas/Message"
+          },
+          "last_activity_at": {
+            "title": "Last Activity At",
+            "type": "string"
+          },
+          "latest_position": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Latest Position",
+            "type": "integer"
+          },
+          "consumed_through": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Consumed Through",
+            "type": "integer"
+          },
+          "unconsumed_positions": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Unconsumed Positions",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "peer_account",
+          "last_message",
+          "last_activity_at",
+          "latest_position",
+          "consumed_through",
+          "unconsumed_positions"
+        ],
+        "title": "ConsumerConversation",
+        "type": "object"
+      },
+      "ConsumerConversationPage": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ConsumerConversation"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "ConsumerConversationPage",
+        "type": "object"
+      },
+      "Image": {
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "const": "image",
+            "title": "Type",
+            "type": "string"
+          },
+          "media_id": {
+            "title": "Media Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "media_id"
+        ],
+        "title": "Image",
+        "type": "object"
+      },
+      "Media": {
+        "additionalProperties": false,
+        "properties": {
+          "media_id": {
+            "title": "Media Id",
+            "type": "string"
+          },
+          "media_type": {
+            "enum": [
+              "image",
+              "video",
+              "audio",
+              "document",
+              "other"
+            ],
+            "title": "Media Type",
+            "type": "string"
+          },
+          "filename": {
+            "title": "Filename",
+            "type": "string"
+          },
+          "mime_type": {
+            "title": "Mime Type",
+            "type": "string"
+          },
+          "byte_size": {
+            "title": "Byte Size",
+            "type": "integer"
+          },
+          "cover_media_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Cover Media Id"
+          }
+        },
+        "required": [
+          "media_id",
+          "media_type",
+          "filename",
+          "mime_type",
+          "byte_size"
+        ],
+        "title": "Media",
+        "type": "object"
+      },
+      "Message": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "position": {
+            "title": "Position",
+            "type": "integer"
+          },
+          "sender_account": {
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Sender Account",
+            "type": "string"
+          },
+          "target_account": {
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Target Account",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "body",
+              "attachment"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "content": {
+            "anyOf": [
+              {
+                "items": {
+                  "discriminator": {
+                    "mapping": {
+                      "image": "#/components/schemas/Image",
+                      "text": "#/components/schemas/Text"
+                    },
+                    "propertyName": "type"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Text"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Image"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Content"
+          },
+          "attachment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Media"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "id",
+          "position",
+          "sender_account",
+          "target_account",
+          "created_at",
+          "kind"
+        ],
+        "title": "Message",
+        "type": "object"
+      },
+      "Text": {
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "const": "text",
+            "title": "Type",
+            "type": "string"
+          },
+          "text": {
+            "maxLength": 20000,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "text"
+        ],
+        "title": "Text",
+        "type": "object"
+      },
+      "Reply_ConsumerConversationPage": {
+        "additionalProperties": false,
+        "properties": {
+          "identity": {
+            "$ref": "#/components/schemas/ExpectedIdentity"
+          },
+          "result": {
+            "$ref": "#/components/schemas/ConsumerConversationPage"
+          }
+        },
+        "required": [
+          "identity",
+          "result"
+        ],
+        "title": "Reply[ConsumerConversationPage]",
+        "type": "object"
+      },
+      "GetMessage": {
+        "additionalProperties": false,
+        "properties": {
+          "message_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Message Id",
+            "type": "string"
+          },
+          "expected_identity": {
+            "$ref": "#/components/schemas/ExpectedIdentity"
+          }
+        },
+        "required": [
+          "message_id",
+          "expected_identity"
+        ],
+        "title": "GetMessage",
+        "type": "object"
+      },
+      "Presentation": {
+        "additionalProperties": false,
+        "properties": {
+          "receipt_id": {
+            "minLength": 1,
+            "title": "Receipt Id",
+            "type": "string"
+          },
+          "content_digest": {
+            "minLength": 1,
+            "title": "Content Digest",
+            "type": "string"
+          }
+        },
+        "required": [
+          "receipt_id",
+          "content_digest"
+        ],
+        "title": "Presentation",
+        "type": "object"
+      },
+      "VisibleImage": {
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "const": "image",
+            "title": "Type",
+            "type": "string"
+          },
+          "data": {
+            "title": "Data",
+            "type": "string"
+          },
+          "mime_type": {
+            "enum": [
+              "image/png",
+              "image/jpeg",
+              "image/webp"
+            ],
+            "title": "Mime Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "data",
+          "mime_type"
+        ],
+        "title": "VisibleImage",
+        "type": "object"
+      },
+      "VisibleMessage": {
+        "additionalProperties": false,
+        "properties": {
+          "message": {
+            "$ref": "#/components/schemas/Message"
+          },
+          "presentation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Presentation"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "blocks": {
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "image": "#/components/schemas/VisibleImage",
+                  "text": "#/components/schemas/Text"
+                },
+                "propertyName": "type"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/Text"
+                },
+                {
+                  "$ref": "#/components/schemas/VisibleImage"
+                }
+              ]
+            },
+            "title": "Blocks",
+            "type": "array"
+          }
+        },
+        "required": [
+          "message",
+          "blocks"
+        ],
+        "title": "VisibleMessage",
+        "type": "object"
+      },
+      "VisibleQueryMessage": {
+        "additionalProperties": false,
+        "properties": {
+          "item": {
+            "$ref": "#/components/schemas/VisibleMessage"
+          },
+          "missing_media_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Missing Media Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "item",
+          "missing_media_ids"
+        ],
+        "title": "VisibleQueryMessage",
+        "type": "object"
+      },
+      "Reply_VisibleQueryMessage": {
+        "additionalProperties": false,
+        "properties": {
+          "identity": {
+            "$ref": "#/components/schemas/ExpectedIdentity"
+          },
+          "result": {
+            "$ref": "#/components/schemas/VisibleQueryMessage"
+          }
+        },
+        "required": [
+          "identity",
+          "result"
+        ],
+        "title": "Reply[VisibleQueryMessage]",
+        "type": "object"
+      },
+      "GetContext": {
+        "additionalProperties": false,
+        "properties": {
+          "message_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Message Id",
+            "type": "string"
+          },
+          "before_limit": {
+            "default": 10,
+            "maximum": 49,
+            "minimum": 0,
+            "title": "Before Limit",
+            "type": "integer"
+          },
+          "after_limit": {
+            "default": 10,
+            "maximum": 49,
+            "minimum": 0,
+            "title": "After Limit",
+            "type": "integer"
+          },
+          "expected_identity": {
+            "$ref": "#/components/schemas/ExpectedIdentity"
+          }
+        },
+        "required": [
+          "message_id",
+          "expected_identity"
+        ],
+        "title": "GetContext",
+        "type": "object"
+      },
+      "PositionRange": {
+        "additionalProperties": false,
+        "properties": {
+          "start_position": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Start Position",
+            "type": "integer"
+          },
+          "end_position": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "End Position",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "start_position",
+          "end_position"
+        ],
+        "title": "PositionRange",
+        "type": "object"
+      },
+      "VisibleContext": {
+        "additionalProperties": false,
+        "properties": {
+          "peer_account": {
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Peer Account",
+            "type": "string"
+          },
+          "anchor_message_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Anchor Message Id",
+            "type": "string"
+          },
+          "range": {
+            "$ref": "#/components/schemas/PositionRange"
+          },
+          "before_has_more": {
+            "title": "Before Has More",
+            "type": "boolean"
+          },
+          "after_has_more": {
+            "title": "After Has More",
+            "type": "boolean"
+          },
+          "missing_positions": {
+            "items": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "maxItems": 100,
+            "title": "Missing Positions",
+            "type": "array"
+          },
+          "missing_truncated": {
+            "title": "Missing Truncated",
+            "type": "boolean"
+          },
+          "reply_relations": {
+            "const": "unsupported",
+            "default": "unsupported",
+            "title": "Reply Relations",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/VisibleMessage"
+            },
+            "maxItems": 99,
+            "minItems": 1,
+            "title": "Items",
+            "type": "array"
+          },
+          "missing_media_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 9900,
+            "title": "Missing Media Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "peer_account",
+          "anchor_message_id",
+          "range",
+          "before_has_more",
+          "after_has_more",
+          "missing_positions",
+          "missing_truncated",
+          "items",
+          "missing_media_ids"
+        ],
+        "title": "VisibleContext",
+        "type": "object"
+      },
+      "Reply_VisibleContext": {
+        "additionalProperties": false,
+        "properties": {
+          "identity": {
+            "$ref": "#/components/schemas/ExpectedIdentity"
+          },
+          "result": {
+            "$ref": "#/components/schemas/VisibleContext"
+          }
+        },
+        "required": [
+          "identity",
+          "result"
+        ],
+        "title": "Reply[VisibleContext]",
+        "type": "object"
+      },
       "Users": {
         "additionalProperties": false,
         "properties": {
@@ -3046,28 +4049,6 @@
         "title": "Source",
         "type": "object"
       },
-      "Text": {
-        "additionalProperties": false,
-        "properties": {
-          "type": {
-            "const": "text",
-            "title": "Type",
-            "type": "string"
-          },
-          "text": {
-            "maxLength": 20000,
-            "minLength": 1,
-            "title": "Text",
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "text"
-        ],
-        "title": "Text",
-        "type": "object"
-      },
       "Send": {
         "additionalProperties": false,
         "properties": {
@@ -3115,164 +4096,6 @@
           "expected_identity"
         ],
         "title": "Send",
-        "type": "object"
-      },
-      "Image": {
-        "additionalProperties": false,
-        "properties": {
-          "type": {
-            "const": "image",
-            "title": "Type",
-            "type": "string"
-          },
-          "media_id": {
-            "title": "Media Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "media_id"
-        ],
-        "title": "Image",
-        "type": "object"
-      },
-      "Media": {
-        "additionalProperties": false,
-        "properties": {
-          "media_id": {
-            "title": "Media Id",
-            "type": "string"
-          },
-          "media_type": {
-            "enum": [
-              "image",
-              "video",
-              "audio",
-              "document",
-              "other"
-            ],
-            "title": "Media Type",
-            "type": "string"
-          },
-          "filename": {
-            "title": "Filename",
-            "type": "string"
-          },
-          "mime_type": {
-            "title": "Mime Type",
-            "type": "string"
-          },
-          "byte_size": {
-            "title": "Byte Size",
-            "type": "integer"
-          },
-          "cover_media_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Cover Media Id"
-          }
-        },
-        "required": [
-          "media_id",
-          "media_type",
-          "filename",
-          "mime_type",
-          "byte_size"
-        ],
-        "title": "Media",
-        "type": "object"
-      },
-      "Message": {
-        "additionalProperties": false,
-        "properties": {
-          "id": {
-            "title": "Id",
-            "type": "string"
-          },
-          "position": {
-            "title": "Position",
-            "type": "integer"
-          },
-          "sender_account": {
-            "pattern": "^[1-9][0-9]{7}$",
-            "title": "Sender Account",
-            "type": "string"
-          },
-          "target_account": {
-            "pattern": "^[1-9][0-9]{7}$",
-            "title": "Target Account",
-            "type": "string"
-          },
-          "created_at": {
-            "title": "Created At",
-            "type": "string"
-          },
-          "kind": {
-            "enum": [
-              "body",
-              "attachment"
-            ],
-            "title": "Kind",
-            "type": "string"
-          },
-          "content": {
-            "anyOf": [
-              {
-                "items": {
-                  "discriminator": {
-                    "mapping": {
-                      "image": "#/components/schemas/Image",
-                      "text": "#/components/schemas/Text"
-                    },
-                    "propertyName": "type"
-                  },
-                  "oneOf": [
-                    {
-                      "$ref": "#/components/schemas/Text"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Image"
-                    }
-                  ]
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Content"
-          },
-          "attachment": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/Media"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null
-          }
-        },
-        "required": [
-          "id",
-          "position",
-          "sender_account",
-          "target_account",
-          "created_at",
-          "kind"
-        ],
-        "title": "Message",
         "type": "object"
       },
       "Reply_Message": {
@@ -3335,20 +4158,33 @@
       "Read": {
         "additionalProperties": false,
         "properties": {
-          "expected_identity": {
-            "$ref": "#/components/schemas/ExpectedIdentity"
-          },
-          "account": {
-            "pattern": "^[1-9][0-9]{7}$",
-            "title": "Account",
-            "type": "string"
-          },
           "after_position": {
-            "default": 0,
-            "maximum": 9007199254740991,
-            "minimum": 0,
-            "title": "After Position",
-            "type": "integer"
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "After Position"
+          },
+          "before_position": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Before Position"
           },
           "limit": {
             "default": 50,
@@ -3356,6 +4192,14 @@
             "minimum": 1,
             "title": "Limit",
             "type": "integer"
+          },
+          "expected_identity": {
+            "$ref": "#/components/schemas/ExpectedIdentity"
+          },
+          "account": {
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Account",
+            "type": "string"
           }
         },
         "required": [
@@ -3363,27 +4207,6 @@
           "account"
         ],
         "title": "Read",
-        "type": "object"
-      },
-      "Presentation": {
-        "additionalProperties": false,
-        "properties": {
-          "receipt_id": {
-            "minLength": 1,
-            "title": "Receipt Id",
-            "type": "string"
-          },
-          "content_digest": {
-            "minLength": 1,
-            "title": "Content Digest",
-            "type": "string"
-          }
-        },
-        "required": [
-          "receipt_id",
-          "content_digest"
-        ],
-        "title": "Presentation",
         "type": "object"
       },
       "ReadResult": {
@@ -3411,82 +4234,6 @@
           "has_more"
         ],
         "title": "ReadResult",
-        "type": "object"
-      },
-      "VisibleImage": {
-        "additionalProperties": false,
-        "properties": {
-          "type": {
-            "const": "image",
-            "title": "Type",
-            "type": "string"
-          },
-          "data": {
-            "title": "Data",
-            "type": "string"
-          },
-          "mime_type": {
-            "enum": [
-              "image/png",
-              "image/jpeg",
-              "image/webp"
-            ],
-            "title": "Mime Type",
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "data",
-          "mime_type"
-        ],
-        "title": "VisibleImage",
-        "type": "object"
-      },
-      "VisibleMessage": {
-        "additionalProperties": false,
-        "properties": {
-          "message": {
-            "$ref": "#/components/schemas/Message"
-          },
-          "presentation": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/Presentation"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null
-          },
-          "blocks": {
-            "items": {
-              "discriminator": {
-                "mapping": {
-                  "image": "#/components/schemas/VisibleImage",
-                  "text": "#/components/schemas/Text"
-                },
-                "propertyName": "type"
-              },
-              "oneOf": [
-                {
-                  "$ref": "#/components/schemas/Text"
-                },
-                {
-                  "$ref": "#/components/schemas/VisibleImage"
-                }
-              ]
-            },
-            "title": "Blocks",
-            "type": "array"
-          }
-        },
-        "required": [
-          "message",
-          "blocks"
-        ],
-        "title": "VisibleMessage",
         "type": "object"
       },
       "Reply_ReadResult": {
