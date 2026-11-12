@@ -152,7 +152,7 @@ R3 新增内部路由（不导出为 MCP 工具）：
 | 命令 | 结果 |
 | --- | --- |
 | `flutter analyze` | `No issues found!`，exit 0 |
-| `QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_tests.sh client` | `RESULT=PASS`，exit 0；analyze PASS、flutter-test 267 passed/8 skipped、linux-integration 13 passed |
+| `QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_tests.sh client` | `RESULT=PASS`，exit 0；analyze PASS、flutter-test 268 passed/8 skipped、linux-integration 13 passed |
 | `flutter test test/live_chat_e2e_test.dart`（`BB_LIVE_SERVER_URL=http://127.0.0.1:8171`，真实 FastAPI） | 3 tests passed，exit 0：有序图文、真实 blocks、receipt→ACK 409/通过、第三方 ACL、附件元信息、视频封面、异步下载文件内容、真实 Range 在线流、持久事件、wait 积压/提前到达 |
 | 真实 FastAPI 在线流 | `MediaStreamHandle` 以 `bytes=0-3` 请求真实 `/media/{id}` 返回 206 且字节一致；到达阶段未请求原视频 |
 | 独立 `dart run bin/bb_client_api.dart` + 真实 FastAPI | `STANDALONE CHAIN: PASS`：本地登录、list_users、有序发送/重放、read/confirm/ACK、附件上传、`downloads/start` 202→`get` succeeded、`operations/get`、`events/subscribe/read/wait`、`wait_messages` 积压 |
@@ -218,7 +218,7 @@ Owner/独立 QA 执行。
   重开补取仍为一条 `downloadSucceeded`，PASS。
 - Sentinel `qa-r4-boundaries.dart` 六项检查：**6/6 PASS / exit 0**（GET/HEAD 401、终态失败恢复
   succeeded、两条 replay dedup、pending-publish 控制）。
-- 严格 runner 更新为 **267 passed / 8 skipped**（新增 2 条边界测试），Linux integration 13。
+- 严格 runner 更新为 **268 passed / 8 skipped**（新增 2 条边界测试），Linux integration 13。
 
 ### R5/R6 准备先于落位与重启恢复
 
@@ -234,7 +234,7 @@ Owner/独立 QA 执行。
 - 准备记录/暂存只在终态+pending event 持久化成功后清理；三次终态写盘失败时保留。
 - 新增“prepare 失败阻止落位后从 staging 恢复”“三次 ledger 失败 → 离线重启恢复原路径”回归；
   Sentinel `qa-r5-restart.dart` online/offline 均 PASS，`qa-r4-boundaries.dart` 6/6 PASS。
-- 严格 runner 更新为 **267 passed / 8 skipped**（新增 prepare 失败回归）。
+- 严格 runner 更新为 **268 passed / 8 skipped**（新增 prepare 失败回归）。
 
 ## 12. NOT RUN / 已知限制
 

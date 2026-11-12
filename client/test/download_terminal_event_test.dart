@@ -468,4 +468,76 @@ void main() {
       expect(page.items.single.event.type, LocalEventType.downloadSucceeded);
     },
   );
+
+  test('replaced final file blocks recovery without overwrite', () async {
+    final HttpServer upstream = await HttpServer.bind(
+      InternetAddress.loopbackIPv4,
+      0,
+    );
+    upstream.listen((HttpRequest request) async {
+      request.response.headers.contentType = ContentType('application', 'pdf');
+      request.response.headers.set(
+        'content-disposition',
+        'attachment; filename="qa.pdf"',
+      );
+      request.response.write('%PDF-1.4 original');
+      await request.response.close();
+    });
+    final String ledgerPath = '${root.path}/replaced-ledger.json';
+    final _FailFirstFinishLedger fault = _FailFirstFinishLedger(
+      ChatLedger.atPath(ledgerPath),
+      failures: 3,
+    );
+    final Directory cacheRoot = Directory('${root.path}/replaced-cache');
+    final DownloadManager first = DownloadManager(
+      api: ChatApiClient(
+        baseUri: Uri.parse('http://127.0.0.1:${upstream.port}'),
+      ),
+      session: session,
+      ledger: fault,
+      cacheRoot: cacheRoot,
+      onEvent: (LocalEvent event) => fault.deliverPendingEvents(event.account),
+    );
+    DownloadTask? task;
+    try {
+      task = await first.start(
+        operationId: 'replaced-op',
+        consumerSession: 'origin-consumer',
+        mediaId: 'qa-media',
+      );
+      await first.dispose();
+    } finally {
+      await first.dispose();
+      await upstream.close(force: true);
+    }
+    await File(task.plannedPath).writeAsString('third-party replacement');
+    final DownloadManager second = DownloadManager(
+      api: ChatApiClient(baseUri: Uri.parse('http://127.0.0.1:1')),
+      session: session,
+      ledger: fault,
+      cacheRoot: cacheRoot,
+      onEvent: (LocalEvent event) => fault.deliverPendingEvents(event.account),
+    );
+    try {
+      await second.resumePending();
+      await second.dispose();
+    } finally {
+      await second.dispose();
+    }
+    final DownloadTask pending = (await fault.backing.download(
+      _accountA,
+      task.taskId,
+    ))!;
+    expect(pending.status, DownloadStatus.pending);
+    expect(
+      await File(task.plannedPath).readAsString(),
+      'third-party replacement',
+    );
+    final LocalEventPage page = await fault.backing.readLocalEvents(
+      account: _accountA,
+      consumerSession: 'origin-consumer',
+      afterCursor: 0,
+    );
+    expect(page.items, isEmpty);
+  });
 }
