@@ -1,0 +1,2912 @@
+{
+  "version": "chat-step3-r3",
+  "operations": {
+    "list_users": {
+      "method": "POST",
+      "path": "/chat/list_users",
+      "status": 200,
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "after_account": {
+            "default": "",
+            "title": "After Account",
+            "type": "string"
+          },
+          "limit": {
+            "default": 50,
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          }
+        },
+        "title": "Users",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "Preview": {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "title": "Id",
+                "type": "string"
+              },
+              "sender_account": {
+                "pattern": "^[1-9][0-9]{7}$",
+                "title": "Sender Account",
+                "type": "string"
+              },
+              "sender_username": {
+                "title": "Sender Username",
+                "type": "string"
+              },
+              "preview_body": {
+                "title": "Preview Body",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "sender_account",
+              "sender_username",
+              "preview_body"
+            ],
+            "title": "Preview",
+            "type": "object"
+          },
+          "User": {
+            "additionalProperties": false,
+            "properties": {
+              "account": {
+                "pattern": "^[1-9][0-9]{7}$",
+                "title": "Account",
+                "type": "string"
+              },
+              "username": {
+                "title": "Username",
+                "type": "string"
+              },
+              "avatar_url": {
+                "title": "Avatar Url",
+                "type": "string"
+              },
+              "avatar_version": {
+                "title": "Avatar Version",
+                "type": "string"
+              },
+              "presence": {
+                "enum": [
+                  "online",
+                  "offline"
+                ],
+                "title": "Presence",
+                "type": "string"
+              },
+              "last_contact_at": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Last Contact At"
+              },
+              "last_message": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Preview"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "account",
+              "username",
+              "avatar_url",
+              "avatar_version",
+              "presence",
+              "last_contact_at",
+              "last_message"
+            ],
+            "title": "User",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/$defs/User"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "UserPage",
+        "type": "object"
+      }
+    },
+    "send_message": {
+      "method": "POST",
+      "path": "/chat/send_message",
+      "status": 200,
+      "input": {
+        "$defs": {
+          "LocalImage": {
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "const": "image",
+                "title": "Type",
+                "type": "string"
+              },
+              "source": {
+                "$ref": "#/$defs/Source"
+              }
+            },
+            "required": [
+              "type",
+              "source"
+            ],
+            "title": "LocalImage",
+            "type": "object"
+          },
+          "Source": {
+            "additionalProperties": false,
+            "properties": {
+              "base64": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Base64"
+              },
+              "path": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Path"
+              },
+              "url": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Url"
+              },
+              "mime_type": {
+                "title": "Mime Type",
+                "type": "string"
+              },
+              "filename": {
+                "title": "Filename",
+                "type": "string"
+              }
+            },
+            "required": [
+              "mime_type",
+              "filename"
+            ],
+            "title": "Source",
+            "type": "object"
+          },
+          "Text": {
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "const": "text",
+                "title": "Type",
+                "type": "string"
+              },
+              "text": {
+                "maxLength": 20000,
+                "minLength": 1,
+                "title": "Text",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "text"
+            ],
+            "title": "Text",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "target_account": {
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Target Account",
+            "type": "string"
+          },
+          "operation_id": {
+            "pattern": "^[A-Za-z0-9_-]{1,128}$",
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "content": {
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "image": "#/$defs/LocalImage",
+                  "text": "#/$defs/Text"
+                },
+                "propertyName": "type"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/Text"
+                },
+                {
+                  "$ref": "#/$defs/LocalImage"
+                }
+              ]
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Content",
+            "type": "array"
+          }
+        },
+        "required": [
+          "target_account",
+          "operation_id",
+          "content"
+        ],
+        "title": "LocalSend",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "Image": {
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "const": "image",
+                "title": "Type",
+                "type": "string"
+              },
+              "media_id": {
+                "title": "Media Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "media_id"
+            ],
+            "title": "Image",
+            "type": "object"
+          },
+          "Media": {
+            "additionalProperties": false,
+            "properties": {
+              "media_id": {
+                "title": "Media Id",
+                "type": "string"
+              },
+              "media_type": {
+                "enum": [
+                  "image",
+                  "video",
+                  "audio",
+                  "document",
+                  "other"
+                ],
+                "title": "Media Type",
+                "type": "string"
+              },
+              "filename": {
+                "title": "Filename",
+                "type": "string"
+              },
+              "mime_type": {
+                "title": "Mime Type",
+                "type": "string"
+              },
+              "byte_size": {
+                "title": "Byte Size",
+                "type": "integer"
+              },
+              "cover_media_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Cover Media Id"
+              }
+            },
+            "required": [
+              "media_id",
+              "media_type",
+              "filename",
+              "mime_type",
+              "byte_size"
+            ],
+            "title": "Media",
+            "type": "object"
+          },
+          "Text": {
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "const": "text",
+                "title": "Type",
+                "type": "string"
+              },
+              "text": {
+                "maxLength": 20000,
+                "minLength": 1,
+                "title": "Text",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "text"
+            ],
+            "title": "Text",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "position": {
+            "title": "Position",
+            "type": "integer"
+          },
+          "sender_account": {
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Sender Account",
+            "type": "string"
+          },
+          "target_account": {
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Target Account",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "body",
+              "attachment"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "content": {
+            "anyOf": [
+              {
+                "items": {
+                  "discriminator": {
+                    "mapping": {
+                      "image": "#/$defs/Image",
+                      "text": "#/$defs/Text"
+                    },
+                    "propertyName": "type"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/Text"
+                    },
+                    {
+                      "$ref": "#/$defs/Image"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Content"
+          },
+          "attachment": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Media"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "id",
+          "position",
+          "sender_account",
+          "target_account",
+          "created_at",
+          "kind"
+        ],
+        "title": "Message",
+        "type": "object"
+      }
+    },
+    "send_attachment": {
+      "method": "POST",
+      "path": "/chat/send_attachment",
+      "status": 200,
+      "input": {
+        "$defs": {
+          "Source": {
+            "additionalProperties": false,
+            "properties": {
+              "base64": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Base64"
+              },
+              "path": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Path"
+              },
+              "url": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Url"
+              },
+              "mime_type": {
+                "title": "Mime Type",
+                "type": "string"
+              },
+              "filename": {
+                "title": "Filename",
+                "type": "string"
+              }
+            },
+            "required": [
+              "mime_type",
+              "filename"
+            ],
+            "title": "Source",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "target_account": {
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Target Account",
+            "type": "string"
+          },
+          "operation_id": {
+            "pattern": "^[A-Za-z0-9_-]{1,128}$",
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/$defs/Source"
+          },
+          "cover": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Source"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "target_account",
+          "operation_id",
+          "source"
+        ],
+        "title": "LocalAttachment",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "Image": {
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "const": "image",
+                "title": "Type",
+                "type": "string"
+              },
+              "media_id": {
+                "title": "Media Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "media_id"
+            ],
+            "title": "Image",
+            "type": "object"
+          },
+          "Media": {
+            "additionalProperties": false,
+            "properties": {
+              "media_id": {
+                "title": "Media Id",
+                "type": "string"
+              },
+              "media_type": {
+                "enum": [
+                  "image",
+                  "video",
+                  "audio",
+                  "document",
+                  "other"
+                ],
+                "title": "Media Type",
+                "type": "string"
+              },
+              "filename": {
+                "title": "Filename",
+                "type": "string"
+              },
+              "mime_type": {
+                "title": "Mime Type",
+                "type": "string"
+              },
+              "byte_size": {
+                "title": "Byte Size",
+                "type": "integer"
+              },
+              "cover_media_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Cover Media Id"
+              }
+            },
+            "required": [
+              "media_id",
+              "media_type",
+              "filename",
+              "mime_type",
+              "byte_size"
+            ],
+            "title": "Media",
+            "type": "object"
+          },
+          "Text": {
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "const": "text",
+                "title": "Type",
+                "type": "string"
+              },
+              "text": {
+                "maxLength": 20000,
+                "minLength": 1,
+                "title": "Text",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "text"
+            ],
+            "title": "Text",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "position": {
+            "title": "Position",
+            "type": "integer"
+          },
+          "sender_account": {
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Sender Account",
+            "type": "string"
+          },
+          "target_account": {
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Target Account",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "body",
+              "attachment"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "content": {
+            "anyOf": [
+              {
+                "items": {
+                  "discriminator": {
+                    "mapping": {
+                      "image": "#/$defs/Image",
+                      "text": "#/$defs/Text"
+                    },
+                    "propertyName": "type"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/Text"
+                    },
+                    {
+                      "$ref": "#/$defs/Image"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Content"
+          },
+          "attachment": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Media"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "id",
+          "position",
+          "sender_account",
+          "target_account",
+          "created_at",
+          "kind"
+        ],
+        "title": "Message",
+        "type": "object"
+      }
+    },
+    "read_messages": {
+      "method": "POST",
+      "path": "/chat/read_messages",
+      "status": 200,
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "account": {
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Account",
+            "type": "string"
+          },
+          "consumer_session": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Consumer Session",
+            "type": "string"
+          },
+          "after_position": {
+            "default": 0,
+            "minimum": 0,
+            "title": "After Position",
+            "type": "integer"
+          },
+          "limit": {
+            "default": 50,
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "account",
+          "consumer_session"
+        ],
+        "title": "Read",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "Image": {
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "const": "image",
+                "title": "Type",
+                "type": "string"
+              },
+              "media_id": {
+                "title": "Media Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "media_id"
+            ],
+            "title": "Image",
+            "type": "object"
+          },
+          "Media": {
+            "additionalProperties": false,
+            "properties": {
+              "media_id": {
+                "title": "Media Id",
+                "type": "string"
+              },
+              "media_type": {
+                "enum": [
+                  "image",
+                  "video",
+                  "audio",
+                  "document",
+                  "other"
+                ],
+                "title": "Media Type",
+                "type": "string"
+              },
+              "filename": {
+                "title": "Filename",
+                "type": "string"
+              },
+              "mime_type": {
+                "title": "Mime Type",
+                "type": "string"
+              },
+              "byte_size": {
+                "title": "Byte Size",
+                "type": "integer"
+              },
+              "cover_media_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Cover Media Id"
+              }
+            },
+            "required": [
+              "media_id",
+              "media_type",
+              "filename",
+              "mime_type",
+              "byte_size"
+            ],
+            "title": "Media",
+            "type": "object"
+          },
+          "Message": {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "title": "Id",
+                "type": "string"
+              },
+              "position": {
+                "title": "Position",
+                "type": "integer"
+              },
+              "sender_account": {
+                "pattern": "^[1-9][0-9]{7}$",
+                "title": "Sender Account",
+                "type": "string"
+              },
+              "target_account": {
+                "pattern": "^[1-9][0-9]{7}$",
+                "title": "Target Account",
+                "type": "string"
+              },
+              "created_at": {
+                "title": "Created At",
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "body",
+                  "attachment"
+                ],
+                "title": "Kind",
+                "type": "string"
+              },
+              "content": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "discriminator": {
+                        "mapping": {
+                          "image": "#/$defs/Image",
+                          "text": "#/$defs/Text"
+                        },
+                        "propertyName": "type"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/$defs/Text"
+                        },
+                        {
+                          "$ref": "#/$defs/Image"
+                        }
+                      ]
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Content"
+              },
+              "attachment": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Media"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              }
+            },
+            "required": [
+              "id",
+              "position",
+              "sender_account",
+              "target_account",
+              "created_at",
+              "kind"
+            ],
+            "title": "Message",
+            "type": "object"
+          },
+          "Presentation": {
+            "additionalProperties": false,
+            "properties": {
+              "receipt_id": {
+                "minLength": 1,
+                "title": "Receipt Id",
+                "type": "string"
+              },
+              "content_digest": {
+                "minLength": 1,
+                "title": "Content Digest",
+                "type": "string"
+              }
+            },
+            "required": [
+              "receipt_id",
+              "content_digest"
+            ],
+            "title": "Presentation",
+            "type": "object"
+          },
+          "Text": {
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "const": "text",
+                "title": "Type",
+                "type": "string"
+              },
+              "text": {
+                "maxLength": 20000,
+                "minLength": 1,
+                "title": "Text",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "text"
+            ],
+            "title": "Text",
+            "type": "object"
+          },
+          "VisibleImage": {
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "const": "image",
+                "title": "Type",
+                "type": "string"
+              },
+              "data": {
+                "title": "Data",
+                "type": "string"
+              },
+              "mime_type": {
+                "enum": [
+                  "image/png",
+                  "image/jpeg",
+                  "image/webp"
+                ],
+                "title": "Mime Type",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "data",
+              "mime_type"
+            ],
+            "title": "VisibleImage",
+            "type": "object"
+          },
+          "VisibleMessage": {
+            "additionalProperties": false,
+            "properties": {
+              "message": {
+                "$ref": "#/$defs/Message"
+              },
+              "presentation": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Presentation"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "blocks": {
+                "items": {
+                  "discriminator": {
+                    "mapping": {
+                      "image": "#/$defs/VisibleImage",
+                      "text": "#/$defs/Text"
+                    },
+                    "propertyName": "type"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/Text"
+                    },
+                    {
+                      "$ref": "#/$defs/VisibleImage"
+                    }
+                  ]
+                },
+                "title": "Blocks",
+                "type": "array"
+              }
+            },
+            "required": [
+              "message",
+              "blocks"
+            ],
+            "title": "VisibleMessage",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/$defs/VisibleMessage"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_position": {
+            "title": "Next Position",
+            "type": "integer"
+          },
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "items",
+          "next_position",
+          "has_more"
+        ],
+        "title": "ReadResult",
+        "type": "object"
+      }
+    },
+    "wait_messages": {
+      "method": "POST",
+      "path": "/chat/wait_messages",
+      "status": 200,
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "account": {
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Account",
+            "type": "string"
+          },
+          "consumer_session": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Consumer Session",
+            "type": "string"
+          },
+          "seen_position": {
+            "minimum": 0,
+            "title": "Seen Position",
+            "type": "integer"
+          },
+          "timeout": {
+            "default": 60,
+            "enum": [
+              30,
+              60,
+              120
+            ],
+            "title": "Timeout",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "account",
+          "consumer_session",
+          "seen_position"
+        ],
+        "title": "Wait",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "Image": {
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "const": "image",
+                "title": "Type",
+                "type": "string"
+              },
+              "media_id": {
+                "title": "Media Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "media_id"
+            ],
+            "title": "Image",
+            "type": "object"
+          },
+          "Media": {
+            "additionalProperties": false,
+            "properties": {
+              "media_id": {
+                "title": "Media Id",
+                "type": "string"
+              },
+              "media_type": {
+                "enum": [
+                  "image",
+                  "video",
+                  "audio",
+                  "document",
+                  "other"
+                ],
+                "title": "Media Type",
+                "type": "string"
+              },
+              "filename": {
+                "title": "Filename",
+                "type": "string"
+              },
+              "mime_type": {
+                "title": "Mime Type",
+                "type": "string"
+              },
+              "byte_size": {
+                "title": "Byte Size",
+                "type": "integer"
+              },
+              "cover_media_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Cover Media Id"
+              }
+            },
+            "required": [
+              "media_id",
+              "media_type",
+              "filename",
+              "mime_type",
+              "byte_size"
+            ],
+            "title": "Media",
+            "type": "object"
+          },
+          "Message": {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "title": "Id",
+                "type": "string"
+              },
+              "position": {
+                "title": "Position",
+                "type": "integer"
+              },
+              "sender_account": {
+                "pattern": "^[1-9][0-9]{7}$",
+                "title": "Sender Account",
+                "type": "string"
+              },
+              "target_account": {
+                "pattern": "^[1-9][0-9]{7}$",
+                "title": "Target Account",
+                "type": "string"
+              },
+              "created_at": {
+                "title": "Created At",
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "body",
+                  "attachment"
+                ],
+                "title": "Kind",
+                "type": "string"
+              },
+              "content": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "discriminator": {
+                        "mapping": {
+                          "image": "#/$defs/Image",
+                          "text": "#/$defs/Text"
+                        },
+                        "propertyName": "type"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/$defs/Text"
+                        },
+                        {
+                          "$ref": "#/$defs/Image"
+                        }
+                      ]
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Content"
+              },
+              "attachment": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Media"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              }
+            },
+            "required": [
+              "id",
+              "position",
+              "sender_account",
+              "target_account",
+              "created_at",
+              "kind"
+            ],
+            "title": "Message",
+            "type": "object"
+          },
+          "Presentation": {
+            "additionalProperties": false,
+            "properties": {
+              "receipt_id": {
+                "minLength": 1,
+                "title": "Receipt Id",
+                "type": "string"
+              },
+              "content_digest": {
+                "minLength": 1,
+                "title": "Content Digest",
+                "type": "string"
+              }
+            },
+            "required": [
+              "receipt_id",
+              "content_digest"
+            ],
+            "title": "Presentation",
+            "type": "object"
+          },
+          "Text": {
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "const": "text",
+                "title": "Type",
+                "type": "string"
+              },
+              "text": {
+                "maxLength": 20000,
+                "minLength": 1,
+                "title": "Text",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "text"
+            ],
+            "title": "Text",
+            "type": "object"
+          },
+          "VisibleImage": {
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "const": "image",
+                "title": "Type",
+                "type": "string"
+              },
+              "data": {
+                "title": "Data",
+                "type": "string"
+              },
+              "mime_type": {
+                "enum": [
+                  "image/png",
+                  "image/jpeg",
+                  "image/webp"
+                ],
+                "title": "Mime Type",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "data",
+              "mime_type"
+            ],
+            "title": "VisibleImage",
+            "type": "object"
+          },
+          "VisibleMessage": {
+            "additionalProperties": false,
+            "properties": {
+              "message": {
+                "$ref": "#/$defs/Message"
+              },
+              "presentation": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Presentation"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "blocks": {
+                "items": {
+                  "discriminator": {
+                    "mapping": {
+                      "image": "#/$defs/VisibleImage",
+                      "text": "#/$defs/Text"
+                    },
+                    "propertyName": "type"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/Text"
+                    },
+                    {
+                      "$ref": "#/$defs/VisibleImage"
+                    }
+                  ]
+                },
+                "title": "Blocks",
+                "type": "array"
+              }
+            },
+            "required": [
+              "message",
+              "blocks"
+            ],
+            "title": "VisibleMessage",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/$defs/VisibleMessage"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_position": {
+            "title": "Next Position",
+            "type": "integer"
+          },
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "reason": {
+            "enum": [
+              "messages",
+              "timeout",
+              "cancelled",
+              "logout",
+              "disconnected"
+            ],
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "items",
+          "next_position",
+          "has_more",
+          "reason"
+        ],
+        "title": "WaitResult",
+        "type": "object"
+      }
+    },
+    "ack_messages": {
+      "method": "POST",
+      "path": "/chat/ack_messages",
+      "status": 200,
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "account": {
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Account",
+            "type": "string"
+          },
+          "consumer_session": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Consumer Session",
+            "type": "string"
+          },
+          "through_position": {
+            "minimum": 0,
+            "title": "Through Position",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "account",
+          "consumer_session",
+          "through_position"
+        ],
+        "title": "Ack",
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "consumed_through": {
+            "title": "Consumed Through",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "consumed_through"
+        ],
+        "title": "AckResult",
+        "type": "object"
+      }
+    },
+    "start_download": {
+      "method": "POST",
+      "path": "/downloads/start",
+      "status": 202,
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "operation_id": {
+            "pattern": "^[A-Za-z0-9_-]{1,128}$",
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "consumer_session": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Consumer Session",
+            "type": "string"
+          },
+          "media_id": {
+            "title": "Media Id",
+            "type": "string"
+          },
+          "directory": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Directory"
+          }
+        },
+        "required": [
+          "operation_id",
+          "consumer_session",
+          "media_id"
+        ],
+        "title": "DownloadStart",
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "task_id": {
+            "title": "Task Id",
+            "type": "string"
+          },
+          "operation_id": {
+            "pattern": "^[A-Za-z0-9_-]{1,128}$",
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "consumer_session": {
+            "title": "Consumer Session",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "running",
+              "succeeded",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "planned_path": {
+            "title": "Planned Path",
+            "type": "string"
+          },
+          "actual_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Actual Path"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Error Code"
+          }
+        },
+        "required": [
+          "task_id",
+          "operation_id",
+          "consumer_session",
+          "status",
+          "planned_path"
+        ],
+        "title": "Download",
+        "type": "object"
+      }
+    },
+    "get_download": {
+      "method": "POST",
+      "path": "/downloads/get",
+      "status": 200,
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "task_id": {
+            "title": "Task Id",
+            "type": "string"
+          },
+          "consumer_session": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Consumer Session",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id",
+          "consumer_session"
+        ],
+        "title": "DownloadGet",
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "task_id": {
+            "title": "Task Id",
+            "type": "string"
+          },
+          "operation_id": {
+            "pattern": "^[A-Za-z0-9_-]{1,128}$",
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "consumer_session": {
+            "title": "Consumer Session",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "running",
+              "succeeded",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "planned_path": {
+            "title": "Planned Path",
+            "type": "string"
+          },
+          "actual_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Actual Path"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Error Code"
+          }
+        },
+        "required": [
+          "task_id",
+          "operation_id",
+          "consumer_session",
+          "status",
+          "planned_path"
+        ],
+        "title": "Download",
+        "type": "object"
+      }
+    },
+    "get_operation": {
+      "method": "POST",
+      "path": "/operations/get",
+      "status": 200,
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "operation_id": {
+            "pattern": "^[A-Za-z0-9_-]{1,128}$",
+            "title": "Operation Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation_id"
+        ],
+        "title": "OperationGet",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "Image": {
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "const": "image",
+                "title": "Type",
+                "type": "string"
+              },
+              "media_id": {
+                "title": "Media Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "media_id"
+            ],
+            "title": "Image",
+            "type": "object"
+          },
+          "Media": {
+            "additionalProperties": false,
+            "properties": {
+              "media_id": {
+                "title": "Media Id",
+                "type": "string"
+              },
+              "media_type": {
+                "enum": [
+                  "image",
+                  "video",
+                  "audio",
+                  "document",
+                  "other"
+                ],
+                "title": "Media Type",
+                "type": "string"
+              },
+              "filename": {
+                "title": "Filename",
+                "type": "string"
+              },
+              "mime_type": {
+                "title": "Mime Type",
+                "type": "string"
+              },
+              "byte_size": {
+                "title": "Byte Size",
+                "type": "integer"
+              },
+              "cover_media_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Cover Media Id"
+              }
+            },
+            "required": [
+              "media_id",
+              "media_type",
+              "filename",
+              "mime_type",
+              "byte_size"
+            ],
+            "title": "Media",
+            "type": "object"
+          },
+          "Message": {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "title": "Id",
+                "type": "string"
+              },
+              "position": {
+                "title": "Position",
+                "type": "integer"
+              },
+              "sender_account": {
+                "pattern": "^[1-9][0-9]{7}$",
+                "title": "Sender Account",
+                "type": "string"
+              },
+              "target_account": {
+                "pattern": "^[1-9][0-9]{7}$",
+                "title": "Target Account",
+                "type": "string"
+              },
+              "created_at": {
+                "title": "Created At",
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "body",
+                  "attachment"
+                ],
+                "title": "Kind",
+                "type": "string"
+              },
+              "content": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "discriminator": {
+                        "mapping": {
+                          "image": "#/$defs/Image",
+                          "text": "#/$defs/Text"
+                        },
+                        "propertyName": "type"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/$defs/Text"
+                        },
+                        {
+                          "$ref": "#/$defs/Image"
+                        }
+                      ]
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Content"
+              },
+              "attachment": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Media"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              }
+            },
+            "required": [
+              "id",
+              "position",
+              "sender_account",
+              "target_account",
+              "created_at",
+              "kind"
+            ],
+            "title": "Message",
+            "type": "object"
+          },
+          "Text": {
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "const": "text",
+                "title": "Type",
+                "type": "string"
+              },
+              "text": {
+                "maxLength": 20000,
+                "minLength": 1,
+                "title": "Text",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "text"
+            ],
+            "title": "Text",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "operation_id": {
+            "pattern": "^[A-Za-z0-9_-]{1,128}$",
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "message",
+              "download"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "succeeded",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Message"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Task Id"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Error Code"
+          }
+        },
+        "required": [
+          "operation_id",
+          "kind",
+          "status"
+        ],
+        "title": "Operation",
+        "type": "object"
+      }
+    }
+  },
+  "internal_operations": {
+    "confirm_presentation": {
+      "method": "POST",
+      "path": "/chat/confirm_presentation",
+      "status": 200,
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "consumer_session": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Consumer Session",
+            "type": "string"
+          },
+          "attempt_id": {
+            "minLength": 1,
+            "title": "Attempt Id",
+            "type": "string"
+          },
+          "request_digest": {
+            "minLength": 1,
+            "title": "Request Digest",
+            "type": "string"
+          },
+          "receipt_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Receipt Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "consumer_session",
+          "attempt_id",
+          "request_digest",
+          "receipt_ids"
+        ],
+        "title": "ConfirmPresentation",
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "confirmed_receipt_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Confirmed Receipt Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "confirmed_receipt_ids"
+        ],
+        "title": "ConfirmedPresentation",
+        "type": "object"
+      }
+    },
+    "events_subscribe": {
+      "method": "POST",
+      "path": "/events/subscribe",
+      "status": 200,
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "consumer_session": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Consumer Session",
+            "type": "string"
+          },
+          "peer_account": {
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Peer Account",
+            "type": "string"
+          }
+        },
+        "required": [
+          "consumer_session",
+          "peer_account"
+        ],
+        "title": "Subscribe",
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "consumer_session": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Consumer Session",
+            "type": "string"
+          },
+          "peer_account": {
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Peer Account",
+            "type": "string"
+          }
+        },
+        "required": [
+          "consumer_session",
+          "peer_account"
+        ],
+        "title": "Subscribe",
+        "type": "object"
+      }
+    },
+    "events_read": {
+      "method": "POST",
+      "path": "/events/read",
+      "status": 200,
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "consumer_session": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Consumer Session",
+            "type": "string"
+          },
+          "after_cursor": {
+            "default": 0,
+            "minimum": 0,
+            "title": "After Cursor",
+            "type": "integer"
+          },
+          "limit": {
+            "default": 50,
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "consumer_session"
+        ],
+        "title": "EventsRead",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "LocalDownloadFailed": {
+            "additionalProperties": false,
+            "properties": {
+              "version": {
+                "const": 1,
+                "default": 1,
+                "title": "Version",
+                "type": "integer"
+              },
+              "event_id": {
+                "maxLength": 200,
+                "minLength": 1,
+                "title": "Event Id",
+                "type": "string"
+              },
+              "account": {
+                "pattern": "^[1-9][0-9]{7}$",
+                "title": "Account",
+                "type": "string"
+              },
+              "consumer_session": {
+                "maxLength": 200,
+                "minLength": 1,
+                "title": "Consumer Session",
+                "type": "string"
+              },
+              "type": {
+                "const": "download.failed",
+                "title": "Type",
+                "type": "string"
+              },
+              "task_id": {
+                "title": "Task Id",
+                "type": "string"
+              },
+              "operation_id": {
+                "pattern": "^[A-Za-z0-9_-]{1,128}$",
+                "title": "Operation Id",
+                "type": "string"
+              },
+              "error_code": {
+                "minLength": 1,
+                "title": "Error Code",
+                "type": "string"
+              }
+            },
+            "required": [
+              "event_id",
+              "account",
+              "consumer_session",
+              "type",
+              "task_id",
+              "operation_id",
+              "error_code"
+            ],
+            "title": "LocalDownloadFailed",
+            "type": "object"
+          },
+          "LocalDownloadSucceeded": {
+            "additionalProperties": false,
+            "properties": {
+              "version": {
+                "const": 1,
+                "default": 1,
+                "title": "Version",
+                "type": "integer"
+              },
+              "event_id": {
+                "maxLength": 200,
+                "minLength": 1,
+                "title": "Event Id",
+                "type": "string"
+              },
+              "account": {
+                "pattern": "^[1-9][0-9]{7}$",
+                "title": "Account",
+                "type": "string"
+              },
+              "consumer_session": {
+                "maxLength": 200,
+                "minLength": 1,
+                "title": "Consumer Session",
+                "type": "string"
+              },
+              "type": {
+                "const": "download.succeeded",
+                "title": "Type",
+                "type": "string"
+              },
+              "task_id": {
+                "title": "Task Id",
+                "type": "string"
+              },
+              "operation_id": {
+                "pattern": "^[A-Za-z0-9_-]{1,128}$",
+                "title": "Operation Id",
+                "type": "string"
+              },
+              "actual_path": {
+                "minLength": 1,
+                "title": "Actual Path",
+                "type": "string"
+              }
+            },
+            "required": [
+              "event_id",
+              "account",
+              "consumer_session",
+              "type",
+              "task_id",
+              "operation_id",
+              "actual_path"
+            ],
+            "title": "LocalDownloadSucceeded",
+            "type": "object"
+          },
+          "LocalEventEntry": {
+            "additionalProperties": false,
+            "properties": {
+              "cursor": {
+                "minimum": 1,
+                "title": "Cursor",
+                "type": "integer"
+              },
+              "event": {
+                "discriminator": {
+                  "mapping": {
+                    "download.failed": "#/$defs/LocalDownloadFailed",
+                    "download.succeeded": "#/$defs/LocalDownloadSucceeded",
+                    "message.available": "#/$defs/LocalMessageEvent"
+                  },
+                  "propertyName": "type"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/LocalMessageEvent"
+                  },
+                  {
+                    "$ref": "#/$defs/LocalDownloadSucceeded"
+                  },
+                  {
+                    "$ref": "#/$defs/LocalDownloadFailed"
+                  }
+                ],
+                "title": "Event"
+              }
+            },
+            "required": [
+              "cursor",
+              "event"
+            ],
+            "title": "LocalEventEntry",
+            "type": "object"
+          },
+          "LocalMessageEvent": {
+            "additionalProperties": false,
+            "properties": {
+              "version": {
+                "const": 1,
+                "default": 1,
+                "title": "Version",
+                "type": "integer"
+              },
+              "event_id": {
+                "maxLength": 200,
+                "minLength": 1,
+                "title": "Event Id",
+                "type": "string"
+              },
+              "account": {
+                "pattern": "^[1-9][0-9]{7}$",
+                "title": "Account",
+                "type": "string"
+              },
+              "consumer_session": {
+                "maxLength": 200,
+                "minLength": 1,
+                "title": "Consumer Session",
+                "type": "string"
+              },
+              "type": {
+                "const": "message.available",
+                "title": "Type",
+                "type": "string"
+              },
+              "peer_account": {
+                "pattern": "^[1-9][0-9]{7}$",
+                "title": "Peer Account",
+                "type": "string"
+              },
+              "position": {
+                "minimum": 1,
+                "title": "Position",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "event_id",
+              "account",
+              "consumer_session",
+              "type",
+              "peer_account",
+              "position"
+            ],
+            "title": "LocalMessageEvent",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/$defs/LocalEventEntry"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "minimum": 0,
+            "title": "Next Cursor",
+            "type": "integer"
+          },
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor",
+          "has_more"
+        ],
+        "title": "LocalEventPage",
+        "type": "object"
+      }
+    },
+    "events_wait": {
+      "method": "POST",
+      "path": "/events/wait",
+      "status": 200,
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "consumer_session": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Consumer Session",
+            "type": "string"
+          },
+          "after_cursor": {
+            "default": 0,
+            "minimum": 0,
+            "title": "After Cursor",
+            "type": "integer"
+          },
+          "limit": {
+            "default": 50,
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "timeout": {
+            "default": 60,
+            "enum": [
+              30,
+              60,
+              120
+            ],
+            "title": "Timeout",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "consumer_session"
+        ],
+        "title": "EventsWait",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "LocalDownloadFailed": {
+            "additionalProperties": false,
+            "properties": {
+              "version": {
+                "const": 1,
+                "default": 1,
+                "title": "Version",
+                "type": "integer"
+              },
+              "event_id": {
+                "maxLength": 200,
+                "minLength": 1,
+                "title": "Event Id",
+                "type": "string"
+              },
+              "account": {
+                "pattern": "^[1-9][0-9]{7}$",
+                "title": "Account",
+                "type": "string"
+              },
+              "consumer_session": {
+                "maxLength": 200,
+                "minLength": 1,
+                "title": "Consumer Session",
+                "type": "string"
+              },
+              "type": {
+                "const": "download.failed",
+                "title": "Type",
+                "type": "string"
+              },
+              "task_id": {
+                "title": "Task Id",
+                "type": "string"
+              },
+              "operation_id": {
+                "pattern": "^[A-Za-z0-9_-]{1,128}$",
+                "title": "Operation Id",
+                "type": "string"
+              },
+              "error_code": {
+                "minLength": 1,
+                "title": "Error Code",
+                "type": "string"
+              }
+            },
+            "required": [
+              "event_id",
+              "account",
+              "consumer_session",
+              "type",
+              "task_id",
+              "operation_id",
+              "error_code"
+            ],
+            "title": "LocalDownloadFailed",
+            "type": "object"
+          },
+          "LocalDownloadSucceeded": {
+            "additionalProperties": false,
+            "properties": {
+              "version": {
+                "const": 1,
+                "default": 1,
+                "title": "Version",
+                "type": "integer"
+              },
+              "event_id": {
+                "maxLength": 200,
+                "minLength": 1,
+                "title": "Event Id",
+                "type": "string"
+              },
+              "account": {
+                "pattern": "^[1-9][0-9]{7}$",
+                "title": "Account",
+                "type": "string"
+              },
+              "consumer_session": {
+                "maxLength": 200,
+                "minLength": 1,
+                "title": "Consumer Session",
+                "type": "string"
+              },
+              "type": {
+                "const": "download.succeeded",
+                "title": "Type",
+                "type": "string"
+              },
+              "task_id": {
+                "title": "Task Id",
+                "type": "string"
+              },
+              "operation_id": {
+                "pattern": "^[A-Za-z0-9_-]{1,128}$",
+                "title": "Operation Id",
+                "type": "string"
+              },
+              "actual_path": {
+                "minLength": 1,
+                "title": "Actual Path",
+                "type": "string"
+              }
+            },
+            "required": [
+              "event_id",
+              "account",
+              "consumer_session",
+              "type",
+              "task_id",
+              "operation_id",
+              "actual_path"
+            ],
+            "title": "LocalDownloadSucceeded",
+            "type": "object"
+          },
+          "LocalEventEntry": {
+            "additionalProperties": false,
+            "properties": {
+              "cursor": {
+                "minimum": 1,
+                "title": "Cursor",
+                "type": "integer"
+              },
+              "event": {
+                "discriminator": {
+                  "mapping": {
+                    "download.failed": "#/$defs/LocalDownloadFailed",
+                    "download.succeeded": "#/$defs/LocalDownloadSucceeded",
+                    "message.available": "#/$defs/LocalMessageEvent"
+                  },
+                  "propertyName": "type"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/LocalMessageEvent"
+                  },
+                  {
+                    "$ref": "#/$defs/LocalDownloadSucceeded"
+                  },
+                  {
+                    "$ref": "#/$defs/LocalDownloadFailed"
+                  }
+                ],
+                "title": "Event"
+              }
+            },
+            "required": [
+              "cursor",
+              "event"
+            ],
+            "title": "LocalEventEntry",
+            "type": "object"
+          },
+          "LocalMessageEvent": {
+            "additionalProperties": false,
+            "properties": {
+              "version": {
+                "const": 1,
+                "default": 1,
+                "title": "Version",
+                "type": "integer"
+              },
+              "event_id": {
+                "maxLength": 200,
+                "minLength": 1,
+                "title": "Event Id",
+                "type": "string"
+              },
+              "account": {
+                "pattern": "^[1-9][0-9]{7}$",
+                "title": "Account",
+                "type": "string"
+              },
+              "consumer_session": {
+                "maxLength": 200,
+                "minLength": 1,
+                "title": "Consumer Session",
+                "type": "string"
+              },
+              "type": {
+                "const": "message.available",
+                "title": "Type",
+                "type": "string"
+              },
+              "peer_account": {
+                "pattern": "^[1-9][0-9]{7}$",
+                "title": "Peer Account",
+                "type": "string"
+              },
+              "position": {
+                "minimum": 1,
+                "title": "Position",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "event_id",
+              "account",
+              "consumer_session",
+              "type",
+              "peer_account",
+              "position"
+            ],
+            "title": "LocalMessageEvent",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/$defs/LocalEventEntry"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "minimum": 0,
+            "title": "Next Cursor",
+            "type": "integer"
+          },
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "reason": {
+            "enum": [
+              "events",
+              "timeout",
+              "cancelled",
+              "logout",
+              "disconnected"
+            ],
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor",
+          "has_more",
+          "reason"
+        ],
+        "title": "LocalEventWait",
+        "type": "object"
+      }
+    }
+  },
+  "errors": [
+    401,
+    404,
+    409,
+    413,
+    415,
+    422,
+    502,
+    503,
+    504
+  ],
+  "server_event": {
+    "additionalProperties": false,
+    "properties": {
+      "version": {
+        "const": 1,
+        "default": 1,
+        "title": "Version",
+        "type": "integer"
+      },
+      "event_id": {
+        "title": "Event Id",
+        "type": "integer"
+      },
+      "type": {
+        "const": "message.available",
+        "default": "message.available",
+        "title": "Type",
+        "type": "string"
+      },
+      "occurred_at": {
+        "title": "Occurred At",
+        "type": "string"
+      },
+      "message_id": {
+        "title": "Message Id",
+        "type": "string"
+      },
+      "peer_account": {
+        "pattern": "^[1-9][0-9]{7}$",
+        "title": "Peer Account",
+        "type": "string"
+      },
+      "position": {
+        "title": "Position",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "event_id",
+      "occurred_at",
+      "message_id",
+      "peer_account",
+      "position"
+    ],
+    "title": "Event",
+    "type": "object"
+  },
+  "local_event": {
+    "$defs": {
+      "LocalDownloadFailed": {
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "const": 1,
+            "default": 1,
+            "title": "Version",
+            "type": "integer"
+          },
+          "event_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Event Id",
+            "type": "string"
+          },
+          "account": {
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Account",
+            "type": "string"
+          },
+          "consumer_session": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Consumer Session",
+            "type": "string"
+          },
+          "type": {
+            "const": "download.failed",
+            "title": "Type",
+            "type": "string"
+          },
+          "task_id": {
+            "title": "Task Id",
+            "type": "string"
+          },
+          "operation_id": {
+            "pattern": "^[A-Za-z0-9_-]{1,128}$",
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "error_code": {
+            "minLength": 1,
+            "title": "Error Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "event_id",
+          "account",
+          "consumer_session",
+          "type",
+          "task_id",
+          "operation_id",
+          "error_code"
+        ],
+        "title": "LocalDownloadFailed",
+        "type": "object"
+      },
+      "LocalDownloadSucceeded": {
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "const": 1,
+            "default": 1,
+            "title": "Version",
+            "type": "integer"
+          },
+          "event_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Event Id",
+            "type": "string"
+          },
+          "account": {
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Account",
+            "type": "string"
+          },
+          "consumer_session": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Consumer Session",
+            "type": "string"
+          },
+          "type": {
+            "const": "download.succeeded",
+            "title": "Type",
+            "type": "string"
+          },
+          "task_id": {
+            "title": "Task Id",
+            "type": "string"
+          },
+          "operation_id": {
+            "pattern": "^[A-Za-z0-9_-]{1,128}$",
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "actual_path": {
+            "minLength": 1,
+            "title": "Actual Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "event_id",
+          "account",
+          "consumer_session",
+          "type",
+          "task_id",
+          "operation_id",
+          "actual_path"
+        ],
+        "title": "LocalDownloadSucceeded",
+        "type": "object"
+      },
+      "LocalMessageEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "const": 1,
+            "default": 1,
+            "title": "Version",
+            "type": "integer"
+          },
+          "event_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Event Id",
+            "type": "string"
+          },
+          "account": {
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Account",
+            "type": "string"
+          },
+          "consumer_session": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Consumer Session",
+            "type": "string"
+          },
+          "type": {
+            "const": "message.available",
+            "title": "Type",
+            "type": "string"
+          },
+          "peer_account": {
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Peer Account",
+            "type": "string"
+          },
+          "position": {
+            "minimum": 1,
+            "title": "Position",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "event_id",
+          "account",
+          "consumer_session",
+          "type",
+          "peer_account",
+          "position"
+        ],
+        "title": "LocalMessageEvent",
+        "type": "object"
+      }
+    },
+    "discriminator": {
+      "mapping": {
+        "download.failed": "#/$defs/LocalDownloadFailed",
+        "download.succeeded": "#/$defs/LocalDownloadSucceeded",
+        "message.available": "#/$defs/LocalMessageEvent"
+      },
+      "propertyName": "type"
+    },
+    "oneOf": [
+      {
+        "$ref": "#/$defs/LocalMessageEvent"
+      },
+      {
+        "$ref": "#/$defs/LocalDownloadSucceeded"
+      },
+      {
+        "$ref": "#/$defs/LocalDownloadFailed"
+      }
+    ]
+  }
+}

@@ -1,0 +1,326 @@
+{
+  "view_avatar": {
+    "method": "POST",
+    "path": "/profile/view_avatar",
+    "input": {
+      "additionalProperties": false,
+      "properties": {
+        "account": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Omitted or null means current client session",
+          "title": "Account"
+        }
+      },
+      "title": "ViewRequest",
+      "type": "object"
+    },
+    "output": {
+      "properties": {
+        "account": {
+          "pattern": "^[1-9][0-9]{7}$",
+          "title": "Account",
+          "type": "string"
+        },
+        "mime_type": {
+          "const": "image/png",
+          "title": "Mime Type",
+          "type": "string"
+        },
+        "data": {
+          "minLength": 1,
+          "title": "Data",
+          "type": "string"
+        },
+        "avatar_version": {
+          "minLength": 1,
+          "title": "Avatar Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "account",
+        "mime_type",
+        "data",
+        "avatar_version"
+      ],
+      "title": "AvatarImageResponse",
+      "type": "object"
+    }
+  },
+  "update_avatar": {
+    "method": "POST",
+    "path": "/profile/update_avatar",
+    "input": {
+      "additionalProperties": false,
+      "maxProperties": 1,
+      "minProperties": 1,
+      "oneOf": [
+        {
+          "required": [
+            "path"
+          ]
+        },
+        {
+          "required": [
+            "url"
+          ]
+        },
+        {
+          "required": [
+            "base64"
+          ]
+        }
+      ],
+      "properties": {
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Absolute path read only by the client",
+          "title": "Path"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "http/https URL downloaded only by the client",
+          "title": "Url"
+        },
+        "base64": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Raw base64 or data:image/...;base64,...; decoded by client",
+          "title": "Base64"
+        }
+      },
+      "title": "AvatarUpdate",
+      "type": "object"
+    },
+    "output": {
+      "properties": {
+        "avatar_url": {
+          "pattern": "^/avatars/[1-9][0-9]{7}\\.png$",
+          "title": "Avatar Url",
+          "type": "string"
+        },
+        "avatar_version": {
+          "minLength": 1,
+          "title": "Avatar Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "avatar_url",
+        "avatar_version"
+      ],
+      "title": "AvatarResponse",
+      "type": "object"
+    }
+  },
+  "view_nickname": {
+    "method": "POST",
+    "path": "/profile/view_nickname",
+    "input": {
+      "additionalProperties": false,
+      "properties": {
+        "account": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Omitted or null means current client session",
+          "title": "Account"
+        }
+      },
+      "title": "ViewRequest",
+      "type": "object"
+    },
+    "output": {
+      "properties": {
+        "account": {
+          "pattern": "^[1-9][0-9]{7}$",
+          "title": "Account",
+          "type": "string"
+        },
+        "username": {
+          "title": "Username",
+          "type": "string"
+        }
+      },
+      "required": [
+        "account",
+        "username"
+      ],
+      "title": "AccountResponse",
+      "type": "object"
+    }
+  },
+  "update_nickname": {
+    "method": "POST",
+    "path": "/profile/update_nickname",
+    "input": {
+      "additionalProperties": false,
+      "properties": {
+        "value": {
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "title": "NicknameUpdate",
+      "type": "object"
+    },
+    "output": {
+      "properties": {
+        "account": {
+          "pattern": "^[1-9][0-9]{7}$",
+          "title": "Account",
+          "type": "string"
+        },
+        "username": {
+          "title": "Username",
+          "type": "string"
+        }
+      },
+      "required": [
+        "account",
+        "username"
+      ],
+      "title": "AccountResponse",
+      "type": "object"
+    }
+  },
+  "view_signature": {
+    "method": "POST",
+    "path": "/profile/view_signature",
+    "input": {
+      "additionalProperties": false,
+      "properties": {
+        "account": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Omitted or null means current client session",
+          "title": "Account"
+        }
+      },
+      "title": "ViewRequest",
+      "type": "object"
+    },
+    "output": {
+      "properties": {
+        "account": {
+          "pattern": "^[1-9][0-9]{7}$",
+          "title": "Account",
+          "type": "string"
+        },
+        "signature": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Signature"
+        }
+      },
+      "required": [
+        "account",
+        "signature"
+      ],
+      "title": "SignatureResponse",
+      "type": "object"
+    }
+  },
+  "update_signature": {
+    "method": "POST",
+    "path": "/profile/update_signature",
+    "input": {
+      "additionalProperties": false,
+      "properties": {
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "title": "SignatureUpdate",
+      "type": "object"
+    },
+    "output": {
+      "properties": {
+        "account": {
+          "pattern": "^[1-9][0-9]{7}$",
+          "title": "Account",
+          "type": "string"
+        },
+        "signature": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Signature"
+        }
+      },
+      "required": [
+        "account",
+        "signature"
+      ],
+      "title": "SignatureResponse",
+      "type": "object"
+    }
+  }
+}
