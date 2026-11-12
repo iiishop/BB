@@ -75,6 +75,7 @@ def run(
     cuts = [
         "claimed",
         "wait-claimed",
+        "wait-confirmed",
         "pending",
         "dispatching",
         "provider-unknown",

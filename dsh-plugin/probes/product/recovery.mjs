@@ -29,7 +29,7 @@ const rt = await boot(
     modelCalls++;
     if (cut === "provider-unknown") await checkpoint("provider-unknown");
     const wait =
-      cut === "wait-claimed" && phase === "crash" && modelCalls === 1;
+      cut.startsWith("wait-") && phase === "crash" && modelCalls === 1;
     const send =
       cut === "operation-result" && phase === "crash" && modelCalls === 1;
     if (wait) {
@@ -115,7 +115,12 @@ const before = await client.call("chat/consumption", { account: config.peer });
 async function checkpoint(name) {
   if (
     phase === "crash" &&
-    name === (cut === "wait-claimed" ? "claimed" : cut)
+    name ===
+      (cut === "wait-claimed"
+        ? "claimed"
+        : cut === "wait-confirmed"
+          ? "confirmed"
+          : cut)
   ) {
     await writeFile(
       resolve(root, "before.json"),
@@ -135,7 +140,7 @@ const bridge = await new Bridge(
 bridge.installOperations();
 try {
   if (phase === "crash") {
-    if (cut === "wait-claimed")
+    if (cut.startsWith("wait-"))
       agent.followup({
         id: "wait-instruction",
         role: "user",

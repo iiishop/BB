@@ -48,26 +48,32 @@ export class Bridge {
           }
           const candidates = self.journal
             .list()
+            .map((row) => {
+              if (row.callId && !row.nativeId) {
+                const event = self.agent.session
+                  .snapshotEvents()
+                  .findLast(
+                    (e) =>
+                      e.type === "tool/result" &&
+                      e.data.turn === row.claimTurn &&
+                      e.data.message.toolCallId === row.callId,
+                  );
+                if (event) row.nativeId = event.data.message.id;
+              }
+              return row;
+            })
             .filter(
               (row) =>
                 (row.state === "prepared" ||
                   (row.state === "presented" && row.turn === self.turn)) &&
-                options.messages.some(
-                  (m) =>
-                    m.id === row.nativeId ||
-                    (row.callId && m.source?.callId === row.callId),
-                ),
+                options.messages.some((m) => m.id === row.nativeId),
             );
           if (!candidates.length) {
             yield* next();
             return;
           }
           for (const row of candidates) {
-            const m = options.messages.find(
-              (m) =>
-                m.id === row.nativeId ||
-                (row.callId && m.source?.callId === row.callId),
-            );
+            const m = options.messages.find((m) => m.id === row.nativeId);
             if (
               m.content.filter((b) => b.type === "image" && !b.offloaded)
                 .length < row.imageCount
@@ -313,6 +319,7 @@ export class Bridge {
           return this.journal.put({
             ...prior,
             callId,
+            claimTurn: this.turn,
             nativeId: undefined,
             state: "prepared",
           });
@@ -333,7 +340,7 @@ export class Bridge {
         state: "claimed",
         session: this.agent.session.id,
         attempt: "bb-" + randomUUID(),
-        ...(callId ? { callId } : {}),
+        ...(callId ? { callId, claimTurn: this.turn } : {}),
       };
       await this.flush();
       row = await this.journal.put(row);
@@ -540,6 +547,27 @@ export class Bridge {
   }
   async tick(peer) {
     await this.check();
+    // Queries may present a later position before an earlier one. Retain its
+    // proof and settle after the gap closes, without re-running the input.
+    for (const row of this.journal
+      .list()
+      .filter((r) => r.state === "presented")
+      .sort((a, b) => a.position - b.position)) {
+      const completed = this.agent.session
+        .snapshotEvents()
+        .some(
+          (e) =>
+            e.type === "turn/end" &&
+            e.data.turn === row.turn &&
+            e.data.reason.kind === "completed",
+        );
+      if (completed)
+        try {
+          await this.settle(row);
+        } catch (error) {
+          if (error.code !== "consumption_gap") throw error;
+        }
+    }
     const peers = [];
     if (peer) peers.push(peer);
     else {
