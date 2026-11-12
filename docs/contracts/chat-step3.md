@@ -1,3 +1,5 @@
+> 本文保留历史设计；Owner 已确认尚未部署。当前本地业务仅支持 `dea467-local-v2.md`，旧无身份路由、alias 及旧部署迁移要求已退役。
+
 # Chat step 3 — R3 implementation contract
 
 Status: implementation handoff for Orion review, not independent QA or integrated product acceptance. Supersedes the recovery assumptions in `chat-step3-runtime-patch.md`; historical probes and Sentinel counterexamples remain evidence. Common implementation baseline: `12ce1c054286315f76d7b38143060add6f3c39d2`. No `client/` changes.

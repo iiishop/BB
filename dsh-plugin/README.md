@@ -46,6 +46,5 @@ DEA-467 受保护查询模式
 `BB_CONSUMER_STATE_FILE` 可指向宿主管理的私有 `{owner_key,identity}` JSON。
 该模式增加 list_conversations/get_message/get_context，read_messages 支持
 前后定位；身份由宿主注入，查询不消费，内部 ACK/confirm 不向模型开放。
-绑定变化后由宿主重启 MCP，旧实例不自动重绑或重试。未配置时保持 legacy
-接口。完整路由、分页和退役策略见 `docs/contracts/dea467-query-v1.md`。
+绑定变化后由宿主重启 MCP，旧实例不自动重绑或重试。未配置绑定文件时只有注册/登录可执行；业务明确返回 stale_binding，禁止回退旧接口。完整路由、分页和退役策略见 `docs/contracts/dea467-local-v2.md`。
 此 Python 接线不等同独立 DSH bundle 安装或真实 Dart 查询链路验收。

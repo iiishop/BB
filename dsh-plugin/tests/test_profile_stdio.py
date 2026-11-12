@@ -6,9 +6,12 @@ import threading
 from datetime import timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from guarded_fixture import IDENTITY, OWNER
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from test_profile_contract import PNG
+
+from bb_dsh_plugin.guarded import TOOL_MODELS
 
 
 async def test_six_profile_tools_via_stdio_without_credentials(tmp_path):
@@ -22,7 +25,9 @@ async def test_six_profile_tools_via_stdio_without_credentials(tmp_path):
         def do_POST(self):
             payload = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
             calls.append((self.path, dict(self.headers), payload))
-            name = self.path.removeprefix("/profile/")
+            assert self.headers["X-BB-Consumer-Key"] == OWNER
+            assert payload.pop("expected_identity") == IDENTITY
+            name = self.path.removeprefix("/v2/profile/")
             body = {
                 "account": payload.get("account") or "12345678",
                 "token": "never-forward",
@@ -51,12 +56,17 @@ async def test_six_profile_tools_via_stdio_without_credentials(tmp_path):
             self.send_header("Content-Type", "application/json")
             self.send_header("Set-Cookie", "session=never-forward")
             self.end_headers()
-            self.wfile.write(json.dumps(body).encode())
+            self.wfile.write(
+                json.dumps({"identity": IDENTITY, "result": body}).encode()
+            )
 
     http = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     worker = threading.Thread(target=http.serve_forever)
     worker.start()
     try:
+        binding = tmp_path / "binding.json"
+        binding.write_text(json.dumps({"owner_key": OWNER, "identity": IDENTITY}))
+        binding.chmod(0o600)
         parameters = StdioServerParameters(
             command=sys.executable,
             args=["-m", "bb_dsh_plugin"],
@@ -64,6 +74,7 @@ async def test_six_profile_tools_via_stdio_without_credentials(tmp_path):
             env={
                 "BB_CLIENT_BASE_URL": f"http://127.0.0.1:{http.server_port}",
                 "PYTHONDONTWRITEBYTECODE": "1",
+                "BB_CONSUMER_STATE_FILE": str(binding),
             },
         )
         async with (
@@ -74,7 +85,10 @@ async def test_six_profile_tools_via_stdio_without_credentials(tmp_path):
         ):
             await session.initialize()
             tools = (await session.list_tools()).tools
-            assert len(tools) == 17
+            assert {tool.name for tool in tools} == set(TOOL_MODELS) | {
+                "register_account",
+                "login_account",
+            }
             for tool in tools:
                 if tool.name.startswith("update_"):
                     assert "account" not in tool.inputSchema["properties"]
@@ -119,12 +133,16 @@ async def test_six_profile_tools_via_stdio_without_credentials(tmp_path):
                 response = await session.call_tool("update_avatar", arguments)
                 assert response.isError and response.structuredContent["status"] == 422
             assert len(calls) == previous_calls
-        assert all(path.startswith("/profile/") for path, _, _ in calls)
+        assert all(path.startswith("/v2/profile/") for path, _, _ in calls)
         assert all(
             "Authorization" not in headers and "Cookie" not in headers
             for _, headers, _ in calls
         )
-        assert not list(tmp_path.iterdir())
+        assert list(tmp_path.iterdir()) == [binding]
+        assert json.loads(binding.read_text()) == {
+            "owner_key": OWNER,
+            "identity": IDENTITY,
+        }
     finally:
         http.shutdown()
         http.server_close()

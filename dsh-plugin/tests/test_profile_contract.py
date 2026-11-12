@@ -3,9 +3,10 @@ from pathlib import Path
 
 import httpx
 import pytest
-from bb_auth_contract.profile import PROFILE_RESPONSES, PROFILE_TOOLS
+from bb_auth_contract import chat_v2 as v2
+from guarded_fixture import IDENTITY, guarded_client
 
-from bb_dsh_plugin.plugin import LocalClient, invoke
+from bb_dsh_plugin.guarded import invoke_guarded as invoke
 
 ROOT = Path(__file__).parents[2]
 CASES = json.loads(
@@ -37,7 +38,7 @@ async def test_profile_shared_mcp_cases(case):
             },
         )
 
-    client = LocalClient(
+    client = guarded_client(
         "http://127.0.0.1:9187", transport=httpx.MockTransport(handler)
     )
     response = await invoke(client, case["operation"], case["input"])
@@ -50,19 +51,13 @@ async def test_profile_shared_mcp_cases(case):
         assert not calls
     else:
         assert not response.isError
-        assert calls == [case["normalized"]]
+        assert calls == [{**case["normalized"], "expected_identity": IDENTITY}]
 
 
-def test_local_schema_snapshot():
-    expected = {
-        name: {
-            "method": "POST",
-            "path": f"/profile/{name}",
-            "input": model.model_json_schema(),
-            "output": PROFILE_RESPONSES[name].model_json_schema(),
-        }
-        for name, model in PROFILE_TOOLS.items()
-    }
-    assert expected == json.loads(
-        (ROOT / "server/contract/profile-local-schema.json").read_text(encoding="utf-8")
-    )
+def test_profile_routes_use_the_shared_guarded_contract():
+    schema = json.loads((ROOT / "server/contract/chat-v2-openapi.json").read_text())
+    for name in v2.profile.PROFILE_TOOLS:
+        path, request, _response, status, owner = v2.BUSINESS[name]
+        assert owner and path == "/v2/profile/" + name and status == 200
+        assert "expected_identity" in request.model_fields
+        assert schema["paths"][path]["post"]["security"] == [{"consumerOwner": []}]

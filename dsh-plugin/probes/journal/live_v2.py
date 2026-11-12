@@ -62,7 +62,7 @@ def run(
         "consumer_create", {"expected_auth": auth, "session_id": "before-crash"}, owner
     )
     identity = binding["identity"]
-    assert binding["active"] and binding["migration"] == "ready"
+    assert binding["active"] and "migration" not in binding
     again = call(
         "consumer_create", {"expected_auth": auth, "session_id": "ignored-retry"}, owner
     )

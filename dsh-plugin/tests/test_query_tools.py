@@ -20,6 +20,57 @@ OWNER = "x" * 43
 
 
 @pytest.mark.asyncio
+async def test_unbound_server_never_falls_back_for_any_business_tool():
+    from mcp.types import CallToolRequest, CallToolRequestParams
+
+    from bb_dsh_plugin.guarded import TOOL_MODELS
+
+    def forbidden(_):
+        pytest.fail("unbound business must not reach legacy HTTP")
+
+    server = create_server(
+        LocalClient("http://127.0.0.1", transport=httpx.MockTransport(forbidden))
+    )
+    for name in TOOL_MODELS:
+        arguments = {
+            k: v for k, v in CASES["inputs"][name].items() if k != "expected_identity"
+        }
+        reply = await server.request_handlers[CallToolRequest](
+            CallToolRequest(
+                method="tools/call",
+                params=CallToolRequestParams(name=name, arguments=arguments),
+            )
+        )
+        assert reply.root.isError
+        assert reply.root.structuredContent["error"]["code"] == "stale_binding", name
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name", v2.profile.PROFILE_TOOLS)
+async def test_profile_stale_response_never_exposes_result_or_falls_back(name):
+    calls = []
+
+    def handler(request):
+        calls.append(request.url.path)
+        assert request.headers[v2.OWNER_HEADER] == OWNER
+        assert json.loads(request.content)["expected_identity"] == IDENTITY
+        reply = copy.deepcopy(CASES["outputs"][name])
+        reply["identity"]["binding_revision"] += 1
+        return httpx.Response(200, json=reply)
+
+    client = GuardedTransport(
+        "http://127.0.0.1", OWNER, IDENTITY, transport=httpx.MockTransport(handler)
+    )
+    args = {k: v for k, v in CASES["inputs"][name].items() if k != "expected_identity"}
+    reply = await invoke_guarded(client, name, args)
+    assert (
+        reply.isError and reply.structuredContent["error"]["code"] == "stale_identity"
+    )
+    assert all(item.type != "image" for item in reply.content)
+    assert calls == ["/v2/profile/" + name]
+
+
+@pytest.mark.asyncio
 async def test_query_tools_routes_identity_no_ack_and_ordered_images():
     calls = []
 

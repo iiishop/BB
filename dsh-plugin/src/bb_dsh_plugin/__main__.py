@@ -13,17 +13,9 @@ async def run():
         os.environ["BB_CLIENT_BASE_URL"],
         float(os.getenv("BB_CLIENT_TIMEOUT_SECONDS", "10")),
     )
-    guarded = None
-    if os.getenv("BB_GUARDED") == "1":
-        from bb_auth_contract import ContractError
+    from bb_dsh_plugin.guarded import AwaitingBinding
 
-        class AwaitingBinding:
-            async def call(self, operation, payload):
-                raise ContractError(
-                    401, "unauthenticated", "Login and bind the BB bridge first"
-                )
-
-        guarded = AwaitingBinding()
+    guarded = AwaitingBinding()
     state_path = os.getenv("BB_CONSUMER_STATE_FILE")
     if state_path:
         from bb_dsh_plugin.guarded import GuardedTransport

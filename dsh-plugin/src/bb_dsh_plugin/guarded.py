@@ -9,6 +9,7 @@ import json
 import httpx
 from bb_auth_contract import ContractError, structural_error
 from bb_auth_contract import chat_v2 as v2
+from bb_auth_contract.profile import PROFILE_TOOLS, parse_profile_tool
 from mcp.types import CallToolResult, ImageContent, TextContent
 from pydantic import TypeAdapter, ValidationError, create_model
 
@@ -33,6 +34,12 @@ TOOL_MODELS = {
     for name, (_, request, _, _, _) in v2.BUSINESS.items()
     if name not in INTERNAL
 }
+TOOL_MODELS.update(PROFILE_TOOLS)
+
+
+class AwaitingBinding:
+    async def call(self, operation, payload):
+        raise ContractError(409, "stale_binding", "Login and bind the BB bridge first")
 
 
 class GuardedTransport:
@@ -52,7 +59,10 @@ class GuardedTransport:
         try:
             body = request.model_validate(
                 {**payload, "expected_identity": self.identity}
-            ).model_dump(exclude_none=True)
+            ).model_dump(
+                exclude_none=operation not in PROFILE_TOOLS,
+                exclude_unset=operation in PROFILE_TOOLS,
+            )
         except ValidationError as error:
             raise structural_error(error.errors(include_input=False)) from None
         if operation == "send_attachment":
@@ -101,13 +111,37 @@ async def invoke_guarded(client, name, arguments):
     try:
         try:
             payload = (
-                TOOL_MODELS[name]
-                .model_validate(arguments)
-                .model_dump(exclude_none=True)
+                parse_profile_tool(name, arguments)
+                if name in PROFILE_TOOLS
+                else (
+                    TOOL_MODELS[name]
+                    .model_validate(arguments)
+                    .model_dump(exclude_none=True)
+                )
             )
         except ValidationError as error:
             raise structural_error(error.errors(include_input=False)) from None
         body = await client.call(name, payload)
+        if name == "view_avatar":
+            try:
+                data = base64.b64decode(body["data"], validate=True)
+                if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+                    raise ValueError("Not PNG")
+            except ValueError:
+                raise ContractError(
+                    502, "upstream_unavailable", "Invalid image bytes"
+                ) from None
+            metadata = {key: value for key, value in body.items() if key != "data"}
+            return CallToolResult(
+                isError=False,
+                structuredContent=metadata,
+                content=[
+                    ImageContent(type="image", data=body["data"], mimeType="image/png"),
+                    TextContent(
+                        type="text", text=json.dumps(metadata, ensure_ascii=False)
+                    ),
+                ],
+            )
         items = [body["item"]] if name == "get_message" else body.get("items", [])
         if name not in {"get_message", "get_context", "read_messages", "wait_messages"}:
             return result(body)

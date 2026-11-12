@@ -9,6 +9,8 @@ from datetime import timedelta
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
+from bb_dsh_plugin.guarded import TOOL_MODELS
+
 
 async def check():
     parameters = StdioServerParameters(
@@ -25,7 +27,9 @@ async def check():
         ) as session,
     ):
         await session.initialize()
-        assert {t.name for t in (await session.list_tools()).tools} == {
+        assert {t.name for t in (await session.list_tools()).tools} == set(
+            TOOL_MODELS
+        ) | {
             "register_account",
             "login_account",
             "view_avatar",

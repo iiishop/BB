@@ -4,7 +4,6 @@ const restrictions = new Set([
   "stale_binding",
   "session_identity_mismatch",
   "recovery_session_required",
-  "migration_required",
   "consumption_gap",
   "idempotency_conflict",
 ]);

@@ -122,7 +122,6 @@ export async function apply(ctx, config) {
       args: ["run", "--project", project, "--locked", "bb-dsh-plugin"],
       env: {
         BB_CLIENT_BASE_URL: get("clientUrl"),
-        BB_GUARDED: "1",
         ...(client?.stateFile
           ? { BB_CONSUMER_STATE_FILE: client.stateFile }
           : {}),
