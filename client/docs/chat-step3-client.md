@@ -152,7 +152,7 @@ R3 新增内部路由（不导出为 MCP 工具）：
 | 命令 | 结果 |
 | --- | --- |
 | `flutter analyze` | `No issues found!`，exit 0 |
-| `QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_tests.sh client` | `RESULT=PASS`，exit 0；analyze PASS、flutter-test 269 passed/8 skipped、linux-integration 13 passed |
+| `QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_tests.sh client` | `RESULT=PASS`，exit 0；analyze PASS、flutter-test 274 passed/8 skipped、linux-integration 13 passed |
 | `flutter test test/live_chat_e2e_test.dart`（`BB_LIVE_SERVER_URL=http://127.0.0.1:8171`，真实 FastAPI） | 3 tests passed，exit 0：有序图文、真实 blocks、receipt→ACK 409/通过、第三方 ACL、附件元信息、视频封面、异步下载文件内容、真实 Range 在线流、持久事件、wait 积压/提前到达 |
 | 真实 FastAPI 在线流 | `MediaStreamHandle` 以 `bytes=0-3` 请求真实 `/media/{id}` 返回 206 且字节一致；到达阶段未请求原视频 |
 | 独立 `dart run bin/bb_client_api.dart` + 真实 FastAPI | `STANDALONE CHAIN: PASS`：本地登录、list_users、有序发送/重放、read/confirm/ACK、附件上传、`downloads/start` 202→`get` succeeded、`operations/get`、`events/subscribe/read/wait`、`wait_messages` 积压 |
@@ -218,7 +218,7 @@ Owner/独立 QA 执行。
   重开补取仍为一条 `downloadSucceeded`，PASS。
 - Sentinel `qa-r4-boundaries.dart` 六项检查：**6/6 PASS / exit 0**（GET/HEAD 401、终态失败恢复
   succeeded、两条 replay dedup、pending-publish 控制）。
-- 严格 runner 更新为 **269 passed / 8 skipped**（新增 2 条边界测试），Linux integration 13。
+- 严格 runner 更新为 **274 passed / 8 skipped**（新增 2 条边界测试），Linux integration 13。
 
 ### R5/R6/R7 准备、期望值与跨文件系统落位
 
@@ -242,7 +242,19 @@ Owner/独立 QA 执行。
   目标替换、旧 pending 非空目标均保持 pending 不确定，不发成功事件；旧 v1 标记兼容。
 - 准备/期望/暂存只在终态+pending event 持久化后清理；故障恢复可重复重启，事件 ID 稳定。
 - 新增期望记录/跨文件系统/截断暂存不成功/目标替换/第三方文件清理边界回归；严格 runner
-  更新为 **269 passed / 8 skipped**，Linux integration 13。
+  更新为 **274 passed / 8 skipped**，Linux integration 13。
+
+### 11.3 storage_busy 503 重试
+
+- `ChatApiClient` 从 503 响应读取 `Retry-After`（秒，缺省 1），错误模型保留
+  `retryAfterSeconds`；仅 `code=storage_busy` 重试，最多 3 次，退避后复用**同一
+  client_nonce/operation_id**，服务端去重仍为 1 消息/1 operation。
+- `storage_io_error` 与其他 503 不重试：分别给“存储写入失败，请稍后重试或联系管理员”和
+  “服务暂不可用，请稍后重试”的硬错误文案；busy 超限给“存储繁忙，请稍后再试”，与真实
+  IO 错误区分。
+- 新增 5 例：busy 3 次后成功、busy 超 3 次失败、io 不重试、其他 503 不重试、
+  `Retry-After` 解析；断言同一 nonce、只有一次成功消息/operation。
+- 严格 runner 更新为 **274 passed / 8 skipped**，Linux integration 13。
 
 ## 12. NOT RUN / 已知限制
 

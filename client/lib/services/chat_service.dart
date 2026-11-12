@@ -380,6 +380,98 @@ class ChatService {
     return _submitBody(captured, account, record, cleaned, mediaIds);
   }
 
+  static const int _maxStorageBusyRetries = 3;
+
+  Future<ChatMessage> _sendMessageWithStorageRetry({
+    required AuthIdentity captured,
+    required String targetAccount,
+    required String clientNonce,
+    required List<MessagePart> content,
+  }) async {
+    for (int attempt = 0; ; attempt++) {
+      try {
+        return await api.sendMessage(
+          token: captured.token,
+          targetAccount: targetAccount,
+          clientNonce: clientNonce,
+          content: content,
+        );
+      } on AuthFailure catch (failure) {
+        if (failure.status == 503 && failure.code == 'storage_busy') {
+          if (attempt >= _maxStorageBusyRetries) {
+            throw _storageFailure(failure);
+          }
+          final int seconds = failure.retryAfterSeconds ?? 1;
+          await Future<void>.delayed(
+            Duration(seconds: seconds < 0 ? 0 : seconds),
+          );
+          if (!session.isCurrent(captured)) {
+            throw unauthenticated;
+          }
+          continue;
+        }
+        if (failure.status == 503) {
+          throw _storageFailure(failure);
+        }
+        rethrow;
+      }
+    }
+  }
+
+  Future<ChatMessage> _sendAttachmentWithStorageRetry({
+    required AuthIdentity captured,
+    required String targetAccount,
+    required String clientNonce,
+    required String mediaId,
+  }) async {
+    for (int attempt = 0; ; attempt++) {
+      try {
+        return await api.sendAttachment(
+          token: captured.token,
+          targetAccount: targetAccount,
+          clientNonce: clientNonce,
+          mediaId: mediaId,
+        );
+      } on AuthFailure catch (failure) {
+        if (failure.status == 503 && failure.code == 'storage_busy') {
+          if (attempt >= _maxStorageBusyRetries) {
+            throw _storageFailure(failure);
+          }
+          final int seconds = failure.retryAfterSeconds ?? 1;
+          await Future<void>.delayed(
+            Duration(seconds: seconds < 0 ? 0 : seconds),
+          );
+          if (!session.isCurrent(captured)) {
+            throw unauthenticated;
+          }
+          continue;
+        }
+        if (failure.status == 503) {
+          throw _storageFailure(failure);
+        }
+        rethrow;
+      }
+    }
+  }
+
+  static AuthFailure _storageFailure(AuthFailure failure) {
+    final String message;
+    if (failure.code == 'storage_busy') {
+      message = '存储繁忙，请稍后再试';
+    } else if (failure.code == 'storage_io_error') {
+      message = '存储写入失败，请稍后重试或联系管理员';
+    } else {
+      message = '服务暂不可用，请稍后重试';
+    }
+    return AuthFailure(
+      status: failure.status,
+      code: failure.code,
+      message: message,
+      fields: failure.fields,
+      retryAfterSeconds: failure.retryAfterSeconds,
+    );
+  }
+
   Future<SendOutcome> _submitBody(
     AuthIdentity captured,
     String account,
@@ -411,8 +503,8 @@ class ChatService {
       }
     }
     try {
-      final ChatMessage message = await api.sendMessage(
-        token: captured.token,
+      final ChatMessage message = await _sendMessageWithStorageRetry(
+        captured: captured,
         targetAccount: record.targetAccount,
         clientNonce: record.operationId,
         content: parts,
@@ -448,8 +540,8 @@ class ChatService {
         }
         // Identical retry with the same nonce: at most one message commits.
         try {
-          final ChatMessage message = await api.sendMessage(
-            token: captured.token,
+          final ChatMessage message = await _sendMessageWithStorageRetry(
+            captured: captured,
             targetAccount: record.targetAccount,
             clientNonce: record.operationId,
             content: parts,
@@ -627,8 +719,8 @@ class ChatService {
       }
     }
     try {
-      final ChatMessage message = await api.sendAttachment(
-        token: captured.token,
+      final ChatMessage message = await _sendAttachmentWithStorageRetry(
+        captured: captured,
         targetAccount: record.targetAccount,
         clientNonce: record.operationId,
         mediaId: record.resolvedMediaId!,
@@ -663,8 +755,8 @@ class ChatService {
           );
         }
         try {
-          final ChatMessage message = await api.sendAttachment(
-            token: captured.token,
+          final ChatMessage message = await _sendAttachmentWithStorageRetry(
+            captured: captured,
             targetAccount: record.targetAccount,
             clientNonce: record.operationId,
             mediaId: record.resolvedMediaId!,
