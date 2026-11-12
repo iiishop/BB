@@ -119,7 +119,7 @@ void main() {
     });
 
     test(
-      'six MCP tools through real stdio, three sources, refresh, logout',
+      'seventeen MCP tools through real stdio, three sources, refresh, logout',
       () async {
         // Baseline before MCP writes.
         final String beforeVersion = (await profileB.loadAvatar(
@@ -133,7 +133,26 @@ void main() {
             avatarUrl: 'http://127.0.0.1:${imageServer.port}/avatar.png',
             otherAccount: accountB,
           );
-          expect(probe['tool_count'], 8);
+          expect(probe['tool_count'], 17);
+          expect((probe['tool_names'] as List<dynamic>).toSet(), <String>{
+            'register_account',
+            'login_account',
+            'view_avatar',
+            'update_avatar',
+            'view_nickname',
+            'update_nickname',
+            'view_signature',
+            'update_signature',
+            'list_users',
+            'send_message',
+            'send_attachment',
+            'read_messages',
+            'wait_messages',
+            'ack_messages',
+            'start_download',
+            'get_download',
+            'get_operation',
+          });
           expect(probe['update_tools_have_no_account'], isTrue);
           expect(probe['nickname_assigned'], 'Muse Live');
           expect(probe['signature_assigned'], 'live signature');

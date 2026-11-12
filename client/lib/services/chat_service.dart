@@ -125,7 +125,7 @@ class ChatService {
       session: session,
       ledger: ledger,
       cacheRoot: cacheRoot,
-      onEvent: (LocalEvent event) => eventFeed.appendEvent(event),
+      onEvent: (LocalEvent event) => eventFeed.deliverPendingFor(event.account),
     );
     mediaStreams = MediaStreamProxy(api: api, session: session);
   }
@@ -150,6 +150,17 @@ class ChatService {
   /// Starts the durable event poller. Safe to call repeatedly.
   void start() => eventFeed.start();
 
+  /// Re-arms origin-account work after a login/restore/switch: pending
+  /// download terminal events and their feeds are recovered for the account
+  /// that is authenticated now.
+  Future<void> resumeForCurrentSession() async {
+    if (session.identity == null) {
+      return;
+    }
+    await downloads.resumePending();
+    await eventFeed.pollOnce();
+  }
+
   Future<void> dispose() async {
     await eventFeed.dispose();
     await downloads.dispose();
@@ -164,41 +175,52 @@ class ChatService {
     return user.account;
   }
 
-  String get _token {
-    final String? token = session.tokenForRequest;
-    if (token == null || token.isEmpty) {
-      throw unauthenticated;
-    }
-    return token;
-  }
-
   // --------------------------------------------------------------- account --
 
-  Future<UserPage> listUsers({String afterAccount = '', int limit = 50}) {
-    return api.listUsers(
-      token: _token,
+  Future<UserPage> listUsers({String afterAccount = '', int limit = 50}) async {
+    final AuthIdentity? captured = session.identity;
+    if (captured == null) {
+      throw unauthenticated;
+    }
+    final UserPage page = await api.listUsers(
+      token: captured.token,
       afterAccount: afterAccount,
       limit: limit.clamp(1, 100),
     );
+    if (!session.isCurrent(captured)) {
+      throw unauthenticated;
+    }
+    return page;
   }
 
   Future<MessagePage> loadConversation({
     required String peerAccount,
     int afterPosition = 0,
     int limit = 50,
-  }) {
-    selfAccount;
-    return api.conversation(
-      token: _token,
+  }) async {
+    final AuthIdentity? captured = session.identity;
+    if (captured == null) {
+      throw unauthenticated;
+    }
+    final MessagePage page = await api.conversation(
+      token: captured.token,
       account: peerAccount,
       afterPosition: afterPosition,
       limit: limit.clamp(1, 100),
     );
+    if (!session.isCurrent(captured)) {
+      throw unauthenticated;
+    }
+    return page;
   }
 
   Future<OperationResult?> getOperation(String operationId) async {
     _validateOperationId(operationId);
-    final String account = selfAccount;
+    final AuthIdentity? captured = session.identity;
+    if (captured == null) {
+      throw unauthenticated;
+    }
+    final String account = captured.account;
     final String? taskId = await ledger.downloadTaskForOperation(
       account,
       operationId,
@@ -228,9 +250,12 @@ class ChatService {
       // Fall back to the server's own idempotency record (a previous process
       // may have submitted without persisting the local result).
       final OperationResult? remote = await api.getOperation(
-        token: _token,
+        token: captured.token,
         operationId: operationId,
       );
+      if (!session.isCurrent(captured)) {
+        throw unauthenticated;
+      }
       return remote;
     }
     return OperationResult(
@@ -255,7 +280,12 @@ class ChatService {
     required List<OutgoingPart> content,
     String? operationId,
   }) async {
-    final String account = selfAccount;
+    final AuthIdentity? captured = session.identity;
+    if (captured == null) {
+      throw unauthenticated;
+    }
+    final String account = captured.account;
+    final String token = captured.token;
     final String opId = operationId ?? newOperationId('b');
     _validateOperationId(opId);
     final List<OutgoingPart> cleaned = <OutgoingPart>[
@@ -304,13 +334,16 @@ class ChatService {
       if (imageIndex >= mediaIds.length || mediaIds[imageIndex].isEmpty) {
         final ResolvedMedia media = await _resolver.resolve(part.source);
         final Attachment uploaded = await api.uploadMedia(
-          token: _token,
+          token: token,
           targetAccount: targetAccount,
           bytes: media.bytes,
           filename: media.filename,
           mimeType: media.mimeType,
         );
         mediaIds[imageIndex] = uploaded.mediaId;
+        if (!session.isCurrent(captured)) {
+          throw unauthenticated;
+        }
         record = ChatOperationRecord(
           operationId: opId,
           kind: 'message',
@@ -341,10 +374,14 @@ class ChatService {
       updatedAt: _clock(),
     );
     await ledger.saveOperation(account, record);
-    return _submitBody(account, record, cleaned, mediaIds);
+    if (!session.isCurrent(captured)) {
+      throw unauthenticated;
+    }
+    return _submitBody(captured, account, record, cleaned, mediaIds);
   }
 
   Future<SendOutcome> _submitBody(
+    AuthIdentity captured,
     String account,
     ChatOperationRecord record,
     List<OutgoingPart> content,
@@ -356,8 +393,14 @@ class ChatService {
             ? ImagePart(mediaIds[_imagePos(content, i)])
             : content[i].toWirePart(null),
     ];
+    if (!session.isCurrent(captured)) {
+      throw unauthenticated;
+    }
     if (record.state == 'uncertain') {
       final OperationResult? resolved = await getOperation(record.operationId);
+      if (!session.isCurrent(captured)) {
+        throw unauthenticated;
+      }
       if (resolved?.message != null) {
         await _succeed(account, record, resolved!.message!);
         return SendOutcome(
@@ -369,11 +412,14 @@ class ChatService {
     }
     try {
       final ChatMessage message = await api.sendMessage(
-        token: _token,
+        token: captured.token,
         targetAccount: record.targetAccount,
         clientNonce: record.operationId,
         content: parts,
       );
+      if (!session.isCurrent(captured)) {
+        throw unauthenticated;
+      }
       await _succeed(account, record, message);
       return SendOutcome(
         operationId: record.operationId,
@@ -383,9 +429,15 @@ class ChatService {
     } on AuthFailure catch (failure) {
       if (_isUncertain(failure)) {
         await _markUncertain(account, record);
+        if (!session.isCurrent(captured)) {
+          throw unauthenticated;
+        }
         final OperationResult? resolved = await getOperation(
           record.operationId,
         );
+        if (!session.isCurrent(captured)) {
+          throw unauthenticated;
+        }
         if (resolved?.message != null) {
           await _succeed(account, record, resolved!.message!);
           return SendOutcome(
@@ -397,11 +449,14 @@ class ChatService {
         // Identical retry with the same nonce: at most one message commits.
         try {
           final ChatMessage message = await api.sendMessage(
-            token: _token,
+            token: captured.token,
             targetAccount: record.targetAccount,
             clientNonce: record.operationId,
             content: parts,
           );
+          if (!session.isCurrent(captured)) {
+            throw unauthenticated;
+          }
           await _succeed(account, record, message);
           return SendOutcome(
             operationId: record.operationId,
@@ -427,7 +482,12 @@ class ChatService {
     required OutgoingAttachment attachment,
     String? operationId,
   }) async {
-    final String account = selfAccount;
+    final AuthIdentity? captured = session.identity;
+    if (captured == null) {
+      throw unauthenticated;
+    }
+    final String account = captured.account;
+    final String token = captured.token;
     final String opId = operationId ?? newOperationId('a');
     _validateOperationId(opId);
     final String sourceDigest = _digestOfAttachment(targetAccount, attachment);
@@ -476,17 +536,20 @@ class ChatService {
             throw _validation('无法提取视频封面，不能发送该视频');
           }
           final Attachment uploadedCover = await api.uploadMedia(
-            token: _token,
+            token: token,
             targetAccount: targetAccount,
             bytes: cover.bytes,
             filename: cover.filename,
             mimeType: cover.mimeType,
           );
           coverId = uploadedCover.mediaId;
+          if (!session.isCurrent(captured)) {
+            throw unauthenticated;
+          }
         }
       }
       final Attachment uploaded = await api.uploadMedia(
-        token: _token,
+        token: token,
         targetAccount: targetAccount,
         bytes: media.bytes,
         filename: filename,
@@ -494,6 +557,9 @@ class ChatService {
         coverMediaId: coverId,
       );
       mediaId = uploaded.mediaId;
+      if (!session.isCurrent(captured)) {
+        throw unauthenticated;
+      }
       record = ChatOperationRecord(
         operationId: opId,
         kind: 'attachment',
@@ -531,16 +597,26 @@ class ChatService {
       updatedAt: _clock(),
     );
     await ledger.saveOperation(account, record);
-    return _submitAttachment(account, record, attachment);
+    if (!session.isCurrent(captured)) {
+      throw unauthenticated;
+    }
+    return _submitAttachment(captured, account, record, attachment);
   }
 
   Future<SendOutcome> _submitAttachment(
+    AuthIdentity captured,
     String account,
     ChatOperationRecord record,
     OutgoingAttachment attachment,
   ) async {
+    if (!session.isCurrent(captured)) {
+      throw unauthenticated;
+    }
     if (record.state == 'uncertain') {
       final OperationResult? resolved = await getOperation(record.operationId);
+      if (!session.isCurrent(captured)) {
+        throw unauthenticated;
+      }
       if (resolved?.message != null) {
         await _succeed(account, record, resolved!.message!);
         return SendOutcome(
@@ -552,11 +628,14 @@ class ChatService {
     }
     try {
       final ChatMessage message = await api.sendAttachment(
-        token: _token,
+        token: captured.token,
         targetAccount: record.targetAccount,
         clientNonce: record.operationId,
         mediaId: record.resolvedMediaId!,
       );
+      if (!session.isCurrent(captured)) {
+        throw unauthenticated;
+      }
       await _succeed(account, record, message);
       return SendOutcome(
         operationId: record.operationId,
@@ -566,9 +645,15 @@ class ChatService {
     } on AuthFailure catch (failure) {
       if (_isUncertain(failure)) {
         await _markUncertain(account, record);
+        if (!session.isCurrent(captured)) {
+          throw unauthenticated;
+        }
         final OperationResult? resolved = await getOperation(
           record.operationId,
         );
+        if (!session.isCurrent(captured)) {
+          throw unauthenticated;
+        }
         if (resolved?.message != null) {
           await _succeed(account, record, resolved!.message!);
           return SendOutcome(
@@ -579,11 +664,14 @@ class ChatService {
         }
         try {
           final ChatMessage message = await api.sendAttachment(
-            token: _token,
+            token: captured.token,
             targetAccount: record.targetAccount,
             clientNonce: record.operationId,
             mediaId: record.resolvedMediaId!,
           );
+          if (!session.isCurrent(captured)) {
+            throw unauthenticated;
+          }
           await _succeed(account, record, message);
           return SendOutcome(
             operationId: record.operationId,
@@ -611,6 +699,10 @@ class ChatService {
     required List<OutgoingAttachment> attachments,
     String? operationSeed,
   }) async {
+    final AuthIdentity? captured = session.identity;
+    if (captured == null) {
+      throw unauthenticated;
+    }
     final String seed = operationSeed ?? newOperationId('x');
     SendOutcome? bodyOutcome;
     final List<SendOutcome> outcomes = <SendOutcome>[];
@@ -619,21 +711,39 @@ class ChatService {
         if (part is! OutgoingText || part.text.isNotEmpty) part,
     ];
     if (cleaned.isNotEmpty) {
-      try {
-        bodyOutcome = await sendBody(
-          targetAccount: targetAccount,
-          content: cleaned,
-          operationId: '$seed-b',
-        );
-      } on AuthFailure catch (failure) {
+      if (!session.isCurrent(captured)) {
         bodyOutcome = SendOutcome(
           operationId: '$seed-b',
-          failure: failure,
+          failure: unauthenticated,
           part: cleaned,
         );
+      } else {
+        try {
+          bodyOutcome = await sendBody(
+            targetAccount: targetAccount,
+            content: cleaned,
+            operationId: '$seed-b',
+          );
+        } on AuthFailure catch (failure) {
+          bodyOutcome = SendOutcome(
+            operationId: '$seed-b',
+            failure: failure,
+            part: cleaned,
+          );
+        }
       }
     }
     for (int i = 0; i < attachments.length; i++) {
+      if (!session.isCurrent(captured)) {
+        outcomes.add(
+          SendOutcome(
+            operationId: '$seed-a$i',
+            failure: unauthenticated,
+            attachment: attachments[i],
+          ),
+        );
+        continue;
+      }
       try {
         outcomes.add(
           await sendAttachment(
@@ -715,14 +825,27 @@ class ChatService {
     int limit = 50,
   }) async {
     _validateConsumer(consumerSession);
-    final MessagePage page = await loadConversation(
-      peerAccount: peerAccount,
+    final AuthIdentity? captured = session.identity;
+    if (captured == null) {
+      throw unauthenticated;
+    }
+    final MessagePage page = await api.conversation(
+      token: captured.token,
+      account: peerAccount,
       afterPosition: afterPosition,
-      limit: limit,
+      limit: limit.clamp(1, 100),
     );
+    if (!session.isCurrent(captured)) {
+      throw unauthenticated;
+    }
     final List<VisibleMessage> visible = <VisibleMessage>[];
     for (final ChatMessage message in page.items) {
-      visible.add(await _visible(peerAccount, consumerSession, message));
+      visible.add(
+        await _visible(captured, peerAccount, consumerSession, message),
+      );
+      if (!session.isCurrent(captured)) {
+        throw unauthenticated;
+      }
     }
     return VisibleMessagePage(
       items: List<VisibleMessage>.unmodifiable(visible),
@@ -745,6 +868,10 @@ class ChatService {
     if (!const <int>{30, 60, 120}.contains(timeoutSeconds)) {
       throw _validation('timeout 只能是 30、60 或 120 秒');
     }
+    final AuthIdentity? captured = session.identity;
+    if (captured == null) {
+      throw unauthenticated;
+    }
     final DateTime deadline = DateTime.now().add(
       Duration(seconds: timeoutSeconds),
     );
@@ -757,7 +884,8 @@ class ChatService {
           reason: 'cancelled',
         );
       }
-      if (!session.hasToken) {
+      final AuthIdentity? current = session.identity;
+      if (current == null) {
         return VisibleMessagePage(
           items: const <VisibleMessage>[],
           nextPosition: seenPosition,
@@ -765,15 +893,44 @@ class ChatService {
           reason: 'logout',
         );
       }
-      final MessagePage page = await loadConversation(
-        peerAccount: peerAccount,
+      if (!captured.sameAs(current)) {
+        return VisibleMessagePage(
+          items: const <VisibleMessage>[],
+          nextPosition: seenPosition,
+          hasMore: false,
+          reason: 'cancelled',
+        );
+      }
+      final MessagePage page = await api.conversation(
+        token: captured.token,
+        account: peerAccount,
         afterPosition: seenPosition,
         limit: 50,
       );
+      if (!session.isCurrent(captured)) {
+        final bool loggedOut = session.identity == null;
+        return VisibleMessagePage(
+          items: const <VisibleMessage>[],
+          nextPosition: seenPosition,
+          hasMore: false,
+          reason: loggedOut ? 'logout' : 'cancelled',
+        );
+      }
       if (page.items.isNotEmpty) {
         final List<VisibleMessage> visible = <VisibleMessage>[];
         for (final ChatMessage message in page.items) {
-          visible.add(await _visible(peerAccount, consumerSession, message));
+          visible.add(
+            await _visible(captured, peerAccount, consumerSession, message),
+          );
+          if (!session.isCurrent(captured)) {
+            final bool loggedOut = session.identity == null;
+            return VisibleMessagePage(
+              items: const <VisibleMessage>[],
+              nextPosition: seenPosition,
+              hasMore: false,
+              reason: loggedOut ? 'logout' : 'cancelled',
+            );
+          }
         }
         return VisibleMessagePage(
           items: List<VisibleMessage>.unmodifiable(visible),
@@ -797,11 +954,12 @@ class ChatService {
   }
 
   Future<VisibleMessage> _visible(
+    AuthIdentity captured,
     String peerAccount,
     String consumerSession,
     ChatMessage message,
   ) async {
-    final String account = selfAccount;
+    final String account = captured.account;
     final List<VisibleBlock> blocks = <VisibleBlock>[];
     if (message.kind == ChatMessageKind.body) {
       for (final MessagePart part in message.parts) {
@@ -809,7 +967,7 @@ class ChatService {
           blocks.add(VisibleTextBlock(part.text));
         } else if (part is ImagePart) {
           final MediaResponse media = await api.fetchMedia(
-            token: _token,
+            token: captured.token,
             mediaId: part.mediaId,
           );
           blocks.add(
@@ -829,7 +987,7 @@ class ChatService {
       if (attachment.kind == AttachmentKind.video &&
           attachment.coverMediaId != null) {
         final MediaResponse cover = await api.fetchMedia(
-          token: _token,
+          token: captured.token,
           mediaId: attachment.coverMediaId!,
         );
         blocks.add(
@@ -938,17 +1096,25 @@ class ChatService {
   // ----------------------------------------------------------------- media --
 
   Future<Uint8List> mediaBytes(String mediaId) async {
-    final Uint8List? cached = _mediaCache[mediaId];
+    final AuthIdentity? captured = session.identity;
+    if (captured == null) {
+      throw unauthenticated;
+    }
+    final String cacheKey = '${captured.account}\u0001$mediaId';
+    final Uint8List? cached = _mediaCache[cacheKey];
     if (cached != null) {
       return cached;
     }
     final MediaResponse media = await api.fetchMedia(
-      token: _token,
+      token: captured.token,
       mediaId: mediaId,
     );
+    if (!session.isCurrent(captured)) {
+      throw unauthenticated;
+    }
     if (media.bytes.length <= _maxCachedMediaBytes) {
-      _mediaCache[mediaId] = media.bytes;
-      _mediaCacheOrder.add(mediaId);
+      _mediaCache[cacheKey] = media.bytes;
+      _mediaCacheOrder.add(cacheKey);
       while (_mediaCacheOrder.length > _maxCachedMediaEntries) {
         final String evicted = _mediaCacheOrder.removeAt(0);
         _mediaCache.remove(evicted);

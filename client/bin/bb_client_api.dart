@@ -139,6 +139,7 @@ Future<void> main(List<String> args) async {
     port: options.port,
     onSessionEstablished: () {
       heartbeat.start();
+      unawaited(chat.resumeForCurrentSession());
       stdout.writeln('本地控制接口会话已建立，心跳已启动');
     },
     onUnauthorized: expireSession,

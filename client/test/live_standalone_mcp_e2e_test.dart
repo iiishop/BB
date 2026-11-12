@@ -110,7 +110,26 @@ void main() {
           loginAccount: user.account,
           loginPassword: 'Secret42',
         );
-        expect(probe['tool_count'], 8);
+        expect(probe['tool_count'], 17);
+        expect((probe['tool_names'] as List<dynamic>).toSet(), <String>{
+          'register_account',
+          'login_account',
+          'view_avatar',
+          'update_avatar',
+          'view_nickname',
+          'update_nickname',
+          'view_signature',
+          'update_signature',
+          'list_users',
+          'send_message',
+          'send_attachment',
+          'read_messages',
+          'wait_messages',
+          'ack_messages',
+          'start_download',
+          'get_download',
+          'get_operation',
+        });
         expect(probe['login_via_mcp'], isTrue);
         expect(probe['update_tools_have_no_account'], isTrue);
         expect(probe['nickname_assigned'], 'Muse Live');

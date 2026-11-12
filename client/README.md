@@ -93,7 +93,7 @@ Linux 默认窗口 1180×780，Windows 同样 1180×780。Windows 构建/运行�
 - **正文**：`POST /messages` 的 content 是有序 text/image；图片先由客户端上传为媒体资源，
   发送/存储/接收/UI/MCP read 均保持原顺序。空正文不发消息。
 - **独立附件**：视频/音频/PDF 等走 `POST /messages/attachments`；消息只带元信息，默认不下载
-  原文件；视频带真实封面（桌面 ffmpeg 抽帧、Android `video_thumbnail`）。文件选择保留真实
+  原文件；视频带真实封面（桌面 ffmpeg 抽帧、Android 项目内 `bb/video_cover` MethodChannel）。文件选择保留真实
   `path`，bytes-only 剪贴板/URI 来源会安全落临时文件再抽帧并清理。
 - **幂等**：正文与每个附件各自使用稳定 operation id；重试复用同一 id，成功项不重发；
   409 冲突、uncertain 先查询再原样重试；部分成功保留成功项。
@@ -161,7 +161,7 @@ flutter test integration_test -d linux
 QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_tests.sh client
 ```
 
-- 默认 `flutter test`：最新严格 runner 为 **254 passed / 8 skipped / exit 0**。新增覆盖
+- 默认 `flutter test`：最新严格 runner 为 **263 passed / 8 skipped / exit 0**。新增覆盖
   1000 条真实分页下发送/接收并发补取无缺口、events/wait limit 边界、原子展示确认/冲突/全组
   拒绝/重启幂等、新 consumer 独立补取、有序图文发送、幂等/冲突、read→receipt→ACK 缺口、
   附件只读元信息、异步下载内容、持久事件、wait 积压/提前到达、用户列表分页/预览/在线状态、
@@ -182,6 +182,12 @@ QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_test
 - STEP-3 真实链路（需自行启动 `bb_server`）：`BB_LIVE_SERVER_URL=http://127.0.0.1:8171
   flutter test test/live_chat_e2e_test.dart`，覆盖真实 FastAPI 的有序图文、receipt/ACK、
   第三方 ACL、视频封面、异步下载与持久事件；本次实际 3 例通过。
+- D1 在途身份固定：`/events/wait` 切换账号/同账号重登录返回空 `items`、原游标、
+  `reason=cancelled`，登出 `logout`；read/媒体流/发送/下载固定发起 token，B 事件不泄漏。
+- D2 下载终态：task 终态与 origin consumer 待交付事件在同一账本锁内提交；切换/重启后
+  原账号补取，成功文件不会因事件失败被改成业务失败。
+- D3 Android：移除不兼容的 `video_thumbnail`，项目内 `MediaMetadataRetriever` 抽帧；
+  `flutter build apk --debug` 实际产出 APK（见 docs）。
 - 真实 Dart/native R3 联调：`test-live-r3.py`（本地副本仅更新 client SHA 与 daemon 保护）
   **16/16 checks PASS, exit 0**；原 wait limit、冲突确认、缺口 ACK、新 consumer 积压四条失败
   全部消除，receipt→confirm→ACK、Dart 重启持久事件及 SIGKILL→continuation 单输出控制保留。

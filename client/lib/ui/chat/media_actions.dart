@@ -5,7 +5,6 @@ import 'dart:io';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:video_thumbnail/video_thumbnail.dart';
 
 import '../../models/chat_models.dart';
 import '../../services/media_source.dart';
@@ -94,6 +93,9 @@ class MediaActions {
 
   static const MethodChannel _clipboardChannel = MethodChannel(
     'bb/media_clipboard',
+  );
+  static const MethodChannel _videoCoverChannel = MethodChannel(
+    'bb/video_cover',
   );
 
   static Future<PickedMedia?> pick(MediaPickKind kind) async {
@@ -352,12 +354,10 @@ class MediaActions {
       }
       if (!kIsWeb && Platform.isAndroid) {
         try {
-          final Uint8List? thumbnail = await VideoThumbnail.thumbnailData(
-            video: source,
-            imageFormat: ImageFormat.PNG,
-            maxWidth: 720,
-            quality: 80,
-          );
+          final Uint8List? thumbnail = await _videoCoverChannel
+              .invokeMethod<Uint8List>('extractVideoCover', <String, Object?>{
+                'path': source,
+              });
           if (thumbnail == null || thumbnail.isEmpty) {
             return null;
           }
@@ -366,7 +366,9 @@ class MediaActions {
             filename: '${_stem(filename)}-cover.png',
             mimeType: 'image/png',
           );
-        } catch (_) {
+        } on PlatformException {
+          return null;
+        } on MissingPluginException {
           return null;
         }
       }

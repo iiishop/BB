@@ -2,6 +2,8 @@ package ai.bb.bb_mobile
 
 import android.content.ClipboardManager
 import android.content.Context
+import android.graphics.Bitmap
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.provider.OpenableColumns
 import io.flutter.embedding.android.FlutterActivity
@@ -27,6 +29,55 @@ class MainActivity : FlutterActivity() {
                     result.error("clipboard_error", error.message, null)
                 }
             }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "bb/video_cover")
+            .setMethodCallHandler { call, result ->
+                if (call.method != "extractVideoCover") {
+                    result.notImplemented()
+                    return@setMethodCallHandler
+                }
+                val path = call.argument<String>("path")
+                if (path.isNullOrBlank()) {
+                    result.error("video_cover_error", "missing path", null)
+                    return@setMethodCallHandler
+                }
+                try {
+                    result.success(extractVideoCover(path))
+                } catch (error: Exception) {
+                    result.error("video_cover_error", error.message ?: "cover failed", null)
+                }
+            }
+    }
+
+    /** Project-owned frame extraction, so no third-party Gradle plugin is needed. */
+    private fun extractVideoCover(path: String): ByteArray? {
+        val retriever = MediaMetadataRetriever()
+        try {
+            retriever.setDataSource(path)
+            val frame = retriever.getFrameAtTime(
+                0,
+                MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+            ) ?: return null
+            val maxWidth = 720
+            val scaled = if (frame.width > maxWidth) {
+                Bitmap.createScaledBitmap(
+                    frame,
+                    maxWidth,
+                    (frame.height * maxWidth) / frame.width,
+                    true,
+                )
+            } else {
+                frame
+            }
+            val output = ByteArrayOutputStream()
+            scaled.compress(Bitmap.CompressFormat.PNG, 100, output)
+            if (scaled !== frame) {
+                scaled.recycle()
+            }
+            frame.recycle()
+            return output.toByteArray()
+        } finally {
+            retriever.release()
+        }
     }
 
     private fun readClipboardMedia(): Map<String, Any>? {

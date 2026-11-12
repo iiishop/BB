@@ -257,6 +257,7 @@ class ChatLedger {
     value.putIfAbsent('receipts', () => <String, dynamic>{});
     value.putIfAbsent('events', () => <String, dynamic>{});
     value.putIfAbsent('confirmations', () => <String, dynamic>{});
+    value.putIfAbsent('pending_events', () => <String, dynamic>{});
     return value;
   }
 
@@ -758,6 +759,129 @@ class ChatLedger {
       return value is Map<String, dynamic>
           ? Map<String, dynamic>.from(value)
           : null;
+    });
+  }
+
+  // ------------------------------------------------------- pending delivery --
+
+  /// Atomically stores the terminal download task and its event delivery.
+  ///
+  /// The fact is owned by the task's original account+consumer, not by whoever
+  /// is currently logged in. If the event cannot be appended immediately it
+  /// stays in `pending_events` and is delivered on the account's next read/wait
+  /// or process restart. A failed flush rolls back and never changes a
+  /// successfully saved file into a business failure.
+  Future<void> finishDownload({
+    required String account,
+    required DownloadTask task,
+    required LocalEvent event,
+  }) {
+    return _locked(() async {
+      final Map<String, dynamic> state = _account(account);
+      final Map<String, dynamic> downloads =
+          state['downloads'] as Map<String, dynamic>;
+      final Map<String, dynamic> pending =
+          state['pending_events'] as Map<String, dynamic>;
+      final Map<String, dynamic> feeds =
+          state['events'] as Map<String, dynamic>;
+      final Map<String, dynamic>? feed =
+          feeds[event.consumerSession] as Map<String, dynamic>?;
+      final Set<String> delivered = <String>{
+        if (feed != null)
+          ...(feed['source_event_ids'] as List<dynamic>).whereType<String>(),
+      };
+      final Object previousDownloads = jsonDecode(jsonEncode(downloads));
+      final Object previousPending = jsonDecode(jsonEncode(pending));
+      try {
+        downloads[task.taskId] = task.toJson();
+        if (delivered.contains(event.eventId)) {
+          pending.remove(event.eventId);
+        } else {
+          pending[event.eventId] = event.toJson();
+        }
+        await _flush();
+      } catch (_) {
+        state['downloads'] = previousDownloads;
+        state['pending_events'] = previousPending;
+        rethrow;
+      }
+    });
+  }
+
+  /// Moves this account's pending events into their consumer feeds. The event
+  /// and its pending marker change in one locked, single-flush operation.
+  Future<int> deliverPendingEvents(String account) {
+    return _locked(() async {
+      final Map<String, dynamic> state = _account(account);
+      final Map<String, dynamic> pending =
+          state['pending_events'] as Map<String, dynamic>;
+      if (pending.isEmpty) {
+        return 0;
+      }
+      final Map<String, dynamic> events =
+          state['events'] as Map<String, dynamic>;
+      final Object previousPending = jsonDecode(jsonEncode(pending));
+      final Object previousEvents = jsonDecode(jsonEncode(events));
+      int delivered = 0;
+      try {
+        for (final MapEntry<String, dynamic> entry
+            in pending.entries.toList()) {
+          if (entry.value is! Map<String, dynamic>) {
+            pending.remove(entry.key);
+            continue;
+          }
+          final LocalEvent event = LocalEvent.fromJson(entry.value);
+          final Map<String, dynamic> feed = events.putIfAbsent(
+            event.consumerSession,
+            () => <String, dynamic>{
+              'next_cursor': 1,
+              'entries': <dynamic>[],
+              'source_event_ids': <String>[],
+              'server_cursor': 0,
+            },
+          ) as Map<String, dynamic>;
+          feed.putIfAbsent('server_cursor', () => 0);
+          final List<String> sourceIds =
+              (feed['source_event_ids'] as List<dynamic>).cast<String>();
+          if (!sourceIds.contains(event.eventId)) {
+            final int cursor = feed['next_cursor'] as int;
+            (feed['entries'] as List<dynamic>).add(
+              LocalEventEntry(cursor: cursor, event: event).toJson(),
+            );
+            sourceIds.add(event.eventId);
+            feed['next_cursor'] = cursor + 1;
+          }
+          pending.remove(entry.key);
+          delivered += 1;
+        }
+        if (delivered > 0) {
+          await _flush();
+        }
+        return delivered;
+      } catch (_) {
+        state['pending_events'] = previousPending;
+        state['events'] = previousEvents;
+        rethrow;
+      }
+    });
+  }
+
+  Future<bool> hasDeliveredEvent({
+    required String account,
+    required String consumerSession,
+    required String eventId,
+  }) {
+    return _locked(() async {
+      final Map<String, dynamic> events =
+          _account(account)['events'] as Map<String, dynamic>;
+      final Map<String, dynamic>? feed =
+          events[consumerSession] as Map<String, dynamic>?;
+      if (feed == null) {
+        return false;
+      }
+      return (feed['source_event_ids'] as List<dynamic>)
+          .whereType<String>()
+          .contains(eventId);
     });
   }
 

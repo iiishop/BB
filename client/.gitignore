@@ -49,3 +49,11 @@ app.*.map.json
 
 # QA runner output (scripts/run_flutter_tests.sh)
 .qa-artifacts/
+
+# Local build/test toolchains (not product sources)
+.flutter-sdk/
+.gradle-home*/
+.android-home/
+.home/
+.pub-cache/
+android/build/

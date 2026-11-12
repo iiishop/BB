@@ -64,8 +64,8 @@ class EventFeed {
     required String consumerSession,
     required String peerAccount,
   }) async {
-    final AuthUser? user = session.user;
-    if (user == null || !session.hasToken) {
+    final AuthIdentity? captured = session.identity;
+    if (captured == null) {
       throw unauthenticated;
     }
     if (consumerSession.trim().isEmpty) {
@@ -75,11 +75,14 @@ class EventFeed {
         message: 'consumer_session 不能为空',
       );
     }
-    await ledger.subscribe(user.account, consumerSession, peerAccount);
+    await ledger.subscribe(captured.account, consumerSession, peerAccount);
+    if (!session.isCurrent(captured)) {
+      throw unauthenticated;
+    }
     // Registration is not consumption: keep the existing cursor untouched.
     // Await one backfill pass so an immediate read after subscribe can see the
     // pre-registration backlog instead of racing an unawaited poll.
-    await pollOnce();
+    await _pollAll(captured);
   }
 
   /// Fetches each consumer's own durable source range into its local feed.
@@ -91,60 +94,66 @@ class EventFeed {
     if (_polling || _disposed) {
       return;
     }
-    final AuthUser? user = session.user;
-    final String? token = session.tokenForRequest;
-    if (user == null || token == null || token.isEmpty) {
+    final AuthIdentity? captured = session.identity;
+    if (captured == null) {
+      return;
+    }
+    await _pollAll(captured);
+  }
+
+  Future<void> _pollAll(AuthIdentity captured) async {
+    if (_polling || _disposed) {
       return;
     }
     _polling = true;
     try {
+      await deliverPendingFor(captured.account);
       final Map<String, String> subscriptions = await ledger.subscriptions(
-        user.account,
+        captured.account,
       );
       for (final MapEntry<String, String> subscription
           in subscriptions.entries) {
-        if (_disposed) {
-          break;
+        if (_disposed || !session.isCurrent(captured)) {
+          return;
         }
         await _pollConsumer(
-          account: user.account,
-          token: token,
+          captured: captured,
           consumerSession: subscription.key,
           peerAccount: subscription.value,
         );
       }
     } on AuthFailure catch (failure) {
       if (failure.status == 401) {
-        // Leave cursors untouched; a later valid login resumes.
         return;
       }
-      // Network faults are retried by the timer.
     } catch (_) {
-      // Same: the durable log only advances on confirmed readable events.
+      // Network faults are retried by the timer.
     } finally {
       _polling = false;
     }
   }
 
   Future<void> _pollConsumer({
-    required String account,
-    required String token,
+    required AuthIdentity captured,
     required String consumerSession,
     required String peerAccount,
   }) async {
-    int cursor = await ledger.consumerEventCursor(account, consumerSession);
+    int cursor = await ledger.consumerEventCursor(
+      captured.account,
+      consumerSession,
+    );
     bool advanced = true;
     while (advanced && !_disposed) {
       advanced = false;
       final ServerEventPage page = await api.events(
-        token: token,
+        token: captured.token,
         afterEventId: cursor,
         limit: 100,
       );
       for (final ServerEvent event in page.items) {
         if (event.peerAccount == peerAccount) {
           final ChatMessage? message = await _readable(
-            token,
+            captured.token,
             event.peerAccount,
             event.position,
             event.messageId,
@@ -154,11 +163,11 @@ class EventFeed {
             // retries the source event instead of dropping it.
             return;
           }
-          if (message.senderAccount != account) {
+          if (message.senderAccount != captured.account) {
             await _append(
               LocalEvent(
                 eventId: 'server:${event.eventId}',
-                account: account,
+                account: captured.account,
                 consumerSession: consumerSession,
                 type: LocalEventType.messageAvailable,
                 peerAccount: event.peerAccount,
@@ -171,7 +180,11 @@ class EventFeed {
         cursor = event.eventId;
         advanced = true;
       }
-      await ledger.setConsumerEventCursor(account, consumerSession, cursor);
+      await ledger.setConsumerEventCursor(
+        captured.account,
+        consumerSession,
+        cursor,
+      );
       if (!page.hasMore) {
         break;
       }
@@ -201,11 +214,19 @@ class EventFeed {
     return null;
   }
 
-  Future<void> appendEvent(LocalEvent event) async {
-    final AuthUser? user = session.user;
-    if (user == null || user.account != event.account) {
-      return;
+  /// Delivers pending terminal facts for [account] regardless of who is
+  /// currently logged in. Public reads still use only the current account.
+  Future<void> deliverPendingFor(String account) async {
+    final int delivered = await ledger.deliverPendingEvents(account);
+    if (delivered > 0) {
+      _revision += 1;
     }
+  }
+
+  Future<void> appendEvent(LocalEvent event) async {
+    // Internal accepted-task event: it belongs to event.account even if a
+    // different account is currently logged in. Only internal callers reach
+    // this method; no local API exposes it.
     await _append(event);
   }
 
@@ -223,8 +244,8 @@ class EventFeed {
     required int afterCursor,
     int limit = 50,
   }) async {
-    final AuthUser? user = session.user;
-    if (user == null || !session.hasToken) {
+    final AuthIdentity? captured = session.identity;
+    if (captured == null) {
       throw unauthenticated;
     }
     if (afterCursor < 0) {
@@ -235,8 +256,27 @@ class EventFeed {
       );
     }
     _validateLimit(limit);
+    final LocalEventPage page = await _readAs(
+      captured,
+      consumerSession: consumerSession,
+      afterCursor: afterCursor,
+      limit: limit,
+    );
+    if (!session.isCurrent(captured)) {
+      throw unauthenticated;
+    }
+    return page;
+  }
+
+  Future<LocalEventPage> _readAs(
+    AuthIdentity captured, {
+    required String consumerSession,
+    required int afterCursor,
+    required int limit,
+  }) async {
+    await deliverPendingFor(captured.account);
     return ledger.readLocalEvents(
-      account: user.account,
+      account: captured.account,
       consumerSession: consumerSession,
       afterCursor: afterCursor,
       limit: limit,
@@ -249,35 +289,64 @@ class EventFeed {
     int limit = 50,
     Duration timeout = const Duration(seconds: 60),
   }) async {
-    final AuthUser? user = session.user;
-    if (user == null || !session.hasToken) {
+    final AuthIdentity? captured = session.identity;
+    if (captured == null) {
       throw unauthenticated;
+    }
+    if (afterCursor < 0) {
+      throw const AuthFailure(
+        status: 422,
+        code: 'validation_error',
+        message: 'after_cursor 不能为负',
+      );
     }
     _validateLimit(limit);
     final DateTime deadline = DateTime.now().add(timeout);
     while (!_disposed) {
+      final AuthIdentity? current = session.identity;
+      if (current == null) {
+        return LocalEventPage(
+          items: const <LocalEventEntry>[],
+          nextCursor: afterCursor,
+          hasMore: false,
+          reason: 'logout',
+        );
+      }
+      if (!captured.sameAs(current)) {
+        // A→B, A→B→A and same-account re-login all change the generation.
+        // Return the original cursor and never expose the new account's data.
+        return LocalEventPage(
+          items: const <LocalEventEntry>[],
+          nextCursor: afterCursor,
+          hasMore: false,
+          reason: 'cancelled',
+        );
+      }
+
       final int seenRevision = _revision;
       // 1) backlog first, 2) only then subscribe/wait. The revision check
       // closes the append-between-read-and-wait gap.
-      final LocalEventPage page = await read(
+      final LocalEventPage page = await _readAs(
+        captured,
         consumerSession: consumerSession,
         afterCursor: afterCursor,
         limit: limit,
       );
+      if (!session.isCurrent(captured)) {
+        final bool loggedOut = session.identity == null;
+        return LocalEventPage(
+          items: const <LocalEventEntry>[],
+          nextCursor: afterCursor,
+          hasMore: false,
+          reason: loggedOut ? 'logout' : 'cancelled',
+        );
+      }
       if (page.items.isNotEmpty) {
         return LocalEventPage(
           items: page.items,
           nextCursor: page.nextCursor,
           hasMore: page.hasMore,
           reason: 'events',
-        );
-      }
-      if (!session.hasToken) {
-        return LocalEventPage(
-          items: const <LocalEventEntry>[],
-          nextCursor: afterCursor,
-          hasMore: false,
-          reason: 'logout',
         );
       }
       final Duration remaining = deadline.difference(DateTime.now());
@@ -294,7 +363,6 @@ class EventFeed {
           : const Duration(milliseconds: 100);
       await Future<void>.delayed(slice);
       if (_revision == seenRevision) {
-        // No append happened; loop until timeout (server polling may append).
         continue;
       }
     }

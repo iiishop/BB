@@ -152,7 +152,7 @@ R3 新增内部路由（不导出为 MCP 工具）：
 | 命令 | 结果 |
 | --- | --- |
 | `flutter analyze` | `No issues found!`，exit 0 |
-| `QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_tests.sh client` | `RESULT=PASS`，exit 0；analyze PASS、flutter-test 254 passed/8 skipped、linux-integration 13 passed |
+| `QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_tests.sh client` | `RESULT=PASS`，exit 0；analyze PASS、flutter-test 263 passed/8 skipped、linux-integration 13 passed |
 | `flutter test test/live_chat_e2e_test.dart`（`BB_LIVE_SERVER_URL=http://127.0.0.1:8171`，真实 FastAPI） | 3 tests passed，exit 0：有序图文、真实 blocks、receipt→ACK 409/通过、第三方 ACL、附件元信息、视频封面、异步下载文件内容、真实 Range 在线流、持久事件、wait 积压/提前到达 |
 | 真实 FastAPI 在线流 | `MediaStreamHandle` 以 `bytes=0-3` 请求真实 `/media/{id}` 返回 206 且字节一致；到达阶段未请求原视频 |
 | 独立 `dart run bin/bb_client_api.dart` + 真实 FastAPI | `STANDALONE CHAIN: PASS`：本地登录、list_users、有序发送/重放、read/confirm/ACK、附件上传、`downloads/start` 202→`get` succeeded、`operations/get`、`events/subscribe/read/wait`、`wait_messages` 积压 |
@@ -164,6 +164,47 @@ R3 新增内部路由（不导出为 MCP 工具）：
 
 截图是 Flutter widget-test raster，不是 Android/Windows 运行截图；真实设备验收仍由
 Owner/独立 QA 执行。
+
+## 11.1 D1–D4 返工（Sentinel REJECT）
+
+### D1 请求身份固定
+- `AuthSession` 增加不可变 `AuthIdentity {account, token, generation}`：只在 establish/clear
+  递增 generation，`updateUser`（昵称刷新）不递增。in-flight `wait`/`read`/chat `wait_messages`/
+  媒体流/发送/下载均固定发起时的 account、token 与 generation，所有 `await` 后复核；
+  绝不改用“当前账号”的 token。
+- `/events/wait` 在账号切换、A→B→A、同账号重新登录时返回空 `items`、原 `after_cursor`、
+  `reason=cancelled`；登出返回 `reason=logout`；请求开始即未认证仍 401。
+- 旧请求不会返回 B 的 event 元数据、不推进 B 游标、不清理 B 的新登录；媒体流每次 loopback
+  GET 复核身份并固定原 token；媒体缓存按 account 分区。
+- 新增 `test/auth_identity_boundary_test.dart`（6 例：切换、A→B→A/重登录、登出、昵称刷新、
+  在途 read、媒体流）。
+
+### D2 下载终态持久归属
+- `ChatLedger.finishDownload` 在单次锁内把“原 account+consumer 的 task 终态”和
+  `pending_events` 待交付记录原子写入；`deliverPendingEvents` 再把 pending 追加到该账号
+  source feed 并清除标记，一次 flush，失败整体回滚。
+- `DownloadManager` 使用开始任务时捕获的 token；完成/失败无论当前登录是谁都写原账号。
+  event 落库失败只保留 pending，不把成功文件改成业务失败；切回原账号 `get/read` 或重启会
+  补取；公开 `get` 仍只查当前账号。
+- 新增 `test/download_terminal_event_test.dart`（成功/失败事件 origin 归属、B 不可见、
+  `get` 修复已保存但事件缺失的旧任务）。
+
+### D3 Android debug 构建
+- 移除 `video_thumbnail` 依赖（其 jcenter/旧 AGP 配置与 AGP9/Kotlin2.4 不兼容），改为项目内
+  `bb/video_cover` Android MethodChannel：`MediaMetadataRetriever` 抽取首帧并 PNG 编码；
+  保留真实视频封面功能，不修改全局 SDK/pub 缓存。
+- `android/app/build.gradle.kts` 使用项目内公开 debug keystore（`android/debug.keystore`），
+  避免只读 `$HOME/.android` 阻塞构建；`gradle.properties` 固定受控 JVM 参数与无 daemon/
+  configuration-cache 构建。实际 `.flutter-sdk/bin/flutter build apk --debug` 产出
+  `build/app/outputs/flutter-apk/app-debug.apk`（158,063,243 bytes，exit 0）。
+
+### D4 正式 live 测试工具数
+- `live_profile_e2e_test.dart` 与 `live_standalone_mcp_e2e_test.dart` 从旧 `tool_count=8`
+  改为**精确 17 个工具名集合**；保留 Profile、四来源头像、心跳、登出/401 断言，未关闭
+  MCP probe。
+- 真实 FastAPI + 真实 stdio MCP 分别执行三文件：auth 1 passed、profile 1 passed、
+  standalone 1 passed（34s，30s 心跳）；顺序/单独执行均 exit0。三文件一起并行运行会争用
+  MCP/uv 临时状态，故交接命令按文件顺序执行并如实记录。
 
 ## 12. NOT RUN / 已知限制
 

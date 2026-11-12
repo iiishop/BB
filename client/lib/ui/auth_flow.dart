@@ -129,6 +129,11 @@ class _AuthFlowState extends State<AuthFlow> {
         }
       });
       widget.heartbeat?.start();
+      if (user != null) {
+        unawaited(
+          widget.chat?.resumeForCurrentSession() ?? Future<void>.value(),
+        );
+      }
     } on AuthFailure catch (failure) {
       if (!mounted) {
         return;
@@ -194,6 +199,7 @@ class _AuthFlowState extends State<AuthFlow> {
       _restoreNoticeRetryable = false;
     });
     widget.heartbeat?.start();
+    unawaited(widget.chat?.resumeForCurrentSession() ?? Future<void>.value());
   }
 
   void _signOut() {

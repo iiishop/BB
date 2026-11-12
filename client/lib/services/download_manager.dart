@@ -46,22 +46,6 @@ class DownloadManager {
     });
   }
 
-  String get _account {
-    final AuthUser? user = session.user;
-    if (user == null || !session.hasToken) {
-      throw unauthenticated;
-    }
-    return user.account;
-  }
-
-  String get _token {
-    final String? token = session.tokenForRequest;
-    if (token == null || token.isEmpty) {
-      throw unauthenticated;
-    }
-    return token;
-  }
-
   Future<DownloadTask> start({
     required String operationId,
     required String consumerSession,
@@ -75,7 +59,11 @@ class DownloadManager {
       if (consumerSession.trim().isEmpty || consumerSession.length > 200) {
         throw _validation('consumer_session 无效');
       }
-      final String account = _account;
+      final AuthIdentity? captured = session.identity;
+      if (captured == null) {
+        throw unauthenticated;
+      }
+      final String account = captured.account;
       final String? existingTaskId = await ledger.downloadTaskForOperation(
         account,
         operationId,
@@ -96,7 +84,7 @@ class DownloadManager {
         }
         if (prior.status == DownloadStatus.pending ||
             prior.status == DownloadStatus.running) {
-          _spawn(account, prior);
+          _spawn(account, captured.token, prior);
         }
         return prior;
       }
@@ -104,9 +92,12 @@ class DownloadManager {
         throw _validation('media_id 不能为空');
       }
       final MediaProbe probe = await api.probeMedia(
-        token: _token,
+        token: captured.token,
         mediaId: mediaId,
       );
+      if (!session.isCurrent(captured)) {
+        throw unauthenticated;
+      }
       final AttachmentKind kind = attachmentKindForMime(probe.mimeType);
       final String filename = sanitizeFilename(
         probe.filename ?? 'attachment-${_short(mediaId)}',
@@ -128,7 +119,7 @@ class DownloadManager {
       );
       await ledger.saveDownload(account, task);
       await ledger.saveDownloadOperation(account, operationId, task.taskId);
-      _spawn(account, task);
+      _spawn(account, captured.token, task);
       return task;
     });
   }
@@ -138,15 +129,32 @@ class DownloadManager {
     required String consumerSession,
   }) {
     return _locked(() async {
-      final String account = _account;
+      final AuthIdentity? captured = session.identity;
+      if (captured == null) {
+        throw unauthenticated;
+      }
+      final String account = captured.account;
       final DownloadTask? task = await ledger.download(account, taskId);
       if (task == null || task.consumerSession != consumerSession) {
         return null;
       }
-      if ((task.status == DownloadStatus.pending ||
+      if (task.status.terminal && !_active.containsKey(task.taskId)) {
+        // Repair a terminal task whose event commit was interrupted, and
+        // deliver it if a previous account switch deferred it.
+        final LocalEvent event = _terminalEvent(account, task);
+        await ledger.finishDownload(account: account, task: task, event: event);
+        try {
+          await onEvent(event);
+        } catch (_) {
+          // Pending delivery remains durable for the origin account.
+        }
+      } else if ((task.status == DownloadStatus.pending ||
               task.status == DownloadStatus.running) &&
           !_active.containsKey(task.taskId)) {
-        _spawn(account, task);
+        _spawn(account, captured.token, task);
+      }
+      if (!session.isCurrent(captured)) {
+        throw unauthenticated;
       }
       return task;
     });
@@ -154,21 +162,36 @@ class DownloadManager {
 
   /// Resumes accepted-but-unfinished tasks after a restart.
   Future<void> resumePending() async {
-    final String account = _account;
-    final List<DownloadTask> tasks = await ledger.downloads(account);
+    final AuthIdentity? captured = session.identity;
+    if (captured == null) {
+      return;
+    }
+    final List<DownloadTask> tasks = await ledger.downloads(captured.account);
     for (final DownloadTask task in tasks) {
       if (task.status == DownloadStatus.pending ||
           task.status == DownloadStatus.running) {
-        _spawn(account, task);
+        _spawn(captured.account, captured.token, task);
+      } else if (task.status.terminal) {
+        final LocalEvent event = _terminalEvent(captured.account, task);
+        await ledger.finishDownload(
+          account: captured.account,
+          task: task,
+          event: event,
+        );
+        try {
+          await onEvent(event);
+        } catch (_) {
+          // Pending delivery remains durable.
+        }
       }
     }
   }
 
-  void _spawn(String account, DownloadTask task) {
+  void _spawn(String account, String token, DownloadTask task) {
     if (_disposed || _active.containsKey(task.taskId)) {
       return;
     }
-    final Future<void> work = _run(account, task);
+    final Future<void> work = _run(account, token, task);
     _active[task.taskId] = work;
     unawaited(
       work.whenComplete(() {
@@ -177,10 +200,10 @@ class DownloadManager {
     );
   }
 
-  Future<void> _run(String account, DownloadTask task) async {
+  Future<void> _run(String account, String token, DownloadTask task) async {
     try {
       final MediaResponse media = await api.fetchMedia(
-        token: _token,
+        token: token,
         mediaId: task.mediaId ?? '',
       );
       if (media.bytes.isEmpty) {
@@ -219,19 +242,23 @@ class DownloadManager {
         plannedPath: target.path,
         actualPath: target.path,
       );
-      await ledger.saveDownload(account, done);
-      await onEvent(
-        LocalEvent(
-          eventId: 'download:${task.taskId}:succeeded',
-          account: account,
-          consumerSession: task.consumerSession,
-          type: LocalEventType.downloadSucceeded,
-          taskId: task.taskId,
-          operationId: task.operationId,
-          actualPath: target.path,
-        ),
-      );
+      final LocalEvent event = _terminalEvent(account, done);
+      // Task status + event delivery (or pending marker) commit together in the
+      // origin account's ledger, regardless of the current login.
+      await ledger.finishDownload(account: account, task: done, event: event);
+      try {
+        await onEvent(event);
+      } catch (_) {
+        // The durable pending event is retried on the origin account's next
+        // read/wait or restart; a successful saved file is never reclassified.
+      }
     } catch (error) {
+      if (error is AuthFailure &&
+          (error.status == 401 || error.status == 403)) {
+        // A stale/expired token must not become a permanent business failure;
+        // leave the accepted task resumable for the origin account.
+        return;
+      }
       final String code = error is AuthFailure ? error.code : 'download_failed';
       final File planned = File(task.plannedPath);
       try {
@@ -245,19 +272,35 @@ class DownloadManager {
         status: DownloadStatus.failed,
         errorCode: code,
       );
-      await ledger.saveDownload(account, failed);
-      await onEvent(
-        LocalEvent(
-          eventId: 'download:${task.taskId}:failed',
+      final LocalEvent event = _terminalEvent(account, failed);
+      try {
+        await ledger.finishDownload(
           account: account,
-          consumerSession: task.consumerSession,
-          type: LocalEventType.downloadFailed,
-          taskId: task.taskId,
-          operationId: task.operationId,
-          errorCode: code,
-        ),
-      );
+          task: failed,
+          event: event,
+        );
+        await onEvent(event);
+      } catch (_) {
+        // Keep the accepted task resumable rather than inventing a second
+        // failure fact when the ledger commit itself failed.
+      }
     }
+  }
+
+  LocalEvent _terminalEvent(String account, DownloadTask task) {
+    final bool succeeded = task.status == DownloadStatus.succeeded;
+    return LocalEvent(
+      eventId: 'download:${task.taskId}:${succeeded ? 'succeeded' : 'failed'}',
+      account: account,
+      consumerSession: task.consumerSession,
+      type: succeeded
+          ? LocalEventType.downloadSucceeded
+          : LocalEventType.downloadFailed,
+      taskId: task.taskId,
+      operationId: task.operationId,
+      actualPath: succeeded ? task.actualPath : null,
+      errorCode: succeeded ? null : task.errorCode ?? 'download_failed',
+    );
   }
 
   /// Human "另存为": writes to the exact chosen path, never silently
@@ -269,11 +312,18 @@ class DownloadManager {
     if (targetPath.trim().isEmpty) {
       throw _validation('保存路径不能为空');
     }
-    final String account = _account;
+    final AuthIdentity? captured = session.identity;
+    if (captured == null) {
+      throw unauthenticated;
+    }
+    final String account = captured.account;
     final MediaResponse media = await api.fetchMedia(
-      token: _token,
+      token: captured.token,
       mediaId: mediaId,
     );
+    if (!session.isCurrent(captured)) {
+      throw unauthenticated;
+    }
     final File chosen = await _uniqueFile(File(targetPath));
     final Directory parent = chosen.parent;
     if (!await parent.exists()) {

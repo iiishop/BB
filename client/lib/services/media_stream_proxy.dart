@@ -32,7 +32,8 @@ class MediaStreamProxy {
         message: 'media_id 不能为空',
       );
     }
-    if (!session.hasToken || session.user == null) {
+    final AuthIdentity? captured = session.identity;
+    if (captured == null) {
       throw unauthenticated;
     }
     final String token = _randomToken();
@@ -46,6 +47,7 @@ class MediaStreamProxy {
       mediaId: mediaId,
       api: api,
       session: session,
+      identity: captured,
       onClosed: (_LoopbackStream value) => _open.remove(value),
     );
     _open.add(stream);
@@ -78,6 +80,7 @@ class _LoopbackStream implements MediaStreamHandle {
     required this.mediaId,
     required this.api,
     required this.session,
+    required this.identity,
     required this.onClosed,
   });
 
@@ -86,6 +89,7 @@ class _LoopbackStream implements MediaStreamHandle {
   final String mediaId;
   final ChatApiClient api;
   final AuthSession session;
+  final AuthIdentity identity;
   final void Function(_LoopbackStream stream) onClosed;
   bool _closed = false;
 
@@ -105,11 +109,12 @@ class _LoopbackStream implements MediaStreamHandle {
       await _writeError(request, HttpStatus.methodNotAllowed);
       return;
     }
-    final String? auth = session.tokenForRequest;
-    if (auth == null || auth.isEmpty) {
+    // A stream opened by A must never serve B's credentials or data.
+    if (!session.isCurrent(identity)) {
       await _writeError(request, HttpStatus.unauthorized);
       return;
     }
+    final String auth = identity.token;
     if (request.method == 'HEAD') {
       try {
         final MediaProbe probe = await api.probeMedia(

@@ -12,3 +12,6 @@ GeneratedPluginRegistrant.java
 key.properties
 **/*.keystore
 **/*.jks
+
+# Public Android debug signing key committed for reproducible headless APK builds
+!debug.keystore
