@@ -24,6 +24,20 @@ def run(
 ):
     import os
 
+    if os.environ.get("BB_PRODUCT_CASES") == "profile":
+        from live_profile import run as run_profile
+
+        return run_profile(
+            api=api,
+            peer=peer,
+            root=root,
+            private=private,
+            launch=launch,
+            stop=stop,
+            record=record,
+            **unused,
+        )
+
     if os.environ.get("BB_PRODUCT_CASES") == "gap":
         from live_gap import run as run_gap
 
