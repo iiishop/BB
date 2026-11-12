@@ -4,6 +4,12 @@ Tested product commit: `bec7d843e975aa11c5401b76774db73d2a29a84e`.
 Client tree: `26832065e55e08f66ad2080c2c2888009a1b450e`.
 This report does not mark the product ready for independent QA.
 
+## Follow-up: original binding counterexample fixed
+
+On product commit `1f573029f8edfc4dc861ea6f936299a25e0d2f61` (client tree `dea50f14f0d3c8470ed87573370887f6580d424a`), Orion reviewed the completion fence and reran the query tests plus `chat_v2_query_rebind_test.dart`: **21 passed, exit 0**. The controlled get_message/read_messages rebind cases now return 409 stale_binding with no leftover receipt; account switch and same-account login cases return stale_identity. The original defect described below is historical, not a current failing result.
+
+The same isolated real FastAPI/SQLite → Dart → guarded MCP stdio check was rerun on `1f57302`: **all eight assertions below passed, exit 0**. Owned services were stopped. This covers text query integration, not DSH/model/vision or every possible concurrency interleaving. The receipt cleanup preserves confirmed/attempt-bound records; these checks do not claim a full concurrent receipt lifecycle proof. Muse's full-suite report (336 passed / 8 skipped and 13 Linux integration passed) is separate from Orion's targeted rerun.
+
 ## Completed checks
 
 `flutter test test/chat_query_service_test.dart test/chat_v2_query_routes_test.dart test/chat_v2_shared_contract_test.dart --reporter expanded`, from `client/`: **16 passed, exit 0**. These are client fixture-based tests, not a live FastAPI claim.
