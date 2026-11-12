@@ -19,12 +19,19 @@ class ChatComposer extends StatefulWidget {
     required this.peerAccount,
     required this.onSent,
     this.enabled = true,
+    this.clipboard = const PlatformClipboardMediaReader(),
+    this.coverExtractor = defaultVideoCoverExtractor,
   });
 
   final ChatService chat;
   final String peerAccount;
   final void Function(List<ChatMessage> messages) onSent;
   final bool enabled;
+  final ClipboardMediaReader clipboard;
+
+  /// Product default is the real ffmpeg/platform extractor; the seam lets
+  /// widget tests observe the picked path/bytes without replacing the UI flow.
+  final VideoCoverExtractorFn coverExtractor;
 
   static const Key inputKey = Key('chat-composer-input');
   static const Key sendKey = Key('chat-composer-send');
@@ -58,21 +65,7 @@ class _ChatComposerState extends State<ChatComposer> {
       if (picked == null || !mounted) {
         return;
       }
-      _commitCurrentText();
-      setState(() {
-        _parts.add(
-          _DraftPart(
-            OutgoingImage(
-              MediaSource(
-                bytes: picked.bytes,
-                filename: picked.filename,
-                mimeType: picked.mimeType,
-              ),
-            ),
-            bytes: picked.bytes,
-          ),
-        );
-      });
+      _addBodyImage(picked);
     } on FormatException catch (error) {
       _snack(error.message);
     } catch (_) {
@@ -86,42 +79,11 @@ class _ChatComposerState extends State<ChatComposer> {
       if (picked == null || !mounted) {
         return;
       }
-      final AttachmentKind kind = attachmentKindForMime(picked.mimeType);
-      ResolvedMedia? cover;
-      if (kind == AttachmentKind.video) {
-        cover = await MediaActions.extractVideoCover(
-          bytes: picked.bytes,
-          filename: picked.filename,
-        );
-        if (cover == null) {
-          _snack('无法从该视频提取封面，请换一个视频或提供封面图片');
-          return;
-        }
+      if (picked.mimeType.startsWith('image/')) {
+        _addBodyImage(picked);
+        return;
       }
-      setState(() {
-        _attachments.add(
-          _DraftAttachment(
-            attachment: OutgoingAttachment(
-              source: MediaSource(
-                bytes: picked.bytes,
-                filename: picked.filename,
-                mimeType: picked.mimeType,
-              ),
-              cover: cover == null
-                  ? null
-                  : MediaSource(
-                      bytes: cover.bytes,
-                      filename: cover.filename,
-                      mimeType: cover.mimeType,
-                    ),
-            ),
-            filename: picked.filename,
-            size: picked.bytes.length,
-            kind: kind,
-            coverBytes: cover?.bytes,
-          ),
-        );
-      });
+      await _addAttachment(picked);
     } on FormatException catch (error) {
       _snack(error.message);
     } catch (_) {
@@ -129,33 +91,86 @@ class _ChatComposerState extends State<ChatComposer> {
     }
   }
 
-  Future<void> _pasteImage() async {
+  Future<void> _addAttachment(PickedMedia picked) async {
+    final AttachmentKind kind = attachmentKindForMime(picked.mimeType);
+    ResolvedMedia? cover;
+    if (kind == AttachmentKind.video) {
+      cover = await widget.coverExtractor(
+        path: picked.path,
+        bytes: picked.bytes,
+        filename: picked.filename,
+      );
+      if (cover == null) {
+        _snack('无法从该视频提取封面，请换一个视频');
+        return;
+      }
+    }
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _attachments.add(
+        _DraftAttachment(
+          attachment: OutgoingAttachment(
+            source: MediaSource(
+              bytes: picked.bytes,
+              filename: picked.filename,
+              mimeType: picked.mimeType,
+            ),
+            cover: cover == null
+                ? null
+                : MediaSource(
+                    bytes: cover.bytes,
+                    filename: cover.filename,
+                    mimeType: cover.mimeType,
+                  ),
+          ),
+          filename: picked.filename,
+          size: picked.bytes.length,
+          kind: kind,
+          coverBytes: cover?.bytes,
+        ),
+      );
+    });
+  }
+
+  void _addBodyImage(PickedMedia picked) {
+    _commitCurrentText();
+    setState(() {
+      _parts.add(
+        _DraftPart(
+          OutgoingImage(
+            MediaSource(
+              bytes: picked.bytes,
+              filename: picked.filename,
+              mimeType: picked.mimeType,
+            ),
+          ),
+          bytes: picked.bytes,
+        ),
+      );
+    });
+  }
+
+  Future<void> _pasteMedia() async {
     try {
-      final PickedMedia? picked = await MediaActions.readClipboardImage();
+      final PickedMedia? picked = await widget.clipboard.read();
       if (!mounted) {
         return;
       }
       if (picked == null) {
-        _snack('当前系统无法读取图片剪贴板（移动端粘贴图片为 NOT RUN）');
+        _snack('剪贴板中没有可用的图片或视频');
         return;
       }
-      _commitCurrentText();
-      setState(() {
-        _parts.add(
-          _DraftPart(
-            OutgoingImage(
-              MediaSource(
-                bytes: picked.bytes,
-                filename: picked.filename,
-                mimeType: picked.mimeType,
-              ),
-            ),
-            bytes: picked.bytes,
-          ),
-        );
-      });
+      if (picked.mimeType.startsWith('image/')) {
+        _addBodyImage(picked);
+      } else if (picked.mimeType.startsWith('video/')) {
+        await _addAttachment(picked);
+      } else {
+        _snack('剪贴板媒体类型不受支持，仅支持图片或视频');
+      }
     } catch (_) {
-      _snack('粘贴图片失败');
+      _snack('读取剪贴板媒体失败');
     }
   }
 
@@ -328,8 +343,8 @@ class _ChatComposerState extends State<ChatComposer> {
                   ),
                   IconButton(
                     key: ChatComposer.pasteKey,
-                    tooltip: '粘贴图片',
-                    onPressed: _sending ? null : _pasteImage,
+                    tooltip: '粘贴图片或视频',
+                    onPressed: _sending ? null : _pasteMedia,
                     icon: const Icon(Icons.content_paste_rounded),
                   ),
                   Expanded(

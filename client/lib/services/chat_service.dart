@@ -12,6 +12,7 @@ import 'chat_ledger.dart';
 import 'download_manager.dart';
 import 'event_feed.dart';
 import 'media_source.dart';
+import 'media_stream_proxy.dart';
 
 /// One ordered body draft segment supplied by the UI or the local API.
 sealed class OutgoingPart {
@@ -126,6 +127,7 @@ class ChatService {
       cacheRoot: cacheRoot,
       onEvent: (LocalEvent event) => eventFeed.appendEvent(event),
     );
+    mediaStreams = MediaStreamProxy(api: api, session: session);
   }
 
   final ChatApiClient api;
@@ -138,6 +140,7 @@ class ChatService {
 
   late final EventFeed eventFeed;
   late DownloadManager downloads;
+  late MediaStreamProxy mediaStreams;
 
   final Map<String, Uint8List> _mediaCache = <String, Uint8List>{};
   final List<String> _mediaCacheOrder = <String>[];
@@ -150,6 +153,7 @@ class ChatService {
   Future<void> dispose() async {
     await eventFeed.dispose();
     await downloads.dispose();
+    await mediaStreams.close();
   }
 
   String get selfAccount {
@@ -975,6 +979,14 @@ class ChatService {
 
   Future<String> saveAs({required String mediaId, required String targetPath}) {
     return downloads.saveAsCopy(mediaId: mediaId, targetPath: targetPath);
+  }
+
+  /// Called only from the human play action. The returned loopback URL streams
+  /// authorized ranges on demand; callers must close the handle when playback
+  /// stops.
+  Future<MediaStreamHandle> openMediaStream(String mediaId) {
+    selfAccount;
+    return mediaStreams.open(mediaId);
   }
 
   Future<void> subscribeEvents({
