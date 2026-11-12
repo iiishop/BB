@@ -62,6 +62,10 @@ export async function runStatus({
         .locator(".bb-settings")
         .getByText("Diagnostic code: " + code, { exact: true })
         .waitFor();
+    if (name === "bound")
+      await p
+        .getByText("Connection status: Connected and bound", { exact: false })
+        .waitFor();
     return s;
   };
   const toggle = async () => {
