@@ -338,7 +338,23 @@ void main() {
       ),
       throwsA(failure(409, staleIdentityCode)),
     );
-    // The new identity still works for the same consumer.
+    // The stale alias cannot continue without an explicit rebind either.
+    await expectLater(
+      service.ackMessages(
+        peerAccount: _bob,
+        consumerSession: 'dsh-x',
+        throughPosition: 1,
+      ),
+      throwsA(failure(409, staleIdentityCode)),
+    );
+    final ExpectedIdentity old = (await service.ledger
+        .expectedIdentityForSession(_alice, 'dsh-x'))!;
+    await service.ledger.bindConsumer(
+      account: _alice,
+      authGeneration: session.identity!.authGeneration,
+      consumerSession: 'dsh-x',
+      expectedBindingRevision: old.bindingRevision,
+    );
     expect(
       await service.ackMessages(
         peerAccount: _bob,
@@ -366,10 +382,20 @@ void main() {
     expect(same.bindingRevision, 1);
     expect(same.consumerId, first.consumerId);
 
+    // A plain legacy bind after re-login is stale, not an implicit rebind.
+    await expectLater(
+      ledger.bindConsumer(
+        account: _alice,
+        authGeneration: 'g-second',
+        consumerSession: 's1',
+      ),
+      throwsA(failure(409, staleIdentityCode)),
+    );
     final ConsumerBinding relogin = await ledger.bindConsumer(
       account: _alice,
       authGeneration: 'g-second',
       consumerSession: 's1',
+      expectedBindingRevision: first.bindingRevision,
     );
     expect(relogin.bindingRevision, 2);
     expect(relogin.consumerId, first.consumerId);

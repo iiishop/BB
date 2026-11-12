@@ -291,9 +291,11 @@ void main() {
         token: 'token-b',
         user: const AuthUser(account: '10000009', username: 'bob'),
       );
-      await expectLater(inFlight, throwsA(_failure(401, 'unauthenticated')));
+      await expectLater(inFlight, throwsA(_failure(409, 'stale_identity')));
 
-      expect(await ledger.confirmation(_account, 'switch-attempt'), isNotNull);
+      // The identity check happens before the write: an invalidated binding
+      // must not leave a half-committed confirmation.
+      expect(await ledger.confirmation(_account, 'switch-attempt'), isNull);
       expect(await ledger.confirmation('10000009', 'switch-attempt'), isNull);
     },
   );

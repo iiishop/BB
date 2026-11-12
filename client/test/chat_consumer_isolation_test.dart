@@ -114,6 +114,8 @@ void main() {
     () async {
       await seedTwoPeerMessages();
       await readAndConfirm(service, 'dsh-a');
+      // B is registered but has no receipts of its own.
+      await service.identityFor('dsh-b');
 
       expect(await ack(service, 'dsh-a', 2), 2);
 
@@ -173,6 +175,7 @@ void main() {
       () async {
     await seedTwoPeerMessages();
     await readAndConfirm(service, 'dsh-a');
+    await service.identityFor('dsh-b');
 
     final List<Object?> results = await Future.wait<Object?>(<Future<Object?>>[
       ack(service, 'dsh-a', 2).then<Object?>((int value) => value),
@@ -210,10 +213,32 @@ void main() {
       ..establish(token: backend.tokenFor(_account), user: user(_account));
     service = build(restarted);
 
-    // The alias is one-to-one, so the stable consumer id comes back; only its
-    // auth generation/revision rotate with the new login.
-    expect((await service.identityFor('dsh-a')).consumerId, aId);
-    expect((await service.identityFor('dsh-b')).consumerId, bId);
+    // The alias is one-to-one, so the stable consumer id comes back; only an
+    // explicit revision-checked rebind may rotate its login generation.
+    expect(
+      (await service.ledger.expectedIdentityForSession(_account, 'dsh-a'))!
+          .consumerId,
+      aId,
+    );
+    expect(
+      (await service.ledger.expectedIdentityForSession(_account, 'dsh-b'))!
+          .consumerId,
+      bId,
+    );
+    await expectLater(
+      ack(service, 'dsh-a', 2),
+      throwsA(failure(409, staleIdentityCode)),
+    );
+    for (final String alias in <String>['dsh-a', 'dsh-b']) {
+      final ExpectedIdentity old = (await service.ledger
+          .expectedIdentityForSession(_account, alias))!;
+      await service.ledger.bindConsumer(
+        account: _account,
+        authGeneration: service.session.identity!.authGeneration,
+        consumerSession: alias,
+        expectedBindingRevision: old.bindingRevision,
+      );
+    }
     expect(await ack(service, 'dsh-a', 2), 2);
     await expectLater(
       ack(service, 'dsh-b', 2),

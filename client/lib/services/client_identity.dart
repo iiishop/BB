@@ -106,9 +106,22 @@ class ExpectedIdentity {
     'binding_revision': bindingRevision,
   };
 
+  static const Set<String> _fields = <String>{
+    'account',
+    'auth_generation',
+    'consumer_id',
+    'binding_revision',
+  };
+
   factory ExpectedIdentity.fromJson(Object? json) {
     if (json is! Map<String, dynamic>) {
       throw const FormatException('expected_identity must be an object');
+    }
+    // Strict wire object: unknown keys are never accepted or ignored.
+    for (final String key in json.keys) {
+      if (!_fields.contains(key)) {
+        throw const FormatException('expected_identity has unknown fields');
+      }
     }
     final Object? account = json['account'];
     final Object? authGeneration = json['auth_generation'];
