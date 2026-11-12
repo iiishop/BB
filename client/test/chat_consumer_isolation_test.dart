@@ -213,25 +213,19 @@ void main() {
       ..establish(token: backend.tokenFor(_account), user: user(_account));
     service = build(restarted);
 
-    // The alias is one-to-one, so the stable consumer id comes back; only an
-    // explicit revision-checked rebind may rotate its login generation.
-    expect(
-      (await service.ledger.expectedIdentityForSession(_account, 'dsh-a'))!
-          .consumerId,
-      aId,
-    );
-    expect(
-      (await service.ledger.expectedIdentityForSession(_account, 'dsh-b'))!
-          .consumerId,
-      bId,
-    );
+    // The stable consumer id comes back; only an explicit revision-checked
+    // rebind may rotate its login generation.
+    expect((await service.ledger.bindingById(aId))!.consumerId, aId);
+    expect((await service.ledger.bindingById(bId))!.consumerId, bId);
     await expectLater(
       ack(service, 'dsh-a', 2),
       throwsA(failure(409, staleIdentityCode)),
     );
     for (final String alias in <String>['dsh-a', 'dsh-b']) {
-      final ExpectedIdentity old = (await service.ledger
-          .expectedIdentityForSession(_account, alias))!;
+      final String consumerId = alias == 'dsh-a' ? aId : bId;
+      final ConsumerBinding old = (await service.ledger.bindingById(
+        consumerId,
+      ))!;
       await service.ledger.bindConsumer(
         account: _account,
         authGeneration: service.session.identity!.authGeneration,

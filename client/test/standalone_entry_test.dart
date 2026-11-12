@@ -114,14 +114,14 @@ void main() {
             'credential file removed after heartbeat 401',
           );
 
+          // The old unguarded profile route is gone; status is the bootstrap
+          // probe that must now report no authenticated session.
           final _Response afterExpiry = await _post(
-            localAddress.resolve('/profile/view_nickname'),
+            localAddress.resolve('/v2/status'),
             <String, dynamic>{},
           );
-          expect(afterExpiry.status, 401);
-          final Map<String, dynamic> error =
-              afterExpiry.body['error'] as Map<String, dynamic>;
-          expect(error['code'], 'unauthenticated');
+          expect(afterExpiry.status, 200);
+          expect(afterExpiry.body['auth'], isNull);
 
           expect(
             stdoutBuffer.toString(),

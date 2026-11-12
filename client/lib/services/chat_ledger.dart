@@ -258,12 +258,9 @@ class ChatLedger {
           throw const FormatException('chat ledger consumers are invalid');
         }
         _data.putIfAbsent('consumer_owners', () => <String, dynamic>{});
-      } else if (version == 1) {
-        // A v1 document is migrated once, with a preserved backup, before any
-        // new write is allowed. It is never mixed with v2 writes.
-        _data = await _migrateV1(decoded, raw);
       } else {
-        // An unknown newer/older document is never silently rewritten.
+        // The single supported document version. Old pre-v2 documents are
+        // rejected rather than migrated: there is no deployed v1 user to serve.
         throw const FormatException('unsupported chat ledger version');
       }
     } catch (_) {
@@ -279,214 +276,6 @@ class ChatLedger {
     'consumers': <String, dynamic>{},
     'consumer_owners': <String, dynamic>{},
   };
-
-  /// Migrates a version-1 document to version 2.
-  ///
-  /// Old `account+peer` watermarks are never broadcast. Each watermark is only
-  /// carried over when exactly one consumer of that account has its own
-  /// continuous confirmed receipts up to the watermark; anything incomplete or
-  /// ambiguous is preserved under `legacy_consumption` and reported as
-  /// `migration_required`. The migration is idempotent: the document becomes
-  /// version 2 on first success and re-opening it never re-runs the migration.
-  Future<Map<String, dynamic>> _migrateV1(
-    Map<String, dynamic> legacy,
-    String raw,
-  ) async {
-    final Object? rawAccounts = legacy['accounts'];
-    if (rawAccounts is! Map<String, dynamic>) {
-      throw const FormatException('chat ledger accounts are invalid');
-    }
-    final File? file = _file;
-    final String backupPath = file == null ? '' : '${file.path}.v1-backup';
-    final String now = DateTime.now().toUtc().toIso8601String();
-    final Map<String, dynamic> consumers = <String, dynamic>{};
-    final Map<String, dynamic> accounts = <String, dynamic>{};
-    final List<Map<String, dynamic>> entries = <Map<String, dynamic>>[];
-
-    for (final MapEntry<String, dynamic> accountEntry in rawAccounts.entries) {
-      final String account = accountEntry.key;
-      final Object? rawState = accountEntry.value;
-      if (rawState is! Map<String, dynamic>) {
-        throw const FormatException('chat ledger account state is invalid');
-      }
-      final Map<String, dynamic> state = Map<String, dynamic>.from(rawState);
-      for (final String key in <String>[
-        'server_event_cursor',
-        'subscriptions',
-        'operations',
-        'downloads',
-        'download_operations',
-        'receipts',
-        'events',
-        'confirmations',
-        'pending_events',
-      ]) {
-        state.putIfAbsent(
-          key,
-          () => key == 'server_event_cursor'
-              ? 0
-              : <String, dynamic>{},
-        );
-      }
-      final Object? legacyConsumption = state.remove('consumption');
-      final Map<String, dynamic> legacyByPeer =
-          legacyConsumption is Map<String, dynamic>
-          ? Map<String, dynamic>.from(legacyConsumption)
-          : <String, dynamic>{};
-
-      // Group old receipts by the legacy consumer_session that wrote them.
-      final Map<String, List<PresentationReceipt>> receiptsBySession =
-          <String, List<PresentationReceipt>>{};
-      for (final Object? value
-          in (state['receipts'] as Map<String, dynamic>).values) {
-        if (value is! Map<String, dynamic>) {
-          continue;
-        }
-        final PresentationReceipt receipt = PresentationReceipt.fromJson(value);
-        receiptsBySession
-            .putIfAbsent(receipt.consumerSession, () => <PresentationReceipt>[])
-            .add(receipt);
-      }
-      // Every session that ever subscribed, received or downloaded is a
-      // verifiable one-to-one alias for exactly one consumer.
-      final Set<String> sessions = <String>{
-        ...receiptsBySession.keys,
-        ...(state['subscriptions'] as Map<String, dynamic>).keys,
-        ...(state['events'] as Map<String, dynamic>).keys,
-      };
-      final Map<String, String> consumerBySession = <String, String>{};
-      final Map<String, dynamic> aliases = <String, dynamic>{};
-      for (final String session in sessions) {
-        final String consumerId = _legacyConsumerId(account, session);
-        consumerBySession[session] = consumerId;
-        aliases[session] = consumerId;
-        consumers.putIfAbsent(
-          consumerId,
-          () => <String, dynamic>{
-            'account': account,
-            'auth_generation': '',
-            'binding_revision': 1,
-            'aliases': <String, dynamic>{session: true},
-            'created_at': now,
-            'updated_at': now,
-          },
-        );
-      }
-
-      // Rebuild each consumer's continuous confirmed range per peer.
-      final Map<String, Map<String, int>> continuous =
-          <String, Map<String, int>>{};
-      for (final MapEntry<String, List<PresentationReceipt>> bySession
-          in receiptsBySession.entries) {
-        final String consumerId = consumerBySession[bySession.key]!;
-        final List<PresentationReceipt> ordered =
-            bySession.value.toList()
-              ..sort(
-                (PresentationReceipt a, PresentationReceipt b) =>
-                    a.position.compareTo(b.position),
-              );
-        for (final PresentationReceipt receipt in ordered) {
-          if (!receipt.confirmed) {
-            continue;
-          }
-          final Map<String, int> peerRanges = continuous.putIfAbsent(
-            consumerId,
-            () => <String, int>{},
-          );
-          final int current = peerRanges[receipt.peerAccount] ?? 0;
-          if (receipt.position == current + 1) {
-            peerRanges[receipt.peerAccount] = receipt.position;
-          }
-        }
-      }
-
-      final Map<String, dynamic> scoped = <String, dynamic>{};
-      final Set<String> peers = <String>{
-        ...legacyByPeer.keys,
-        for (final Map<String, int> ranges in continuous.values) ...ranges.keys,
-      };
-      for (final String peer in peers) {
-        final int watermark = legacyByPeer[peer] is int
-            ? legacyByPeer[peer] as int
-            : 0;
-        final List<MapEntry<String, int>> candidates = <MapEntry<String, int>>[
-          for (final MapEntry<String, Map<String, int>> consumer
-              in continuous.entries)
-            if ((consumer.value[peer] ?? 0) >= watermark && watermark > 0)
-              MapEntry<String, int>(consumer.key, watermark),
-        ];
-        if (watermark <= 0) {
-          continue;
-        }
-        if (candidates.length == 1) {
-          final Map<String, dynamic> peerMap =
-              (scoped[candidates.single.key] as Map<String, dynamic>?) ??
-              <String, dynamic>{};
-          peerMap[peer] = watermark;
-          scoped[candidates.single.key] = peerMap;
-          entries.add(<String, dynamic>{
-            'account': account,
-            'peer_account': peer,
-            'legacy_watermark': watermark,
-            'consumer_id': candidates.single.key,
-            'outcome': 'migrated',
-          });
-          continue;
-        }
-        entries.add(<String, dynamic>{
-          'account': account,
-          'peer_account': peer,
-          'legacy_watermark': watermark,
-          'consumer_id': null,
-          // Ambiguity blocks exactly the consumers that could claim the
-          // legacy watermark; unrelated verified consumers stay usable.
-          'consumer_ids': <String>[
-            for (final MapEntry<String, int> candidate in candidates)
-              candidate.key,
-          ],
-          'outcome': 'migration_required',
-          'reason': candidates.isEmpty
-              ? 'no_consumer_has_continuous_receipts'
-              : 'ambiguous_consumers',
-        });
-      }
-
-      state['consumption_by_consumer'] = scoped;
-      state['consumer_aliases'] = aliases;
-      state['legacy_consumption'] = legacyByPeer;
-      accounts[account] = state;
-    }
-
-    final Map<String, dynamic> migrated = <String, dynamic>{
-      'version': _version,
-      'accounts': accounts,
-      'consumers': consumers,
-      'consumer_owners': <String, dynamic>{},
-      'legacy_migration': <String, dynamic>{
-        'legacy_version': 1,
-        'migrated_at': now,
-        'backup': backupPath,
-        'entries': entries,
-        'requires_attention': entries.any(
-          (Map<String, dynamic> entry) =>
-              entry['outcome'] != 'migrated',
-        ),
-      },
-    };
-    if (file != null) {
-      final File backup = File(backupPath);
-      if (!await backup.exists()) {
-        await backup.writeAsString(raw, flush: true);
-      }
-    }
-    _data = migrated;
-    await _flush();
-    return migrated;
-  }
-
-  String _legacyConsumerId(String account, String consumerSession) {
-    return 'c-${sha256Hex(utf8.encode('legacy\u0001$account\u0001$consumerSession')).substring(0, 32)}';
-  }
 
   Map<String, dynamic> _account(String account) {
     final Map<String, dynamic> accounts =
@@ -783,6 +572,29 @@ class ChatLedger {
     return value is String ? value : null;
   }
 
+  /// A session alias may belong to exactly one consumer across every account.
+  /// Returning the owner here lets create/bind refuse to re-point an existing
+  /// alias at a new identity, including a cross-account reuse.
+  String? _consumerIdForAliasAnyAccountLocked(String consumerSession) {
+    final Object? rawAccounts = _data['accounts'];
+    if (rawAccounts is! Map<String, dynamic>) {
+      return null;
+    }
+    for (final Object? rawAccount in rawAccounts.values) {
+      if (rawAccount is! Map<String, dynamic>) {
+        continue;
+      }
+      final Object? aliases = rawAccount['consumer_aliases'];
+      if (aliases is Map<String, dynamic>) {
+        final Object? value = aliases[consumerSession];
+        if (value is String) {
+          return value;
+        }
+      }
+    }
+    return null;
+  }
+
   /// Creates the one-to-one alias for [consumerSession] the first time it is
   /// seen. The consumer id is random and persisted, never derived from a
   /// credential or a transient session.
@@ -814,25 +626,6 @@ class ChatLedger {
     return consumerId;
   }
 
-  String _migrationStateLocked(String account) {
-    final Object? raw = _data['legacy_migration'];
-    if (raw is! Map<String, dynamic>) {
-      return 'ready';
-    }
-    final Object? entries = raw['entries'];
-    if (entries is! List) {
-      return 'ready';
-    }
-    for (final Object? entry in entries) {
-      if (entry is Map<String, dynamic> &&
-          entry['account'] == account &&
-          entry['outcome'] != 'migrated') {
-        return 'migration_required';
-      }
-    }
-    return 'ready';
-  }
-
   ConsumerBinding? _bindingLocked(String consumerId) {
     final Object? raw = _consumers[consumerId];
     if (raw is! Map<String, dynamic>) {
@@ -858,7 +651,6 @@ class ChatLedger {
       sessionId: raw['session_id'] is String
           ? raw['session_id'] as String
           : '',
-      migration: _migrationStateLocked(account),
       ownerKeyHash: raw['owner_key_hash'] is String
           ? raw['owner_key_hash'] as String
           : '',
@@ -872,21 +664,12 @@ class ChatLedger {
     String feedKey,
   ) {
     return _locked(() async {
-      final String consumerId =
-          _consumerIdForAliasLocked(account, feedKey) ?? feedKey;
-      final ConsumerBinding? binding = _bindingLocked(consumerId);
+      final ConsumerBinding? binding = _bindingLocked(feedKey);
       if (binding == null || binding.account != account) {
         return null;
       }
       return binding.identity;
     });
-  }
-
-  /// Per-account legacy consumption status used by the v2 Binding/Consumption
-  /// replies. `migration_required` means at least one preserved legacy entry
-  /// could not be proven for a consumer.
-  Future<String> migrationState(String account) {
-    return _locked(() async => _migrationStateLocked(account));
   }
 
   /// Persist-before-enroll consumer creation.
@@ -928,6 +711,13 @@ class ChatLedger {
           'created_at': DateTime.now().toUtc().toIso8601String(),
         };
         await _flush();
+      }
+      // A legacy/previous session alias is evidence of its existing owner.
+      // Creating a new owner for the same string would silently transfer that
+      // consumer's receipts and stable binding, so it is a binding conflict.
+      final String? aliased = _consumerIdForAliasAnyAccountLocked(sessionId);
+      if (aliased != null) {
+        throw staleBinding('该会话已绑定其他消费者，请使用新会话或先解决迁移');
       }
       final String consumerId = newConsumerId();
       final String now = DateTime.now().toUtc().toIso8601String();
@@ -1000,6 +790,10 @@ class ChatLedger {
       if (revision != expectedBindingRevision) {
         throw staleBinding('消费者绑定版本已变化');
       }
+      final String? aliased = _consumerIdForAliasAnyAccountLocked(sessionId);
+      if (aliased != null && aliased != consumerId) {
+        throw staleBinding('该会话已绑定其他消费者，不能重新指向');
+      }
       final Map<String, dynamic> aliases = <String, dynamic>{
         ...((record['aliases'] as Map<String, dynamic>?) ??
             <String, dynamic>{}),
@@ -1024,50 +818,6 @@ class ChatLedger {
   /// Read-only binding lookup by consumer id (used by business calls).
   Future<ConsumerBinding?> bindingById(String consumerId) {
     return _locked(() async => _bindingLocked(consumerId));
-  }
-
-  /// Resolves (and on first use creates) the consumer behind a stable
-  /// client-owned `(account, consumer_session)` alias.
-  ///
-  /// The alias never switches account: a legacy session reused by another
-  /// account is a binding conflict, not a fresh consumer.
-  Future<ConsumerBinding> ensureConsumer({
-    required String account,
-    required String consumerSession,
-    String? authGeneration,
-  }) {
-    return _locked(() async {
-      final String? existing = _consumerIdForAliasLocked(
-        account,
-        consumerSession,
-      );
-      if (existing != null) {
-        final ConsumerBinding? binding = _bindingLocked(existing);
-        if (binding != null && binding.account != account) {
-          throw staleBinding('该消费者已绑定另一个账号');
-        }
-      }
-      final String consumerId = _ensureConsumerLocked(
-        account: account,
-        consumerSession: consumerSession,
-        authGeneration: authGeneration ?? '',
-      );
-      final ConsumerBinding binding = _bindingLocked(consumerId)!;
-      if (authGeneration != null &&
-          authGeneration.isNotEmpty &&
-          binding.authGeneration != authGeneration) {
-        _consumers[consumerId] = <String, dynamic>{
-          ...(_consumers[consumerId] as Map<String, dynamic>),
-          'auth_generation': authGeneration,
-          'binding_revision': binding.bindingRevision + 1,
-          'updated_at': DateTime.now().toUtc().toIso8601String(),
-        };
-        await _flush();
-        return _bindingLocked(consumerId)!;
-      }
-      await _flush();
-      return binding;
-    });
   }
 
   /// Binds the current login to a consumer.
@@ -1141,6 +891,12 @@ class ChatLedger {
           expectedBindingRevision != binding.bindingRevision) {
         throw staleBinding('消费者绑定版本已变化');
       }
+      final String? aliased = _consumerIdForAliasAnyAccountLocked(
+        consumerSession,
+      );
+      if (aliased != null && aliased != resolved) {
+        throw staleBinding('该会话已绑定其他消费者，不能重新指向');
+      }
       final Map<String, dynamic> aliases = <String, dynamic>{
         ...((_consumers[resolved] as Map<String, dynamic>)['aliases']
                 as Map<String, dynamic>? ??
@@ -1191,32 +947,6 @@ class ChatLedger {
     return _locked(() async {
       final ConsumerBinding? binding = _bindingLocked(consumerId);
       return binding;
-    });
-  }
-
-  Future<String?> consumerIdForSession(
-    String account,
-    String consumerSession,
-  ) {
-    return _locked(() async {
-      return _consumerIdForAliasLocked(account, consumerSession);
-    });
-  }
-
-  /// Full identity of the consumer currently bound to this alias, if any.
-  Future<ExpectedIdentity?> expectedIdentityForSession(
-    String account,
-    String consumerSession,
-  ) {
-    return _locked(() async {
-      final String? consumerId = _consumerIdForAliasLocked(
-        account,
-        consumerSession,
-      );
-      if (consumerId == null) {
-        return null;
-      }
-      return _bindingLocked(consumerId)?.identity;
     });
   }
 
@@ -1276,28 +1006,6 @@ class ChatLedger {
     return value is int ? value : 0;
   }
 
-  Map<String, dynamic>? _legacyMigrationForPeerLocked(
-    String account,
-    String peerAccount,
-  ) {
-    final Object? raw = _data['legacy_migration'];
-    if (raw is! Map<String, dynamic>) {
-      return null;
-    }
-    final Object? entries = raw['entries'];
-    if (entries is! List) {
-      return null;
-    }
-    for (final Object? entry in entries) {
-      if (entry is Map<String, dynamic> &&
-          entry['account'] == account &&
-          entry['peer_account'] == peerAccount) {
-        return Map<String, dynamic>.from(entry);
-      }
-    }
-    return null;
-  }
-
   /// Atomic ACK commit: identity/binding re-check, gap validation, optional
   /// fault-injection pause, a second identity re-check, then the durable write.
   ///
@@ -1323,31 +1031,6 @@ class ChatLedger {
       }
       if (!stillCurrent()) {
         throw staleIdentity;
-      }
-      // Migration ambiguity is an independent consumption blocker. It is
-      // checked before the idempotent short-circuit and before the receipt
-      // gap, so continuous receipts cannot bypass it and neither can an ACK
-      // that is already at/below the cursor. It never modifies the preserved
-      // legacy evidence and only blocks the affected consumers.
-      final Map<String, dynamic>? legacyEntry = _legacyMigrationForPeerLocked(
-        account,
-        peerAccount,
-      );
-      if (legacyEntry != null &&
-          legacyEntry['outcome'] == 'migration_required') {
-        final Object? affected = legacyEntry['consumer_ids'];
-        if (affected is List && affected.contains(consumerId)) {
-          throw migrationRequired(
-            '旧消费迁移存在歧义，需显式解决后才能确认消费',
-            fields: <AuthFieldError>[
-              AuthFieldError(
-                field: 'through_position',
-                code: migrationRequiredCode,
-                message: '迁移歧义阻塞该消费者水位',
-              ),
-            ],
-          );
-        }
       }
       final int consumed = _consumedLocked(account, consumerId, peerAccount);
       if (throughPosition <= consumed) {
@@ -1376,25 +1059,6 @@ class ChatLedger {
           if (confirmedByPosition[position] != true) position,
       ];
       if (gaps.isNotEmpty) {
-        final Map<String, dynamic>? legacy = legacyEntry;
-        final int? legacyWatermark = legacy?['legacy_watermark'] is int
-            ? legacy!['legacy_watermark'] as int
-            : null;
-        if (legacy != null &&
-            legacy['outcome'] == 'migration_required' &&
-            legacyWatermark != null &&
-            gaps.any((int position) => position <= legacyWatermark)) {
-          throw migrationRequired(
-            '旧消费水位无法从可验证 receipts 迁移，请显式迁移或重新确认',
-            fields: <AuthFieldError>[
-              AuthFieldError(
-                field: 'through_position',
-                code: migrationRequiredCode,
-                message: '缺少可迁移的展示凭据',
-              ),
-            ],
-          );
-        }
         throw consumptionGap(
           '消费水位存在未确认展示的位置',
           fields: <AuthFieldError>[
@@ -1429,42 +1093,6 @@ class ChatLedger {
         await _flush();
       }
       return throughPosition;
-    });
-  }
-
-  /// Legacy v1 consumption preserved by the migration, never used to grant an
-  /// ACK. Returns the migration entry for one account+peer, if any.
-  Future<Map<String, dynamic>?> legacyMigrationForPeer(
-    String account,
-    String peerAccount,
-  ) {
-    return _locked(() async {
-      final Object? raw = _data['legacy_migration'];
-      if (raw is! Map<String, dynamic>) {
-        return null;
-      }
-      final Object? entries = raw['entries'];
-      if (entries is! List) {
-        return null;
-      }
-      for (final Object? entry in entries) {
-        if (entry is Map<String, dynamic> &&
-            entry['account'] == account &&
-            entry['peer_account'] == peerAccount) {
-          return Map<String, dynamic>.from(entry);
-        }
-      }
-      return null;
-    });
-  }
-
-  /// The whole preserved legacy migration report (read-only diagnostics).
-  Future<Map<String, dynamic>?> legacyMigrationReport() {
-    return _locked(() async {
-      final Object? raw = _data['legacy_migration'];
-      return raw is Map<String, dynamic>
-          ? Map<String, dynamic>.from(raw)
-          : null;
     });
   }
 

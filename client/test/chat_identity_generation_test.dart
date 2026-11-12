@@ -347,8 +347,9 @@ void main() {
       ),
       throwsA(failure(409, staleIdentityCode)),
     );
-    final ExpectedIdentity old = (await service.ledger
-        .expectedIdentityForSession(_alice, 'dsh-x'))!;
+    final ConsumerBinding old = (await service.ledger.bindingById(
+      identity.consumerId,
+    ))!;
     await service.ledger.bindConsumer(
       account: _alice,
       authGeneration: session.identity!.authGeneration,

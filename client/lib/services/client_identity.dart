@@ -17,10 +17,6 @@ const String staleBindingCode = 'stale_binding';
 /// Error code identifying a missing display fact before an ACK.
 const String consumptionGapCode = 'consumption_gap';
 
-/// Error code identifying old consumption state that cannot be migrated
-/// without inventing evidence.
-const String migrationRequiredCode = 'migration_required';
-
 /// Same operation/attempt id with different intent. Distinct from
 /// [staleIdentity] so callers never retry a conflicting plan.
 const String idempotencyConflictCode = 'idempotency_conflict';
@@ -46,14 +42,6 @@ AuthFailure consumptionGap(String message, {List<AuthFieldError> fields = const 
     AuthFailure(
       status: 409,
       code: consumptionGapCode,
-      message: message,
-      fields: fields,
-    );
-
-AuthFailure migrationRequired(String message, {List<AuthFieldError> fields = const <AuthFieldError>[]}) =>
-    AuthFailure(
-      status: 409,
-      code: migrationRequiredCode,
       message: message,
       fields: fields,
     );
@@ -171,7 +159,6 @@ class ConsumerBinding {
     required this.bindingRevision,
     this.aliases = const <String>{},
     this.sessionId = '',
-    this.migration = 'ready',
     this.active = true,
     this.ownerKeyHash = '',
   });
@@ -188,8 +175,6 @@ class ConsumerBinding {
   /// Route mapping recorded by the v2 consumer/bind calls. Not an identity.
   final String sessionId;
 
-  /// `ready` or `migration_required` for this account's legacy consumption.
-  final String migration;
 
   /// Whether the stored generation is still the current login. A false value
   /// means the caller must explicitly bind before protected work.
@@ -213,7 +198,6 @@ class ConsumerBinding {
     'binding_revision': bindingRevision,
     'aliases': aliases.toList()..sort(),
     'session_id': sessionId,
-    'migration': migration,
     'active': active,
   };
 

@@ -2,11 +2,14 @@ import 'dart:convert';
 
 import '../models/auth_models.dart';
 import '../models/chat_models.dart';
+import '../models/profile_models.dart';
 import 'auth_session.dart';
 import 'chat_query.dart';
 import 'chat_service.dart';
 import 'client_identity.dart';
+import '../validation/profile_rules.dart';
 import 'media_source.dart';
+import 'profile_service.dart';
 
 /// Local-client v2 protocol (shared contract `dea467-local-v2`).
 ///
@@ -16,10 +19,11 @@ import 'media_source.dart';
 /// types are 422, then 401, then expected_auth/expected_identity, then the
 /// owner capability, then business validation.
 class ChatV2Router {
-  ChatV2Router({required this.session, required this.chat});
+  ChatV2Router({required this.session, required this.chat, this.profile});
 
   final AuthSession session;
   final ChatService? chat;
+  final ProfileGateway? profile;
 
   static const String _contract = v2Contract;
   static const String _ownerHeader = v2OwnerHeader;
@@ -35,6 +39,17 @@ class ChatV2Router {
       'expected_binding_revision',
       'session_id',
     },
+    '/v2/profile/view_avatar': <String>{'expected_identity', 'account'},
+    '/v2/profile/update_avatar': <String>{
+      'expected_identity',
+      'path',
+      'url',
+      'base64',
+    },
+    '/v2/profile/view_nickname': <String>{'expected_identity', 'account'},
+    '/v2/profile/update_nickname': <String>{'expected_identity', 'value'},
+    '/v2/profile/view_signature': <String>{'expected_identity', 'account'},
+    '/v2/profile/update_signature': <String>{'expected_identity', 'value'},
     '/v2/chat/list_conversations': <String>{
       'expected_identity',
       'after_account',
@@ -119,7 +134,6 @@ class ChatV2Router {
     'stale_identity': 409,
     'stale_binding': 409,
     'consumption_gap': 409,
-    'migration_required': 409,
     'idempotency_conflict': 409,
     'not_found': 404,
     'storage_unavailable': 503,
@@ -136,7 +150,6 @@ class ChatV2Router {
     'stale_identity': '身份已变化，请重新登录或显式重绑',
     'stale_binding': '消费者能力或绑定不匹配',
     'consumption_gap': '该消费者缺少连续展示确认',
-    'migration_required': '旧消费记录无法证明，需要迁移',
     'idempotency_conflict': '同一操作 ID 的意图已改变',
     'not_found': '当前范围内不存在',
     'storage_unavailable': '客户端存储不可用',
@@ -289,6 +302,87 @@ class ChatV2Router {
     }
 
     switch (path) {
+      case '/v2/profile/view_avatar':
+        return _queryReply(expected, service, context.identity, context.binding, (
+          Set<String> created,
+        ) async {
+          final AvatarImage image = await _profileGateway().loadAvatar(
+            account: args.values['account'] as String?,
+          );
+          return <String, dynamic>{
+            'account': image.account,
+            'mime_type': image.mimeType,
+            'data': base64Encode(image.bytes),
+            'avatar_version': image.version,
+          };
+        });
+      case '/v2/profile/update_avatar':
+        return _queryReply(expected, service, context.identity, context.binding, (
+          Set<String> created,
+        ) async {
+          final ({String source, String value}) input =
+              args.values['avatar_source']
+                  as ({String source, String value});
+          final ProfileGateway gateway = _profileGateway();
+          final AvatarInfo info = switch (input.source) {
+            'path' => await gateway.updateAvatarFromPath(input.value),
+            'url' => await gateway.updateAvatarFromUrl(input.value),
+            _ => await gateway.updateAvatarFromBase64(input.value),
+          };
+          return info.toJson();
+        });
+      case '/v2/profile/view_nickname':
+        return _queryReply(expected, service, context.identity, context.binding, (
+          Set<String> created,
+        ) async {
+          final String? requested = args.values['account'] as String?;
+          final String account = requested ?? context.identity.account;
+          final String username = await _profileGateway().viewNickname(
+            account: requested,
+          );
+          return <String, dynamic>{
+            'account': account,
+            'username': username,
+          };
+        });
+      case '/v2/profile/update_nickname':
+        return _queryReply(expected, service, context.identity, context.binding, (
+          Set<String> created,
+        ) async {
+          final String username = await _profileGateway().updateNickname(
+            args.values['value'] as String,
+          );
+          return <String, dynamic>{
+            'account': context.identity.account,
+            'username': username,
+          };
+        });
+      case '/v2/profile/view_signature':
+        return _queryReply(expected, service, context.identity, context.binding, (
+          Set<String> created,
+        ) async {
+          final String? requested = args.values['account'] as String?;
+          final String account = requested ?? context.identity.account;
+          final String? signature = await _profileGateway().viewSignature(
+            account: requested,
+          );
+          return <String, dynamic>{
+            'account': account,
+            'signature': signature,
+          };
+        });
+      case '/v2/profile/update_signature':
+        return _queryReply(expected, service, context.identity, context.binding, (
+          Set<String> created,
+        ) async {
+          final String? signature = await _profileGateway().updateSignature(
+            args.values['value'] as String?,
+          );
+          return <String, dynamic>{
+            'account': context.identity.account,
+            'signature': signature,
+          };
+        });
       case '/v2/chat/list_conversations':
         return _queryReply(expected, service, context.identity, context.binding, (
           Set<String> created,
@@ -438,14 +532,12 @@ class ChatV2Router {
           'consumed_through': consumed,
         });
       case '/v2/chat/consumption':
-        final ({int consumedThrough, String migration}) consumption =
-            await service.consumptionFor(
-              expectedIdentity: expected,
-              peerAccount: args.values['account'] as String,
-            );
+        final int consumed = await service.consumptionFor(
+          expectedIdentity: expected,
+          peerAccount: args.values['account'] as String,
+        );
         return _reply(expected, <String, dynamic>{
-          'consumed_through': consumption.consumedThrough,
-          'migration': consumption.migration,
+          'consumed_through': consumed,
         });
       case '/v2/chat/confirm_presentation':
         final List<String> confirmed = await service.confirmPresentation(
@@ -534,6 +626,31 @@ class ChatV2Router {
 
     args.expectedIdentity = _expectedIdentity(request);
     switch (path) {
+      case '/v2/profile/view_avatar':
+      case '/v2/profile/view_nickname':
+      case '/v2/profile/view_signature':
+        args.values['account'] = request.optionalPattern(
+          'account',
+          RegExp(r'^[1-9][0-9]{7}$'),
+        );
+      case '/v2/profile/update_avatar':
+        final Map<String, dynamic> source = <String, dynamic>{};
+        for (final String key in <String>['path', 'url', 'base64']) {
+          if (request.contains(key)) {
+            source[key] = request.optionalString(
+              key,
+              nullable: true,
+              allowEmpty: false,
+            );
+          }
+        }
+        args.values['avatar_source'] = resolveAvatarSource(source);
+      case '/v2/profile/update_nickname':
+        args.values['value'] = normalizeUsername(request.string('value'));
+      case '/v2/profile/update_signature':
+        args.values['value'] = normalizeSignature(
+          request.optionalString('value', nullable: true, allowEmpty: true),
+        );
       case '/v2/chat/list_conversations':
         args.values['after_account'] =
             request.optionalPattern(
@@ -656,6 +773,18 @@ class ChatV2Router {
     return args;
   }
 
+  ProfileGateway _profileGateway() {
+    final ProfileGateway? gateway = profile;
+    if (gateway == null) {
+      throw _V2Error(
+        503,
+        'storage_unavailable',
+        _messageByCode['storage_unavailable']!,
+      );
+    }
+    return gateway;
+  }
+
   ChatService _requireChat() {
     final ChatService? service = chat;
     if (service == null) {
@@ -732,7 +861,6 @@ class ChatV2Router {
       'active':
           binding.account == current.account &&
           binding.authGeneration == current.authGeneration,
-      'migration': binding.migration,
     };
   }
 
@@ -825,12 +953,12 @@ class ChatV2Router {
         ? null
         : ExpectedIdentity.tryParse(originJson);
     if (origin == null) {
-      // A task admitted before v2 has no provable origin; never re-label it
-      // with the caller's new binding.
+      // A stored task without a provable origin is corrupt for this protocol.
+      // Never re-label it with the caller's new binding.
       throw _V2Error(
-        409,
-        'migration_required',
-        _messageByCode['migration_required']!,
+        503,
+        'storage_unavailable',
+        _messageByCode['storage_unavailable']!,
       );
     }
     return <String, dynamic>{
@@ -869,11 +997,11 @@ class ChatV2Router {
         : ExpectedIdentity.tryParse(originJson);
     if (origin == null) {
       // History without a provable origin cannot be rewritten to a new
-      // binding; keep the cursor and report migration.
+      // binding; fail closed instead of inventing an origin.
       throw _V2Error(
-        409,
-        'migration_required',
-        _messageByCode['migration_required']!,
+        503,
+        'storage_unavailable',
+        _messageByCode['storage_unavailable']!,
       );
     }
     final String eventId = base64Url
@@ -890,9 +1018,9 @@ class ChatV2Router {
         final int? position = event.position;
         if (peer == null || position == null) {
           throw _V2Error(
-            409,
-            'migration_required',
-            _messageByCode['migration_required']!,
+            503,
+            'storage_unavailable',
+            _messageByCode['storage_unavailable']!,
           );
         }
         return <String, dynamic>{
@@ -907,9 +1035,9 @@ class ChatV2Router {
         final String? path = event.actualPath;
         if (taskId == null || operationId == null || path == null) {
           throw _V2Error(
-            409,
-            'migration_required',
-            _messageByCode['migration_required']!,
+            503,
+            'storage_unavailable',
+            _messageByCode['storage_unavailable']!,
           );
         }
         return <String, dynamic>{
@@ -925,9 +1053,9 @@ class ChatV2Router {
         final String? code = event.errorCode;
         if (taskId == null || operationId == null || code == null) {
           throw _V2Error(
-            409,
-            'migration_required',
-            _messageByCode['migration_required']!,
+            503,
+            'storage_unavailable',
+            _messageByCode['storage_unavailable']!,
           );
         }
         return <String, dynamic>{

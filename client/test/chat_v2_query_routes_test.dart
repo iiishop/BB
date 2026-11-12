@@ -195,14 +195,17 @@ void main() {
       }),
       status: 422,
     );
-    // v1 keeps its strict payload: before_position is not a v1 field.
-    final Map<String, dynamic> v1 = await _postV1(address, '/chat/read_messages', <String, dynamic>{
-      'account': _peer,
-      'consumer_session': 'legacy',
-      'before_position': 3,
-    });
-    expect(v1['status'], 422);
-    expect((v1['body'] as Map<String, dynamic>)['error']['code'], 'validation_error');
+    // The old unauthenticated business route is gone, not merely restricted.
+    final Map<String, dynamic> v1 = await _postV1(
+      address,
+      '/chat/read_messages',
+      <String, dynamic>{
+        'account': _peer,
+        'consumer_session': 'legacy',
+        'before_position': 3,
+      },
+    );
+    expect(v1['status'], 404);
   });
 
   test('list_conversations is keyset-paged and consumer-enriched', () async {
