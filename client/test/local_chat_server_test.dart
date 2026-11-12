@@ -376,6 +376,80 @@ void main() {
     },
   );
 
+  test(
+    'events/wait accepts limit 1..100, defaults 50 and rejects invalid values',
+    () async {
+      await chatB.subscribeEvents(
+        consumerSession: 'wait-limit',
+        peerAccount: accountA,
+      );
+      for (int i = 0; i < 3; i++) {
+        await chatB.sendBody(
+          targetAccount: accountA,
+          content: <OutgoingPart>[OutgoingText('limit $i')],
+        );
+      }
+      await chatA.subscribeEvents(
+        consumerSession: 'wait-limit',
+        peerAccount: accountB,
+      );
+      await chatA.eventFeed.pollOnce();
+
+      final _Response bounded = await _post(
+        address.resolve('/events/wait'),
+        <String, dynamic>{
+          'consumer_session': 'wait-limit',
+          'after_cursor': 0,
+          'limit': 2,
+          'timeout': 30,
+        },
+        token: backend.tokenFor(accountA),
+      );
+      expect(bounded.status, 200, reason: jsonEncode(bounded.body));
+      expect((bounded.body['items'] as List<dynamic>), hasLength(2));
+      expect(bounded.body['has_more'], isTrue);
+      expect(bounded.body['reason'], 'events');
+
+      final _Response defaulted = await _post(
+        address.resolve('/events/wait'),
+        <String, dynamic>{
+          'consumer_session': 'wait-limit',
+          'after_cursor': 0,
+          'timeout': 30,
+        },
+        token: backend.tokenFor(accountA),
+      );
+      expect(defaulted.status, 200);
+      expect((defaulted.body['items'] as List<dynamic>), hasLength(3));
+
+      for (final int invalid in <int>[0, 101]) {
+        final _Response rejected = await _post(
+          address.resolve('/events/wait'),
+          <String, dynamic>{
+            'consumer_session': 'wait-limit',
+            'after_cursor': 0,
+            'limit': invalid,
+            'timeout': 30,
+          },
+          token: backend.tokenFor(accountA),
+        );
+        expect(rejected.status, 422, reason: 'limit $invalid');
+        expect(rejected.body['error']['code'], 'validation_error');
+      }
+
+      final _Response readInvalid = await _post(
+        address.resolve('/events/read'),
+        <String, dynamic>{
+          'consumer_session': 'wait-limit',
+          'after_cursor': 0,
+          'limit': 101,
+        },
+        token: backend.tokenFor(accountA),
+      );
+      expect(readInvalid.status, 422);
+    },
+  );
+
   test('unknown fields and invalid values keep the strict envelope', () async {
     final _Response extra = await _post(
       address.resolve('/chat/list_users'),

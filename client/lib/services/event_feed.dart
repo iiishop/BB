@@ -77,10 +77,16 @@ class EventFeed {
     }
     await ledger.subscribe(user.account, consumerSession, peerAccount);
     // Registration is not consumption: keep the existing cursor untouched.
-    unawaited(pollOnce());
+    // Await one backfill pass so an immediate read after subscribe can see the
+    // pre-registration backlog instead of racing an unawaited poll.
+    await pollOnce();
   }
 
-  /// Fetches at most one server page and publishes readable events.
+  /// Fetches each consumer's own durable source range into its local feed.
+  ///
+  /// A new consumer starts from source cursor 0 and can recover pre-registration
+  /// backlog for its peer. Advancing `consumer A` never marks consumer B as
+  /// having accepted anything.
   Future<void> pollOnce() async {
     if (_polling || _disposed) {
       return;
@@ -95,19 +101,48 @@ class EventFeed {
       final Map<String, String> subscriptions = await ledger.subscriptions(
         user.account,
       );
-      if (subscriptions.isEmpty) {
+      for (final MapEntry<String, String> subscription
+          in subscriptions.entries) {
+        if (_disposed) {
+          break;
+        }
+        await _pollConsumer(
+          account: user.account,
+          token: token,
+          consumerSession: subscription.key,
+          peerAccount: subscription.value,
+        );
+      }
+    } on AuthFailure catch (failure) {
+      if (failure.status == 401) {
+        // Leave cursors untouched; a later valid login resumes.
         return;
       }
-      int cursor = await ledger.serverEventCursor(user.account);
-      bool advanced = true;
-      while (advanced && !_disposed) {
-        advanced = false;
-        final ServerEventPage page = await api.events(
-          token: token,
-          afterEventId: cursor,
-          limit: 100,
-        );
-        for (final ServerEvent event in page.items) {
+      // Network faults are retried by the timer.
+    } catch (_) {
+      // Same: the durable log only advances on confirmed readable events.
+    } finally {
+      _polling = false;
+    }
+  }
+
+  Future<void> _pollConsumer({
+    required String account,
+    required String token,
+    required String consumerSession,
+    required String peerAccount,
+  }) async {
+    int cursor = await ledger.consumerEventCursor(account, consumerSession);
+    bool advanced = true;
+    while (advanced && !_disposed) {
+      advanced = false;
+      final ServerEventPage page = await api.events(
+        token: token,
+        afterEventId: cursor,
+        limit: 100,
+      );
+      for (final ServerEvent event in page.items) {
+        if (event.peerAccount == peerAccount) {
           final ChatMessage? message = await _readable(
             token,
             event.peerAccount,
@@ -115,47 +150,31 @@ class EventFeed {
             event.messageId,
           );
           if (message == null) {
-            // Not readable yet: keep the cursor so a later poll retries this
-            // source event instead of dropping it.
+            // Not readable yet: keep this consumer's cursor so a later poll
+            // retries the source event instead of dropping it.
             return;
           }
-          if (message.senderAccount != user.account) {
-            for (final MapEntry<String, String> subscription
-                in subscriptions.entries) {
-              if (subscription.value != event.peerAccount) {
-                continue;
-              }
-              await _append(
-                LocalEvent(
-                  eventId: 'server:${event.eventId}',
-                  account: user.account,
-                  consumerSession: subscription.key,
-                  type: LocalEventType.messageAvailable,
-                  peerAccount: event.peerAccount,
-                  position: event.position,
-                  messageId: event.messageId,
-                ),
-              );
-            }
+          if (message.senderAccount != account) {
+            await _append(
+              LocalEvent(
+                eventId: 'server:${event.eventId}',
+                account: account,
+                consumerSession: consumerSession,
+                type: LocalEventType.messageAvailable,
+                peerAccount: event.peerAccount,
+                position: event.position,
+                messageId: event.messageId,
+              ),
+            );
           }
-          cursor = event.eventId;
-          advanced = true;
         }
-        await ledger.setServerEventCursor(user.account, cursor);
-        if (!page.hasMore) {
-          break;
-        }
+        cursor = event.eventId;
+        advanced = true;
       }
-    } on AuthFailure catch (failure) {
-      if (failure.status == 401) {
-        // Leave the cursor untouched; a later valid login resumes.
-        return;
+      await ledger.setConsumerEventCursor(account, consumerSession, cursor);
+      if (!page.hasMore) {
+        break;
       }
-      // Network faults are retried by the timer; never converted to "no events".
-    } catch (_) {
-      // Same: the durable log only advances on confirmed readable events.
-    } finally {
-      _polling = false;
     }
   }
 
@@ -215,24 +234,26 @@ class EventFeed {
         message: 'after_cursor 不能为负',
       );
     }
-    final int bounded = limit.clamp(1, 100);
+    _validateLimit(limit);
     return ledger.readLocalEvents(
       account: user.account,
       consumerSession: consumerSession,
       afterCursor: afterCursor,
-      limit: bounded,
+      limit: limit,
     );
   }
 
   Future<LocalEventPage> wait({
     required String consumerSession,
     required int afterCursor,
+    int limit = 50,
     Duration timeout = const Duration(seconds: 60),
   }) async {
     final AuthUser? user = session.user;
     if (user == null || !session.hasToken) {
       throw unauthenticated;
     }
+    _validateLimit(limit);
     final DateTime deadline = DateTime.now().add(timeout);
     while (!_disposed) {
       final int seenRevision = _revision;
@@ -241,7 +262,7 @@ class EventFeed {
       final LocalEventPage page = await read(
         consumerSession: consumerSession,
         afterCursor: afterCursor,
-        limit: 50,
+        limit: limit,
       );
       if (page.items.isNotEmpty) {
         return LocalEventPage(
@@ -283,6 +304,16 @@ class EventFeed {
       hasMore: false,
       reason: 'cancelled',
     );
+  }
+
+  static void _validateLimit(int limit) {
+    if (limit < 1 || limit > 100) {
+      throw const AuthFailure(
+        status: 422,
+        code: 'validation_error',
+        message: 'limit 必须是 1–100 的整数',
+      );
+    }
   }
 
   Future<void> _connectHintSocket() async {

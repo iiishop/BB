@@ -814,6 +814,7 @@ class PresentationReceipt {
     required this.position,
     required this.contentDigest,
     this.confirmed = false,
+    this.attemptId,
   });
 
   final String receiptId;
@@ -824,8 +825,9 @@ class PresentationReceipt {
   final int position;
   final String contentDigest;
   final bool confirmed;
+  final String? attemptId;
 
-  PresentationReceipt copyWith({bool? confirmed}) {
+  PresentationReceipt copyWith({bool? confirmed, String? attemptId}) {
     return PresentationReceipt(
       receiptId: receiptId,
       account: account,
@@ -835,6 +837,7 @@ class PresentationReceipt {
       position: position,
       contentDigest: contentDigest,
       confirmed: confirmed ?? this.confirmed,
+      attemptId: attemptId ?? this.attemptId,
     );
   }
 
@@ -847,6 +850,7 @@ class PresentationReceipt {
     'position': position,
     'content_digest': contentDigest,
     'confirmed': confirmed,
+    'attempt_id': attemptId,
   };
 
   factory PresentationReceipt.fromJson(Object? json) {
@@ -878,6 +882,9 @@ class PresentationReceipt {
       position: position,
       contentDigest: digest,
       confirmed: json['confirmed'] == true,
+      attemptId: json['attempt_id'] is String
+          ? json['attempt_id'] as String
+          : null,
     );
   }
 

@@ -145,24 +145,27 @@ R3 新增内部路由（不导出为 MCP 工具）：
 - 视口：手机 390×844、宽屏 1440×900、折叠注入 `DisplayFeature` 1024×768 均无溢出；
   主页列表最大宽度 760，聊天最大宽度 860。
 
-## 10. 实际执行与证据
+## 11. 实际执行与证据
 
 以下命令均在本次工作副本真实执行，使用本机 Flutter 3.47.9 / Dart 3.13.7。
 
 | 命令 | 结果 |
 | --- | --- |
 | `flutter analyze` | `No issues found!`，exit 0 |
-| `QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_tests.sh client` | `RESULT=PASS`，exit 0；analyze PASS、flutter-test 248 passed/8 skipped、linux-integration 13 passed |
+| `QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_tests.sh client` | `RESULT=PASS`，exit 0；analyze PASS、flutter-test 254 passed/8 skipped、linux-integration 13 passed |
 | `flutter test test/live_chat_e2e_test.dart`（`BB_LIVE_SERVER_URL=http://127.0.0.1:8171`，真实 FastAPI） | 3 tests passed，exit 0：有序图文、真实 blocks、receipt→ACK 409/通过、第三方 ACL、附件元信息、视频封面、异步下载文件内容、真实 Range 在线流、持久事件、wait 积压/提前到达 |
 | 真实 FastAPI 在线流 | `MediaStreamHandle` 以 `bytes=0-3` 请求真实 `/media/{id}` 返回 206 且字节一致；到达阶段未请求原视频 |
 | 独立 `dart run bin/bb_client_api.dart` + 真实 FastAPI | `STANDALONE CHAIN: PASS`：本地登录、list_users、有序发送/重放、read/confirm/ACK、附件上传、`downloads/start` 202→`get` succeeded、`operations/get`、`events/subscribe/read/wait`、`wait_messages` 积压 |
+| `test-live-r3.py`（集成基线脚本本地副本，仅把固定 client SHA 更新为被测 SHA，并加 daemon PID 已退出保护；断言未改） | **16/16 checks PASS / exit 0**：原 4 条失败（wait limit 422、冲突确认 200、缺口 ACK 200、新 consumer 0 条）全部消除；receipt→confirm→ACK、未展示 B 409、Dart 重启持久事件、SIGKILL→continuation→两次重放仅 1 条输出等正向控制保留 |
 | `uv run --project server --locked pytest server/tests -q --tb=short` | 103 passed，exit 0（仅既有弃用警告） |
 | 截图测试 | 6 张 390×844 / 1440×900 / 1024×768（含 hinge）PNG，见 `client/.qa-artifacts/screenshots/` |
+
+真实 R3 联调使用集成版本 `dsh-plugin/runtime-patch/test-live-r3.py`。仓库内共享脚本仍固定校验旧 client `c684e29…`，且顶部 `os.getpgid(daemon_pid)` 在本次 runtime 的 daemon PID 已退出时会抛 `ProcessLookupError`；因此本轮在**未提交的本地副本**中只更新 client SHA 与 daemon 存活保护，未修改任何断言或产品代码。共享脚本的 PIN 需 Forge/Orion 在最终统一版本更新。
 
 截图是 Flutter widget-test raster，不是 Android/Windows 运行截图；真实设备验收仍由
 Owner/独立 QA 执行。
 
-## 11. NOT RUN / 已知限制
+## 12. NOT RUN / 已知限制
 
 - **Android / Windows 运行**：本环境无模拟器/真机、无 MSVC；一律 NOT RUN。
 - **物理折叠设备**：只注入 `DisplayFeature` 渲染，没有真实折叠硬件运行。
@@ -181,7 +184,7 @@ Owner/独立 QA 执行。
 - 服务器/共享 schema 未改；若 R3 正式 schema 字段名有差异，以 Forge 的共享 schema 为准，
   客户端再进行对齐（当前按 R3 文档实现）。
 
-## 12. 本地运行
+## 13. 本地运行
 
 ```bash
 # 真实 FastAPI（示例）

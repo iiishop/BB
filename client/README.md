@@ -161,8 +161,9 @@ flutter test integration_test -d linux
 QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_tests.sh client
 ```
 
-- 默认 `flutter test`：最新严格 runner 为 **248 passed / 8 skipped / exit 0**。新增覆盖
-  1000 条真实分页下发送/接收并发补取无缺口、有序图文发送、幂等/冲突、read→receipt→ACK 缺口、
+- 默认 `flutter test`：最新严格 runner 为 **254 passed / 8 skipped / exit 0**。新增覆盖
+  1000 条真实分页下发送/接收并发补取无缺口、events/wait limit 边界、原子展示确认/冲突/全组
+  拒绝/重启幂等、新 consumer 独立补取、有序图文发送、幂等/冲突、read→receipt→ACK 缺口、
   附件只读元信息、异步下载内容、持久事件、wait 积压/提前到达、用户列表分页/预览/在线状态、
   图片/视频剪贴板、真实 ffmpeg 视频封面、点击在线流 Range 与“到达不请求原视频”。
 - 严格命令：`QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_tests.sh client`
@@ -181,6 +182,9 @@ QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_test
 - STEP-3 真实链路（需自行启动 `bb_server`）：`BB_LIVE_SERVER_URL=http://127.0.0.1:8171
   flutter test test/live_chat_e2e_test.dart`，覆盖真实 FastAPI 的有序图文、receipt/ACK、
   第三方 ACL、视频封面、异步下载与持久事件；本次实际 3 例通过。
+- 真实 Dart/native R3 联调：`test-live-r3.py`（本地副本仅更新 client SHA 与 daemon 保护）
+  **16/16 checks PASS, exit 0**；原 wait limit、冲突确认、缺口 ACK、新 consumer 积压四条失败
+  全部消除，receipt→confirm→ACK、Dart 重启持久事件及 SIGKILL→continuation 单输出控制保留。
 - 独立入口真实链路：启动 `dart run bin/bb_client_api.dart` 后经本地 `/auth/login` 与
   `/chat/*`、`/downloads/*`、`/events/*` 访问真实 FastAPI；本次实际 `STANDALONE CHAIN: PASS`。
 - 真实链路（需自行启动 `bb_server`）：设置 `BB_LIVE_SERVER_URL`、`BB_MCP_PROBE=1` 与

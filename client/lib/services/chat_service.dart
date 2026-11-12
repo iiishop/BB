@@ -871,40 +871,20 @@ class ChatService {
     if (requestDigest.trim().isEmpty) {
       throw _validation('request_digest 不能为空');
     }
-    if (receiptIds.isEmpty) {
-      return const <String>[];
-    }
     final String account = selfAccount;
-    final List<String> valid = <String>[];
-    for (final String id in receiptIds) {
-      final PresentationReceipt? receipt = await ledger.receipt(account, id);
-      if (receipt == null) {
-        throw const AuthFailure(
-          status: 404,
-          code: 'not_found',
-          message: '展示凭据不存在',
-        );
-      }
-      if (receipt.consumerSession != consumerSession) {
-        throw const AuthFailure(
-          status: 409,
-          code: 'conflict',
-          message: '展示凭据属于另一个会话',
-        );
-      }
-      valid.add(id);
-    }
-    final List<String> confirmed = await ledger.confirmReceipts(
-      account: account,
-      receiptIds: valid,
-    );
-    await ledger.recordConfirmation(
+    final List<String> confirmed = await ledger.confirmPresentationAttempt(
       account: account,
       consumerSession: consumerSession,
       attemptId: attemptId,
       requestDigest: requestDigest,
-      receiptIds: confirmed,
+      receiptIds: receiptIds,
     );
+    // An in-flight request must never be applied to a different account after
+    // a login switch. The write above is already scoped to the captured
+    // account; this check makes such a switch observable to the caller.
+    if (session.user?.account != account || !session.hasToken) {
+      throw unauthenticated;
+    }
     return confirmed;
   }
 
@@ -1014,6 +994,7 @@ class ChatService {
   Future<LocalEventPage> waitEvents({
     required String consumerSession,
     required int afterCursor,
+    int limit = 50,
     int timeoutSeconds = 60,
   }) {
     if (!const <int>{30, 60, 120}.contains(timeoutSeconds)) {
@@ -1022,6 +1003,7 @@ class ChatService {
     return eventFeed.wait(
       consumerSession: consumerSession,
       afterCursor: afterCursor,
+      limit: limit,
       timeout: Duration(seconds: timeoutSeconds),
     );
   }
