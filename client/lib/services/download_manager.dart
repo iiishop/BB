@@ -162,7 +162,11 @@ class DownloadManager {
         } catch (_) {
           // Pending delivery remains durable for the origin account.
         }
-        await _cleanupPrepare(task.taskId);
+        await _cleanupPrepare(
+          task.taskId,
+          account: captured.account,
+          consumerSession: task.consumerSession,
+        );
       } else if ((task.status == DownloadStatus.pending ||
               task.status == DownloadStatus.running) &&
           !_active.containsKey(task.taskId)) {
@@ -198,7 +202,11 @@ class DownloadManager {
         } catch (_) {
           // Pending delivery remains durable.
         }
-        await _cleanupPrepare(task.taskId);
+        await _cleanupPrepare(
+          task.taskId,
+          account: captured.account,
+          consumerSession: task.consumerSession,
+        );
       }
     }
   }
@@ -233,7 +241,11 @@ class DownloadManager {
       if (recovery.task != null) {
         final bool committed = await _commitSucceeded(account, recovery.task!);
         if (committed) {
-          await _cleanupPrepare(task.taskId);
+          await _cleanupPrepare(
+            task.taskId,
+            account: account,
+            consumerSession: task.consumerSession,
+          );
         }
         return;
       }
@@ -325,7 +337,11 @@ class DownloadManager {
     );
     final bool committed = await _commitSucceeded(account, done);
     if (committed) {
-      await _cleanupPrepare(task.taskId);
+      await _cleanupPrepare(
+        task.taskId,
+        account: account,
+        consumerSession: task.consumerSession,
+      );
     }
   }
 
@@ -403,12 +419,6 @@ class DownloadManager {
     }
     for (int attempt = 0; attempt < 5; attempt++) {
       final String path = _newTemporaryPath(targetPath, taskId);
-      final File temporary = File(path);
-      try {
-        await temporary.create(exclusive: true);
-      } on FileSystemException {
-        continue;
-      }
       final Map<String, dynamic> ownership = <String, dynamic>{
         'version': 1,
         'task_id': taskId,
@@ -429,20 +439,33 @@ class DownloadManager {
             await recordTemp.delete();
           }
         }
-        return path;
       } catch (_) {
-        try {
-          await temporary.delete();
-        } catch (_) {
-          // Leave the empty object rather than claim/delete unknown content.
-        }
         return null;
+      }
+      final File temporary = File(path);
+      try {
+        // Ownership is durable *before* the object exists. A kill between
+        // these two steps leaves a record with no object, which recovery can
+        // safely retire without touching any file.
+        await temporary.create(exclusive: true);
+        return path;
+      } on FileSystemException {
+        try {
+          await record.delete();
+        } catch (_) {
+          // Preserve the record; recovery will not delete an unverified file.
+        }
+        continue;
       }
     }
     return null;
   }
 
-  Future<bool> _cleanupOwnedTemporary(String taskId) async {
+  Future<bool> _cleanupOwnedTemporary(
+    String taskId, {
+    required String account,
+    required String consumerSession,
+  }) async {
     final File record = File(_cleanupPath(taskId));
     if (!await record.exists()) {
       return true;
@@ -452,6 +475,8 @@ class DownloadManager {
       if (decoded is! Map<String, dynamic> ||
           decoded['version'] != 1 ||
           decoded['task_id'] != taskId ||
+          decoded['account'] != account ||
+          decoded['consumer_session'] != consumerSession ||
           decoded['temporary_path'] is! String) {
         return false;
       }
@@ -469,8 +494,16 @@ class DownloadManager {
     }
   }
 
-  Future<void> _discardOwnedTemporary(String taskId) async {
-    if (await _cleanupOwnedTemporary(taskId)) {
+  Future<void> _discardOwnedTemporary(
+    String taskId, {
+    required String account,
+    required String consumerSession,
+  }) async {
+    if (await _cleanupOwnedTemporary(
+      taskId,
+      account: account,
+      consumerSession: consumerSession,
+    )) {
       return;
     }
     // Keep the ownership record for a later authorized retry.
@@ -571,7 +604,11 @@ class DownloadManager {
         }
       }
       if (temporary != null) {
-        await _discardOwnedTemporary(taskId);
+        await _discardOwnedTemporary(
+          taskId,
+          account: account,
+          consumerSession: consumerSession,
+        );
       }
     }
   }
@@ -775,10 +812,18 @@ class DownloadManager {
     return const _Recovery.normal();
   }
 
-  Future<void> _cleanupPrepare(String taskId) async {
-    // Cleanup only an exact temporary path backed by a live ownership record.
-    // Never infer ownership from finalPath+taskId.
-    if (!await _cleanupOwnedTemporary(taskId)) {
+  Future<void> _cleanupPrepare(
+    String taskId, {
+    required String account,
+    required String consumerSession,
+  }) async {
+    // Cleanup only an exact temporary path backed by a live ownership record
+    // containing the full account/consumer/task identity.
+    if (!await _cleanupOwnedTemporary(
+      taskId,
+      account: account,
+      consumerSession: consumerSession,
+    )) {
       return;
     }
     try {

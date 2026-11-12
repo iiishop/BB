@@ -192,10 +192,11 @@ QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_test
   可恢复状态，绝不改记 `downloadFailed`；新增注入一次写盘失败后恢复成功的回归。
 - D2 重启恢复：完整响应先在内存计算并持久化期望 size/SHA256，再写任务专属暂存与
   `.terminal` 准备记录，最后通过目标目录内临时文件复制/校验/同文件系统 rename 落位；
-  支持跨文件系统，不覆盖目标；临时对象随机 nonce + 排他创建，创建前持久化精确
-  `.terminal/<task>.cleanup.json` 归属引用；SIGKILL 半文件按该精确引用恢复/清理，
-  无记录不推导、不 glob，终态后同名用户文件保留。恢复先验证最终文件或可信暂存与
-  独立期望值；无记录截断/损坏暂存、记录损坏、目标替换保持 pending，不发成功事件。
+  支持跨文件系统，不覆盖目标；先持久化精确 `.terminal/<task>.cleanup.json` 归属记录
+  （完整 account/consumer/task + 随机 nonce 路径），再排他创建临时对象；SIGKILL 半文件
+  按记录恢复/清理。身份不匹配/记录缺失不删除、不推导、不 glob，终态后同名用户文件保留。
+  恢复先验证最终文件或可信暂存与独立期望值；无记录截断/损坏暂存、记录损坏、目标替换
+  保持 pending，不发成功事件。
 - D3 Android：移除不兼容的 `video_thumbnail`，项目内 `MediaMetadataRetriever` 抽帧；
   `flutter build apk --debug` 实际产出 APK（见 docs）。
 - 真实 Dart/native R3 联调：`test-live-r3.py`（本地副本仅更新 client SHA 与 daemon 保护）
