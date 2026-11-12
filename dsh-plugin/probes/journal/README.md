@@ -12,6 +12,7 @@ From the repository root, in a Multica task:
 node dsh-plugin/probes/journal/run.mjs "$DSH_PACKAGE_ROOT" ./evidence
 node dsh-plugin/probes/journal/alternatives.mjs "$DSH_PACKAGE_ROOT" ./evidence/alternatives
 node dsh-plugin/probes/journal/busy.mjs "$DSH_PACKAGE_ROOT" ./evidence/busy
+node dsh-plugin/probes/journal/settlement.mjs "$DSH_PACKAGE_ROOT" ./evidence
 node dsh-plugin/probes/public-host/run.mjs "$DSH_PACKAGE_ROOT" ./evidence
 uv sync --project server --locked
 uv run --project server --locked python dsh-plugin/probes/journal/live.py \
@@ -26,6 +27,18 @@ test doubles. `alternatives.mjs` records three alternative public API outcomes.
 `busy.mjs` exercises the real driver and journal with a confirmation double.
 The previous public-host suite remains an unchanged negative/control suite;
 its BLOCKED label refers to its original admission-only algorithm.
+
+`settlement.mjs` creates a fresh evidence directory and tests confirmation failure
+before commit, ACK receipt loss after commit, identity changes during those two
+client callbacks, and idle plugin disposal. It runs the actual stock driver and
+storage with a deterministic model and an explicit in-memory client double.
+Failed settlement remains pending; reconciliation can retry only confirm/ACK
+without a new model request. Generation changes prevent local completion and
+new-identity watermarks; idle disposal removes native listeners. These assertions
+do not prove the real client's atomic checks or cancellation during active work.
+The runner records each native event, projection, call count, watermark and
+pre/post hashes of the same eight external files. See the integration follow-up
+in `docs/contracts/dea467-settlement-probe.md`.
 
 `live.py` uses the locked server uv environment and the existing Dart/crypto
 installation (no Flutter dependency upgrade). It starts only owned, loopback
