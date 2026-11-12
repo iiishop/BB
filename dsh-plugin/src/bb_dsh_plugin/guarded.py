@@ -55,6 +55,10 @@ class GuardedTransport:
             ).model_dump(exclude_none=True)
         except ValidationError as error:
             raise structural_error(error.errors(include_input=False)) from None
+        if operation == "send_attachment":
+            # Canonical nullable field: the local attachment parser requires an
+            # explicit null when no cover was provided.
+            body.setdefault("cover", None)
         try:
             async with httpx.AsyncClient(
                 transport=self.local.transport,

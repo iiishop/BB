@@ -7,10 +7,9 @@ from pathlib import Path
 import httpx
 import pytest
 from bb_auth_contract import chat_v2 as v2
-from mcp.types import ListToolsRequest
-
 from bb_dsh_plugin.guarded import GuardedTransport, invoke_guarded
 from bb_dsh_plugin.plugin import LocalClient, create_server
+from mcp.types import ListToolsRequest
 
 CASES = json.loads(
     (Path(__file__).parents[2] / "server/contract/chat-v2-cases.json").read_text()
@@ -129,3 +128,26 @@ async def test_guarded_tool_inventory_keeps_auth_profile_and_hides_internal_comm
     assert all(
         "expected_identity" not in t.inputSchema.get("properties", {}) for t in tools
     )
+
+
+@pytest.mark.asyncio
+async def test_attachment_without_cover_encodes_canonical_null():
+    seen = []
+
+    def handle(request):
+        body = json.loads(request.content)
+        seen.append(body)
+        assert "cover" in body and body["cover"] is None
+        return httpx.Response(200, json=CASES["outputs"]["send_attachment"])
+
+    client = GuardedTransport(
+        "http://127.0.0.1:9187", OWNER, IDENTITY, transport=httpx.MockTransport(handle)
+    )
+    args = {
+        k: v
+        for k, v in CASES["inputs"]["send_attachment"].items()
+        if k not in {"expected_identity", "cover"}
+    }
+    reply = await invoke_guarded(client, "send_attachment", args)
+    assert not reply.isError
+    assert len(seen) == 1

@@ -38,6 +38,9 @@ parser.add_argument(
     action="store_true",
     help="Independent native/ownership/download/migration gates",
 )
+parser.add_argument(
+    "--product", action="store_true", help="Product bundle recovery gates"
+)
 args = parser.parse_args()
 repo = Path(__file__).resolve().parents[3]
 parent = Path(args.output).resolve()
@@ -144,10 +147,17 @@ def record_sources():
     paths += list(Path(__file__).parent.glob("*.py"))
     paths += list(Path(__file__).parent.glob("*.mjs"))
     paths += list(Path(__file__).parent.glob("*.dart"))
+    paths += list((repo / "dsh-plugin/bundle").rglob("*.*"))
+    paths += list((repo / "dsh-plugin/src").rglob("*.py"))
+    paths += [repo / "dsh-plugin/build_bundle.py", repo / "dsh-plugin/uv.lock"]
+    paths += list((repo / "dsh-plugin/probes/product").glob("*.mjs"))
     paths += [repo / "server/uv.lock", repo / "server/contract/chat-v2-openapi.json"]
     (root / "sources.json").write_text(
         json.dumps(
             {
+                "git_commit": subprocess.check_output(
+                    ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+                ).strip(),
                 "external_files": fixed_host,
                 "files": {
                     str(path.relative_to(repo)): hashlib.sha256(
@@ -237,8 +247,10 @@ try:
         ).status_code
         == 200
     )
-    if args.v2 or args.faults or args.remaining:
-        if args.remaining:
+    if args.v2 or args.faults or args.remaining or args.product:
+        if args.product:
+            from live_product import run
+        elif args.remaining:
             from live_remaining import run
         elif args.faults:
             from live_faults import run
@@ -259,7 +271,7 @@ try:
                     "dart_executable": args.dart,
                     "packages": str(config),
                 }
-                if args.faults or args.remaining
+                if args.faults or args.remaining or args.product
                 else {}
             )
             run(

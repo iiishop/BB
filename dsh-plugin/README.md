@@ -1,3 +1,5 @@
+当前 DEA-467 原版宿主产品入口是 `bundle/`，构建命令为 `python3 dsh-plugin/build_bundle.py <新目录>`。安装、Settings、身份绑定及恢复规则见 `docs/contracts/dea467-bundle.md`；以下为保留的独立 stdio/旧版接入说明。
+
 DSH 的 stdio MCP 插件，保留 `register_account(username,password)`、`login_account(account,password)`，新增 `view_avatar`、`update_avatar`、`view_nickname`、`update_nickname`、`view_signature`、`update_signature`，共八个工具。所有调用经过独立逻辑客户端的本地 HTTP 接口，插件不调用远程服务端。Python 依赖由 uv 管理；保留相邻 `server/contract/` 以复用纯校验模块，不依赖或加载 FastAPI 服务端。
 
 Profile 参数、六个本地路由和响应见 `docs/contracts/profile-step2.md`；机器可读 schema/样例在 `server/contract/profile-*.json`。头像读取返回真实 MCP image content，并附 account/版本元数据；每次调用都访问客户端，不做缓存。头像更新只转发唯一 path/url/base64 来源，文件读取、URL 下载、base64 解码和上传由客户端完成。更新工具不接受 account，不接收会话 token。

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "BB Chat Bridge",
+    "description": "Connect BB client tools and recoverable chat events. Authentication stays in your client."
+  }
+}
