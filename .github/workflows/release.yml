@@ -92,15 +92,29 @@ jobs:
       - name: 打 deb + rpm
         run: |
           set -euo pipefail
-          bundle_dir="$(dirname "$(find client/build/linux -type f -name bb_mobile -print -quit)")"
-          [ -n "$bundle_dir" ] || { echo "::error::找不到 Linux bundle"; exit 1; }
-          echo "bundle=$bundle_dir"
+          # 只认 release/bundle：build/linux 下还有 intermediates_do_not_run/bb_mobile，
+          # 它是编译中间产物（24 KB 的空壳），find 到它会打出 6 KB 的废包。
+          bundle_dir="$(ls -d client/build/linux/*/release/bundle 2>/dev/null | head -1)"
+          [ -n "$bundle_dir" ] || { echo "::error::找不到 release/bundle"; exit 1; }
+          [ -d "$bundle_dir/lib" ] && [ -d "$bundle_dir/data" ] \
+            || { echo "::error::bundle 缺 lib/ 或 data/，不是完整的 Flutter bundle"; exit 1; }
+          kb="$(du -sk "$bundle_dir" | cut -f1)"
+          [ "$kb" -gt 5000 ] || { echo "::error::bundle 只有 ${kb}KB，明显不完整"; exit 1; }
+          echo "bundle=$bundle_dir (${kb}KB)"
           bash scripts/ci/package-linux.sh \
             --bundle "$bundle_dir" --out dist --version "$VERSION" --deb --rpm
+      - name: 校验包体积（防"绿但空"）
+        run: |
+          set -euo pipefail
+          for f in dist/*.deb dist/*.rpm dist/*linux*.tar.gz; do
+            kb="$(du -sk "$f" | cut -f1)"
+            echo "$f ${kb}KB"
+            [ "$kb" -gt 5000 ] || { echo "::error::$f 只有 ${kb}KB，产物不完整"; exit 1; }
+          done
       - name: 打包 bundle 供 Arch 作业复用
         run: |
           set -euo pipefail
-          bundle_dir="$(dirname "$(find client/build/linux -type f -name bb_mobile -print -quit)")"
+          bundle_dir="$(ls -d client/build/linux/*/release/bundle 2>/dev/null | head -1)"
           tar -C "$(dirname "$bundle_dir")" -czf dist/bundle.tar.gz "$(basename "$bundle_dir")"
       - uses: actions/upload-artifact@v4
         with:
@@ -138,6 +152,8 @@ jobs:
           set -euo pipefail
           useradd -m builder
           tar -C /tmp -xzf /tmp/art/bundle.tar.gz
+          [ -d /tmp/bundle/lib ] && [ -d /tmp/bundle/data ] \
+            || { echo "::error::解出来的 bundle 不完整（缺 lib/ 或 data/）"; exit 1; }
           cp -r "$GITHUB_WORKSPACE/scripts" /tmp/ci-scripts
           chmod -R a+rX /tmp/bundle /tmp/ci-scripts
           mkdir -p /tmp/out && chown builder /tmp/out
