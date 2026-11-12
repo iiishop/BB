@@ -176,7 +176,25 @@ try {
     } catch {
       return false;
     }
-  }).catch(() => {});
+  });
+  await tool("mcp__bb__update_nickname", { value: "Installed Profile" });
+  assert.equal(
+    (await tool("mcp__bb__view_nickname")).username,
+    "Installed Profile",
+  );
+  await tool("mcp__bb__update_signature", {
+    value: "native protected profile",
+  });
+  assert.equal(
+    (await tool("mcp__bb__view_signature")).signature,
+    "native protected profile",
+  );
+  const avatar = await tool("mcp__bb__update_avatar", {
+    base64: client.images[0],
+  });
+  const shownAvatar = await tool("mcp__bb__view_avatar");
+  assert.equal(shownAvatar.avatar_version, avatar.avatar_version);
+  assert.ok(lastTool.value.content.some((block) => block.type === "image"));
   // Explicit register/login remain real MCP calls, never a direct server auth shortcut.
   const registered = await tool("mcp__bb__register_account", {
     username: "InstalledBundle",
