@@ -28,6 +28,11 @@ parser.add_argument(
     action="store_true",
     help="Run positive guarded-contract assertions; no v1 fallback",
 )
+parser.add_argument(
+    "--faults",
+    action="store_true",
+    help="Real v2 with BB public-DI fault barriers (no client source edits)",
+)
 args = parser.parse_args()
 repo = Path(__file__).resolve().parents[3]
 parent = Path(args.output).resolve()
@@ -38,6 +43,31 @@ private.mkdir(mode=0o700)
 owned = []
 results = []
 safe_env = {key: os.environ[key] for key in ["PATH", "LANG"] if key in os.environ}
+external_files = [
+    "dsh-agent-loop/lib/index.js",
+    "dsh-agent/lib/types/runtime-types.d.ts",
+    "dsh-llm/lib/index.js",
+    "dsh-tools/lib/index.js",
+    "dsh-session/lib/index.js",
+    "dsh-session-persistence-jsonl/lib/index.js",
+    "dsh-storage-domain/lib/index.js",
+    "dsh-storage-json/lib/index.js",
+]
+
+
+def host_hashes():
+    base = Path(args.runtime) / "node_modules/@deepseek-ai"
+    return {
+        name: hashlib.sha256((base / name).read_bytes()).hexdigest()
+        for name in external_files
+    }
+
+
+fixed_host = host_hashes()
+assert (
+    fixed_host[external_files[0]]
+    == "cf57e3ecd487ac5c2553455aaa5cef2c6fb41e6bd61be5aa455675d1d7193033"
+)
 
 
 def port():
@@ -108,10 +138,12 @@ def record_sources():
     paths = list((repo / "client/lib/services").glob("*.dart"))
     paths += list(Path(__file__).parent.glob("*.py"))
     paths += list(Path(__file__).parent.glob("*.mjs"))
+    paths += list(Path(__file__).parent.glob("*.dart"))
     paths += [repo / "server/uv.lock", repo / "server/contract/chat-v2-openapi.json"]
     (root / "sources.json").write_text(
         json.dumps(
             {
+                "external_files": fixed_host,
                 "files": {
                     str(path.relative_to(repo)): hashlib.sha256(
                         path.read_bytes()
@@ -173,10 +205,16 @@ try:
             }
         )
     )
+    control_port = port()
+    dart_entry = (
+        Path(__file__).with_name("client_fault_host.dart")
+        if args.faults
+        else repo / "client/bin/bb_client_api.dart"
+    )
     dart_command = [
         args.dart,
         "--packages=" + str(config),
-        str(repo / "client/bin/bb_client_api.dart"),
+        str(dart_entry),
         "--port",
         str(client_port),
         "--server-url",
@@ -184,6 +222,8 @@ try:
         "--session-file",
         str(private / "dart/session.json"),
     ]
+    if args.faults:
+        dart_command += ["--control-port", str(control_port)]
     dart = launch(dart_command, "client-first")
     ready(client, dart)
     assert (
@@ -192,16 +232,29 @@ try:
         ).status_code
         == 200
     )
-    if args.v2:
-        from live_v2 import run
+    if args.v2 or args.faults:
+        if args.faults:
+            from live_faults import run
+        else:
+            from live_v2 import run
 
-        def restart_client():
+        def restart_client(*, crash=False):
             global dart
-            stop(dart)
+            stop(dart, crash=crash)
             dart = launch(dart_command, "client-v2-restarted")
             ready(client, dart)
 
         try:
+            extra = (
+                {
+                    "api": api,
+                    "control": f"http://127.0.0.1:{control_port}",
+                    "dart_executable": args.dart,
+                    "packages": str(config),
+                }
+                if args.faults
+                else {}
+            )
             run(
                 origin=client,
                 account=account,
@@ -214,6 +267,7 @@ try:
                 stop=stop,
                 restart=restart_client,
                 record=record,
+                **extra,
             )
         except Exception as error:
             record("v2-gate", status="FAIL", reason=str(error))
@@ -368,4 +422,10 @@ finally:
         stop(child)
         if log:
             log.close()
+    unchanged = host_hashes() == fixed_host
+    (root / "host-integrity.json").write_text(
+        json.dumps({"external_files_unchanged": unchanged, "count": len(fixed_host)})
+        + "\n"
+    )
+    assert unchanged, "fixed external host source changed during probe"
     print(json.dumps({"evidence": str(root), "private_excluded": True}), flush=True)

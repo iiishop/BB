@@ -40,6 +40,29 @@ The runner records each native event, projection, call count, watermark and
 pre/post hashes of the same eight external files. See the integration follow-up
 in `docs/contracts/dea467-settlement-probe.md`.
 
+For actual v2 settlement and controlled commit faults, run the live command with
+`--faults` (it implies v2). This uses `client_fault_host.dart`: the actual BB
+LocalAuthServer, services, on-disk ChatLedger and real FastAPI, with public-DI
+decorators that pause before/after delegation. New ledger `beforeCommit` hooks
+are forwarded, including the original `stillCurrent`/identity checks. No client
+production file, DSH implementation or global runtime is changed. The temporary
+control port belongs only to this test host and exposes no credentials.
+
+`real-settlement.mjs` connects the original journal/driver to actual v2
+confirmation and ACK APIs; it discards one successful response to simulate local
+receipt loss. The provider remains a deterministic double. The suite also tests
+admitted-send account switch, outer and lock-internal confirmation/ACK fences,
+actual wait/event notification plus contiguous ACK, downloads through rebind and
+SIGKILL/restart after receiving real bytes, and migration backup failure/cold
+reopen/v1 ACK. Migration uses synthetic legacy disk records and a local synthetic
+auth session with no backend request; it is distinct from the live-account cases.
+
+The suite collects each failure and **exits nonzero** if any acceptance assertion
+fails. A reproduced defect never counts as PASS. See
+`docs/contracts/dea467-real-fault-gate.md` for the current failures and limits.
+Deliver only results/sources/host-integrity, redacted request/barrier traces and
+synthetic native evidence from `confirm-lost/` and `ack-lost/`; never private/.
+
 `live.py` uses the locked server uv environment and the existing Dart/crypto
 installation (no Flutter dependency upgrade). It starts only owned, loopback
 test services. It verifies operation recovery across an exact child SIGKILL,
