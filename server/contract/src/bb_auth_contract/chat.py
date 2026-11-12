@@ -148,26 +148,6 @@ class LocalAttachment(Wire):
     cover: Source | None = None
 
 
-class Read(Wire):
-    account: Account
-    consumer_session: str = Field(min_length=1, max_length=200)
-    after_position: int = Field(default=0, ge=0)
-    limit: int = Field(default=50, ge=1, le=100)
-
-
-class Wait(Wire):
-    account: Account
-    consumer_session: str = Field(min_length=1, max_length=200)
-    seen_position: int = Field(ge=0)
-    timeout: Literal[30, 60, 120] = 60
-
-
-class Ack(Wire):
-    account: Account
-    consumer_session: str = Field(min_length=1, max_length=200)
-    through_position: int = Field(ge=0)
-
-
 class AckResult(Wire):
     consumed_through: int
 
@@ -195,137 +175,9 @@ class ReadResult(Wire):
     has_more: bool
 
 
-class WaitResult(ReadResult):
-    reason: Literal["messages", "timeout", "cancelled", "logout", "disconnected"]
-
-
-class DownloadStart(Wire):
-    operation_id: OperationId
-    consumer_session: str = Field(min_length=1, max_length=200)
-    media_id: str
-    directory: str | None = None
-
-
-class DownloadGet(Wire):
-    task_id: str
-    consumer_session: str = Field(min_length=1, max_length=200)
-
-
 class OperationGet(Wire):
     operation_id: OperationId
 
 
-class Download(Wire):
-    task_id: str
-    operation_id: OperationId
-    consumer_session: str
-    status: Literal["pending", "running", "succeeded", "failed"]
-    planned_path: str
-    actual_path: str | None = None
-    error_code: str | None = None
-
-    @model_validator(mode="after")
-    def paths(self):
-        if (self.actual_path is not None) != (self.status == "succeeded"):
-            raise ValueError("actual_path only on success")
-        return self
-
-
-LOCAL = {
-    "list_users": ("/chat/list_users", Users, UserPage, 200),
-    "send_message": ("/chat/send_message", LocalSend, Message, 200),
-    "send_attachment": ("/chat/send_attachment", LocalAttachment, Message, 200),
-    "read_messages": ("/chat/read_messages", Read, ReadResult, 200),
-    "wait_messages": ("/chat/wait_messages", Wait, WaitResult, 200),
-    "ack_messages": ("/chat/ack_messages", Ack, AckResult, 200),
-    "start_download": ("/downloads/start", DownloadStart, Download, 202),
-    "get_download": ("/downloads/get", DownloadGet, Download, 200),
-    "get_operation": ("/operations/get", OperationGet, Operation, 200),
-}
-
-
-class LocalEventBase(Wire):
-    version: Literal[1] = 1
-    event_id: str = Field(min_length=1, max_length=200)
-    account: Account
-    consumer_session: str = Field(min_length=1, max_length=200)
-
-
-class LocalMessageEvent(LocalEventBase):
-    type: Literal["message.available"]
-    peer_account: Account
-    position: int = Field(ge=1)
-
-
-class LocalDownloadSucceeded(LocalEventBase):
-    type: Literal["download.succeeded"]
-    task_id: str
-    operation_id: OperationId
-    actual_path: str = Field(min_length=1)
-
-
-class LocalDownloadFailed(LocalEventBase):
-    type: Literal["download.failed"]
-    task_id: str
-    operation_id: OperationId
-    error_code: str = Field(min_length=1)
-
-
-LocalEvent = Annotated[
-    LocalMessageEvent | LocalDownloadSucceeded | LocalDownloadFailed,
-    Field(discriminator="type"),
-]
-
-
-class ConfirmPresentation(Wire):
-    consumer_session: str = Field(min_length=1, max_length=200)
-    attempt_id: str = Field(min_length=1)
-    request_digest: str = Field(min_length=1)
-    receipt_ids: list[str] = Field(min_length=1, max_length=100)
-
-
 class ConfirmedPresentation(Wire):
     confirmed_receipt_ids: list[str]
-
-
-class Subscribe(Wire):
-    consumer_session: str = Field(min_length=1, max_length=200)
-    peer_account: Account
-
-
-class EventsRead(Wire):
-    consumer_session: str = Field(min_length=1, max_length=200)
-    after_cursor: int = Field(default=0, ge=0)
-    limit: int = Field(default=50, ge=1, le=100)
-
-
-class EventsWait(EventsRead):
-    timeout: Literal[30, 60, 120] = 60
-
-
-class LocalEventEntry(Wire):
-    cursor: int = Field(ge=1)
-    event: LocalEvent
-
-
-class LocalEventPage(Wire):
-    items: list[LocalEventEntry]
-    next_cursor: int = Field(ge=0)
-    has_more: bool
-
-
-class LocalEventWait(LocalEventPage):
-    reason: Literal["events", "timeout", "cancelled", "logout", "disconnected"]
-
-
-INTERNAL = {
-    "confirm_presentation": (
-        "/chat/confirm_presentation",
-        ConfirmPresentation,
-        ConfirmedPresentation,
-        200,
-    ),
-    "events_subscribe": ("/events/subscribe", Subscribe, Subscribe, 200),
-    "events_read": ("/events/read", EventsRead, LocalEventPage, 200),
-    "events_wait": ("/events/wait", EventsWait, LocalEventWait, 200),
-}

@@ -10,6 +10,23 @@ from pydantic import TypeAdapter
 ROOT = Path(__file__).parent
 AUTH = {"account": "10000001", "auth_generation": "generation-A-1"}
 IDENTITY = {**AUTH, "consumer_id": "consumer-A", "binding_revision": 1}
+RETIRED_ROUTES = [
+    "/chat/list_users",
+    "/chat/send_message",
+    "/chat/send_attachment",
+    "/chat/read_messages",
+    "/chat/wait_messages",
+    "/chat/ack_messages",
+    "/chat/consumption",
+    "/chat/confirm_presentation",
+    "/operations/get",
+    "/downloads/start",
+    "/downloads/get",
+    "/events/subscribe",
+    "/events/read",
+    "/events/wait",
+    *["/profile/" + name for name in v2.profile.PROFILE_TOOLS],
+]
 
 
 def schema():
@@ -75,7 +92,9 @@ def schema():
             for name, (code, recovery) in v2.ERRORS.items()
         },
         "x-bb-contract": "docs/contracts/dea467-local-v2.md",
-        "x-bb-v1-policy": "Strict payloads unchanged. Verified legacy alias only; never automatically downgrade.",
+        "x-bb-local-business-policy": "Only protected /v2 business routes; no unguarded fallback or legacy alias migration.",
+        "x-bb-auth-bootstrap": ["/auth/register", "/auth/login"],
+        "x-bb-retired-local-routes": RETIRED_ROUTES,
     }
 
 
@@ -88,6 +107,16 @@ def fixtures():
                 old["inputs"]
                 | old["internal_inputs"]
                 | {
+                    "view_avatar": {},
+                    "update_avatar": {
+                        "base64": old["inputs"]["send_message"]["content"][1]["source"][
+                            "base64"
+                        ]
+                    },
+                    "view_nickname": {},
+                    "update_nickname": {"value": "Alice"},
+                    "view_signature": {},
+                    "update_signature": {"value": "synthetic signature"},
                     "get_consumption": {"account": "10000002"},
                     "list_conversations": {"after_account": "", "limit": 50},
                     "get_message": {"message_id": "m1"},
@@ -124,7 +153,6 @@ def fixtures():
         "identity": IDENTITY,
         "session_id": "session-one",
         "active": True,
-        "migration": "ready",
     }
     message = old["visible_message"]["message"]
     sent_message = {
@@ -177,6 +205,23 @@ def fixtures():
     for name in ["get_message", "get_context"]:
         inputs[name]["message_id"] = message["id"]
     results = {
+        "view_avatar": {
+            "account": AUTH["account"],
+            "mime_type": "image/png",
+            "data": inputs["update_avatar"]["base64"],
+            "avatar_version": "synthetic-1",
+        },
+        "update_avatar": {
+            "avatar_url": "/avatars/10000001.png",
+            "avatar_version": "synthetic-1",
+        },
+        "view_nickname": {"account": AUTH["account"], "username": "Alice"},
+        "update_nickname": {"account": AUTH["account"], "username": "Alice"},
+        "view_signature": {"account": AUTH["account"], "signature": None},
+        "update_signature": {
+            "account": AUTH["account"],
+            "signature": "synthetic signature",
+        },
         "list_conversations": {
             "items": [
                 {
@@ -215,7 +260,7 @@ def fixtures():
         "wait_messages": {**page, "reason": "messages"},
         "ack_messages": {"consumed_through": 1},
         "confirm_presentation": {"confirmed_receipt_ids": ["example-receipt"]},
-        "get_consumption": {"consumed_through": 1, "migration": "ready"},
+        "get_consumption": {"consumed_through": 1},
         "start_download": download,
         "get_download": download,
         "get_operation": {
@@ -340,10 +385,15 @@ def fixtures():
             },
         ],
         "version": v2.VERSION,
+        "retired_local_routes": [
+            {"path": path, "status": 404} for path in RETIRED_ROUTES
+        ],
         "synthetic_only": True,
         "owner_header": {"name": v2.OWNER_HEADER, "value": "A" * 43},
         "inputs": {
-            n: v2.OPERATIONS[n][1].model_validate(v).model_dump()
+            n: v2.OPERATIONS[n][1]
+            .model_validate(v)
+            .model_dump(exclude_unset=n == "update_avatar")
             for n, v in inputs.items()
         },
         "outputs": {
@@ -400,12 +450,12 @@ def fixtures():
                 "expect": {"status": 200, "same_operation_id": True, "new_sends": 0},
             },
             {
-                "id": "legacy-gap",
-                "given": "legacy account cursor 2; own confirmed receipts only 1",
+                "id": "no-legacy-receipt-inheritance",
+                "given": "synthetic identity-less receipts exist; new consumer has no own confirmations",
                 "operation": "ack_messages",
                 "expect": {
                     "status": 409,
-                    "code": "migration_required",
+                    "code": "consumption_gap",
                     "inherited_cursor": False,
                 },
             },

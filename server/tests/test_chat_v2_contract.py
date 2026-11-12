@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 
 import pytest
-from bb_auth_contract import chat as v1
 from bb_auth_contract import chat_v2 as v2
 from pydantic import TypeAdapter, ValidationError
 
@@ -85,16 +84,12 @@ def test_errors_have_no_binding_payload(name):
     assert CASES["errors"][name]["status"] == v2.ERRORS[name][0]
 
 
-@pytest.mark.parametrize(
-    "name", ["send_message", "ack_messages", "get_operation", "start_download"]
-)
-def test_v1_whitelist_does_not_accept_v2_fields(name):
-    old = json.loads((ROOT / "chat-cases.json").read_text())["inputs"][name]
-    v1.LOCAL[name][1].model_validate(old)
-    with pytest.raises(ValidationError):
-        v1.LOCAL[name][1].model_validate(
-            {**old, "expected_identity": exporter.IDENTITY}
-        )
+def test_no_legacy_routes_or_migration_contract():
+    assert all(path.startswith("/v2/") for path, *_ in v2.OPERATIONS.values())
+    assert "migration_required" not in v2.ERRORS
+    assert "migration" not in v2.Binding.model_fields
+    assert "migration" not in v2.Consumption.model_fields
+    assert all(item["status"] == 404 for item in CASES["retired_local_routes"])
 
 
 def test_uncertain_is_not_terminal_failure_or_success():

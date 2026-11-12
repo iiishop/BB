@@ -1,14 +1,15 @@
 """DEA-467 local-client v2 wire authority; no runtime or authentication implementation.
 
-Export with contract/export_chat_v2.py. Never add these fields to the v1 models.
+Export with contract/export_chat_v2.py. This is the sole local business protocol.
 """
 
 from typing import Annotated, Generic, Literal, TypeVar
 
-from pydantic import Field, model_validator
+from pydantic import ConfigDict, Field, model_validator
 
 from . import chat as v1
 from . import chat_query as query
+from . import profile
 
 VERSION = "dea467-local-v2"
 Opaque = Annotated[
@@ -68,11 +69,53 @@ class Binding(v1.Wire):
     identity: ExpectedIdentity
     session_id: Opaque
     active: bool
-    migration: Literal["ready", "migration_required"]
 
 
 class Protected(v1.Wire):
     expected_identity: ExpectedIdentity
+
+
+class ProfileView(Protected):
+    account: v1.Account | None = None
+
+
+class ProfileNickname(Protected, profile.NicknameUpdate):
+    @model_validator(mode="after")
+    def normalized(self):
+        self.value = profile.nickname(self.value)
+        return self
+
+
+class ProfileSignature(Protected, profile.SignatureUpdate):
+    @model_validator(mode="after")
+    def normalized(self):
+        self.value = profile.signature(self.value)
+        return self
+
+
+class ProfileAvatar(Protected, profile.AvatarUpdate):
+    model_config = ConfigDict(
+        strict=True,
+        extra="forbid",
+        hide_input_in_errors=True,
+        json_schema_extra={
+            "minProperties": 2,
+            "maxProperties": 2,
+            "oneOf": [{"required": [name]} for name in ("path", "url", "base64")],
+        },
+    )
+
+    @model_validator(mode="after")
+    def one_source(self):
+        profile.parse_profile_tool(
+            "update_avatar",
+            {
+                key: getattr(self, key)
+                for key in self.model_fields_set
+                if key != "expected_identity"
+            },
+        )
+        return self
 
 
 class Users(Protected, v1.Users):
@@ -118,7 +161,6 @@ class Ack(Peer):
 
 class Consumption(v1.Wire):
     consumed_through: Position
-    migration: Literal["ready", "migration_required"]
 
 
 class Confirm(Protected):
@@ -277,6 +319,48 @@ BOOTSTRAP = {
     "consumer_bind": ("/v2/consumers/bind", BindConsumer, Binding, 200, True),
 }
 BUSINESS = {
+    "view_avatar": (
+        "/v2/profile/view_avatar",
+        ProfileView,
+        Reply[profile.AvatarImageResponse],
+        200,
+        True,
+    ),
+    "update_avatar": (
+        "/v2/profile/update_avatar",
+        ProfileAvatar,
+        Reply[profile.AvatarResponse],
+        200,
+        True,
+    ),
+    "view_nickname": (
+        "/v2/profile/view_nickname",
+        ProfileView,
+        Reply[profile.AccountResponse],
+        200,
+        True,
+    ),
+    "update_nickname": (
+        "/v2/profile/update_nickname",
+        ProfileNickname,
+        Reply[profile.AccountResponse],
+        200,
+        True,
+    ),
+    "view_signature": (
+        "/v2/profile/view_signature",
+        ProfileView,
+        Reply[profile.SignatureResponse],
+        200,
+        True,
+    ),
+    "update_signature": (
+        "/v2/profile/update_signature",
+        ProfileSignature,
+        Reply[profile.SignatureResponse],
+        200,
+        True,
+    ),
     "list_conversations": (
         "/v2/chat/list_conversations",
         Conversations,
@@ -356,10 +440,6 @@ ERRORS = {
     "consumption_gap": (
         409,
         "Read and confirm this consumer's missing contiguous receipts.",
-    ),
-    "migration_required": (
-        409,
-        "Retain evidence; no copying legacy account-wide cursor.",
     ),
     "idempotency_conflict": (
         409,

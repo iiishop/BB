@@ -67,12 +67,148 @@
     }
   ],
   "version": "dea467-local-v2",
+  "retired_local_routes": [
+    {
+      "path": "/chat/list_users",
+      "status": 404
+    },
+    {
+      "path": "/chat/send_message",
+      "status": 404
+    },
+    {
+      "path": "/chat/send_attachment",
+      "status": 404
+    },
+    {
+      "path": "/chat/read_messages",
+      "status": 404
+    },
+    {
+      "path": "/chat/wait_messages",
+      "status": 404
+    },
+    {
+      "path": "/chat/ack_messages",
+      "status": 404
+    },
+    {
+      "path": "/chat/consumption",
+      "status": 404
+    },
+    {
+      "path": "/chat/confirm_presentation",
+      "status": 404
+    },
+    {
+      "path": "/operations/get",
+      "status": 404
+    },
+    {
+      "path": "/downloads/start",
+      "status": 404
+    },
+    {
+      "path": "/downloads/get",
+      "status": 404
+    },
+    {
+      "path": "/events/subscribe",
+      "status": 404
+    },
+    {
+      "path": "/events/read",
+      "status": 404
+    },
+    {
+      "path": "/events/wait",
+      "status": 404
+    },
+    {
+      "path": "/profile/view_avatar",
+      "status": 404
+    },
+    {
+      "path": "/profile/update_avatar",
+      "status": 404
+    },
+    {
+      "path": "/profile/view_nickname",
+      "status": 404
+    },
+    {
+      "path": "/profile/update_nickname",
+      "status": 404
+    },
+    {
+      "path": "/profile/view_signature",
+      "status": 404
+    },
+    {
+      "path": "/profile/update_signature",
+      "status": 404
+    }
+  ],
   "synthetic_only": true,
   "owner_header": {
     "name": "X-BB-Consumer-Key",
     "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
   },
   "inputs": {
+    "view_avatar": {
+      "expected_identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      },
+      "account": null
+    },
+    "update_avatar": {
+      "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC",
+      "expected_identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      }
+    },
+    "view_nickname": {
+      "expected_identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      },
+      "account": null
+    },
+    "update_nickname": {
+      "value": "Alice",
+      "expected_identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      }
+    },
+    "view_signature": {
+      "expected_identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      },
+      "account": null
+    },
+    "update_signature": {
+      "value": "synthetic signature",
+      "expected_identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      }
+    },
     "list_conversations": {
       "after_account": "",
       "limit": 50,
@@ -306,6 +442,80 @@
     }
   },
   "outputs": {
+    "view_avatar": {
+      "identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      },
+      "result": {
+        "account": "10000001",
+        "mime_type": "image/png",
+        "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC",
+        "avatar_version": "synthetic-1"
+      }
+    },
+    "update_avatar": {
+      "identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      },
+      "result": {
+        "avatar_url": "/avatars/10000001.png",
+        "avatar_version": "synthetic-1"
+      }
+    },
+    "view_nickname": {
+      "identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      },
+      "result": {
+        "account": "10000001",
+        "username": "Alice"
+      }
+    },
+    "update_nickname": {
+      "identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      },
+      "result": {
+        "account": "10000001",
+        "username": "Alice"
+      }
+    },
+    "view_signature": {
+      "identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      },
+      "result": {
+        "account": "10000001",
+        "signature": null
+      }
+    },
+    "update_signature": {
+      "identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      },
+      "result": {
+        "account": "10000001",
+        "signature": "synthetic signature"
+      }
+    },
     "list_conversations": {
       "identity": {
         "account": "10000001",
@@ -613,8 +823,7 @@
         "binding_revision": 1
       },
       "result": {
-        "consumed_through": 1,
-        "migration": "ready"
+        "consumed_through": 1
       }
     },
     "start_download": {
@@ -791,8 +1000,7 @@
         "binding_revision": 1
       },
       "session_id": "session-one",
-      "active": true,
-      "migration": "ready"
+      "active": true
     },
     "consumer_get": {
       "identity": {
@@ -802,8 +1010,7 @@
         "binding_revision": 1
       },
       "session_id": "session-one",
-      "active": true,
-      "migration": "ready"
+      "active": true
     },
     "consumer_bind": {
       "identity": {
@@ -813,11 +1020,46 @@
         "binding_revision": 2
       },
       "session_id": "session-two",
-      "active": true,
-      "migration": "ready"
+      "active": true
     }
   },
   "invalid_inputs": [
+    {
+      "id": "view_avatar-missing-identity",
+      "operation": "view_avatar",
+      "input": {}
+    },
+    {
+      "id": "update_avatar-missing-identity",
+      "operation": "update_avatar",
+      "input": {
+        "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC"
+      }
+    },
+    {
+      "id": "view_nickname-missing-identity",
+      "operation": "view_nickname",
+      "input": {}
+    },
+    {
+      "id": "update_nickname-missing-identity",
+      "operation": "update_nickname",
+      "input": {
+        "value": "Alice"
+      }
+    },
+    {
+      "id": "view_signature-missing-identity",
+      "operation": "view_signature",
+      "input": {}
+    },
+    {
+      "id": "update_signature-missing-identity",
+      "operation": "update_signature",
+      "input": {
+        "value": "synthetic signature"
+      }
+    },
     {
       "id": "list_conversations-missing-identity",
       "operation": "list_conversations",
@@ -1280,16 +1522,6 @@
         }
       }
     },
-    "migration_required": {
-      "status": 409,
-      "body": {
-        "error": {
-          "code": "migration_required",
-          "message": "Synthetic contract error",
-          "fields": []
-        }
-      }
-    },
     "idempotency_conflict": {
       "status": 409,
       "body": {
@@ -1413,12 +1645,12 @@
       }
     },
     {
-      "id": "legacy-gap",
-      "given": "legacy account cursor 2; own confirmed receipts only 1",
+      "id": "no-legacy-receipt-inheritance",
+      "given": "synthetic identity-less receipts exist; new consumer has no own confirmations",
       "operation": "ack_messages",
       "expect": {
         "status": 409,
-        "code": "migration_required",
+        "code": "consumption_gap",
         "inherited_cursor": false
       }
     }
