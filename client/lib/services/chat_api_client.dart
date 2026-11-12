@@ -90,22 +90,95 @@ class ChatApiClient {
     return ChatMessage.fromJson(_decode(response.body));
   }
 
+  /// One page of a pair's history.
+  ///
+  /// [afterPosition] and [beforePosition] are mutually exclusive; both
+  /// directions return ascending items. Omitting both is the historical
+  /// `after_position=0` call.
   Future<MessagePage> conversation({
     required String token,
     required String account,
-    int afterPosition = 0,
+    int? afterPosition = 0,
+    int? beforePosition,
     int limit = 50,
   }) async {
+    if (afterPosition != null && beforePosition != null) {
+      throw const AuthFailure(
+        status: 422,
+        code: 'validation_error',
+        message: 'before_position 与 after_position 互斥',
+      );
+    }
     final Uri url = _query(
       '/conversations/${Uri.encodeComponent(account)}/messages',
       <String, String>{
-        if (afterPosition > 0) 'after_position': '$afterPosition',
+        if (beforePosition != null)
+          'before_position': '$beforePosition'
+        else if ((afterPosition ?? 0) > 0)
+          'after_position': '$afterPosition',
         if (limit != 50) 'limit': '$limit',
       },
     );
     final _RawResponse response = await _send('GET', url, token: token);
     _requireSuccess(response, const <int>{200});
     return MessagePage.fromJson(_decode(response.body));
+  }
+
+  /// Existing private conversations, peer-account keyset order.
+  Future<ConversationRecordPage> conversations({
+    required String token,
+    String afterAccount = '',
+    int limit = 50,
+  }) async {
+    final Uri url = _query('/conversations', <String, String>{
+      'after_account': afterAccount,
+      if (limit != 50) 'limit': '$limit',
+    });
+    final _RawResponse response = await _send('GET', url, token: token);
+    _requireSuccess(response, const <int>{200});
+    return ConversationRecordPage.fromJson(_decode(response.body));
+  }
+
+  /// Direct message lookup. 404 is the uniform safe miss for absent/forbidden.
+  Future<ChatMessage?> messageById({
+    required String token,
+    required String messageId,
+  }) async {
+    final _RawResponse response = await _send(
+      'GET',
+      _query('/messages/${Uri.encodeComponent(messageId)}'),
+      token: token,
+    );
+    if (response.status == 404) {
+      return null;
+    }
+    _requireSuccess(response, const <int>{200});
+    return ChatMessage.fromJson(_decode(response.body));
+  }
+
+  /// Direct context lookup from the same server query layer.
+  Future<MessageContextRecord?> messageContext({
+    required String token,
+    required String messageId,
+    int beforeLimit = 10,
+    int afterLimit = 10,
+  }) async {
+    final _RawResponse response = await _send(
+      'GET',
+      _query(
+        '/messages/${Uri.encodeComponent(messageId)}/context',
+        <String, String>{
+          if (beforeLimit != 10) 'before_limit': '$beforeLimit',
+          if (afterLimit != 10) 'after_limit': '$afterLimit',
+        },
+      ),
+      token: token,
+    );
+    if (response.status == 404) {
+      return null;
+    }
+    _requireSuccess(response, const <int>{200});
+    return MessageContextRecord.fromJson(_decode(response.body));
   }
 
   /// Returns null on 404 so a lost socket can query before retrying.

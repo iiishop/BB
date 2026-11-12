@@ -302,6 +302,66 @@ void main() {
       (item['presentation'] as Map<String, dynamic>)['receipt_id'] as String,
     ];
 
+    Map<String, dynamic> expectedResult(String name) =>
+        (cases['outputs'][name] as Map<String, dynamic>)['result']
+            as Map<String, dynamic>;
+    Future<Map<String, dynamic>> query(
+      String path,
+      Map<String, dynamic> body,
+    ) async {
+      final _Response response = await post(path, body, owner: ownerOne);
+      expect(response.status, 200, reason: '$path -> ${response.body}');
+      return (response.body['result'] as Map<String, dynamic>);
+    }
+
+    final Map<String, dynamic> conversations = await query(
+      '/v2/chat/list_conversations',
+      <String, dynamic>{'expected_identity': first},
+    );
+    expect(
+      conversations.keys.toSet(),
+      expectedResult('list_conversations').keys.toSet(),
+    );
+    expect(
+      ((conversations['items'] as List<dynamic>).single
+              as Map<String, dynamic>)
+          .keys
+          .toSet(),
+      ((expectedResult('list_conversations')['items'] as List<dynamic>)
+              .single as Map<String, dynamic>)
+          .keys
+          .toSet(),
+    );
+    final String messageId =
+        (item['message'] as Map<String, dynamic>)['id'] as String;
+    final Map<String, dynamic> message = await query(
+      '/v2/chat/get_message',
+      <String, dynamic>{
+        'expected_identity': first,
+        'message_id': messageId,
+      },
+    );
+    expect(message.keys.toSet(), expectedResult('get_message').keys.toSet());
+    expect(
+      (message['item'] as Map<String, dynamic>).keys.toSet(),
+      (expectedResult('get_message')['item'] as Map<String, dynamic>).keys
+          .toSet(),
+    );
+    final Map<String, dynamic> context = await query(
+      '/v2/chat/get_context',
+      <String, dynamic>{
+        'expected_identity': first,
+        'message_id': messageId,
+      },
+    );
+    expect(context.keys.toSet(), expectedResult('get_context').keys.toSet());
+    expect(
+      (context['range'] as Map<String, dynamic>).keys.toSet(),
+      ((expectedResult('get_context')['range'] as Map<String, dynamic>).keys
+          .toSet()),
+    );
+    expect(context['reply_relations'], 'unsupported');
+
     final _Response confirm = await post(
       '/v2/chat/confirm_presentation',
       <String, dynamic>{

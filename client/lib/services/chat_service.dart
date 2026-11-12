@@ -1554,25 +1554,74 @@ class ChatService {
     String peerAccount,
     ChatMessage message,
   ) async {
+    final QueryVisibleMessage result = await _buildVisible(
+      captured,
+      binding,
+      consumerSession,
+      peerAccount,
+      message,
+      tolerateMissingMedia: false,
+    );
+    return result.item;
+  }
+
+  /// Builds a query-time visible message.
+  ///
+  /// Unlike the v1 read path, a missing image/cover is reported in
+  /// [QueryVisibleMessage.missingMediaIds] and the item gets no presentation
+  /// receipt. Network failures and unsupported upstream answers are not turned
+  /// into "missing media".
+  Future<QueryVisibleMessage> visibleMessageForQuery({
+    required AuthIdentity captured,
+    required ConsumerBinding binding,
+    required String peerAccount,
+    required ChatMessage message,
+  }) {
+    return _buildVisible(
+      captured,
+      binding,
+      binding.sessionId,
+      peerAccount,
+      message,
+      tolerateMissingMedia: true,
+    );
+  }
+
+  Future<QueryVisibleMessage> _buildVisible(
+    AuthIdentity captured,
+    ConsumerBinding binding,
+    String consumerSession,
+    String peerAccount,
+    ChatMessage message, {
+    required bool tolerateMissingMedia,
+  }) async {
     if (!captured.sameAs(session.identity)) {
       throw unauthenticated;
     }
     final List<VisibleBlock> blocks = <VisibleBlock>[];
+    final List<String> missing = <String>[];
     if (message.kind == ChatMessageKind.body) {
       for (final MessagePart part in message.parts) {
         if (part is TextPart) {
           blocks.add(VisibleTextBlock(part.text));
         } else if (part is ImagePart) {
-          final MediaResponse media = await api.fetchMedia(
-            token: captured.token,
-            mediaId: part.mediaId,
-          );
-          blocks.add(
-            VisibleImageBlock(
-              data: base64Encode(media.bytes),
-              mimeType: _imageMime(media.mimeType),
-            ),
-          );
+          try {
+            final MediaResponse media = await api.fetchMedia(
+              token: captured.token,
+              mediaId: part.mediaId,
+            );
+            blocks.add(
+              VisibleImageBlock(
+                data: base64Encode(media.bytes),
+                mimeType: _imageMime(media.mimeType),
+              ),
+            );
+          } on AuthFailure catch (failure) {
+            if (!tolerateMissingMedia || !_isMissingMedia(failure)) {
+              rethrow;
+            }
+            missing.add(part.mediaId);
+          }
         }
       }
     } else {
@@ -1583,17 +1632,33 @@ class ChatService {
       blocks.add(VisibleTextBlock(_attachmentSummary(attachment)));
       if (attachment.kind == AttachmentKind.video &&
           attachment.coverMediaId != null) {
-        final MediaResponse cover = await api.fetchMedia(
-          token: captured.token,
-          mediaId: attachment.coverMediaId!,
-        );
-        blocks.add(
-          VisibleImageBlock(
-            data: base64Encode(cover.bytes),
-            mimeType: _imageMime(cover.mimeType),
-          ),
-        );
+        try {
+          final MediaResponse cover = await api.fetchMedia(
+            token: captured.token,
+            mediaId: attachment.coverMediaId!,
+          );
+          blocks.add(
+            VisibleImageBlock(
+              data: base64Encode(cover.bytes),
+              mimeType: _imageMime(cover.mimeType),
+            ),
+          );
+        } on AuthFailure catch (failure) {
+          if (!tolerateMissingMedia || !_isMissingMedia(failure)) {
+            rethrow;
+          }
+          missing.add(attachment.coverMediaId!);
+        }
       }
+    }
+    if (missing.isNotEmpty) {
+      return QueryVisibleMessage(
+        item: VisibleMessage(
+          message: message,
+          blocks: List<VisibleBlock>.unmodifiable(blocks),
+        ),
+        missingMediaIds: List<String>.unmodifiable(missing),
+      );
     }
     final String digest = _messageDigest(message);
     final PresentationReceipt receipt = await ledger.prepareReceipt(
@@ -1605,11 +1670,18 @@ class ChatService {
       position: message.position,
       contentDigest: digest,
     );
-    return VisibleMessage(
-      message: message,
-      blocks: List<VisibleBlock>.unmodifiable(blocks),
-      presentation: receipt,
+    return QueryVisibleMessage(
+      item: VisibleMessage(
+        message: message,
+        blocks: List<VisibleBlock>.unmodifiable(blocks),
+        presentation: receipt,
+      ),
+      missingMediaIds: const <String>[],
     );
+  }
+
+  static bool _isMissingMedia(AuthFailure failure) {
+    return failure.status == 404 || failure.status == 415;
   }
 
   // ------------------------------------------------------------- receipts ----

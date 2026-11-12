@@ -3,6 +3,7 @@ import 'dart:convert';
 import '../models/auth_models.dart';
 import '../models/chat_models.dart';
 import 'auth_session.dart';
+import 'chat_query.dart';
 import 'chat_service.dart';
 import 'client_identity.dart';
 import 'media_source.dart';
@@ -34,6 +35,18 @@ class ChatV2Router {
       'expected_binding_revision',
       'session_id',
     },
+    '/v2/chat/list_conversations': <String>{
+      'expected_identity',
+      'after_account',
+      'limit',
+    },
+    '/v2/chat/get_message': <String>{'expected_identity', 'message_id'},
+    '/v2/chat/get_context': <String>{
+      'expected_identity',
+      'message_id',
+      'before_limit',
+      'after_limit',
+    },
     '/v2/chat/list_users': <String>{
       'expected_identity',
       'after_account',
@@ -56,6 +69,7 @@ class ChatV2Router {
       'expected_identity',
       'account',
       'after_position',
+      'before_position',
       'limit',
     },
     '/v2/chat/wait_messages': <String>{
@@ -275,6 +289,71 @@ class ChatV2Router {
     }
 
     switch (path) {
+      case '/v2/chat/list_conversations':
+        final ConversationPage page = await service.query.listConversations(
+          afterAccount: (args.values['after_account'] as String?) ?? '',
+          limit: (args.values['limit'] as int?) ?? 50,
+          consumerId: context.binding.consumerId,
+        );
+        _ensureCurrent(context.identity);
+        return _reply(expected, page.toJson());
+      case '/v2/chat/get_message':
+        final ChatMessage? message = await service.query.messageById(
+          args.values['message_id'] as String,
+        );
+        if (message == null) {
+          throw _V2Error(404, 'not_found', _messageByCode['not_found']!);
+        }
+        final QueryVisibleMessage visible =
+            await service.visibleMessageForQuery(
+              captured: context.identity,
+              binding: context.binding,
+              peerAccount: _peerOf(message, context.identity.account),
+              message: message,
+            );
+        _ensureCurrent(context.identity);
+        return _reply(expected, <String, dynamic>{
+          'item': visible.item.toJson(),
+          'missing_media_ids': visible.missingMediaIds,
+        });
+      case '/v2/chat/get_context':
+        final ContextResult? contextResult = await service.query.getContext(
+          messageId: args.values['message_id'] as String,
+          beforeLimit: (args.values['before_limit'] as int?) ?? 10,
+          afterLimit: (args.values['after_limit'] as int?) ?? 10,
+        );
+        if (contextResult == null) {
+          throw _V2Error(404, 'not_found', _messageByCode['not_found']!);
+        }
+        final List<Map<String, dynamic>> items = <Map<String, dynamic>>[];
+        final Set<String> missing = <String>{};
+        for (final ChatMessage message in contextResult.items) {
+          final QueryVisibleMessage visible =
+              await service.visibleMessageForQuery(
+                captured: context.identity,
+                binding: context.binding,
+                peerAccount: contextResult.peerAccount,
+                message: message,
+              );
+          items.add(visible.item.toJson());
+          missing.addAll(visible.missingMediaIds);
+        }
+        _ensureCurrent(context.identity);
+        return _reply(expected, <String, dynamic>{
+          'peer_account': contextResult.peerAccount,
+          'anchor_message_id': contextResult.anchorMessageId,
+          'range': <String, dynamic>{
+            'start_position': contextResult.startPosition,
+            'end_position': contextResult.endPosition,
+          },
+          'before_has_more': contextResult.beforeHasMore,
+          'after_has_more': contextResult.afterHasMore,
+          'missing_positions': contextResult.missingPositions,
+          'missing_truncated': contextResult.missingTruncated,
+          'reply_relations': contextResult.replyRelations,
+          'items': items,
+          'missing_media_ids': missing.take(9900).toList(),
+        });
       case '/v2/chat/list_users':
         final UserPage page = await service.listUsers(
           afterAccount: (args.values['after_account'] as String?) ?? '',
@@ -300,15 +379,30 @@ class ChatV2Router {
         final ChatMessage message = outcome.message ?? (throw upstreamMalformed);
         return _reply(expected, messageToJson(message));
       case '/v2/chat/read_messages':
-        final VisibleMessagePage page = await service.readMessages(
-          peerAccount: args.values['account'] as String,
-          consumerSession: context.binding.sessionId,
-          afterPosition: (args.values['after_position'] as int?) ?? 0,
+        final String peer = args.values['account'] as String;
+        final HistoryPage history = await service.query.readHistory(
+          peerAccount: peer,
+          afterPosition: args.values['after_position'] as int?,
+          beforePosition: args.values['before_position'] as int?,
           limit: (args.values['limit'] as int?) ?? 50,
-          expectedIdentity: expected,
         );
-        final Map<String, dynamic> result = page.toJson()..remove('reason');
-        return _reply(expected, result);
+        final List<Map<String, dynamic>> items = <Map<String, dynamic>>[];
+        for (final ChatMessage message in history.items) {
+          final QueryVisibleMessage visible =
+              await service.visibleMessageForQuery(
+                captured: context.identity,
+                binding: context.binding,
+                peerAccount: peer,
+                message: message,
+              );
+          items.add(visible.item.toJson());
+        }
+        _ensureCurrent(context.identity);
+        return _reply(expected, <String, dynamic>{
+          'items': items,
+          'next_position': history.nextPosition,
+          'has_more': history.hasMore,
+        });
       case '/v2/chat/wait_messages':
         final VisibleMessagePage page = await service.waitMessages(
           peerAccount: args.values['account'] as String,
@@ -425,6 +519,34 @@ class ChatV2Router {
 
     args.expectedIdentity = _expectedIdentity(request);
     switch (path) {
+      case '/v2/chat/list_conversations':
+        args.values['after_account'] =
+            request.optionalPattern(
+              'after_account',
+              RegExp(r'^([1-9][0-9]{7})?$'),
+            ) ??
+            '';
+        args.values['limit'] = request.optionalInteger('limit', 1, 100);
+      case '/v2/chat/get_message':
+        args.values['message_id'] = request.pattern(
+          'message_id',
+          RegExp(r'^[A-Za-z0-9_-]{1,200}$'),
+        );
+      case '/v2/chat/get_context':
+        args.values['message_id'] = request.pattern(
+          'message_id',
+          RegExp(r'^[A-Za-z0-9_-]{1,200}$'),
+        );
+        args.values['before_limit'] = request.optionalInteger(
+          'before_limit',
+          0,
+          49,
+        );
+        args.values['after_limit'] = request.optionalInteger(
+          'after_limit',
+          0,
+          49,
+        );
       case '/v2/chat/list_users':
         args.values['after_account'] = request.optionalString(
           'after_account',
@@ -441,11 +563,21 @@ class ChatV2Router {
         args.attachment = _attachment(request);
       case '/v2/chat/read_messages':
         args.values['account'] = request.account('account');
-        args.values['after_position'] = request.optionalInteger(
+        final int? after = request.nullableInteger(
           'after_position',
           0,
           maxBindingRevision,
         );
+        final int? before = request.nullableInteger(
+          'before_position',
+          1,
+          maxBindingRevision,
+        );
+        if (after != null && before != null) {
+          throw _validation('before_position');
+        }
+        args.values['after_position'] = after;
+        args.values['before_position'] = before;
         args.values['limit'] = request.optionalInteger('limit', 1, 100);
       case '/v2/chat/wait_messages':
         args.values['account'] = request.account('account');
@@ -587,6 +719,18 @@ class ChatV2Router {
           binding.authGeneration == current.authGeneration,
       'migration': binding.migration,
     };
+  }
+
+  void _ensureCurrent(AuthIdentity captured) {
+    if (!session.isCurrent(captured)) {
+      throw staleIdentity;
+    }
+  }
+
+  String _peerOf(ChatMessage message, String selfAccount) {
+    return message.senderAccount == selfAccount
+        ? message.targetAccount
+        : message.senderAccount;
   }
 
   ({int status, Map<String, dynamic> body}) _reply(
@@ -1053,6 +1197,28 @@ class _Request {
       result.add(entry);
     }
     return result;
+  }
+
+  int? nullableInteger(String field, int min, int max) {
+    if (!raw.containsKey(field) || raw[field] == null) {
+      return null;
+    }
+    final Object? value = raw[field];
+    if (value is! int || value < min || value > max) {
+      throw _invalid(field);
+    }
+    return value;
+  }
+
+  String? optionalPattern(String field, RegExp pattern) {
+    if (!raw.containsKey(field) || raw[field] == null) {
+      return null;
+    }
+    final Object? value = raw[field];
+    if (value is! String || !pattern.hasMatch(value)) {
+      throw _invalid(field);
+    }
+    return value;
   }
 
   String? optionalString(

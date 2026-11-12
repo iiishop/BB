@@ -7,322 +7,152 @@ import 'chat_api_client.dart';
 import 'chat_ledger.dart';
 import 'client_identity.dart';
 
-/// Unified client query facts for conversations, messages and context.
+/// Unified client query service over the shared server query layer.
 ///
-/// The shared v2 query routes (`list_conversations`, `get_message`,
-/// `get_context`, bidirectional `read_messages`) are authored by Forge. This
-/// service owns the semantics they will expose: only the current account's
-/// private conversations, uniform safe misses, ordered history, explicit
-/// truncation, and no implicit ACK/consumption. Until the shared transport
-/// commit lands, the implementation uses the existing read-only HTTP facts and
-/// keeps every scan explicitly bounded.
+/// Server routes (`/conversations`, `/messages/{id}`,
+/// `/messages/{id}/context`, bidirectional pair history) are the single fact
+/// source; this service never scans or guesses a message's existence. The
+/// local v2 routes validate owner/consumer/binding first and then use this
+/// service; all methods re-check the captured identity before returning.
 class ChatQueryService {
   ChatQueryService({
     required this.api,
     required this.session,
     required this.ledger,
-    this.maxScanMessages = 2000,
   });
 
   final ChatApiClient api;
   final AuthSession session;
   final ChatLedger ledger;
 
-  /// Bound for the forward scans used by `get_message`/`before` history until
-  /// the shared bidirectional route exists. Reaching it is reported, never
-  /// silently treated as "absent".
-  final int maxScanMessages;
-
-  static const int maxPageSize = 100;
+  static final RegExp _accountPattern = RegExp(r'^[1-9][0-9]{7}$');
+  static final RegExp _messageIdPattern = RegExp(r'^[A-Za-z0-9_-]{1,200}$');
 
   // ------------------------------------------------------------ conversations --
 
-  /// Current account's existing private conversations only.
+  /// Existing private conversations only, peer-account keyset order.
   ///
-  /// [consumerId] enables the consumer's "not yet consumed" meaning: it is
-  /// computed from this consumer's own watermark and incoming messages, never
-  /// from an account-wide cursor or an outbound read receipt. Without a
-  /// consumer the unread state is explicitly `unknown`.
+  /// [consumerId] must belong to the authenticated account. The response adds
+  /// that consumer's `consumed_through` and the bidirectional-stream
+  /// `unconsumed_positions`; this is not an incoming-unread count and not an
+  /// outbound read receipt.
   Future<ConversationPage> listConversations({
     String afterAccount = '',
     int limit = 50,
-    String? consumerId,
+    required String consumerId,
   }) async {
     final AuthIdentity captured = _requireLogin();
     if (afterAccount.isNotEmpty && !_accountPattern.hasMatch(afterAccount)) {
       throw _validation('after_account');
     }
-    if (consumerId != null) {
-      // A caller-supplied consumer id is not authority by itself: it must
-      // belong to the authenticated account. Owner/revision checks stay in the
-      // v2 route layer when it is wired.
-      final ConsumerBinding? binding = await ledger.bindingById(consumerId);
-      if (binding == null || binding.account != captured.account) {
-        throw staleBindingFailure;
-      }
+    if (limit < 1 || limit > 100) {
+      throw _validation('limit');
     }
-    final int pageSize = limit.clamp(1, maxPageSize);
-    final List<ConversationSummary> conversations = <ConversationSummary>[];
-    String cursor = afterAccount;
-    String? nextCursor;
-    while (conversations.length < pageSize) {
-      final UserPage page = await api.listUsers(
-        token: captured.token,
-        afterAccount: cursor,
-        limit: pageSize,
+    final ConsumerBinding? binding = await ledger.bindingById(consumerId);
+    if (binding == null || binding.account != captured.account) {
+      throw staleBindingFailure;
+    }
+    final ConversationRecordPage page = await api.conversations(
+      token: captured.token,
+      afterAccount: afterAccount,
+      limit: limit,
+    );
+    _ensureCurrent(captured);
+    final List<ConversationSummary> items = <ConversationSummary>[];
+    for (final ConversationRecord row in page.items) {
+      final int consumed = await ledger.consumedThrough(
+        captured.account,
+        row.peerAccount,
+        consumerId: consumerId,
       );
-      if (!session.isCurrent(captured)) {
-        throw staleIdentityFailure;
-      }
-      if (page.items.isEmpty) {
-        nextCursor = null;
-        break;
-      }
-      int examined = 0;
-      for (final ChatUser user in page.items) {
-        cursor = user.account;
-        examined += 1;
-        if (user.lastMessage == null || user.lastContactAt == null) {
-          continue;
-        }
-        final ConversationSummary summary = await _summary(
-          captured,
-          user,
-          consumerId,
-        );
-        _ensureCurrent(captured);
-        conversations.add(summary);
-        if (conversations.length >= pageSize) {
-          break;
-        }
-      }
-      final bool pageExhausted = examined == page.items.length;
-      if (conversations.length >= pageSize) {
-        // Unexamined users may remain on this page, so hand the caller the
-        // last examined account as a stable cursor.
-        nextCursor =
-            (page.nextCursor != null || !pageExhausted) ? cursor : null;
-        break;
-      }
-      if (page.nextCursor == null) {
-        nextCursor = null;
-        break;
-      }
+      _ensureCurrent(captured);
+      items.add(
+        ConversationSummary(
+          peerAccount: row.peerAccount,
+          lastMessage: row.lastMessage,
+          lastActivityAt: row.lastActivityAt,
+          latestPosition: row.latestPosition,
+          consumedThrough: consumed,
+          unconsumedPositions: math.max(0, row.latestPosition - consumed),
+        ),
+      );
     }
     _ensureCurrent(captured);
     return ConversationPage(
-      items: List<ConversationSummary>.unmodifiable(conversations),
-      nextCursor: nextCursor,
-      hasMore: nextCursor != null,
-    );
-  }
-
-  Future<ConversationSummary> _summary(
-    AuthIdentity captured,
-    ChatUser peer,
-    String? consumerId,
-  ) async {
-    ConversationUnread unread = ConversationUnread.unknown;
-    int? firstUnread;
-    if (consumerId != null) {
-      _ensureCurrent(captured);
-      unread = ConversationUnread.none;
-      final int consumed = await ledger.consumedThrough(
-        captured.account,
-        peer.account,
-        consumerId: consumerId,
-      );
-      final MessagePage page = await api.conversation(
-        token: captured.token,
-        account: peer.account,
-        afterPosition: consumed,
-        limit: maxPageSize,
-      );
-      if (!session.isCurrent(captured)) {
-        throw staleIdentityFailure;
-      }
-      for (final ChatMessage message in page.items) {
-        if (message.senderAccount != captured.account) {
-          unread = ConversationUnread.unread;
-          firstUnread = message.position;
-          break;
-        }
-      }
-      if (unread == ConversationUnread.none && page.hasMore) {
-        // The next page may contain the first incoming message; never claim
-        // "no unread" from an incomplete page.
-        unread = ConversationUnread.unknown;
-      }
-    }
-    _ensureCurrent(captured);
-    return ConversationSummary(
-      peer: peer,
-      lastMessage: peer.lastMessage,
-      lastActivityAt: peer.lastContactAt,
-      unread: unread,
-      firstUnreadPosition: firstUnread,
+      items: List<ConversationSummary>.unmodifiable(items),
+      nextCursor: page.nextCursor,
     );
   }
 
   // --------------------------------------------------------------- messages --
 
-  /// Full message by stable id for one allowed peer. Missing or inaccessible
-  /// messages share the same safe result; a bounded scan is reported as
-  /// truncated rather than claimed absent.
-  Future<MessageLookup> getMessage({
-    required String peerAccount,
-    required String messageId,
-  }) async {
+  /// Direct lookup from the shared server query layer.
+  ///
+  /// `null` is the uniform safe miss for absent and unauthorized messages.
+  /// Network failures and incompletely fetched pages are never turned into
+  /// that safe miss.
+  Future<ChatMessage?> messageById(String messageId) async {
     final AuthIdentity captured = _requireLogin();
-    _requirePeer(captured, peerAccount);
-    if (messageId.trim().isEmpty) {
+    if (!_messageIdPattern.hasMatch(messageId)) {
       throw _validation('message_id');
     }
-    final int scanBound = math.max(1, maxScanMessages);
-    int after = 0;
-    int scanned = 0;
-    while (scanned < scanBound) {
-      final MessagePage page = await api.conversation(
-        token: captured.token,
-        account: peerAccount,
-        afterPosition: after,
-        limit: maxPageSize,
-      );
-      if (!session.isCurrent(captured)) {
-        throw staleIdentityFailure;
-      }
-      if (page.items.isEmpty) {
-        return const MessageLookup(message: null, truncated: false);
-      }
-      bool boundHit = false;
-      for (final ChatMessage message in page.items) {
-        scanned += 1;
-        if (scanned > scanBound) {
-          boundHit = true;
-          break;
-        }
-        if (message.id == messageId) {
-          return MessageLookup(message: message, truncated: false);
-        }
-      }
-      if (boundHit) {
-        return const MessageLookup(message: null, truncated: true);
-      }
-      if (!page.hasMore) {
-        // The scan completed exactly at the bound: this is a complete,
-        // successful miss, not a truncated scan.
-        return const MessageLookup(message: null, truncated: false);
-      }
-      if (scanned >= scanBound) {
-        // The page ended at the bound and more records exist beyond it.
-        return const MessageLookup(message: null, truncated: true);
-      }
-      if (page.nextPosition <= after) {
-        return const MessageLookup(message: null, truncated: true);
-      }
-      after = page.nextPosition;
-    }
-    return const MessageLookup(message: null, truncated: true);
-  }
-
-  /// Ordered context around one message plus explicit range/truncation facts.
-  ///
-  /// Reply relations are not part of the current message facts; the result
-  /// says so explicitly instead of fabricating them.
-  Future<ContextResult> getContext({
-    required String peerAccount,
-    required String messageId,
-    int before = 10,
-    int after = 10,
-  }) async {
-    final AuthIdentity captured = _requireLogin();
-    _requirePeer(captured, peerAccount);
-    if (before < 0 || after < 0) {
-      throw _validation('before');
-    }
-    final int beforeCount = before.clamp(0, 50);
-    final int afterCount = after.clamp(0, 50);
-    final MessageLookup lookup = await getMessage(
-      peerAccount: peerAccount,
+    final ChatMessage? message = await api.messageById(
+      token: captured.token,
       messageId: messageId,
     );
-    final ChatMessage? target = lookup.message;
-    if (target == null) {
-      return ContextResult(
-        message: null,
-        items: const <ChatMessage>[],
-        truncated: lookup.truncated,
-        truncatedBefore: false,
-        truncatedAfter: false,
-        replySupport: ReplySupport.unsupported,
-      );
-    }
-    final int start = math.max(1, target.position - beforeCount);
-    final int end = target.position + afterCount;
-    final List<ChatMessage> window = <ChatMessage>[];
-    int cursor = start - 1;
-    int pages = 0;
-    bool limitTruncated = false;
-    while (true) {
-      final int pageLimit = (end - cursor).clamp(1, maxPageSize);
-      final MessagePage page = await api.conversation(
-        token: captured.token,
-        account: peerAccount,
-        afterPosition: cursor,
-        limit: pageLimit,
-      );
-      if (!session.isCurrent(captured)) {
-        throw staleIdentityFailure;
-      }
-      if (page.items.isEmpty) {
-        break;
-      }
-      for (final ChatMessage message in page.items) {
-        if (message.position >= start && message.position <= end) {
-          window.add(message);
-        }
-      }
-      cursor = page.nextPosition;
-      if (window.isNotEmpty && window.last.position >= end) {
-        break;
-      }
-      if (!page.hasMore) {
-        break;
-      }
-      pages += 1;
-      if (pages > 3) {
-        limitTruncated = true;
-        break;
-      }
-    }
-    window.sort(
-      (ChatMessage a, ChatMessage b) => a.position.compareTo(b.position),
-    );
-    final bool beforeTruncated =
-        start > 1 && (window.isEmpty || window.first.position > start);
-    final bool afterTruncated =
-        window.isNotEmpty &&
-        window.last.position < end &&
-        limitTruncated;
     _ensureCurrent(captured);
+    return message;
+  }
+
+  /// Direct context from the same server read transaction.
+  ///
+  /// `null` means the anchor is absent or outside this account's scope.
+  Future<ContextResult?> getContext({
+    required String messageId,
+    int beforeLimit = 10,
+    int afterLimit = 10,
+  }) async {
+    final AuthIdentity captured = _requireLogin();
+    if (!_messageIdPattern.hasMatch(messageId)) {
+      throw _validation('message_id');
+    }
+    if (beforeLimit < 0 || beforeLimit > 49) {
+      throw _validation('before_limit');
+    }
+    if (afterLimit < 0 || afterLimit > 49) {
+      throw _validation('after_limit');
+    }
+    final MessageContextRecord? record = await api.messageContext(
+      token: captured.token,
+      messageId: messageId,
+      beforeLimit: beforeLimit,
+      afterLimit: afterLimit,
+    );
+    _ensureCurrent(captured);
+    if (record == null) {
+      return null;
+    }
     return ContextResult(
-      message: target,
-      items: List<ChatMessage>.unmodifiable(window),
-      truncated: lookup.truncated || limitTruncated,
-      truncatedBefore: beforeTruncated,
-      truncatedAfter: afterTruncated,
-      replySupport: ReplySupport.unsupported,
+      items: record.items,
+      anchorMessageId: record.anchorMessageId,
+      peerAccount: record.peerAccount,
+      startPosition: record.startPosition,
+      endPosition: record.endPosition,
+      beforeHasMore: record.beforeHasMore,
+      afterHasMore: record.afterHasMore,
+      missingPositions: record.missingPositions,
+      missingTruncated: record.missingTruncated,
+      replyRelations: record.replyRelations,
     );
   }
 
   // --------------------------------------------------------------- history --
 
-  /// Bidirectional history over one pair.
+  /// One ascending page of pair history.
   ///
-  /// Exactly one direction may be supplied: `afterPosition` reads forward from
-  /// that exclusive cursor; `beforePosition` returns the up-to-[limit] messages
-  /// immediately before it in ascending order. Both supplied is invalid. All
-  /// results are ascending and de-duplicated by position.
+  /// `afterPosition` and `beforePosition` are mutually exclusive. `nextPosition`
+  /// follows the contract: the last item for `after`, the first item for
+  /// `before`, and the request boundary for an empty page.
   Future<HistoryPage> readHistory({
     required String peerAccount,
     int? afterPosition,
@@ -330,89 +160,41 @@ class ChatQueryService {
     int limit = 50,
   }) async {
     final AuthIdentity captured = _requireLogin();
-    _requirePeer(captured, peerAccount);
+    if (!_accountPattern.hasMatch(peerAccount)) {
+      throw _validation('account');
+    }
     if (afterPosition != null && beforePosition != null) {
       throw _validation('before_position');
     }
-    if ((afterPosition ?? 0) < 0 || (beforePosition ?? 0) < 0) {
-      throw _validation('position');
+    if ((afterPosition ?? 0) < 0) {
+      throw _validation('after_position');
     }
-    final int pageSize = limit.clamp(1, maxPageSize);
-    if (beforePosition == null) {
-      final MessagePage page = await api.conversation(
-        token: captured.token,
-        account: peerAccount,
-        afterPosition: afterPosition ?? 0,
-        limit: pageSize,
-      );
-      if (!session.isCurrent(captured)) {
-        throw staleIdentityFailure;
-      }
-      return HistoryPage(
-        items: List<ChatMessage>.unmodifiable(page.items),
-        hasMore: page.hasMore,
-        truncated: false,
-        order: HistoryOrder.ascending,
-      );
+    if (beforePosition != null && beforePosition < 1) {
+      throw _validation('before_position');
     }
-
-    if (beforePosition == 0) {
-      return const HistoryPage(
-        items: <ChatMessage>[],
-        hasMore: false,
-        truncated: false,
-        order: HistoryOrder.ascending,
-      );
+    if (limit < 1 || limit > 100) {
+      throw _validation('limit');
     }
-    final int scanBound = math.max(1, maxScanMessages);
-    final List<ChatMessage> collected = <ChatMessage>[];
-    int after = 0;
-    int scanned = 0;
-    bool truncated = false;
-    while (true) {
-      final MessagePage page = await api.conversation(
-        token: captured.token,
-        account: peerAccount,
-        afterPosition: after,
-        limit: maxPageSize,
-      );
-      if (!session.isCurrent(captured)) {
-        throw staleIdentityFailure;
-      }
-      if (page.items.isEmpty) {
-        break;
-      }
-      for (final ChatMessage message in page.items) {
-        if (message.position >= beforePosition) {
-          break;
-        }
-        scanned += 1;
-        if (scanned > scanBound) {
-          truncated = true;
-          break;
-        }
-        collected.add(message);
-      }
-      if (truncated ||
-          (page.items.isNotEmpty && page.items.last.position >= beforePosition) ||
-          !page.hasMore) {
-        break;
-      }
-      after = page.nextPosition;
-    }
+    final MessagePage page = await api.conversation(
+      token: captured.token,
+      account: peerAccount,
+      afterPosition: afterPosition,
+      beforePosition: beforePosition,
+      limit: limit,
+    );
     _ensureCurrent(captured);
-    final int from = math.max(0, collected.length - pageSize);
+    final bool backward = beforePosition != null;
+    final int nextPosition = backward
+        ? (page.items.isNotEmpty ? page.items.first.position : beforePosition)
+        : page.nextPosition;
     return HistoryPage(
-      items: List<ChatMessage>.unmodifiable(collected.sublist(from)),
-      hasMore: from > 0,
-      truncated: truncated,
-      order: HistoryOrder.ascending,
+      items: List<ChatMessage>.unmodifiable(page.items),
+      nextPosition: nextPosition,
+      hasMore: page.hasMore,
     );
   }
 
   // ------------------------------------------------------------- internals --
-
-  static final RegExp _accountPattern = RegExp(r'^[1-9][0-9]{7}$');
 
   AuthIdentity _requireLogin() {
     final AuthIdentity? captured = session.identity;
@@ -428,15 +210,6 @@ class ChatQueryService {
     }
   }
 
-  void _requirePeer(AuthIdentity captured, String peerAccount) {
-    if (!_accountPattern.hasMatch(peerAccount) ||
-        peerAccount == captured.account) {
-      // Same safe result as a message that does not exist or is not visible to
-      // this account: never reveal whether a third-party conversation exists.
-      throw const MessageNotVisible();
-    }
-  }
-
   AuthFailure _validation(String field) => AuthFailure(
     status: 422,
     code: 'validation_error',
@@ -447,133 +220,107 @@ class ChatQueryService {
   );
 }
 
-/// Safe miss for a peer outside the caller's allowed conversation scope.
-class MessageNotVisible implements Exception {
-  const MessageNotVisible();
-}
-
-enum ConversationUnread { none, unread, unknown }
-
+/// One existing private conversation plus the validated consumer watermark.
 class ConversationSummary {
   const ConversationSummary({
-    required this.peer,
-    this.lastMessage,
-    this.lastActivityAt,
-    this.unread = ConversationUnread.unknown,
-    this.firstUnreadPosition,
+    required this.peerAccount,
+    required this.lastMessage,
+    required this.lastActivityAt,
+    required this.latestPosition,
+    required this.consumedThrough,
+    required this.unconsumedPositions,
   });
 
-  final ChatUser peer;
-  final UserPreview? lastMessage;
-  final DateTime? lastActivityAt;
-  final ConversationUnread unread;
-  final int? firstUnreadPosition;
+  final String peerAccount;
+  final ChatMessage lastMessage;
+  final DateTime lastActivityAt;
+  final int latestPosition;
+  final int consumedThrough;
+  final int unconsumedPositions;
 
   Map<String, dynamic> toJson() => <String, dynamic>{
-    'account': peer.account,
-    'username': peer.username,
-    'last_message': lastMessage?.toJson(),
-    'last_activity_at': lastActivityAt?.toIso8601String(),
-    'unread': unread.name,
-    if (firstUnreadPosition != null) 'first_unread_position': firstUnreadPosition,
+    'peer_account': peerAccount,
+    'last_message': messageToJson(lastMessage),
+    'last_activity_at': lastActivityAt.toIso8601String(),
+    'latest_position': latestPosition,
+    'consumed_through': consumedThrough,
+    'unconsumed_positions': unconsumedPositions,
   };
 }
 
 class ConversationPage {
-  const ConversationPage({
-    required this.items,
-    required this.nextCursor,
-    required this.hasMore,
-  });
+  const ConversationPage({required this.items, required this.nextCursor});
 
   final List<ConversationSummary> items;
   final String? nextCursor;
-  final bool hasMore;
 
   Map<String, dynamic> toJson() => <String, dynamic>{
     'items': items.map((ConversationSummary item) => item.toJson()).toList(),
     'next_cursor': nextCursor,
-    'has_more': hasMore,
   };
 }
-
-class MessageLookup {
-  const MessageLookup({required this.message, required this.truncated});
-
-  final ChatMessage? message;
-  final bool truncated;
-
-  Map<String, dynamic> toJson() => <String, dynamic>{
-    'message': message == null ? null : messageToJson(message!),
-    'truncated': truncated,
-  };
-}
-
-enum ReplySupport { unsupported }
 
 class ContextResult {
   const ContextResult({
-    required this.message,
     required this.items,
-    required this.truncated,
-    required this.truncatedBefore,
-    required this.truncatedAfter,
-    required this.replySupport,
+    required this.anchorMessageId,
+    required this.peerAccount,
+    required this.startPosition,
+    required this.endPosition,
+    required this.beforeHasMore,
+    required this.afterHasMore,
+    required this.missingPositions,
+    required this.missingTruncated,
+    required this.replyRelations,
   });
 
-  final ChatMessage? message;
   final List<ChatMessage> items;
-  final bool truncated;
-  final bool truncatedBefore;
-  final bool truncatedAfter;
-  final ReplySupport replySupport;
-
-  Map<String, dynamic> toJson() => <String, dynamic>{
-    'message': message == null ? null : messageToJson(message!),
-    'items': items.map(messageToJson).toList(),
-    'truncated': truncated,
-    'truncated_before': truncatedBefore,
-    'truncated_after': truncatedAfter,
-    // No reply relation exists in the current message facts.
-    'replies': const <Object>[],
-    'reply_support': replySupport.name,
-  };
+  final String anchorMessageId;
+  final String peerAccount;
+  final int startPosition;
+  final int endPosition;
+  final bool beforeHasMore;
+  final bool afterHasMore;
+  final List<int> missingPositions;
+  final bool missingTruncated;
+  final String replyRelations;
 }
 
-enum HistoryOrder { ascending }
+/// A query-time visible message plus media that could not be fetched.
+///
+/// When [missingMediaIds] is non-empty the item has no presentation receipt:
+/// a partial image display must never become consumable evidence.
+class QueryVisibleMessage {
+  const QueryVisibleMessage({
+    required this.item,
+    required this.missingMediaIds,
+  });
+
+  final VisibleMessage item;
+  final List<String> missingMediaIds;
+}
 
 class HistoryPage {
   const HistoryPage({
     required this.items,
+    required this.nextPosition,
     required this.hasMore,
-    required this.truncated,
-    required this.order,
   });
 
   final List<ChatMessage> items;
+  final int nextPosition;
   final bool hasMore;
-  final bool truncated;
-  final HistoryOrder order;
-
-  Map<String, dynamic> toJson() => <String, dynamic>{
-    'items': items.map(messageToJson).toList(),
-    'has_more': hasMore,
-    'truncated': truncated,
-    'order': order.name,
-  };
 }
 
-/// Identity changed mid-query: the caller sees the contract's stale error
-/// rather than a fabricated 401 or partial page.
+/// Identity changed mid-query: stale error rather than an old page.
 const AuthFailure staleIdentityFailure = AuthFailure(
   status: 409,
   code: 'stale_identity',
   message: '身份已变化，请重新登录或显式重绑',
 );
 
-/// A caller-supplied consumer id that does not belong to the authenticated
-/// account. Owner capability and revision validation are layered by the v2
-/// route; this is the minimum service-level authorization.
+/// A caller-supplied consumer id not bound to the authenticated account.
+/// Owner capability and revision validation are layered by the v2 route.
 const AuthFailure staleBindingFailure = AuthFailure(
   status: 409,
   code: 'stale_binding',

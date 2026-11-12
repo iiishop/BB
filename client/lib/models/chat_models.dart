@@ -445,6 +445,134 @@ class MessagePage {
   }
 }
 
+/// Server conversation row for the shared query contract.
+///
+/// Positions are in the complete bidirectional message stream. The client adds
+/// the consumer watermark fields after owner/consumer/binding validation.
+class ConversationRecord {
+  const ConversationRecord({
+    required this.peerAccount,
+    required this.lastMessage,
+    required this.lastActivityAt,
+    required this.latestPosition,
+  });
+
+  final String peerAccount;
+  final ChatMessage lastMessage;
+  final DateTime lastActivityAt;
+  final int latestPosition;
+
+  factory ConversationRecord.fromJson(Object? json) {
+    if (json is! Map<String, dynamic>) {
+      throw const FormatException('conversation must be an object');
+    }
+    final Object? peer = json['peer_account'];
+    final Object? last = json['last_message'];
+    final Object? activity = json['last_activity_at'];
+    final Object? latest = json['latest_position'];
+    if (peer is! String ||
+        last is! Map<String, dynamic> ||
+        activity is! String ||
+        latest is! int) {
+      throw const FormatException('conversation has invalid fields');
+    }
+    final DateTime? at = DateTime.tryParse(activity);
+    if (at == null) {
+      throw const FormatException('conversation time is invalid');
+    }
+    return ConversationRecord(
+      peerAccount: peer,
+      lastMessage: ChatMessage.fromJson(last),
+      lastActivityAt: at.toUtc(),
+      latestPosition: latest,
+    );
+  }
+}
+
+class ConversationRecordPage {
+  const ConversationRecordPage({required this.items, required this.nextCursor});
+
+  final List<ConversationRecord> items;
+  final String? nextCursor;
+
+  factory ConversationRecordPage.fromJson(Object? json) {
+    if (json is! Map<String, dynamic> ||
+        json['items'] is! List ||
+        (json['next_cursor'] != null && json['next_cursor'] is! String)) {
+      throw const FormatException('conversation page has invalid fields');
+    }
+    return ConversationRecordPage(
+      items: List<ConversationRecord>.unmodifiable(
+        (json['items'] as List).map(ConversationRecord.fromJson),
+      ),
+      nextCursor: json['next_cursor'] as String?,
+    );
+  }
+}
+
+/// Server-side context answer: anchor, ordered items and explicit range facts.
+class MessageContextRecord {
+  const MessageContextRecord({
+    required this.items,
+    required this.anchorMessageId,
+    required this.peerAccount,
+    required this.startPosition,
+    required this.endPosition,
+    required this.beforeHasMore,
+    required this.afterHasMore,
+    required this.missingPositions,
+    required this.missingTruncated,
+    required this.replyRelations,
+  });
+
+  final List<ChatMessage> items;
+  final String anchorMessageId;
+  final String peerAccount;
+  final int startPosition;
+  final int endPosition;
+  final bool beforeHasMore;
+  final bool afterHasMore;
+  final List<int> missingPositions;
+  final bool missingTruncated;
+  final String replyRelations;
+
+  factory MessageContextRecord.fromJson(Object? json) {
+    if (json is! Map<String, dynamic> ||
+        json['items'] is! List ||
+        json['anchor_message_id'] is! String ||
+        json['peer_account'] is! String ||
+        json['range'] is! Map<String, dynamic> ||
+        json['before_has_more'] is! bool ||
+        json['after_has_more'] is! bool ||
+        json['missing_positions'] is! List ||
+        json['missing_truncated'] is! bool ||
+        json['reply_relations'] is! String) {
+      throw const FormatException('context has invalid fields');
+    }
+    final Map<String, dynamic> range = json['range'] as Map<String, dynamic>;
+    if (range['start_position'] is! int || range['end_position'] is! int) {
+      throw const FormatException('context range is invalid');
+    }
+    return MessageContextRecord(
+      items: List<ChatMessage>.unmodifiable(
+        (json['items'] as List).map(ChatMessage.fromJson),
+      ),
+      anchorMessageId: json['anchor_message_id'] as String,
+      peerAccount: json['peer_account'] as String,
+      startPosition: range['start_position'] as int,
+      endPosition: range['end_position'] as int,
+      beforeHasMore: json['before_has_more'] as bool,
+      afterHasMore: json['after_has_more'] as bool,
+      missingPositions: <int>[
+        for (final Object? value in json['missing_positions'] as List)
+          if (value is int) value,
+      ],
+      missingTruncated: json['missing_truncated'] as bool,
+      replyRelations: json['reply_relations'] as String,
+    );
+  }
+}
+
 enum OperationStatus {
   pending,
   uncertain,

@@ -148,36 +148,32 @@ PARTIAL，NOT RUN 为原生 wait/被动仲裁、备份完成到 rename 之间的
 analyze PASS、flutter-test **318 passed / 8 skipped**、linux-integration **13 passed**，
 `RESULT=PASS`。8 个 skip 仍为第 6 节列出的 6 个真实服务/MCP 用例和 2 个截图用例，不计通过。
 
-## 9. 统一会话/消息/上下文查询服务（产品化）
+## 9. 统一会话/消息/上下文查询服务（共享契约 900429c 接线）
 
-`client/lib/services/chat_query.dart` 提供共享 v2 查询路由将复用的语义层，
-`ChatService.query` 暴露同一实例；Forge 的共享 schema/fixtures 到位后由 v2 本地路由
-按精确提交接线，客户端不自造第二套 DTO。
+`client/lib/services/chat_query.dart` 是客户端统一查询服务（`ChatService.query`），
+Forge 的共享查询契约（`4b91a5b`/`900429c`）唯一制定字段与语义；客户端不新增第二套 DTO。
 
-- `listConversations`：只返回当前账号已有私聊（按目录游标稳定分页，跳过无会话用户），
-  返回对方、最后消息预览/时间；`consumerId` 给出时 `unread` 由该 consumer 自己的水位
-  与入站消息计算（`none`/`unread`/`unknown`），没有 consumer 时为 `unknown`，不等同
-  用户目录或对外已读。
-- `getMessage`：按消息 ID 在给定 peer 的同一消息事实中查找；不存在/越权统一安全失败
-  （`MessageNotVisible`），有序 parts/media 原样返回；扫描上界命中时 `truncated=true`，
-  不把截断当成“不存在”。
-- `getContext`：返回目标消息及前后窗口（升序、有界），显式 `truncated*`；当前事实无
-  回复关系，`reply_support=unsupported` 且 `replies=[]`，不新增回复 UI。
-- `readHistory`：`afterPosition`/`beforePosition` 互斥；结果升序去重，边界明确；旧
-  `readMessages` 调用与语义保持不变。
-- 所有查询只走只读 GET，不 prepare receipt、不 confirm、不 ACK；测试断言查询前后
-  consumer 水位与 receipts 不变。
-
-未接线：新的 v2 路由/DTO 等 Forge 的首个共享契约提交；`before` 方向与按 ID 查找目前
-以显式有界前向扫描实现（`maxScanMessages`），共享双向路由到位后替换传输层，不改语义。
-`test/chat_query_service_test.dart` 覆盖目录隔离/稳定分页、unread、双向历史、有序媒体、
-安全失败、截断与“查询不消费”。
-
-查询边界修正（Orion 审阅）：`getMessage` 区分“恰好扫完”和“仍有未扫描记录”——
-`has_more=false` 且整页扫描完成时即使 `maxScanMessages` 恰好等于条数也返回
-`truncated=false`；命中发生在上界内同样是完整结果。所有查询在异步返回前用捕获的
-`AuthIdentity` 再验证：账号切换或同账号重新登录都会返回 409 `stale_identity`，不会把旧
-结果交给新上下文。`listConversations` 的调用方 `consumerId` 必须是当前账号的 binding
-（否则 409 `stale_binding`）；owner header/revision 校验留待共享 v2 路由接线时叠加。
-对应回归见 `test/chat_query_service_test.dart`（恰好扫完/尚有未扫描/上界内命中、账号切换、
-同账号重登、跨账号 consumer）。
+- 服务端 `GET /conversations`、`GET /messages/{id}`、`GET /messages/{id}/context` 与
+  双向 `GET /conversations/{account}/messages` 是唯一查询事实来源；客户端不再扫描历史来
+  猜消息是否存在。
+- 本地 v2 路由 `/v2/chat/list_conversations`、`/v2/chat/get_message`、
+  `/v2/chat/get_context` 先严格校验 owner header 与四字段 `expected_identity`，再调用
+  查询服务；成功统一 `{identity,result}`。
+- `list_conversations`：仅已有私聊、peer 账号升序 keyset；服务端返回
+  peer/last_message/last_activity_at/latest_position，客户端在已验证 consumer/binding 下
+  补 `consumed_through` 与 `unconsumed_positions`（双向流位置差，不是收到的未读条数，
+  也不是对外已读）。调用方任意 consumerId 不构成授权。
+- `get_message`：服务端直接 lookup，不存在/无权统一 404；返回 ` {item,missing_media_ids}`。
+  `get_context`：同一读事务内返回 anchor 与前后邻居（最多 99），明确 `range`、
+  `before_has_more`/`after_has_more`、`missing_positions`/`missing_truncated`，回复关系固定
+  `unsupported`。两向都用 `VisibleMessage`；缺图只填 `missing_media_ids`，该消息不给
+  presentation，绝不把图像占位符当完整展示。
+- `read_messages` 增加 `before_position`，与 `after_position` 非 null 互斥；两向升序，
+  before 的 `next_position` 是首条位置，空页保持请求边界；旧 after 调用与 v1 白名单不变。
+- 查询可以准备展示 receipts，但不 confirm、不 ACK、不推进水位；所有异步返回前用捕获的
+  `AuthIdentity` 再验证，账号切换/同账号重登返回 409 `stale_identity`。
+- 回归：`test/chat_query_service_test.dart`（直接 lookup/context、consumer 富化、双向
+  历史、缺口、身份）、`test/chat_v2_query_routes_test.dart`（严格 DTO、owner/identity、
+  有序媒体与缺图不发放 receipt、before 分页、查询不消费）、
+  `test/chat_v2_shared_contract_test.dart` 消费 `server/contract` 的 OpenAPI/fixtures
+  （路线、invalid_inputs、错误表与三个查询结果 key 集合）。
