@@ -678,7 +678,7 @@ class ChatService {
         );
         mediaIds[imageIndex] = uploaded.mediaId;
         if (!session.isCurrent(captured)) {
-          throw unauthenticated;
+          throw staleIdentity;
         }
         record = ChatOperationRecord(
           operationId: opId,
@@ -713,7 +713,7 @@ class ChatService {
     );
     await ledger.saveOperation(account, record);
     if (!session.isCurrent(captured)) {
-      throw unauthenticated;
+      throw staleIdentity;
     }
     return _submitBody(captured, account, record, cleaned, mediaIds);
   }
@@ -744,7 +744,7 @@ class ChatService {
             Duration(seconds: seconds < 0 ? 0 : seconds),
           );
           if (!session.isCurrent(captured)) {
-            throw unauthenticated;
+            throw staleIdentity;
           }
           continue;
         }
@@ -780,7 +780,7 @@ class ChatService {
             Duration(seconds: seconds < 0 ? 0 : seconds),
           );
           if (!session.isCurrent(captured)) {
-            throw unauthenticated;
+            throw staleIdentity;
           }
           continue;
         }
@@ -824,7 +824,7 @@ class ChatService {
             : content[i].toWirePart(null),
     ];
     if (!session.isCurrent(captured)) {
-      throw unauthenticated;
+      throw staleIdentity;
     }
     if (record.state == 'uncertain') {
       final OperationResult? resolved = await _operationFor(
@@ -832,7 +832,10 @@ class ChatService {
         record.operationId,
       );
       if (!session.isCurrent(captured)) {
-        throw unauthenticated;
+        // The identity changed while this accepted operation was in flight.
+        // A committed send stays under the original account; the stale caller
+        // gets the contract's stale error, never a fabricated 401/failure.
+        throw staleIdentity;
       }
       if (resolved?.message != null) {
         await _succeed(account, record, resolved!.message!);
@@ -852,11 +855,14 @@ class ChatService {
       );
       // The remote commit already happened under the captured identity. Record
       // it in the original account's ledger first; a later switch only turns
-      // this call's result into 401, it must not turn a committed send into a
-      // lost local fact.
+      // this call's result into the contract's stale error, it must not turn a
+      // committed send into a lost local fact.
       await _succeed(account, record, message);
       if (!session.isCurrent(captured)) {
-        throw unauthenticated;
+        // The identity changed while this accepted operation was in flight.
+        // A committed send stays under the original account; the stale caller
+        // gets the contract's stale error, never a fabricated 401/failure.
+        throw staleIdentity;
       }
       return SendOutcome(
         operationId: record.operationId,
@@ -867,14 +873,14 @@ class ChatService {
       if (_isUncertain(failure)) {
         await _markUncertain(account, record);
         if (!session.isCurrent(captured)) {
-          throw unauthenticated;
+          throw staleIdentity;
         }
         final OperationResult? resolved = await _operationFor(
           captured,
           record.operationId,
         );
         if (!session.isCurrent(captured)) {
-          throw unauthenticated;
+          throw staleIdentity;
         }
         if (resolved?.message != null) {
           await _succeed(account, record, resolved!.message!);
@@ -894,7 +900,7 @@ class ChatService {
           );
           await _succeed(account, record, message);
           if (!session.isCurrent(captured)) {
-            throw unauthenticated;
+            throw staleIdentity;
           }
           return SendOutcome(
             operationId: record.operationId,
@@ -1009,7 +1015,7 @@ class ChatService {
           );
           coverId = uploadedCover.mediaId;
           if (!session.isCurrent(captured)) {
-            throw unauthenticated;
+            throw staleIdentity;
           }
         }
       }
@@ -1023,7 +1029,10 @@ class ChatService {
       );
       mediaId = uploaded.mediaId;
       if (!session.isCurrent(captured)) {
-        throw unauthenticated;
+        // The identity changed while this accepted operation was in flight.
+        // A committed send stays under the original account; the stale caller
+        // gets the contract's stale error, never a fabricated 401/failure.
+        throw staleIdentity;
       }
       record = ChatOperationRecord(
         operationId: opId,
@@ -1065,7 +1074,7 @@ class ChatService {
     );
     await ledger.saveOperation(account, record);
     if (!session.isCurrent(captured)) {
-      throw unauthenticated;
+      throw staleIdentity;
     }
     return _submitAttachment(captured, account, record, attachment);
   }
@@ -1077,7 +1086,7 @@ class ChatService {
     OutgoingAttachment attachment,
   ) async {
     if (!session.isCurrent(captured)) {
-      throw unauthenticated;
+      throw staleIdentity;
     }
     if (record.state == 'uncertain') {
       final OperationResult? resolved = await _operationFor(
@@ -1085,7 +1094,10 @@ class ChatService {
         record.operationId,
       );
       if (!session.isCurrent(captured)) {
-        throw unauthenticated;
+        // The identity changed while this accepted operation was in flight.
+        // A committed send stays under the original account; the stale caller
+        // gets the contract's stale error, never a fabricated 401/failure.
+        throw staleIdentity;
       }
       if (resolved?.message != null) {
         await _succeed(account, record, resolved!.message!);
@@ -1105,7 +1117,10 @@ class ChatService {
       );
       await _succeed(account, record, message);
       if (!session.isCurrent(captured)) {
-        throw unauthenticated;
+        // The identity changed while this accepted operation was in flight.
+        // A committed send stays under the original account; the stale caller
+        // gets the contract's stale error, never a fabricated 401/failure.
+        throw staleIdentity;
       }
       return SendOutcome(
         operationId: record.operationId,
@@ -1116,14 +1131,14 @@ class ChatService {
       if (_isUncertain(failure)) {
         await _markUncertain(account, record);
         if (!session.isCurrent(captured)) {
-          throw unauthenticated;
+          throw staleIdentity;
         }
         final OperationResult? resolved = await _operationFor(
           captured,
           record.operationId,
         );
         if (!session.isCurrent(captured)) {
-          throw unauthenticated;
+          throw staleIdentity;
         }
         if (resolved?.message != null) {
           await _succeed(account, record, resolved!.message!);
@@ -1142,7 +1157,7 @@ class ChatService {
           );
           await _succeed(account, record, message);
           if (!session.isCurrent(captured)) {
-            throw unauthenticated;
+            throw staleIdentity;
           }
           return SendOutcome(
             operationId: record.operationId,

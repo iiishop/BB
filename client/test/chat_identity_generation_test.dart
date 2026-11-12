@@ -172,7 +172,7 @@ void main() {
       api.release.complete();
       await expectLater(
         pending,
-        throwsA(failure(401, 'unauthenticated')),
+        throwsA(failure(409, staleIdentityCode)),
       );
 
       // The commit belonged to A and its success fact stays in A's ledger.
