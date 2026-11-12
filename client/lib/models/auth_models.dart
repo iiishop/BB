@@ -68,6 +68,7 @@ class AuthFailure implements Exception {
     required this.code,
     required this.message,
     this.fields = const <AuthFieldError>[],
+    this.retryAfterSeconds,
   });
 
   /// HTTP status returned to callers (401/422 pass through; 502/504 for an
@@ -76,6 +77,9 @@ class AuthFailure implements Exception {
   final String code;
   final String message;
   final List<AuthFieldError> fields;
+
+  /// Server-provided Retry-After hint, in whole seconds, when present.
+  final int? retryAfterSeconds;
 
   /// `{"error": {...}}` body shared by the server and the local control API.
   Map<String, dynamic> toEnvelope() => <String, dynamic>{

@@ -161,7 +161,7 @@ flutter test integration_test -d linux
 QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_tests.sh client
 ```
 
-- 默认 `flutter test`：最新严格 runner 为 **269 passed / 8 skipped / exit 0**。新增覆盖
+- 默认 `flutter test`：最新严格 runner 为 **274 passed / 8 skipped / exit 0**。新增覆盖
   1000 条真实分页下发送/接收并发补取无缺口、events/wait limit 边界、原子展示确认/冲突/全组
   拒绝/重启幂等、新 consumer 独立补取、有序图文发送、幂等/冲突、read→receipt→ACK 缺口、
   附件只读元信息、异步下载内容、持久事件、wait 积压/提前到达、用户列表分页/预览/在线状态、
@@ -198,6 +198,8 @@ QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_test
   不 openWrite/delete，身份不匹配/记录缺失不推导、不 glob，终态后同名用户文件保留。
   恢复先验证最终文件或可信暂存与独立期望值；无记录截断/损坏暂存、记录损坏、目标替换
   保持 pending，不发成功事件。
+- 503 `storage_busy`：读取 `Retry-After`（缺省 1s）复用同一 nonce 重试最多 3 次；
+  `storage_io_error`/其他 503 不重试并给可区分的硬错误文案；新增 5 例覆盖去重与超限。
 - D3 Android：移除不兼容的 `video_thumbnail`，项目内 `MediaMetadataRetriever` 抽帧；
   `flutter build apk --debug` 实际产出 APK（见 docs）。
 - 真实 Dart/native R3 联调：`test-live-r3.py`（本地副本仅更新 client SHA 与 daemon 保护）

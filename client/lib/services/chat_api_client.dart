@@ -359,7 +359,12 @@ class ChatApiClient {
         timeout,
       );
       final String raw = await _readString(response, timeout);
-      return _RawResponse(response.statusCode, raw);
+      final String? retryAfter = response.headers.value('retry-after');
+      return _RawResponse(
+        response.statusCode,
+        raw,
+        retryAfterSeconds: int.tryParse(retryAfter ?? ''),
+      );
     } on SocketException {
       throw upstreamUnavailable;
     } on HandshakeException {
@@ -426,10 +431,18 @@ class ChatApiClient {
     if (allowed.contains(response.status)) {
       return;
     }
-    throw _decodeFailure(response.status, response.body);
+    throw _decodeFailure(
+      response.status,
+      response.body,
+      retryAfterSeconds: response.retryAfterSeconds,
+    );
   }
 
-  AuthFailure _decodeFailure(int status, String rawBody) {
+  AuthFailure _decodeFailure(
+    int status,
+    String rawBody, {
+    int? retryAfterSeconds,
+  }) {
     try {
       final Object? decoded = jsonDecode(rawBody);
       if (decoded is Map<String, dynamic>) {
@@ -454,6 +467,7 @@ class ChatApiClient {
               code: code,
               message: message,
               fields: fields,
+              retryAfterSeconds: retryAfterSeconds,
             );
           }
         }
@@ -497,10 +511,11 @@ class ChatApiClient {
 }
 
 class _RawResponse {
-  const _RawResponse(this.status, this.body);
+  const _RawResponse(this.status, this.body, {this.retryAfterSeconds});
 
   final int status;
   final String body;
+  final int? retryAfterSeconds;
 }
 
 /// Media bytes plus the server's content headers.
