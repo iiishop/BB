@@ -371,4 +371,101 @@ void main() {
     expect(page.items, hasLength(1));
     expect(page.items.single.event.type, LocalEventType.downloadSucceeded);
   });
+
+  test(
+    'prepare write failure blocks placement and recovers from staging',
+    () async {
+      if (!Platform.isLinux) {
+        return; // The permission-fault probe is Unix-only.
+      }
+      final HttpServer upstream = await HttpServer.bind(
+        InternetAddress.loopbackIPv4,
+        0,
+      );
+      upstream.listen((HttpRequest request) async {
+        request.response.headers.contentType = ContentType(
+          'application',
+          'pdf',
+        );
+        request.response.headers.set(
+          'content-disposition',
+          'attachment; filename="qa.pdf"',
+        );
+        request.response.write('%PDF-1.4 staged-before-record');
+        await request.response.close();
+      });
+      final String ledgerPath = '${root.path}/prepare-ledger.json';
+      final ChatLedger backing = ChatLedger.atPath(ledgerPath);
+      final Directory cacheRoot = Directory('${root.path}/prepare-cache');
+      final Directory terminal = Directory('${cacheRoot.path}/.terminal');
+      await terminal.create(recursive: true);
+      await Process.run('chmod', <String>['500', terminal.path]);
+      final DownloadManager first = DownloadManager(
+        api: ChatApiClient(
+          baseUri: Uri.parse('http://127.0.0.1:${upstream.port}'),
+        ),
+        session: session,
+        ledger: backing,
+        cacheRoot: cacheRoot,
+        onEvent: (LocalEvent event) =>
+            backing.deliverPendingEvents(event.account),
+      );
+      DownloadTask? task;
+      try {
+        task = await first.start(
+          operationId: 'prepare-fail',
+          consumerSession: 'origin-consumer',
+          mediaId: 'qa-media',
+        );
+        await first.dispose();
+      } finally {
+        await first.dispose();
+        await Process.run('chmod', <String>['700', terminal.path]);
+        await upstream.close(force: true);
+      }
+      final DownloadTask pending = (await backing.download(
+        _accountA,
+        task.taskId,
+      ))!;
+      expect(pending.status, DownloadStatus.pending);
+      expect(await File(pending.plannedPath).length(), 0);
+      expect(
+        await File('${cacheRoot.path}/.staging/${task.taskId}.part').exists(),
+        isTrue,
+        reason: 'staging bytes must be preserved when prepare fails',
+      );
+
+      final DownloadManager second = DownloadManager(
+        api: ChatApiClient(baseUri: Uri.parse('http://127.0.0.1:1')),
+        session: session,
+        ledger: backing,
+        cacheRoot: cacheRoot,
+        onEvent: (LocalEvent event) =>
+            backing.deliverPendingEvents(event.account),
+      );
+      try {
+        await second.resumePending();
+        await second.dispose();
+      } finally {
+        await second.dispose();
+      }
+      final DownloadTask recovered = (await backing.download(
+        _accountA,
+        task.taskId,
+      ))!;
+      expect(recovered.status, DownloadStatus.succeeded);
+      expect(recovered.actualPath, pending.plannedPath);
+      expect(
+        await File(recovered.actualPath!).readAsString(),
+        contains('staged'),
+      );
+      final LocalEventPage page = await backing.readLocalEvents(
+        account: _accountA,
+        consumerSession: 'origin-consumer',
+        afterCursor: 0,
+      );
+      expect(page.items, hasLength(1));
+      expect(page.items.single.event.type, LocalEventType.downloadSucceeded);
+    },
+  );
 }

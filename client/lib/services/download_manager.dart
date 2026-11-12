@@ -11,6 +11,16 @@ import 'chat_api_client.dart';
 import 'chat_ledger.dart';
 import 'media_source.dart';
 
+class _Recovery {
+  const _Recovery({this.task}) : blocked = false, normal = false;
+  const _Recovery.blocked() : task = null, blocked = true, normal = false;
+  const _Recovery.normal() : task = null, blocked = false, normal = true;
+
+  final DownloadTask? task;
+  final bool blocked;
+  final bool normal;
+}
+
 /// Async attachment downloads owned by the client.
 ///
 /// A start call only reserves a path and persists the task; bytes are fetched
@@ -151,6 +161,7 @@ class DownloadManager {
         } catch (_) {
           // Pending delivery remains durable for the origin account.
         }
+        await _cleanupPrepare(task.taskId);
       } else if ((task.status == DownloadStatus.pending ||
               task.status == DownloadStatus.running) &&
           !_active.containsKey(task.taskId)) {
@@ -186,6 +197,7 @@ class DownloadManager {
         } catch (_) {
           // Pending delivery remains durable.
         }
+        await _cleanupPrepare(task.taskId);
       }
     }
   }
@@ -214,15 +226,20 @@ class DownloadManager {
     DownloadTask task, {
     bool resumed = false,
   }) async {
+    bool normalPending = !resumed;
     if (resumed) {
-      final DownloadTask? saved = await _recoverSaved(account, task);
-      if (saved != null) {
-        final bool committed = await _commitSucceeded(account, saved);
+      final _Recovery recovery = await _recoverPrepared(account, task);
+      if (recovery.task != null) {
+        final bool committed = await _commitSucceeded(account, recovery.task!);
         if (committed) {
-          await _removeMarker(task.taskId);
+          await _cleanupPrepare(task.taskId);
         }
         return;
       }
+      if (recovery.blocked) {
+        return;
+      }
+      normalPending = recovery.normal;
     }
     File target;
     try {
@@ -239,32 +256,35 @@ class DownloadManager {
       if (!await target.exists() || await target.length() != 0) {
         target = await _reserve(target.parent, task.filename ?? 'attachment');
       }
-      final File temporary = File(
-        '${target.path}.part-${DateTime.now().microsecondsSinceEpoch}',
+      final Directory stagingDirectory = Directory(
+        '${cacheRoot.path}${Platform.pathSeparator}.staging',
       );
-      try {
-        await temporary.writeAsBytes(media.bytes, flush: true);
-        try {
-          await temporary.rename(target.path);
-        } on FileSystemException {
-          // Windows cannot rename over an existing reservation; we own this
-          // zero-byte placeholder, so replace it explicitly.
-          if (await target.exists() && await target.length() == 0) {
-            await target.delete();
-            await temporary.rename(target.path);
-          } else {
-            rethrow;
-          }
-        }
-      } finally {
-        if (await temporary.exists()) {
-          await temporary.delete();
-        }
+      await stagingDirectory.create(recursive: true);
+      final File staging = File(_stagingPath(task.taskId));
+      await staging.writeAsBytes(media.bytes, flush: true);
+      final int size = await staging.length();
+      final String digest = sha256
+          .convert(await staging.readAsBytes())
+          .toString();
+      // Preparation is durable before the final path is touched. A failure to
+      // persist this record leaves only the task-specific staging file; it
+      // never places/overwrites the final file and never invents a transport
+      // failure.
+      if (!await _writePrepare(
+        account: account,
+        task: task,
+        stagingPath: staging.path,
+        finalPath: target.path,
+        size: size,
+        digest: digest,
+      )) {
+        return;
+      }
+      if (!await _placePrepared(staging, target, size, digest)) {
+        return;
       }
     } catch (error) {
-      if (resumed) {
-        // A reopened task may already own a saved file. Never turn a recovery
-        // transport failure into a new download.failed fact.
+      if (resumed && !normalPending) {
         return;
       }
       if (error is AuthFailure &&
@@ -277,19 +297,14 @@ class DownloadManager {
       return;
     }
 
-    // The bytes are saved. A ledger commit failure below is a persistence
-    // problem, not a transfer failure: retry it, and never relabel the file as
-    // a failed download. The marker is a durable, identity-bound proof that
-    // this task owns this exact file across a process restart.
     final DownloadTask done = task.copyWith(
       status: DownloadStatus.succeeded,
       plannedPath: target.path,
       actualPath: target.path,
     );
-    await _writeMarker(account, done);
     final bool committed = await _commitSucceeded(account, done);
     if (committed) {
-      await _removeMarker(task.taskId);
+      await _cleanupPrepare(task.taskId);
     }
   }
 
@@ -307,8 +322,7 @@ class DownloadManager {
       }
     }
     if (!committed) {
-      // Leave the accepted task pending/recoverable; the marker still proves
-      // which file completed.
+      // Keep the prepare record and pending task for the next recovery pass.
       return false;
     }
     try {
@@ -320,98 +334,219 @@ class DownloadManager {
     return true;
   }
 
-  String _markerPath(String taskId) =>
+  String _preparePath(String taskId) =>
       '${cacheRoot.path}${Platform.pathSeparator}.terminal'
       '${Platform.pathSeparator}$taskId.json';
 
-  Future<void> _writeMarker(String account, DownloadTask done) async {
-    final String actualPath = done.actualPath ?? done.plannedPath;
+  String _stagingPath(String taskId) =>
+      '${cacheRoot.path}${Platform.pathSeparator}.staging'
+      '${Platform.pathSeparator}$taskId.part';
+
+  Future<bool> _writePrepare({
+    required String account,
+    required DownloadTask task,
+    required String stagingPath,
+    required String finalPath,
+    required int size,
+    required String digest,
+  }) async {
     try {
-      final File file = File(actualPath);
-      if (!await file.exists()) {
-        return;
-      }
-      final String digest = sha256.convert(await file.readAsBytes()).toString();
-      final Map<String, dynamic> marker = <String, dynamic>{
-        'version': 1,
-        'task_id': done.taskId,
-        'operation_id': done.operationId,
+      final Map<String, dynamic> record = <String, dynamic>{
+        'version': 2,
+        'state': 'prepared',
+        'task_id': task.taskId,
+        'operation_id': task.operationId,
         'account': account,
-        'consumer_session': done.consumerSession,
-        'actual_path': actualPath,
-        'size': await file.length(),
+        'consumer_session': task.consumerSession,
+        'media_id': task.mediaId,
+        'staging_path': stagingPath,
+        'final_path': finalPath,
+        'size': size,
         'sha256': digest,
       };
-      final File target = File(_markerPath(done.taskId));
+      final File target = File(_preparePath(task.taskId));
       await target.parent.create(recursive: true);
       final File temporary = File(
         '${target.path}.part-${DateTime.now().microsecondsSinceEpoch}',
       );
       try {
-        await temporary.writeAsString(jsonEncode(marker), flush: true);
+        await temporary.writeAsString(jsonEncode(record), flush: true);
         await temporary.rename(target.path);
       } finally {
         if (await temporary.exists()) {
           await temporary.delete();
         }
       }
+      return true;
     } catch (_) {
-      // No marker means no proof; callers keep the task recoverable rather
-      // than treating an arbitrary same-name file as this task's result.
+      return false;
     }
   }
 
-  Future<DownloadTask?> _recoverSaved(String account, DownloadTask task) async {
-    final File markerFile = File(_markerPath(task.taskId));
-    if (!await markerFile.exists()) {
-      return null;
-    }
+  Future<bool> _placePrepared(
+    File staging,
+    File target,
+    int size,
+    String digest,
+  ) async {
     try {
-      final Object? decoded = jsonDecode(await markerFile.readAsString());
-      if (decoded is! Map<String, dynamic>) {
-        return null;
+      if (await target.exists()) {
+        if (await target.length() == 0) {
+          await target.delete();
+        } else {
+          return false;
+        }
       }
-      final String? actualPath = decoded['actual_path'] as String?;
-      final int? size = decoded['size'] as int?;
-      final String? digest = decoded['sha256'] as String?;
-      if (decoded['version'] != 1 ||
-          decoded['task_id'] != task.taskId ||
-          decoded['operation_id'] != task.operationId ||
-          decoded['account'] != account ||
-          decoded['consumer_session'] != task.consumerSession ||
-          actualPath == null ||
-          size == null ||
-          digest == null) {
-        return null;
+      await staging.rename(target.path);
+      if (!await target.exists() ||
+          await target.length() != size ||
+          sha256.convert(await target.readAsBytes()).toString() != digest) {
+        return false;
       }
-      final File file = File(actualPath);
-      if (!await file.exists() || await file.length() != size) {
-        return null;
-      }
-      final String actualDigest = sha256
-          .convert(await file.readAsBytes())
-          .toString();
-      if (actualDigest != digest) {
-        return null;
-      }
-      return task.copyWith(
-        status: DownloadStatus.succeeded,
-        plannedPath: actualPath,
-        actualPath: actualPath,
-      );
+      return true;
     } catch (_) {
-      return null;
+      return false;
     }
   }
 
-  Future<void> _removeMarker(String taskId) async {
+  Future<_Recovery> _recoverPrepared(String account, DownloadTask task) async {
+    final File record = File(_preparePath(task.taskId));
+    if (await record.exists()) {
+      try {
+        final Object? decoded = jsonDecode(await record.readAsString());
+        if (decoded is! Map<String, dynamic>) {
+          return const _Recovery.blocked();
+        }
+        final int? version = decoded['version'] as int?;
+        // Backwards-compatible recovery of the previous v1 completion marker.
+        if (version == 1) {
+          final String? actualPath = decoded['actual_path'] as String?;
+          final int? size = decoded['size'] as int?;
+          final String? digest = decoded['sha256'] as String?;
+          if (decoded['task_id'] != task.taskId ||
+              decoded['operation_id'] != task.operationId ||
+              decoded['account'] != account ||
+              decoded['consumer_session'] != task.consumerSession ||
+              actualPath == null ||
+              size == null ||
+              digest == null) {
+            return const _Recovery.blocked();
+          }
+          final File file = File(actualPath);
+          if (!await file.exists() ||
+              await file.length() != size ||
+              sha256.convert(await file.readAsBytes()).toString() != digest) {
+            return const _Recovery.blocked();
+          }
+          return _Recovery(
+            task: task.copyWith(
+              status: DownloadStatus.succeeded,
+              plannedPath: actualPath,
+              actualPath: actualPath,
+            ),
+          );
+        }
+        final String? stagingPath = decoded['staging_path'] as String?;
+        final String? finalPath = decoded['final_path'] as String?;
+        final int? size = decoded['size'] as int?;
+        final String? digest = decoded['sha256'] as String?;
+        if (version != 2 ||
+            decoded['task_id'] != task.taskId ||
+            decoded['operation_id'] != task.operationId ||
+            decoded['account'] != account ||
+            decoded['consumer_session'] != task.consumerSession ||
+            decoded['media_id'] != task.mediaId ||
+            stagingPath == null ||
+            finalPath == null ||
+            size == null ||
+            digest == null) {
+          return const _Recovery.blocked();
+        }
+        final File finalFile = File(finalPath);
+        final File stagingFile = File(stagingPath);
+        if (await finalFile.exists() &&
+            await finalFile.length() == size &&
+            sha256.convert(await finalFile.readAsBytes()).toString() ==
+                digest) {
+          return _Recovery(
+            task: task.copyWith(
+              status: DownloadStatus.succeeded,
+              plannedPath: finalPath,
+              actualPath: finalPath,
+            ),
+          );
+        }
+        if (await stagingFile.exists() &&
+            await stagingFile.length() == size &&
+            sha256.convert(await stagingFile.readAsBytes()).toString() ==
+                digest) {
+          if (!await _placePrepared(stagingFile, finalFile, size, digest)) {
+            return const _Recovery.blocked();
+          }
+          return _Recovery(
+            task: task.copyWith(
+              status: DownloadStatus.succeeded,
+              plannedPath: finalPath,
+              actualPath: finalPath,
+            ),
+          );
+        }
+        return const _Recovery.blocked();
+      } catch (_) {
+        return const _Recovery.blocked();
+      }
+    }
+
+    // Preparation may have written staging bytes and then failed to persist
+    // the record. The task-specific staging file is still evidence we can
+    // verify and promote once the record is writable again.
+    final File staging = File(_stagingPath(task.taskId));
+    if (await staging.exists()) {
+      try {
+        final int size = await staging.length();
+        final String digest = sha256
+            .convert(await staging.readAsBytes())
+            .toString();
+        final File finalFile = File(task.plannedPath);
+        if (await finalFile.exists() && await finalFile.length() > 0) {
+          return const _Recovery.blocked();
+        }
+        if (!await _writePrepare(
+          account: account,
+          task: task,
+          stagingPath: staging.path,
+          finalPath: task.plannedPath,
+          size: size,
+          digest: digest,
+        )) {
+          return const _Recovery.blocked();
+        }
+        return await _recoverPrepared(account, task);
+      } catch (_) {
+        return const _Recovery.blocked();
+      }
+    }
+
+    final File finalFile = File(task.plannedPath);
+    if (await finalFile.exists() && await finalFile.length() > 0) {
+      // Old pending ledger with a non-empty target: no proof this task owns it.
+      return const _Recovery.blocked();
+    }
+    return const _Recovery.normal();
+  }
+
+  Future<void> _cleanupPrepare(String taskId) async {
     try {
-      final File marker = File(_markerPath(taskId));
-      if (await marker.exists()) {
-        await marker.delete();
+      final File record = File(_preparePath(taskId));
+      if (await record.exists()) {
+        await record.delete();
+      }
+      final File staging = File(_stagingPath(taskId));
+      if (await staging.exists()) {
+        await staging.delete();
       }
     } catch (_) {
-      // A stale marker is harmless: recovery verifies identity and hashes.
+      // A stale record/staging is harmless: recovery validates identity/hash.
     }
   }
 
