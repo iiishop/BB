@@ -32,14 +32,32 @@ def test_profile_shared_http_cases(tmp_path, case):
 
 
 def canonical_status_descriptions(schema):
-    # HTTPStatus renamed only this reason phrase in Python 3.13. Preserve every
+    # HTTPStatus renamed these reason phrases in Python 3.13. Preserve every
     # other field and unexpected description so real contract drift still fails.
     for operations in schema["paths"].values():
         for operation in operations.values():
-            response = operation.get("responses", {}).get("422", {})
-            if response.get("description") == "Unprocessable Entity":
-                response["description"] = "Unprocessable Content"
+            for status, old, new in (
+                ("422", "Unprocessable Entity", "Unprocessable Content"),
+                ("413", "Request Entity Too Large", "Content Too Large"),
+            ):
+                response = operation.get("responses", {}).get(status, {})
+                if response.get("description") == old:
+                    response["description"] = new
     return schema
+
+
+def test_status_normalization_preserves_contract_changes():
+    responses = {
+        "422": {
+            "description": "Custom validation contract",
+            "content": {"changed": True},
+        },
+        "413": {"description": "Custom upload limit"},
+        "400": {"description": "Unprocessable Entity"},
+    }
+    schema = {"paths": {"/test": {"post": {"responses": responses}}}}
+    expected = json.loads(json.dumps(schema))
+    assert canonical_status_descriptions(schema) == expected
 
 
 def test_openapi_snapshot_and_security_do_not_drift():
