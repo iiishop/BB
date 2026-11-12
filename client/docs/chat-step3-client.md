@@ -228,12 +228,14 @@ Owner/独立 QA 执行。
 - 落位通过**目标目录内任务专属临时文件**复制、flush、按期望摘要校验，再同文件系统 rename；
   临时文件名带随机 nonce，以 `File.create(exclusive:true)` 排他创建；目标已有未知对象时
   换 nonce，绝不覆盖。支持跨文件系统（如 `/dev/shm`），不依赖调大重试或仅限 cache。
-- **归属记录先于临时对象创建**：先原子写 `.terminal/<task_id>.cleanup.json`，保存
-  task/account/consumer 与精确随机 nonce 路径；再 `create(exclusive:true)`。若在两步之间
-  中断，只剩记录/无对象，恢复可安全收尾；不会出现“无记录空临时文件”。
-- 清理只读取该记录并核对**完整 account/consumer/task 身份**；任一项不匹配、记录损坏或
-  缺少记录均不删除、不推导、不 glob。终态后后来出现的同名用户文件不会被 `get` 删除；
-  旧 `<final>.part-<task_id>` 无可靠归属记录时保留不迁移。
+- **意图先于对象、所有权确认后复用**：先原子写 `.terminal/<task_id>.cleanup.json`
+  `state:"intent"`（task/account/consumer + 精确 nonce 路径），再 `create(exclusive:true)`；
+  成功后原子更新为 `state:"owned"` 才允许复用/删除。
+- 记录为 `intent` 且对象不存在时可重新排他创建；对象已存在但未确认 owned 时保留对象+
+  记录、拒绝 openWrite/delete。创建成功但 owned 确认失败同样保留不确定，不删未知对象。
+- 清理只读取 `owned` 记录并核对**完整 account/consumer/task 身份**；intent、任一项不匹配、
+  记录损坏或缺少记录均不删除、不推导、不 glob。终态后后来出现的同名用户文件不会被
+  `get` 删除；旧 `<final>.part-<task_id>` 无可靠归属记录时保留不迁移。
 - 清理失败保留 cleanup 记录，重启/再次 get 重试；终态成功与唯一事件不被改写，最后才删记录。
 - 恢复：准备记录的最终文件哈希匹配则原路径补终态；仅暂存匹配则安全落位；无准备记录时
   必须有独立期望记录且暂存完全匹配才可恢复。无记录截断/损坏暂存、记录损坏、摘要不符、

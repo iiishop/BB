@@ -392,6 +392,29 @@ class DownloadManager {
     return '$targetPath.part-$taskId-$nonce';
   }
 
+  Future<bool> _writeCleanupRecord(
+    File record,
+    Map<String, dynamic> ownership,
+  ) async {
+    try {
+      await record.parent.create(recursive: true);
+      final File recordTemp = File(
+        '${record.path}.part-${DateTime.now().microsecondsSinceEpoch}',
+      );
+      try {
+        await recordTemp.writeAsString(jsonEncode(ownership), flush: true);
+        await recordTemp.rename(record.path);
+      } finally {
+        if (await recordTemp.exists()) {
+          await recordTemp.delete();
+        }
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<String?> _claimTemporary({
     required String targetPath,
     required String taskId,
@@ -402,61 +425,89 @@ class DownloadManager {
     if (await record.exists()) {
       try {
         final Object? decoded = jsonDecode(await record.readAsString());
-        if (decoded is Map<String, dynamic> &&
-            decoded['version'] == 1 &&
-            decoded['task_id'] == taskId &&
-            decoded['account'] == account &&
-            decoded['consumer_session'] == consumerSession &&
-            decoded['temporary_path'] is String) {
-          return decoded['temporary_path'] as String;
+        if (decoded is! Map<String, dynamic> ||
+            decoded['version'] != 1 ||
+            decoded['task_id'] != taskId ||
+            decoded['account'] != account ||
+            decoded['consumer_session'] != consumerSession ||
+            decoded['temporary_path'] is! String) {
+          return null;
         }
+        final String path = decoded['temporary_path'] as String;
+        final String? state = decoded['state'] as String?;
+        if (state == 'owned') {
+          final File owned = File(path);
+          if (await owned.exists()) {
+            return path;
+          }
+          try {
+            await owned.create(exclusive: true);
+            return path;
+          } on FileSystemException {
+            return null;
+          }
+        }
+        if (state == 'intent') {
+          final File pending = File(path);
+          if (await pending.exists()) {
+            // Ownership was never confirmed. The object may be foreign; keep
+            // both it and the intent record, and do not open/delete it.
+            return null;
+          }
+          try {
+            await pending.create(exclusive: true);
+          } on FileSystemException {
+            return null;
+          }
+          final Map<String, dynamic> confirmed = Map<String, dynamic>.from(
+            decoded,
+          )..['state'] = 'owned';
+          if (await _writeCleanupRecord(record, confirmed)) {
+            return path;
+          }
+          // The empty object is ours only if the record is durable. If the
+          // confirmation failed, leave the intent and object untouched.
+          return null;
+        }
+        // Legacy records without a state are not ownership proof.
+        return null;
       } catch (_) {
-        // A corrupt ownership record cannot authorize deleting or reusing an
-        // arbitrary file.
         return null;
       }
-      return null;
     }
+
     for (int attempt = 0; attempt < 5; attempt++) {
       final String path = _newTemporaryPath(targetPath, taskId);
-      final Map<String, dynamic> ownership = <String, dynamic>{
+      final Map<String, dynamic> intent = <String, dynamic>{
         'version': 1,
+        'state': 'intent',
         'task_id': taskId,
         'account': account,
         'consumer_session': consumerSession,
         'temporary_path': path,
       };
-      try {
-        await record.parent.create(recursive: true);
-        final File recordTemp = File(
-          '${record.path}.part-${DateTime.now().microsecondsSinceEpoch}',
-        );
-        try {
-          await recordTemp.writeAsString(jsonEncode(ownership), flush: true);
-          await recordTemp.rename(record.path);
-        } finally {
-          if (await recordTemp.exists()) {
-            await recordTemp.delete();
-          }
-        }
-      } catch (_) {
+      if (!await _writeCleanupRecord(record, intent)) {
         return null;
       }
       final File temporary = File(path);
       try {
-        // Ownership is durable *before* the object exists. A kill between
-        // these two steps leaves a record with no object, which recovery can
-        // safely retire without touching any file.
         await temporary.create(exclusive: true);
-        return path;
       } on FileSystemException {
         try {
           await record.delete();
         } catch (_) {
-          // Preserve the record; recovery will not delete an unverified file.
+          // An intent + foreign object is preserved for diagnosis.
         }
         continue;
       }
+      final Map<String, dynamic> owned = Map<String, dynamic>.from(intent)
+        ..['state'] = 'owned';
+      if (!await _writeCleanupRecord(record, owned)) {
+        // Do not delete or overwrite an object whose ownership confirmation
+        // failed; leave the intent and empty object for safe diagnosis.
+        return null;
+      }
+      return path;
     }
     return null;
   }
@@ -474,6 +525,7 @@ class DownloadManager {
       final Object? decoded = jsonDecode(await record.readAsString());
       if (decoded is! Map<String, dynamic> ||
           decoded['version'] != 1 ||
+          decoded['state'] != 'owned' ||
           decoded['task_id'] != taskId ||
           decoded['account'] != account ||
           decoded['consumer_session'] != consumerSession ||
