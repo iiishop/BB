@@ -196,7 +196,6 @@ void main() {
       owner: ownerOne,
     );
     expect(first['active'], isTrue);
-    expect(first['migration'], 'ready');
     expect(first['session_id'], 'session-one');
     final Map<String, dynamic> identity =
         first['identity'] as Map<String, dynamic>;
@@ -513,10 +512,7 @@ void main() {
       <String, dynamic>{'expected_identity': second, 'account': _peer},
       owner: ownerTwo,
     );
-    expect(consumption['result'], <String, dynamic>{
-      'consumed_through': 0,
-      'migration': 'ready',
-    });
+    expect(consumption['result'], <String, dynamic>{'consumed_through': 0});
 
     // A known consumer id plus another owner key is not authority.
     final Map<String, dynamic> wrongOwner = await call(
@@ -779,8 +775,8 @@ void main() {
       isTrue,
     );
 
-    // A consumer whose events were admitted without an origin cannot be
-    // re-labelled with the caller's binding.
+    // A stored event without an origin is corrupt for the single protocol and
+    // is never re-labelled with the caller's binding.
     await chat.ledger.appendLocalEvent(
       account: _account,
       consumerSession: first['consumer_id'] as String,
@@ -801,9 +797,9 @@ void main() {
         'limit': 50,
       },
       owner: ownerOne,
-      status: 409,
+      status: 503,
     );
-    expect(legacy['error']['code'], 'migration_required');
+    expect(legacy['error']['code'], 'storage_unavailable');
   });
 
   test('v2 downloads keep their origin identity', () async {
@@ -861,9 +857,9 @@ void main() {
         'task_id': 'legacy-task',
       },
       owner: ownerOne,
-      status: 409,
+      status: 503,
     );
-    expect(legacy['error']['code'], 'migration_required');
+    expect(legacy['error']['code'], 'storage_unavailable');
   });
 }
 

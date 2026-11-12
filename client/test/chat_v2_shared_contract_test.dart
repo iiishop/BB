@@ -487,8 +487,8 @@ void main() {
           .toSet(),
     );
 
-    // Legacy event without a provable origin is a migration error, not a
-    // relabelled v2 event.
+    // A stored event without a provable origin fails closed instead of being
+    // relabelled as a v2 event.
     await chat.ledger.appendLocalEvent(
       account: _account,
       consumerSession: second['consumer_id'] as String,
@@ -510,8 +510,8 @@ void main() {
       },
       owner: ownerTwo,
     );
-    expect(migrated.status, declared('migration_required'));
-    expectEnvelope(migrated.body, 'migration_required');
+    expect(migrated.status, declared('storage_unavailable'));
+    expectEnvelope(migrated.body, 'storage_unavailable');
   });
 }
 

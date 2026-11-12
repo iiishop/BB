@@ -275,19 +275,18 @@ class ChatService {
     );
   }
 
-  /// Consumer-scoped consumption plus legacy migration state.
-  Future<({int consumedThrough, String migration})> consumptionFor({
+  /// Consumer-scoped consumption watermark.
+  Future<int> consumptionFor({
     required ExpectedIdentity expectedIdentity,
     required String peerAccount,
   }) async {
     final ({AuthIdentity identity, ConsumerBinding binding}) context =
         await requireIdentity(expectedIdentity);
-    final int consumed = await ledger.consumedThrough(
+    return ledger.consumedThrough(
       context.identity.account,
       peerAccount,
       consumerId: context.binding.consumerId,
     );
-    return (consumedThrough: consumed, migration: context.binding.migration);
   }
 
   /// v2 operation lookup scoped to the requesting consumer.

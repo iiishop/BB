@@ -1,14 +1,14 @@
 # DEA-467 客户端消费隔离与身份代际（Muse）
 
-状态：客户端实现交接，不是独立 QA PASS。基线 `e311a0a15e8b04a03308d58942d722636a8ec7db`，
-只改 `client/`。HTTP v2 路由/DTO 等 Forge 的共享 schema，本轮不新增。
+状态：客户端实现交接，不是独立 QA PASS。基线 `71b3a0c8292712f65abb66da5c2e777ed4fba542`，
+只改 `client/`。共享契约按 Forge 的 `4fd57d679891428884a812b7e46f31392470d981` 对接。
 
 ## 1. 单一受保护协议与消费事实
 
 - Owner 明确本轮没有部署、没有旧调用方。认证引导保留 `/auth/register|login`；
   旧 `/chat/*`、`/downloads/*`、`/operations/*`、`/events/*` 业务路由已删除，调用返回
-  404，聊天/消费/下载/事件不再有“无身份但可用”的入口。`/profile/*` 资料路由仍保留给
-  MCP 六个资料工具，受保护的 profile 契约属于 Forge 的共享契约收敛范围（第 7 节）。
+  404，聊天/消费/下载/事件不再有“无身份但可用”的入口。资料工具走受保护的
+  `/v2/profile/*`（六条，owner＋expected_identity）；旧 `/profile/*` 同样返回 404。
 - 唯一消费 key：`(authenticated_account, consumer_id, peer_account)`。consumer id 由客户端
   生成并持久化（`c-<32hex>`），不是 session、不是凭据；`session_id` 只是 v2 create/bind 的
   路由映射。owner capability 只持久化 `sha256`。
@@ -59,7 +59,7 @@
 
 ## 5. v2 本地协议（共享契约 `dea467-local-v2`）
 
-契约 SHA `45f003bc76a9618cc703d72c0fecdebe1904acfb`（作者 Forge）。实现位于
+契约 SHA `4fd57d679891428884a812b7e46f31392470d981`（作者 Forge）。实现位于
 `lib/services/chat_v2.dart`，由 `LocalAuthServer` 挂到 `/v2/`，只本机 loopback、全部 POST。
 
 - `POST /v2/protocol/negotiate`：`{supported_versions:[2]}` → selected_version=2、
@@ -69,13 +69,12 @@
   `expected_auth`；客户端只持久化 `sha256(key)`，先写 pending 预留再建 consumer。
   create 按 account＋key hash 幂等，重试不换 session/generation；get 只返回调用者能力
   覆盖的记录；bind 用 revision CAS，同 revision 竞争最多一个 200，其余
-  `stale_binding`。返回 `{identity,session_id,active,migration}`，`active` 由当前登录
-  generation 计算，旧 generation 只返回旧快照；没有 legacy 迁移，`migration` 恒为
-  `ready`。
+  `stale_binding`。返回 `{identity,session_id,active}`，`active` 由当前登录 generation 计算，旧
+  generation 只返回旧快照；没有 legacy 迁移字段。
 - 业务 `/v2/chat/*`、`/v2/operations/get`、`/v2/downloads/*`、`/v2/events/*`：严格四字段
   `expected_identity`，成功统一 `{identity,result}`；身份校验顺序为解析 → 401 →
   `stale_identity` → `stale_binding`（含 revision/consumer 拼接检查）→ 业务。
-- 消费查询 `/v2/chat/consumption` 返回 `{consumed_through,migration}`；`get_operation`
+- 消费查询 `/v2/chat/consumption` 只返回 `{consumed_through}`；`get_operation`
   只对同一 consumer 返回其计划（其他 consumer 404），不使用跨账号全局 operation 查找，
   恢复查询不改 `operation_id`、不重发。
 - `ExpectedIdentity.fromJson` 严格拒绝未知字段、非契约字符集/长度、revision 越界与非整数；
@@ -83,6 +82,9 @@
 - v2 事件 `version=2` + `origin_identity`：事件在写入时快照绑定；v2 事件/下载以稳定
   consumer id 作为持久 key，重绑不重置 cursor。下载任务保存 `origin_identity`。不再有
   针对旧无来源记录的迁移/兼容分支。
+- 六条 `/v2/profile/{view_avatar,update_avatar,view_nickname,update_nickname,view_signature,update_signature}`
+  同样要求 owner header 与四字段 `expected_identity`，返回 `{identity,result}`；保留原参数、
+  头像媒体和产品校验，异步完成后复核完整 binding。旧无身份 profile 路由 404。
 - v2 错误 envelope 固定 `{error:{code,message,fields}}`，`fields` 只含 schema 字段名，
   不回显输入值；`conflict` 映射为 `idempotency_conflict`。
 
@@ -94,9 +96,9 @@
 `{code,message,fields}` 形状，以及 probe 路径结果/identity 的 key 集合。
 
 `QA_REQUIRE_INTEGRATION=1 bash scripts/run_flutter_tests.sh client`：analyze PASS、
-flutter-test **323 passed / 8 skipped**、linux-integration **13 passed**，`RESULT=PASS`。
+flutter-test **308 passed / 6 skipped**、linux-integration **13 passed**，`RESULT=PASS`。
 
-8 个既有 skip（未算通过）：
+6 个既有 skip（未算通过）：
 
 1. `live chat chain ordered text/image send, real blocks, receipts, ACK gap and ACL` —
    `BB_LIVE_SERVER_URL 未设置：未执行真实 FastAPI 聊天链路（SKIP，不算 PASS）`
@@ -105,22 +107,17 @@ flutter-test **323 passed / 8 skipped**、linux-integration **13 passed**，`RES
 3. `live chat chain wait returns an arriving message before timeout` — 同上
 4. `live FastAPI auth register → login → persist → restore → expired credential` —
    `BB_LIVE_SERVER_URL 未设置：未执行真实 FastAPI 链路（SKIP，不算 PASS）`
-5. `real MCP drives the standalone Dart entry; login arms 30s heartbeat and 401 clears files`
-   — 缺 `BB_LIVE_SERVER_URL/BB_LIVE_DB_PATH/BB_PROBE_*`（SKIP，不算 PASS）
-6. `live profile chain seventeen MCP tools through real stdio, three sources, refresh, logout`
-   — 缺 `BB_LIVE_SERVER_URL`（SKIP，不算 PASS）
-7. `capture narrow, wide and folded Profile presentations` —
+5. `capture narrow, wide and folded Profile presentations` —
    `QA_SCREENSHOT_DIR 未设置：本次未生成截图`
-8. `capture users home and chat thread in three form factors` —
+6. `capture users home and chat thread in three form factors` —
    `QA_CHAT_SCREENSHOT_DIR 未设置：本次未生成截图`
 
 ## 7. 未接线 / NOT RUN
 
 - 合并后的真实 `journal/live.py` 链路需 Orion/Forge 在集成 SHA 上重跑；本轮客户端单测覆盖
   本地 HTTP 与落盘重启，不等于真实 FastAPI/MCP/DSH 三端。
-- `/profile/*` 本地资料入口（MCP 的六个资料工具）目前仍是旧的无身份本地契约；受保护的
-  profile 契约属于 Forge 的共享契约收敛范围，本轮未改 server/contract，也未保留新的 v1
-  权限特判。该入口在 Forge 发布受保护契约前是明确的剩余项。
+- 六条 `/v2/profile/*` 已在客户端实现并由本地测试覆盖；MCP 六工具改走受保护接口的
+  stdio/HTTP 联调由 Forge 的契约与测试覆盖。旧 `/profile/*` 已 404，没有 v1 回退。
 - 完整 wait/被动竞争、多进程消费者所有权、session/在途下载身份、真实模型/视觉、
   Windows/Android 与 Sentinel 独立 QA 未在本轮验证。
 
@@ -137,7 +134,7 @@ Owner 纠正“没有部署、没有旧调用方”后，本轮不再修补 v1 �
 - 之前 `admitted-send-switch` 的 `stale_identity` 分类修复保留。旧 `live.py --faults` 的
   migration-ambiguous 用例依赖已删除的迁移分支，不再作为当前树的门槛；未重跑旧全矩阵。
 
-严格三层（清理后）：analyze PASS、flutter-test **323 passed / 8 skipped**、
+严格三层（清理后）：analyze PASS、flutter-test **308 passed / 6 skipped**、
 linux-integration **13 passed**，`RESULT=PASS`，退出 0。
 
 ## 9. 统一会话/消息/上下文查询服务（共享契约 900429c 接线）
@@ -185,12 +182,12 @@ R1/R2 不再用 v1 权限特判解决，而是消除旧通路本身：
   legacy receipts/alias；旧账本文档打开即 fail closed。稳定 consumer 只能通过 owner
   create/bind 建立，消费水位按 `(account, consumer_id, peer)` 持久化。
 - 第一方进程内 UI 仍使用客户端自有的稳定 human consumer，直接调用 `ChatService`，不经过
-  本地 HTTP；跨进程 MCP/bundle 调用将由 Forge 收敛到同一受保护契约。
+  本地 HTTP；MCP/bundle 六资料工具已改走受保护的 `/v2/profile/*` 契约。
 
 回归 `test/local_single_protocol_test.dart` 用真实 `LocalAuthServer` HTTP 和真实落盘账本：
 旧 `/chat/*`、`/downloads/*`、`/operations/*`、`/events/*` 全部 404；无 owner 的 v2 业务
 非 200，无 identity 为 422，owner+identity 为 200；关闭服务并从同一账本重启后，
 `/v2/consumers/get` 与业务调用仍返回同一稳定 consumer。
 
-严格三层：analyze PASS、flutter-test **323 passed / 8 skipped**、linux-integration
+严格三层：analyze PASS、flutter-test **308 passed / 6 skipped**、linux-integration
 **13 passed**，`RESULT=PASS`，退出 0。

@@ -5,13 +5,11 @@ import 'dart:io';
 
 import '../config/client_config.dart';
 import '../models/auth_models.dart';
-import '../models/profile_models.dart';
 import '../services/auth_service.dart';
 import '../services/chat_service.dart';
 import '../services/chat_v2.dart';
 import '../services/client_identity.dart';
 import '../services/profile_service.dart';
-import '../validation/profile_rules.dart';
 
 /// Loopback-only local control API used by the DSH MCP plugin.
 ///
@@ -21,8 +19,8 @@ import '../validation/profile_rules.dart';
 /// * `POST /auth/register` -> 201 `{account, username}`
 /// * `POST /auth/login`    -> 200 `{account, username}` (token never leaves the
 ///   client process)
-/// * `POST /profile/view_avatar|update_avatar|view_nickname|update_nickname|`
-///   `view_signature|update_signature`
+/// * protected `/v2/profile/*` routes are implemented by [ChatV2Router];
+///   the old unguarded `/profile/*` routes are gone and answer 404.
 ///
 /// Errors keep the server contract: 422 `validation_error` with `fields`,
 /// 401 `invalid_credentials`/`unauthenticated`, 413/415 for media, and
@@ -59,9 +57,6 @@ class LocalAuthServer {
   /// Small JSON routes keep the STEP-1 bound.
   static const int maxRequestBytes = 16 * 1024;
 
-  /// `update_avatar` carries a base64 image; the contract recommends 8 MiB.
-  static const int maxAvatarRequestBytes = 8 * 1024 * 1024;
-
   /// Chat sends may carry a 32 MiB image as base64 (plus multipart-free JSON
   /// overhead), so this bound is intentionally larger than the avatar bound.
   static const int maxChatRequestBytes = 48 * 1024 * 1024;
@@ -85,6 +80,7 @@ class LocalAuthServer {
   late final ChatV2Router _v2 = ChatV2Router(
     session: service.session,
     chat: chat,
+    profile: profile,
   );
 
   /// Binds the listener and returns its `http://127.0.0.1:<port>` address.
@@ -117,10 +113,6 @@ class LocalAuthServer {
       final String path = request.uri.path;
       if (path.startsWith('/v2/')) {
         await _handleV2(request, path);
-        return;
-      }
-      if (path.startsWith('/profile/')) {
-        await _handleProfile(request, path);
         return;
       }
       if (path != '/auth/register' && path != '/auth/login') {
@@ -223,118 +215,6 @@ class LocalAuthServer {
     await _writeEnvelope(request, result.status, result.body);
   }
 
-  Future<void> _handleProfile(HttpRequest request, String path) async {
-    if (request.method != 'POST') {
-      await _methodNotAllowed(request);
-      return;
-    }
-    final ProfileGateway? gateway = profile;
-    if (gateway == null) {
-      await _writeEnvelope(request, 503, <String, dynamic>{
-        'error': <String, dynamic>{
-          'code': 'storage_unavailable',
-          'message': '资料功能不可用',
-          'fields': <Object>[],
-        },
-      });
-      return;
-    }
-    if (!service.session.hasToken || service.session.user == null) {
-      throw unauthenticated;
-    }
-    final String selfAccount = service.session.user!.account;
-    final bool avatarUpload = path == '/profile/update_avatar';
-    final Map<String, dynamic> body = await _readJsonObject(
-      request,
-      maxBytes: avatarUpload ? maxAvatarRequestBytes : maxRequestBytes,
-    );
-
-    switch (path) {
-      case '/profile/view_avatar':
-        _rejectUnknownFields(body, const <String>{'account'});
-        final String account =
-            normalizeAccount(_optionalString(body, 'account')) ?? selfAccount;
-        final AvatarImage image = await gateway.loadAvatar(account: account);
-        await _writeJson(request, 200, <String, dynamic>{
-          'account': image.account,
-          'mime_type': image.mimeType,
-          'data': base64Encode(image.bytes),
-          'avatar_version': image.version,
-        });
-        return;
-      case '/profile/update_avatar':
-        _rejectUnknownFields(body, const <String>{'path', 'url', 'base64'});
-        final ({String source, String value}) source = resolveAvatarSource(
-          body,
-        );
-        final AvatarInfo info;
-        switch (source.source) {
-          case 'path':
-            info = await gateway.updateAvatarFromPath(source.value);
-          case 'url':
-            info = await gateway.updateAvatarFromUrl(source.value);
-          default:
-            info = await gateway.updateAvatarFromBase64(source.value);
-        }
-        await _writeJson(request, 200, info.toJson());
-        return;
-      case '/profile/view_nickname':
-        _rejectUnknownFields(body, const <String>{'account'});
-        final String account =
-            normalizeAccount(_optionalString(body, 'account')) ?? selfAccount;
-        final String username = await gateway.viewNickname(account: account);
-        await _writeJson(request, 200, <String, dynamic>{
-          'account': account,
-          'username': username,
-        });
-        return;
-      case '/profile/update_nickname':
-        _rejectUnknownFields(body, const <String>{'value'});
-        final String value = _requireString(body, 'value');
-        // Validate here so the local contract is enforced even if a gateway
-        // implementation forgets; trim is idempotent.
-        normalizeUsername(value);
-        final String username = await gateway.updateNickname(value);
-        await _writeJson(request, 200, <String, dynamic>{
-          'account': selfAccount,
-          'username': username,
-        });
-        return;
-      case '/profile/view_signature':
-        _rejectUnknownFields(body, const <String>{'account'});
-        final String account =
-            normalizeAccount(_optionalString(body, 'account')) ?? selfAccount;
-        final String? signature = await gateway.viewSignature(account: account);
-        await _writeJson(request, 200, <String, dynamic>{
-          'account': account,
-          'signature': signature,
-        });
-        return;
-      case '/profile/update_signature':
-        _rejectUnknownFields(body, const <String>{'value'});
-        final Object? raw = body['value'];
-        if (raw != null && raw is! String) {
-          throw _fieldFailure('value', 'type', '字段类型错误');
-        }
-        final String? signature = normalizeSignature(raw as String?);
-        final String? updated = await gateway.updateSignature(signature);
-        await _writeJson(request, 200, <String, dynamic>{
-          'account': selfAccount,
-          'signature': updated,
-        });
-        return;
-      default:
-        await _writeEnvelope(request, 404, <String, dynamic>{
-          'error': <String, dynamic>{
-            'code': 'not_found',
-            'message': '未知接口',
-            'fields': <Object>[],
-          },
-        });
-        return;
-    }
-  }
-
   /// STEP-3 local tool surface plus the R3 presentation/event additions.
   ///
   /// These are loopback-only client endpoints. They are deliberately not
@@ -423,20 +303,6 @@ class LocalAuthServer {
         ),
       ],
     );
-  }
-
-  String? _optionalString(Map<String, dynamic> body, String field) {
-    if (!body.containsKey(field)) {
-      return null;
-    }
-    final Object? value = body[field];
-    if (value == null) {
-      return null;
-    }
-    if (value is! String) {
-      throw _fieldFailure(field, 'type', '字段类型错误');
-    }
-    return value;
   }
 
   String _requireString(Map<String, dynamic> body, String field) {

@@ -651,7 +651,6 @@ class ChatLedger {
       sessionId: raw['session_id'] is String
           ? raw['session_id'] as String
           : '',
-      migration: 'ready',
       ownerKeyHash: raw['owner_key_hash'] is String
           ? raw['owner_key_hash'] as String
           : '',
@@ -715,7 +714,7 @@ class ChatLedger {
       }
       // A legacy/previous session alias is evidence of its existing owner.
       // Creating a new owner for the same string would silently transfer that
-      // consumer's receipts and migration state, so it is a binding conflict.
+      // consumer's receipts and stable binding, so it is a binding conflict.
       final String? aliased = _consumerIdForAliasAnyAccountLocked(sessionId);
       if (aliased != null) {
         throw staleBinding('该会话已绑定其他消费者，请使用新会话或先解决迁移');

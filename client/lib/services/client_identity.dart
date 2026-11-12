@@ -159,7 +159,6 @@ class ConsumerBinding {
     required this.bindingRevision,
     this.aliases = const <String>{},
     this.sessionId = '',
-    this.migration = 'ready',
     this.active = true,
     this.ownerKeyHash = '',
   });
@@ -176,8 +175,6 @@ class ConsumerBinding {
   /// Route mapping recorded by the v2 consumer/bind calls. Not an identity.
   final String sessionId;
 
-  /// `ready` or `migration_required` for this account's legacy consumption.
-  final String migration;
 
   /// Whether the stored generation is still the current login. A false value
   /// means the caller must explicitly bind before protected work.
@@ -201,7 +198,6 @@ class ConsumerBinding {
     'binding_revision': bindingRevision,
     'aliases': aliases.toList()..sort(),
     'session_id': sessionId,
-    'migration': migration,
     'active': active,
   };
 
