@@ -447,12 +447,14 @@ class MessagePage {
 
 enum OperationStatus {
   pending,
+  uncertain,
   succeeded,
   failed;
 
   static OperationStatus tryParse(Object? value) {
     return switch (value) {
       'pending' => OperationStatus.pending,
+      'uncertain' => OperationStatus.uncertain,
       'succeeded' => OperationStatus.succeeded,
       'failed' => OperationStatus.failed,
       _ => OperationStatus.pending,
@@ -516,12 +518,14 @@ class OperationResult {
 enum DownloadStatus {
   pending,
   running,
+  uncertain,
   succeeded,
   failed;
 
   static DownloadStatus tryParse(Object? value) {
     return switch (value) {
       'running' => DownloadStatus.running,
+      'uncertain' => DownloadStatus.uncertain,
       'succeeded' => DownloadStatus.succeeded,
       'failed' => DownloadStatus.failed,
       _ => DownloadStatus.pending,
@@ -546,6 +550,7 @@ class DownloadTask {
     this.mediaId,
     this.kind,
     this.filename,
+    this.originIdentity,
   });
 
   final String taskId;
@@ -558,6 +563,10 @@ class DownloadTask {
   final String? mediaId;
   final AttachmentKind? kind;
   final String? filename;
+
+  /// ExpectedIdentity JSON snapshot of the identity that started the download.
+  /// v2 callbacks must never be rewritten to a newer binding.
+  final Map<String, dynamic>? originIdentity;
 
   DownloadTask copyWith({
     DownloadStatus? status,
@@ -576,6 +585,7 @@ class DownloadTask {
       mediaId: mediaId,
       kind: kind,
       filename: filename,
+      originIdentity: originIdentity,
     );
   }
 
@@ -590,6 +600,7 @@ class DownloadTask {
     'media_id': mediaId,
     'media_type': kind?.wire,
     'filename': filename,
+    'origin_identity': originIdentity,
   };
 
   factory DownloadTask.fromJson(Object? json) {
@@ -617,6 +628,11 @@ class DownloadTask {
           : null,
       errorCode: json['error_code'] is String
           ? json['error_code'] as String
+          : null,
+      originIdentity: json['origin_identity'] is Map<String, dynamic>
+          ? Map<String, dynamic>.from(
+              json['origin_identity'] as Map<String, dynamic>,
+            )
           : null,
       mediaId: json['media_id'] is String ? json['media_id'] as String : null,
       kind: AttachmentKind.tryParse(json['media_type']),
@@ -671,12 +687,16 @@ class LocalEvent {
     this.operationId,
     this.actualPath,
     this.errorCode,
+    this.originIdentity,
   });
 
   final String eventId;
   final String account;
   final String consumerSession;
   final LocalEventType type;
+
+  /// ExpectedIdentity JSON snapshot of the binding that admitted the event.
+  final Map<String, dynamic>? originIdentity;
   final String? peerAccount;
   final int? position;
   final String? messageId;
@@ -697,6 +717,7 @@ class LocalEvent {
     if (operationId != null) 'operation_id': operationId,
     if (actualPath != null) 'actual_path': actualPath,
     if (errorCode != null) 'error_code': errorCode,
+    if (originIdentity != null) 'origin_identity': originIdentity,
   };
 
   factory LocalEvent.fromJson(Object? json) {
@@ -734,6 +755,11 @@ class LocalEvent {
           : null,
       errorCode: json['error_code'] is String
           ? json['error_code'] as String
+          : null,
+      originIdentity: json['origin_identity'] is Map<String, dynamic>
+          ? Map<String, dynamic>.from(
+              json['origin_identity'] as Map<String, dynamic>,
+            )
           : null,
     );
   }
