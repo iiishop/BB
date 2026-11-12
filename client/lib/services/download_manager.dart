@@ -161,7 +161,10 @@ class DownloadManager {
         } catch (_) {
           // Pending delivery remains durable for the origin account.
         }
-        await _cleanupPrepare(task.taskId);
+        await _cleanupPrepare(
+          task.taskId,
+          finalPath: task.actualPath ?? task.plannedPath,
+        );
       } else if ((task.status == DownloadStatus.pending ||
               task.status == DownloadStatus.running) &&
           !_active.containsKey(task.taskId)) {
@@ -197,7 +200,10 @@ class DownloadManager {
         } catch (_) {
           // Pending delivery remains durable.
         }
-        await _cleanupPrepare(task.taskId);
+        await _cleanupPrepare(
+          task.taskId,
+          finalPath: task.actualPath ?? task.plannedPath,
+        );
       }
     }
   }
@@ -232,7 +238,10 @@ class DownloadManager {
       if (recovery.task != null) {
         final bool committed = await _commitSucceeded(account, recovery.task!);
         if (committed) {
-          await _cleanupPrepare(task.taskId);
+          await _cleanupPrepare(
+            task.taskId,
+            finalPath: recovery.task!.actualPath ?? recovery.task!.plannedPath,
+          );
         }
         return;
       }
@@ -316,7 +325,7 @@ class DownloadManager {
     );
     final bool committed = await _commitSucceeded(account, done);
     if (committed) {
-      await _cleanupPrepare(task.taskId);
+      await _cleanupPrepare(task.taskId, finalPath: target.path);
     }
   }
 
@@ -357,6 +366,9 @@ class DownloadManager {
   String _expectedPath(String taskId) =>
       '${cacheRoot.path}${Platform.pathSeparator}.staging'
       '${Platform.pathSeparator}$taskId.expect.json';
+
+  String _temporaryPath(String targetPath, String taskId) =>
+      '$targetPath.part-$taskId';
 
   Future<bool> _writePrepare({
     required String account,
@@ -414,9 +426,7 @@ class DownloadManager {
       // Copy through a task-specific temporary file in the *destination*
       // directory. This works across filesystems (EXDEV) and keeps the final
       // rename atomic on the target filesystem.
-      temporary = File(
-        '${target.path}.part-$taskId-${DateTime.now().microsecondsSinceEpoch}',
-      );
+      temporary = File(_temporaryPath(target.path, taskId));
       final IOSink sink = temporary.openWrite();
       try {
         await sink.addStream(staging.openRead());
@@ -642,7 +652,7 @@ class DownloadManager {
     return const _Recovery.normal();
   }
 
-  Future<void> _cleanupPrepare(String taskId) async {
+  Future<void> _cleanupPrepare(String taskId, {String? finalPath}) async {
     try {
       final File record = File(_preparePath(taskId));
       if (await record.exists()) {
@@ -655,6 +665,12 @@ class DownloadManager {
       final File expected = File(_expectedPath(taskId));
       if (await expected.exists()) {
         await expected.delete();
+      }
+      if (finalPath != null) {
+        final File temporary = File(_temporaryPath(finalPath, taskId));
+        if (await temporary.exists()) {
+          await temporary.delete();
+        }
       }
     } catch (_) {
       // A stale record/staging is harmless: recovery validates identity/hash.

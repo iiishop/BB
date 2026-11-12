@@ -435,6 +435,9 @@ void main() {
         reason: 'staging bytes must be preserved when prepare fails',
       );
 
+      // Simulate a target-copy interruption leaving a task-owned partial file.
+      final File partial = File('${pending.plannedPath}.part-${task.taskId}');
+      await partial.writeAsBytes(List<int>.filled(4096, 1), flush: true);
       final DownloadManager second = DownloadManager(
         api: ChatApiClient(baseUri: Uri.parse('http://127.0.0.1:1')),
         session: session,
@@ -449,6 +452,7 @@ void main() {
       } finally {
         await second.dispose();
       }
+      expect(await partial.exists(), isFalse);
       final DownloadTask recovered = (await backing.download(
         _accountA,
         task.taskId,
