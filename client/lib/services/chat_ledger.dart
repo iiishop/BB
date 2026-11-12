@@ -783,6 +783,29 @@ class ChatLedger {
     return value is String ? value : null;
   }
 
+  /// A session alias may belong to exactly one consumer across every account.
+  /// Returning the owner here lets create/bind refuse to re-point an existing
+  /// alias at a new identity, including a cross-account reuse.
+  String? _consumerIdForAliasAnyAccountLocked(String consumerSession) {
+    final Object? rawAccounts = _data['accounts'];
+    if (rawAccounts is! Map<String, dynamic>) {
+      return null;
+    }
+    for (final Object? rawAccount in rawAccounts.values) {
+      if (rawAccount is! Map<String, dynamic>) {
+        continue;
+      }
+      final Object? aliases = rawAccount['consumer_aliases'];
+      if (aliases is Map<String, dynamic>) {
+        final Object? value = aliases[consumerSession];
+        if (value is String) {
+          return value;
+        }
+      }
+    }
+    return null;
+  }
+
   /// Creates the one-to-one alias for [consumerSession] the first time it is
   /// seen. The consumer id is random and persisted, never derived from a
   /// credential or a transient session.
@@ -929,6 +952,13 @@ class ChatLedger {
         };
         await _flush();
       }
+      // A legacy/previous session alias is evidence of its existing owner.
+      // Creating a new owner for the same string would silently transfer that
+      // consumer's receipts and migration state, so it is a binding conflict.
+      final String? aliased = _consumerIdForAliasAnyAccountLocked(sessionId);
+      if (aliased != null) {
+        throw staleBinding('该会话已绑定其他消费者，请使用新会话或先解决迁移');
+      }
       final String consumerId = newConsumerId();
       final String now = DateTime.now().toUtc().toIso8601String();
       _consumers[consumerId] = <String, dynamic>{
@@ -1000,6 +1030,10 @@ class ChatLedger {
       if (revision != expectedBindingRevision) {
         throw staleBinding('消费者绑定版本已变化');
       }
+      final String? aliased = _consumerIdForAliasAnyAccountLocked(sessionId);
+      if (aliased != null && aliased != consumerId) {
+        throw staleBinding('该会话已绑定其他消费者，不能重新指向');
+      }
       final Map<String, dynamic> aliases = <String, dynamic>{
         ...((record['aliases'] as Map<String, dynamic>?) ??
             <String, dynamic>{}),
@@ -1046,6 +1080,9 @@ class ChatLedger {
         if (binding != null && binding.account != account) {
           throw staleBinding('该消费者已绑定另一个账号');
         }
+      } else if (_consumerIdForAliasAnyAccountLocked(consumerSession) != null) {
+        // The same session string is not a fresh identity in another account.
+        throw staleBinding('该会话已绑定另一个账号的消费者');
       }
       final String consumerId = _ensureConsumerLocked(
         account: account,
@@ -1140,6 +1177,12 @@ class ChatLedger {
       if (expectedBindingRevision != null &&
           expectedBindingRevision != binding.bindingRevision) {
         throw staleBinding('消费者绑定版本已变化');
+      }
+      final String? aliased = _consumerIdForAliasAnyAccountLocked(
+        consumerSession,
+      );
+      if (aliased != null && aliased != resolved) {
+        throw staleBinding('该会话已绑定其他消费者，不能重新指向');
       }
       final Map<String, dynamic> aliases = <String, dynamic>{
         ...((_consumers[resolved] as Map<String, dynamic>)['aliases']

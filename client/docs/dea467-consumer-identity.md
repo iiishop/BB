@@ -181,3 +181,27 @@ Forge 的共享查询契约（`4b91a5b`/`900429c`）唯一制定字段与语义�
   有序媒体与缺图不发放 receipt、before 分页、查询不消费）、
   `test/chat_v2_shared_contract_test.dart` 消费 `server/contract` 的 OpenAPI/fixtures
   （路线、invalid_inputs、错误表与三个查询结果 key 集合）。
+
+## 10. alias / receipt 归属 / 迁移授权（R1/R2，2026-11-12）
+
+R1/R2 的共同根因是 legacy `consumer_session` alias 是可变的字符串映射，而 v1 confirm/ACK
+在解析 alias 时重新取得“当前”绑定：
+
+- v1 confirm/ACK（无 `expected_identity`）现在要求 alias 仍是该 consumer 的当前映射：
+  有 `session_id` 时必须相等；旧式一对一 alias 无 `session_id` 时仅接受唯一 alias。
+  CAS 重绑到新 session 后，旧 alias 保留用于历史查询，但 confirm/ACK 返回 409
+  `stale_binding`，不确认 receipt、不推进水位；合法当前 alias 的 v1 兼容不变。
+- session alias 跨账号唯一且不可重新指向。`consumer_aliases` 已属于某个 consumer 时，
+  `/v2/consumers/create`（新 owner）、`bindConsumerOwner`、`bindConsumer`、`ensureConsumer`
+  拒绝把它改指向另一个 consumer/账号（409 `stale_binding`），不再覆盖旧映射。这样新
+  consumer 既不能复用旧 receipt 的 `consumer_session`，也不能继承其迁移状态。
+- 未解决的 legacy 歧义仍由 `commitAck` 在幂等短路和 gap 之前阻塞；无法复用旧 alias 的
+  新 consumer 若使用新 session，ACK 仍因 `migration_required`/缺口返回 409，水位保持 0。
+  迁移报告、备份和 `legacy_consumption` 原证据不改。
+
+回归 `test/chat_alias_rebind_ownership_test.dart` 用真实本地 HTTP 与落盘账本覆盖：
+旧 alias 在 CAS 重绑后 confirm/ACK 均为 409 且冷启动水位 0；新 owner 复用歧义旧 alias 的
+create 为 409，旧映射不变；新 session 的 ACK 为 409 `migration_required`，冷启动仍为 0。
+
+严格三层：analyze PASS、flutter-test **341 passed / 8 skipped**、linux-integration
+**13 passed**，`RESULT=PASS`，退出 0。
