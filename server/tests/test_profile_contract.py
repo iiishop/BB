@@ -31,9 +31,23 @@ def test_profile_shared_http_cases(tmp_path, case):
             assert response.json()[key] == value
 
 
+def canonical_status_descriptions(schema):
+    # HTTPStatus renamed only this reason phrase in Python 3.13. Preserve every
+    # other field and unexpected description so real contract drift still fails.
+    for operations in schema["paths"].values():
+        for operation in operations.values():
+            response = operation.get("responses", {}).get("422", {})
+            if response.get("description") == "Unprocessable Entity":
+                response["description"] = "Unprocessable Content"
+    return schema
+
+
 def test_openapi_snapshot_and_security_do_not_drift():
     schema = create_app(Path("unused-schema-database")).openapi()
-    assert schema == json.loads((ROOT / "openapi.json").read_text(encoding="utf-8"))
+    expected = json.loads((ROOT / "openapi.json").read_text(encoding="utf-8"))
+    assert canonical_status_descriptions(schema) == canonical_status_descriptions(
+        expected
+    )
     for path, operations in schema["paths"].items():
         if path not in ("/auth/register", "/auth/login"):
             assert all(

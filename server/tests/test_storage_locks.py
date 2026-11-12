@@ -11,11 +11,12 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 
 import pytest
+from fastapi.testclient import TestClient
+from test_profile import login
+
 from bb_server import app as app_module
 from bb_server import storage
 from bb_server.app import create_app
-from fastapi.testclient import TestClient
-from test_profile import login
 
 
 @contextmanager
