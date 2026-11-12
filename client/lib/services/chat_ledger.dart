@@ -193,12 +193,14 @@ class ChatLedger {
       'version': _version,
       'accounts': <String, dynamic>{},
       'consumers': <String, dynamic>{},
+      'consumer_owners': <String, dynamic>{},
     };
     if (initial != null) {
       data.addAll(initial);
     }
     data.putIfAbsent('accounts', () => <String, dynamic>{});
     data.putIfAbsent('consumers', () => <String, dynamic>{});
+    data.putIfAbsent('consumer_owners', () => <String, dynamic>{});
     return ChatLedger._(null, data);
   }
 
@@ -255,6 +257,7 @@ class ChatLedger {
         if (consumers is! Map<String, dynamic>) {
           throw const FormatException('chat ledger consumers are invalid');
         }
+        _data.putIfAbsent('consumer_owners', () => <String, dynamic>{});
       } else if (version == 1) {
         // A v1 document is migrated once, with a preserved backup, before any
         // new write is allowed. It is never mixed with v2 writes.
@@ -274,6 +277,7 @@ class ChatLedger {
     'version': _version,
     'accounts': <String, dynamic>{},
     'consumers': <String, dynamic>{},
+    'consumer_owners': <String, dynamic>{},
   };
 
   /// Migrates a version-1 document to version 2.
@@ -451,6 +455,7 @@ class ChatLedger {
       'version': _version,
       'accounts': accounts,
       'consumers': consumers,
+      'consumer_owners': <String, dynamic>{},
       'legacy_migration': <String, dynamic>{
         'legacy_version': 1,
         'migrated_at': now,
@@ -803,15 +808,37 @@ class ChatLedger {
     return consumerId;
   }
 
+  String _migrationStateLocked(String account) {
+    final Object? raw = _data['legacy_migration'];
+    if (raw is! Map<String, dynamic>) {
+      return 'ready';
+    }
+    final Object? entries = raw['entries'];
+    if (entries is! List) {
+      return 'ready';
+    }
+    for (final Object? entry in entries) {
+      if (entry is Map<String, dynamic> &&
+          entry['account'] == account &&
+          entry['outcome'] != 'migrated') {
+        return 'migration_required';
+      }
+    }
+    return 'ready';
+  }
+
   ConsumerBinding? _bindingLocked(String consumerId) {
     final Object? raw = _consumers[consumerId];
     if (raw is! Map<String, dynamic>) {
       return null;
     }
     final Object? aliases = raw['aliases'];
+    final String account = raw['account'] is String
+        ? raw['account'] as String
+        : '';
     return ConsumerBinding(
       consumerId: consumerId,
-      account: raw['account'] is String ? raw['account'] as String : '',
+      account: account,
       authGeneration: raw['auth_generation'] is String
           ? raw['auth_generation'] as String
           : '',
@@ -822,7 +849,175 @@ class ChatLedger {
         if (aliases is Map<String, dynamic>)
           for (final String alias in aliases.keys) alias,
       },
+      sessionId: raw['session_id'] is String
+          ? raw['session_id'] as String
+          : '',
+      migration: _migrationStateLocked(account),
+      ownerKeyHash: raw['owner_key_hash'] is String
+          ? raw['owner_key_hash'] as String
+          : '',
     );
+  }
+
+  /// Origin identity for an event feed keyed by a legacy alias or a stable
+  /// consumer id. Feeds created before v2 return their stored binding snapshot.
+  Future<ExpectedIdentity?> originIdentityForFeed(
+    String account,
+    String feedKey,
+  ) {
+    return _locked(() async {
+      final String consumerId =
+          _consumerIdForAliasLocked(account, feedKey) ?? feedKey;
+      final ConsumerBinding? binding = _bindingLocked(consumerId);
+      if (binding == null || binding.account != account) {
+        return null;
+      }
+      return binding.identity;
+    });
+  }
+
+  /// Per-account legacy consumption status used by the v2 Binding/Consumption
+  /// replies. `migration_required` means at least one preserved legacy entry
+  /// could not be proven for a consumer.
+  Future<String> migrationState(String account) {
+    return _locked(() async => _migrationStateLocked(account));
+  }
+
+  /// Persist-before-enroll consumer creation.
+  ///
+  /// The owner capability reservation is written and flushed before the
+  /// consumer exists, so a crash can only leave a recoverable pending record;
+  /// the same `(account, key hash)` retry finishes enrollment. Once ready, a
+  /// retry with another session id returns the original binding unchanged.
+  Future<ConsumerBinding> enrollConsumer({
+    required String account,
+    required String authGeneration,
+    required String ownerKeyHash,
+    required String sessionId,
+  }) {
+    return _locked(() async {
+      final Map<String, dynamic> owners =
+          _data['consumer_owners'] as Map<String, dynamic>;
+      final Object? existingOwner = owners[ownerKeyHash];
+      if (existingOwner is Map<String, dynamic>) {
+        if (existingOwner['account'] != account) {
+          throw staleBinding('该 capability 已属于另一个账号');
+        }
+        final Object? existingId = existingOwner['consumer_id'];
+        if (existingId is String) {
+          final ConsumerBinding? binding = _bindingLocked(existingId);
+          if (binding == null) {
+            throw staleBinding('消费者记录已失效');
+          }
+          // Enrollment retries never rebind, rotate the generation or adopt a
+          // newer session id.
+          return _withActive(binding);
+        }
+      } else {
+        owners[ownerKeyHash] = <String, dynamic>{
+          'account': account,
+          'consumer_id': null,
+          'status': 'pending',
+          'session_id': sessionId,
+          'created_at': DateTime.now().toUtc().toIso8601String(),
+        };
+        await _flush();
+      }
+      final String consumerId = newConsumerId();
+      final String now = DateTime.now().toUtc().toIso8601String();
+      _consumers[consumerId] = <String, dynamic>{
+        'account': account,
+        'auth_generation': authGeneration,
+        'binding_revision': 1,
+        'session_id': sessionId,
+        'owner_key_hash': ownerKeyHash,
+        'aliases': <String, dynamic>{sessionId: true},
+        'created_at': now,
+        'updated_at': now,
+      };
+      (_account(account)['consumer_aliases']
+          as Map<String, dynamic>)[sessionId] =
+          consumerId;
+      owners[ownerKeyHash] = <String, dynamic>{
+        ...(owners[ownerKeyHash] as Map<String, dynamic>),
+        'consumer_id': consumerId,
+        'status': 'ready',
+      };
+      await _flush();
+      return _withActive(_bindingLocked(consumerId)!);
+    });
+  }
+
+  ConsumerBinding _withActive(ConsumerBinding binding) => binding;
+
+  /// Owner-verified consumer read. A wrong capability, another account or an
+  /// unknown consumer is indistinguishable `stale_binding`.
+  Future<ConsumerBinding> consumerForOwner({
+    required String account,
+    required String ownerKeyHash,
+    required String consumerId,
+  }) {
+    return _locked(() async {
+      final Object? raw = _consumers[consumerId];
+      if (raw is! Map<String, dynamic> ||
+          raw['account'] != account ||
+          raw['owner_key_hash'] != ownerKeyHash) {
+        throw staleBinding('消费者能力或归属不匹配');
+      }
+      return _bindingLocked(consumerId)!;
+    });
+  }
+
+  /// Owner-verified revision CAS bind.
+  ///
+  /// Matching `expectedBindingRevision` is required even for the same session;
+  /// exactly one of two competing owners can pass.
+  Future<ConsumerBinding> bindConsumerOwner({
+    required String account,
+    required String authGeneration,
+    required String ownerKeyHash,
+    required String consumerId,
+    required int expectedBindingRevision,
+    required String sessionId,
+  }) {
+    return _locked(() async {
+      final Object? raw = _consumers[consumerId];
+      if (raw is! Map<String, dynamic> ||
+          raw['account'] != account ||
+          raw['owner_key_hash'] != ownerKeyHash) {
+        throw staleBinding('消费者能力或归属不匹配');
+      }
+      final Map<String, dynamic> record = raw;
+      final int revision = record['binding_revision'] is int
+          ? record['binding_revision'] as int
+          : 1;
+      if (revision != expectedBindingRevision) {
+        throw staleBinding('消费者绑定版本已变化');
+      }
+      final Map<String, dynamic> aliases = <String, dynamic>{
+        ...((record['aliases'] as Map<String, dynamic>?) ??
+            <String, dynamic>{}),
+        sessionId: true,
+      };
+      _consumers[consumerId] = <String, dynamic>{
+        ...record,
+        'auth_generation': authGeneration,
+        'binding_revision': revision + 1,
+        'session_id': sessionId,
+        'aliases': aliases,
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      };
+      (_account(account)['consumer_aliases']
+          as Map<String, dynamic>)[sessionId] =
+          consumerId;
+      await _flush();
+      return _bindingLocked(consumerId)!;
+    });
+  }
+
+  /// Read-only binding lookup by consumer id (used by business calls).
+  Future<ConsumerBinding?> bindingById(String consumerId) {
+    return _locked(() async => _bindingLocked(consumerId));
   }
 
   /// Resolves (and on first use creates) the consumer behind a stable
@@ -1097,9 +1292,11 @@ class ChatLedger {
             account: account,
             consumerSession: consumerSession,
           );
-      final String receiptId = receiptIdFor(
+      // Receipt identity follows the stable consumer, so a host-session
+      // rebuild or explicit rebind keeps the same display facts.
+      final String receiptId = receiptIdForConsumer(
         account: account,
-        consumerSession: consumerSession,
+        consumerId: resolvedConsumer,
         peerAccount: peerAccount,
         messageId: messageId,
         position: position,
@@ -1197,8 +1394,11 @@ class ChatLedger {
       final Map<String, dynamic> receipts =
           state['receipts'] as Map<String, dynamic>;
       final List<String> ids = receiptIds.toSet().toList()..sort();
+      // Attempt idempotency is scoped to the consumer: distinct consumers may
+      // reuse the same logical attempt id without sharing confirmation state.
+      final String attemptKey = '$resolvedConsumer\u0001$attemptId';
 
-      final Object? existing = confirmations[attemptId];
+      final Object? existing = confirmations[attemptKey];
       if (existing is Map<String, dynamic>) {
         final List<String> existingIds =
             (existing['receipt_ids'] as List<dynamic>? ?? <dynamic>[])
@@ -1207,8 +1407,9 @@ class ChatLedger {
               ..sort();
         final Object? existingConsumer = existing['consumer_id'];
         final bool sameBinding =
-            existing['consumer_session'] == consumerSession &&
-            (existingConsumer == null || existingConsumer == resolvedConsumer) &&
+            (existingConsumer == null
+                ? existing['consumer_session'] == consumerSession
+                : existingConsumer == resolvedConsumer) &&
             existing['request_digest'] == requestDigest;
         final bool sameMembers =
             existingIds.length == ids.length &&
@@ -1264,7 +1465,8 @@ class ChatLedger {
               )
               .toJson();
         }
-        confirmations[attemptId] = <String, dynamic>{
+        confirmations[attemptKey] = <String, dynamic>{
+          'attempt_id': attemptId,
           'consumer_session': consumerSession,
           'consumer_id': resolvedConsumer,
           'request_digest': requestDigest,
@@ -1321,25 +1523,47 @@ class ChatLedger {
     return _locked(() async {
       final Map<String, dynamic> confirmations =
           _account(account)['confirmations'] as Map<String, dynamic>;
-      confirmations[attemptId] = <String, dynamic>{
-        'consumer_session': consumerSession,
-        'consumer_id': _consumerIdForAliasLocked(account, consumerSession),
-        'request_digest': requestDigest,
-        'receipt_ids': receiptIds,
-        'confirmed_at': DateTime.now().toUtc().toIso8601String(),
-      };
+      final String? consumer = _consumerIdForAliasLocked(
+        account,
+        consumerSession,
+      );
+      confirmations['${consumer ?? consumerSession}\u0001$attemptId'] =
+          <String, dynamic>{
+            'attempt_id': attemptId,
+            'consumer_session': consumerSession,
+            'consumer_id': consumer,
+            'request_digest': requestDigest,
+            'receipt_ids': receiptIds,
+            'confirmed_at': DateTime.now().toUtc().toIso8601String(),
+          };
       await _flush();
     });
   }
 
-  Future<Map<String, dynamic>?> confirmation(String account, String attemptId) {
+  Future<Map<String, dynamic>?> confirmation(
+    String account,
+    String attemptId, {
+    String? consumerId,
+  }) {
     return _locked(() async {
-      final Object? value =
-          (_account(account)['confirmations']
-              as Map<String, dynamic>)[attemptId];
-      return value is Map<String, dynamic>
-          ? Map<String, dynamic>.from(value)
-          : null;
+      final Map<String, dynamic> confirmations =
+          _account(account)['confirmations'] as Map<String, dynamic>;
+      if (consumerId != null) {
+        final Object? value = confirmations['$consumerId\u0001$attemptId'];
+        return value is Map<String, dynamic>
+            ? Map<String, dynamic>.from(value)
+            : null;
+      }
+      final Object? legacy = confirmations[attemptId];
+      if (legacy is Map<String, dynamic>) {
+        return Map<String, dynamic>.from(legacy);
+      }
+      for (final Object? value in confirmations.values) {
+        if (value is Map<String, dynamic> && value['attempt_id'] == attemptId) {
+          return Map<String, dynamic>.from(value);
+        }
+      }
+      return null;
     });
   }
 
@@ -1573,6 +1797,27 @@ String receiptIdFor({
   final String raw = <String>[
     account,
     consumerSession,
+    peerAccount,
+    messageId,
+    '$position',
+    contentDigest,
+  ].join('\u0001');
+  return sha256.convert(utf8.encode(raw)).toString().substring(0, 32);
+}
+
+/// Stable receipt identity for one consumer binding. It deliberately excludes
+/// the transient consumer_session so a rebind keeps the same display facts.
+String receiptIdForConsumer({
+  required String account,
+  required String consumerId,
+  required String peerAccount,
+  required String messageId,
+  required int position,
+  required String contentDigest,
+}) {
+  final String raw = <String>[
+    account,
+    consumerId,
     peerAccount,
     messageId,
     '$position',

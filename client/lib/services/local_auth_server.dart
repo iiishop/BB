@@ -9,6 +9,8 @@ import '../models/chat_models.dart';
 import '../models/profile_models.dart';
 import '../services/auth_service.dart';
 import '../services/chat_service.dart';
+import '../services/chat_v2.dart';
+import '../services/client_identity.dart';
 import '../services/media_source.dart';
 import '../services/profile_service.dart';
 import '../validation/profile_rules.dart';
@@ -82,6 +84,10 @@ class LocalAuthServer {
 
   HttpServer? _httpServer;
   final CancelToken _cancel = CancelToken();
+  late final ChatV2Router _v2 = ChatV2Router(
+    session: service.session,
+    chat: chat,
+  );
 
   /// Binds the listener and returns its `http://127.0.0.1:<port>` address.
   Future<Uri> start() async {
@@ -111,6 +117,10 @@ class LocalAuthServer {
     final String? requestToken = service.session.tokenForRequest;
     try {
       final String path = request.uri.path;
+      if (path.startsWith('/v2/')) {
+        await _handleV2(request, path);
+        return;
+      }
       if (path.startsWith('/profile/')) {
         await _handleProfile(request, path);
         return;
@@ -185,6 +195,41 @@ class LocalAuthServer {
         },
       });
     }
+  }
+
+  /// Strict v2 local protocol; errors keep the v2 `{error:{code,message,fields}}`
+  /// envelope with field-name strings only.
+  Future<void> _handleV2(HttpRequest request, String path) async {
+    if (request.method != 'POST') {
+      await _writeEnvelope(request, 405, <String, dynamic>{
+        'error': <String, dynamic>{
+          'code': 'validation_error',
+          'message': '只支持 POST',
+          'fields': <Object>[],
+        },
+      });
+      return;
+    }
+    Map<String, dynamic> body;
+    try {
+      body = await _readJsonObject(request, maxBytes: maxChatRequestBytes);
+    } on AuthFailure catch (failure) {
+      final bool tooLarge = failure.status == 413;
+      await _writeEnvelope(request, tooLarge ? 413 : 422, <String, dynamic>{
+        'error': <String, dynamic>{
+          'code': tooLarge ? 'payload_too_large' : 'validation_error',
+          'message': tooLarge ? '请求体过大' : '输入有误',
+          'fields': <String>['body'],
+        },
+      });
+      return;
+    }
+    final ({int status, Map<String, dynamic> body}) result = await _v2.handle(
+      path: path,
+      ownerKey: request.headers.value(v2OwnerHeader),
+      body: body,
+    );
+    await _writeEnvelope(request, result.status, result.body);
   }
 
   Future<void> _handleProfile(HttpRequest request, String path) async {
