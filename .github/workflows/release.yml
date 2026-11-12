@@ -1,0 +1,305 @@
+name: Release
+
+# main 推送 → 全平台构建，产物作为 workflow artifact（不进 Release）。
+# 打 v* tag → 同样的构建，另外建 GitHub Release 并附 SHA256SUMS，最后回下载校验。
+# 版本号唯一来源：client/pubspec.yaml 的 version 字段。
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 建 GitHub Release（不勾只产 artifact）
+        type: boolean
+        default: false
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  meta:
+    name: 版本与发布判定
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      has_client: ${{ steps.v.outputs.has_client }}
+      publish: ${{ steps.v.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        name: 读版本 / 校验 tag
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          EVENT: ${{ github.event_name }}
+          DISPATCH_PUBLISH: ${{ inputs.publish }}
+        run: |
+          set -euo pipefail
+          if [ -f client/pubspec.yaml ]; then
+            version="$(grep -m1 '^version:' client/pubspec.yaml | awk '{print $2}' | cut -d+ -f1)"
+            echo "has_client=true" >> "$GITHUB_OUTPUT"
+          else
+            version="0.0.0"
+            echo "has_client=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::仓库里没有 client/，本次只跑空构建"
+          fi
+          [ -n "$version" ] || { echo "::error::pubspec.yaml 里读不到 version"; exit 1; }
+          if [ "$REF_TYPE" = "tag" ] && [ "$REF_NAME" != "v$version" ]; then
+            echo "::error::tag $REF_NAME 与 pubspec 版本 v$version 不一致，先改版本再打 tag"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [ "$REF_TYPE" = "tag" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          elif [ "$EVENT" = "workflow_dispatch" ] && [ "$DISPATCH_PUBLISH" = "true" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  linux:
+    name: Linux (deb + rpm + tar)
+    needs: meta
+    if: needs.meta.outputs.has_client == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.9'
+          channel: stable
+          cache: true
+      - name: 构建依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang cmake ninja-build pkg-config libgtk-3-dev \
+            libblkid-dev liblzma-dev libstdc++-12-dev rpm
+      - name: flutter build linux
+        working-directory: client
+        run: |
+          flutter pub get
+          flutter build linux --release
+      - name: 打 deb + rpm
+        run: |
+          set -euo pipefail
+          bundle_dir="$(dirname "$(find client/build/linux -type f -name bb_mobile -print -quit)")"
+          [ -n "$bundle_dir" ] || { echo "::error::找不到 Linux bundle"; exit 1; }
+          echo "bundle=$bundle_dir"
+          bash scripts/ci/package-linux.sh \
+            --bundle "$bundle_dir" --out dist --version "$VERSION" --deb --rpm
+      - name: 打包 bundle 供 Arch 作业复用
+        run: |
+          set -euo pipefail
+          bundle_dir="$(dirname "$(find client/build/linux -type f -name bb_mobile -print -quit)")"
+          tar -C "$(dirname "$bundle_dir")" -czf dist/bundle.tar.gz "$(basename "$bundle_dir")"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bb-linux
+          path: |
+            dist/*.deb
+            dist/*.rpm
+            dist/*linux*.tar.gz
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bb-linux-bundle
+          path: dist/bundle.tar.gz
+          retention-days: 3
+
+  arch:
+    name: Arch Linux (.pkg.tar.zst)
+    needs: [meta, linux]
+    if: needs.meta.outputs.has_client == 'true'
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    timeout-minutes: 30
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: 装打包工具
+        run: pacman -Sy --noconfirm --needed base-devel >/dev/null
+      - uses: actions/download-artifact@v4
+        with:
+          name: bb-linux-bundle
+          path: /tmp/art
+      - name: makepkg（非 root 用户）
+        run: |
+          set -euo pipefail
+          useradd -m builder
+          tar -C /tmp -xzf /tmp/art/bundle.tar.gz
+          cp -r "$GITHUB_WORKSPACE/scripts" /tmp/ci-scripts
+          chmod -R a+rX /tmp/bundle /tmp/ci-scripts
+          mkdir -p /tmp/out && chown builder /tmp/out
+          su builder -c "bash /tmp/ci-scripts/ci/package-arch.sh --bundle /tmp/bundle --out /tmp/out --version $VERSION"
+          mkdir -p dist && cp /tmp/out/*.pkg.tar.zst dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bb-arch
+          path: dist/*.pkg.tar.zst
+          retention-days: 14
+
+  windows:
+    name: Windows (zip)
+    needs: meta
+    if: needs.meta.outputs.has_client == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 40
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.9'
+          channel: stable
+          cache: true
+      - name: flutter build windows
+        working-directory: client
+        run: |
+          flutter pub get
+          flutter build windows --release
+      - name: 压缩产物
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive -Path client\build\windows\x64\runner\Release\* `
+            -DestinationPath "dist\bb-$env:VERSION-windows-x64.zip" -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bb-windows
+          path: dist/*.zip
+          retention-days: 14
+
+  macos:
+    name: macOS (zip)
+    needs: meta
+    if: needs.meta.outputs.has_client == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 40
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.9'
+          channel: stable
+          cache: true
+      - name: 确保 macos 平台目录存在
+        working-directory: client
+        run: |
+          if [ ! -d macos ]; then
+            echo "::warning::client/macos 不存在，首次生成脚手架（应尽快提交进仓库）"
+            flutter create --platforms=macos --org ai.bb .
+          fi
+      - name: flutter build macos
+        working-directory: client
+        run: |
+          flutter pub get
+          flutter build macos --release
+      - name: 压缩 .app
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          app="$(find client/build/macos/Build/Products/Release -maxdepth 1 -name '*.app' | head -1)"
+          [ -n "$app" ] || { echo "::error::没有找到 .app"; exit 1; }
+          ditto -c -k --sequesterRsrc --keepParent "$app" "dist/bb-$VERSION-macos.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bb-macos
+          path: dist/*.zip
+          retention-days: 14
+
+  android:
+    name: Android (apk + aab)
+    needs: meta
+    if: needs.meta.outputs.has_client == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.9'
+          channel: stable
+          cache: true
+      - name: flutter build apk / appbundle
+        working-directory: client
+        run: |
+          flutter pub get
+          flutter build apk --release
+          flutter build appbundle --release
+      - name: 收集产物
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp client/build/app/outputs/flutter-apk/app-release.apk "dist/bb-$VERSION-android-debugsigned.apk"
+          cp client/build/app/outputs/bundle/release/app-release.aab "dist/bb-$VERSION-android.aab"
+          echo "::notice::apk 目前用仓库自带的 debug keystore 签名（可安装、不可上架）"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bb-android
+          path: |
+            dist/*.apk
+            dist/*.aab
+          retention-days: 14
+
+  release:
+    name: 建 Release
+    needs: [meta, linux, arch, windows, macos, android]
+    if: needs.meta.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bb-*
+          path: dist
+          merge-multiple: true
+      - name: 去掉中间产物 + 生成校验和
+        run: |
+          set -euo pipefail
+          cd dist
+          rm -f bundle.tar.gz
+          find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 \
+            | sort -z | xargs -0 sha256sum > SHA256SUMS
+          cat SHA256SUMS
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.meta.outputs.version }}
+          files: dist/*
+          fail_on_unmatched_files: true
+          prerelease: ${{ contains(needs.meta.outputs.version, '-') }}
+          generate_release_notes: true
+
+  verify:
+    name: 回下载校验
+    needs: [meta, release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: 拉回 Release 制品并核对校验和
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v${{ needs.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p dl && cd dl
+          gh release download "$TAG" --dir . --clobber
+          ls -la
+          sha256sum -c SHA256SUMS
