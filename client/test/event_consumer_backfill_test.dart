@@ -6,6 +6,7 @@ import 'package:bb_client/services/auth_session.dart';
 import 'package:bb_client/services/chat_api_client.dart';
 import 'package:bb_client/services/chat_ledger.dart';
 import 'package:bb_client/services/chat_service.dart';
+import 'package:bb_client/services/client_identity.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/fake_chat_backend.dart';
@@ -141,9 +142,31 @@ void main() {
         hasLength(3),
       );
 
-      // Restart with the same ledger: B's cursor and feed survive.
+      // Restart with the same ledger: a new login does not silently rebind the
+      // old consumer alias; an explicit revision-checked rebind is required.
       final ChatService restarted = service(_accountA);
       addTearDown(restarted.dispose);
+      await expectLater(
+        restarted.subscribeEvents(
+          consumerSession: 'consumer-b',
+          peerAccount: _accountB,
+        ),
+        throwsA(
+          isA<AuthFailure>().having(
+            (AuthFailure failure) => failure.code,
+            'code',
+            staleIdentityCode,
+          ),
+        ),
+      );
+      final ExpectedIdentity oldIdentity = (await restarted.ledger
+          .expectedIdentityForSession(_accountA, 'consumer-b'))!;
+      await restarted.ledger.bindConsumer(
+        account: _accountA,
+        authGeneration: restarted.session.identity!.authGeneration,
+        consumerSession: 'consumer-b',
+        expectedBindingRevision: oldIdentity.bindingRevision,
+      );
       await restarted.subscribeEvents(
         consumerSession: 'consumer-b',
         peerAccount: _accountB,

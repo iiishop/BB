@@ -20,9 +20,12 @@
   重置的计数）。同账号重登、A→B→A、进程重建都会让旧值失效；`updateUser` 不轮换。
 - `ExpectedIdentity {account, auth_generation, consumer_id, binding_revision}` 由
   `ChatService.identityFor(consumerSession)` 取得；不含 token。
-- `ChatLedger.bindConsumer` 是唯一绑定入口：首次 alias 建 consumer（revision 1）；新
-  generation 递增 `binding_revision`；按 consumer id 接管必须提供当前 revision，且 consumer
-  不能跨账号接管（`stale_binding`）。
+- `ChatLedger.bindConsumer` 是唯一绑定入口：首次 alias 建 consumer（revision 1）；
+  **旧 alias 在重新登录后不会被隐式重绑**，必须显式提供当前 `expected_binding_revision`
+  （或经 v2 owner `consumers/bind`）才递增 revision；只有客户端自有的 `human:<account>`
+  alias 随自身登录轮换。按 consumer id 接管必须提供当前 revision，consumer 不能跨账号。
+- ACK / confirm 的身份与绑定检查在**同一个 ledger 锁内、写入之前**完成；身份失效时不写
+  水位/确认，`beforeCommit` 是受控暂停注入点，用于证明校验→写入之间被切换不会落库。
 - 服务层在入口捕获 `(AuthIdentity, ConsumerBinding)`，之后只使用捕获值写账本/发请求，不再
   在 await 后读取全局 token。需要外部身份时传入 `expectedIdentity`，校验顺序为
   `stale_identity` → `stale_binding`。
@@ -69,7 +72,10 @@
   `expected_identity`，成功统一 `{identity,result}`；身份校验顺序为解析 → 401 →
   `stale_identity` → `stale_binding`（含 revision/consumer 拼接检查）→ 业务。
 - 消费查询 `/v2/chat/consumption` 返回 `{consumed_through,migration}`；`get_operation`
-  只对同一 consumer 返回其计划（其他 consumer 404），恢复查询不改 `operation_id`、不重发。
+  只对同一 consumer 返回其计划（其他 consumer 404），不使用跨账号全局 operation 查找，
+  恢复查询不改 `operation_id`、不重发。
+- `ExpectedIdentity.fromJson` 严格拒绝未知字段、非契约字符集/长度、revision 越界与非整数；
+  v2 业务一律在解析后才做登录/身份/owner 校验。
 - v2 事件 `version=2` + `origin_identity`：事件在写入时快照绑定；缺少来源的旧事件读取
   返回 `migration_required`，不回写成新绑定。v2 事件/下载以稳定 consumer id 作为持久
   key，重绑不重置 cursor。下载任务保存 `origin_identity`，旧任务无来源时
@@ -77,14 +83,41 @@
 - v2 错误 envelope 固定 `{error:{code,message,fields}}`，`fields` 只含 schema 字段名，
   不回显输入值；`conflict` 映射为 `idempotency_conflict`。
 
-## 6. 未接线 / NOT RUN
+## 6. 共享 fixtures 与严格三层
 
-- 真实 `journal/live.py --v2` 链路尚未在本分支运行（需要 Orion 把本 SHA 与 Forge 契约
-  SHA 整合后执行）。
-- 共享 `chat-v2-cases.json` 语义 fixtures 的消费测试位于整合树，本分支未运行；本轮以
-  `test/chat_v2_local_server_test.dart` 覆盖同等路由/校验断言。
+`test/chat_v2_shared_contract_test.dart` 直接读取整合树的
+`server/contract/chat-v2-cases.json` / `chat-v2-openapi.json`：校验版本与 owner header、
+每条 OpenAPI 路由均已实现（未知路由 404）、全部 `invalid_inputs` 返回 422、错误表状态与
+`{code,message,fields}` 形状，以及 probe 路径结果/identity 的 key 集合。
+
+`QA_REQUIRE_INTEGRATION=1 bash scripts/run_flutter_tests.sh client`：analyze PASS、
+flutter-test **312 passed / 8 skipped**、linux-integration **13 passed**，`RESULT=PASS`。
+
+8 个既有 skip（未算通过）：
+
+1. `live chat chain ordered text/image send, real blocks, receipts, ACK gap and ACL` —
+   `BB_LIVE_SERVER_URL 未设置：未执行真实 FastAPI 聊天链路（SKIP，不算 PASS）`
+2. `live chat chain attachment metadata only, async download, durable event and video cover`
+   — 同上
+3. `live chat chain wait returns an arriving message before timeout` — 同上
+4. `live FastAPI auth register → login → persist → restore → expired credential` —
+   `BB_LIVE_SERVER_URL 未设置：未执行真实 FastAPI 链路（SKIP，不算 PASS）`
+5. `real MCP drives the standalone Dart entry; login arms 30s heartbeat and 401 clears files`
+   — 缺 `BB_LIVE_SERVER_URL/BB_LIVE_DB_PATH/BB_PROBE_*`（SKIP，不算 PASS）
+6. `live profile chain seventeen MCP tools through real stdio, three sources, refresh, logout`
+   — 缺 `BB_LIVE_SERVER_URL`（SKIP，不算 PASS）
+7. `capture narrow, wide and folded Profile presentations` —
+   `QA_SCREENSHOT_DIR 未设置：本次未生成截图`
+8. `capture users home and chat thread in three form factors` —
+   `QA_CHAT_SCREENSHOT_DIR 未设置：本次未生成截图`
+
+## 7. 未接线 / NOT RUN
+
+- 真实 `journal/live.py --v2` 链路尚未在整合 SHA 上运行，需 Orion/Forge 合并本客户端 SHA
+  后执行；共享 fixtures 已由客户端测试消费，但不等于真实链路。
 - 完整 wait/被动竞争、多进程消费者所有权、session/在途下载身份、迁移故障注入、真实
-  模型/视觉与最终集成 CI 未在本轮验证。
-- 测试：`QA_REQUIRE_INTEGRATION=1 bash scripts/run_flutter_tests.sh client`；新增用例见
-  `test/chat_consumer_isolation_test.dart`、`test/chat_identity_generation_test.dart`、
-  `test/chat_ledger_migration_test.dart`、`test/chat_v2_local_server_test.dart`。
+  模型/视觉、集成版 CI 与 Sentinel 独立 QA 未在本轮验证。
+- 新增用例：`test/chat_consumer_isolation_test.dart`、`test/chat_identity_generation_test.dart`、
+  `test/chat_ledger_migration_test.dart`、`test/chat_v2_local_server_test.dart`、
+  `test/chat_v2_shared_contract_test.dart`、`test/chat_atomic_commit_test.dart`、
+  `test/client_identity_contract_test.dart`。

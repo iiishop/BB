@@ -1079,6 +1079,8 @@ class ChatLedger {
     required String consumerSession,
     String? consumerId,
     int? expectedBindingRevision,
+    bool allowGenerationRotation = false,
+    bool requireExisting = false,
   }) {
     return _locked(() async {
       String? resolved = consumerId;
@@ -1105,6 +1107,11 @@ class ChatLedger {
         }
       } else {
         resolved = _consumerIdForAliasLocked(account, consumerSession);
+        if (resolved == null && requireExisting) {
+          // Consumption/confirmation never mints a consumer: an unknown alias
+          // is an old-identity request, not a registration.
+          throw staleIdentity;
+        }
         if (resolved != null) {
           final ConsumerBinding? target = _bindingLocked(resolved);
           if (target != null && target.account != account) {
@@ -1136,14 +1143,29 @@ class ChatLedger {
       };
       final bool generationChanged =
           authGeneration.isNotEmpty && binding.authGeneration != authGeneration;
+      if (generationChanged) {
+        // Re-login does not silently re-point an existing alias at a new
+        // identity. Only the first binding of a never-authenticated consumer,
+        // the client-owned human alias, or an explicit revision-matching
+        // rebind may rotate the generation.
+        final bool firstBinding = binding.authGeneration.isEmpty;
+        final bool explicitRebind =
+            expectedBindingRevision != null &&
+            expectedBindingRevision == binding.bindingRevision;
+        if (!firstBinding && !allowGenerationRotation && !explicitRebind) {
+          throw staleIdentity;
+        }
+      }
       final bool aliasAdded = !binding.aliases.contains(consumerSession);
       if (generationChanged || aliasAdded) {
+        final bool firstBinding =
+            generationChanged && binding.authGeneration.isEmpty;
         _consumers[resolved] = <String, dynamic>{
           ...(_consumers[resolved] as Map<String, dynamic>),
           'auth_generation': generationChanged
               ? authGeneration
               : binding.authGeneration,
-          'binding_revision': generationChanged
+          'binding_revision': generationChanged && !firstBinding
               ? binding.bindingRevision + 1
               : binding.bindingRevision,
           'aliases': aliases,
@@ -1234,6 +1256,151 @@ class ChatLedger {
         scopes[consumerId] = consumption;
         await _flush();
       }
+    });
+  }
+
+  int _consumedLocked(String account, String consumerId, String peerAccount) {
+    final Object? perConsumer =
+        (_account(account)['consumption_by_consumer']
+            as Map<String, dynamic>)[consumerId];
+    if (perConsumer is! Map<String, dynamic>) {
+      return 0;
+    }
+    final Object? value = perConsumer[peerAccount];
+    return value is int ? value : 0;
+  }
+
+  Map<String, dynamic>? _legacyMigrationForPeerLocked(
+    String account,
+    String peerAccount,
+  ) {
+    final Object? raw = _data['legacy_migration'];
+    if (raw is! Map<String, dynamic>) {
+      return null;
+    }
+    final Object? entries = raw['entries'];
+    if (entries is! List) {
+      return null;
+    }
+    for (final Object? entry in entries) {
+      if (entry is Map<String, dynamic> &&
+          entry['account'] == account &&
+          entry['peer_account'] == peerAccount) {
+        return Map<String, dynamic>.from(entry);
+      }
+    }
+    return null;
+  }
+
+  /// Atomic ACK commit: identity/binding re-check, gap validation, optional
+  /// fault-injection pause, a second identity re-check, then the durable write.
+  ///
+  /// The watermark is never written before the identity and scope checks pass.
+  /// [stillCurrent] is synchronous and evaluated inside the ledger lock, so a
+  /// login switch between the check and the write is observed.
+  Future<int> commitAck({
+    required String account,
+    required String consumerSession,
+    required String consumerId,
+    required String peerAccount,
+    required int throughPosition,
+    required ExpectedIdentity expectedIdentity,
+    required bool Function() stillCurrent,
+    Future<void> Function()? beforeCommit,
+  }) {
+    return _locked(() async {
+      ConsumerBinding? binding = _bindingLocked(consumerId);
+      if (binding == null ||
+          binding.account != account ||
+          !expectedIdentity.matches(binding.identity)) {
+        throw staleBinding('消费者绑定版本已变化');
+      }
+      if (!stillCurrent()) {
+        throw staleIdentity;
+      }
+      final int consumed = _consumedLocked(account, consumerId, peerAccount);
+      if (throughPosition <= consumed) {
+        if (!stillCurrent()) {
+          throw staleIdentity;
+        }
+        return consumed;
+      }
+      final Map<String, dynamic> receipts =
+          _account(account)['receipts'] as Map<String, dynamic>;
+      final Map<int, bool> confirmedByPosition = <int, bool>{};
+      for (final Object? value in receipts.values) {
+        if (value is! Map<String, dynamic>) {
+          continue;
+        }
+        final PresentationReceipt receipt = PresentationReceipt.fromJson(value);
+        final bool sameConsumer = receipt.consumerId != null
+            ? receipt.consumerId == consumerId
+            : receipt.consumerSession == consumerSession;
+        if (sameConsumer && receipt.peerAccount == peerAccount) {
+          confirmedByPosition[receipt.position] = receipt.confirmed;
+        }
+      }
+      final List<int> gaps = <int>[
+        for (int position = consumed + 1; position <= throughPosition; position++)
+          if (confirmedByPosition[position] != true) position,
+      ];
+      if (gaps.isNotEmpty) {
+        final Map<String, dynamic>? legacy = _legacyMigrationForPeerLocked(
+          account,
+          peerAccount,
+        );
+        final int? legacyWatermark = legacy?['legacy_watermark'] is int
+            ? legacy!['legacy_watermark'] as int
+            : null;
+        if (legacy != null &&
+            legacy['outcome'] == 'migration_required' &&
+            legacyWatermark != null &&
+            gaps.any((int position) => position <= legacyWatermark)) {
+          throw migrationRequired(
+            '旧消费水位无法从可验证 receipts 迁移，请显式迁移或重新确认',
+            fields: <AuthFieldError>[
+              AuthFieldError(
+                field: 'through_position',
+                code: migrationRequiredCode,
+                message: '缺少可迁移的展示凭据',
+              ),
+            ],
+          );
+        }
+        throw consumptionGap(
+          '消费水位存在未确认展示的位置',
+          fields: <AuthFieldError>[
+            AuthFieldError(
+              field: 'through_position',
+              code: 'gap',
+              message: '缺少展示确认的位置',
+            ),
+          ],
+        );
+      }
+      if (beforeCommit != null) {
+        await beforeCommit();
+      }
+      if (!stillCurrent()) {
+        throw staleIdentity;
+      }
+      // A rebind could have completed while the pause was awaited: re-check the
+      // exact binding snapshot before the durable write.
+      binding = _bindingLocked(consumerId);
+      if (binding == null || !expectedIdentity.matches(binding.identity)) {
+        throw staleBinding('消费者绑定版本已变化');
+      }
+      final Map<String, dynamic> scopes =
+          _account(account)['consumption_by_consumer']
+              as Map<String, dynamic>;
+      final Map<String, dynamic> consumption =
+          (scopes[consumerId] as Map<String, dynamic>?) ?? <String, dynamic>{};
+      if (throughPosition > _consumedLocked(account, consumerId, peerAccount)) {
+        consumption[peerAccount] = throughPosition;
+        scopes[consumerId] = consumption;
+        await _flush();
+      }
+      return throughPosition;
     });
   }
 
@@ -1379,6 +1546,9 @@ class ChatLedger {
     required String requestDigest,
     required List<String> receiptIds,
     String? consumerId,
+    ExpectedIdentity? expectedIdentity,
+    bool Function()? stillCurrent,
+    Future<void> Function()? beforeCommit,
   }) {
     return _locked(() async {
       final Map<String, dynamic> state = _account(account);
@@ -1394,6 +1564,20 @@ class ChatLedger {
       final Map<String, dynamic> receipts =
           state['receipts'] as Map<String, dynamic>;
       final List<String> ids = receiptIds.toSet().toList()..sort();
+      // Identity and binding are validated inside the same lock as the write:
+      // an invalidated binding can never confirm, and no confirmation is
+      // written before this check.
+      if (expectedIdentity != null) {
+        final ConsumerBinding? binding = _bindingLocked(resolvedConsumer);
+        if (binding == null ||
+            binding.account != account ||
+            !expectedIdentity.matches(binding.identity)) {
+          throw staleBinding('消费者绑定版本已变化');
+        }
+      }
+      if (stillCurrent != null && !stillCurrent()) {
+        throw staleIdentity;
+      }
       // Attempt idempotency is scoped to the consumer: distinct consumers may
       // reuse the same logical attempt id without sharing confirmation state.
       final String attemptKey = '$resolvedConsumer\u0001$attemptId';
@@ -1452,6 +1636,18 @@ class ChatLedger {
         validated.add(receipt);
       }
 
+      if (beforeCommit != null) {
+        await beforeCommit();
+      }
+      if (stillCurrent != null && !stillCurrent()) {
+        throw staleIdentity;
+      }
+      if (expectedIdentity != null) {
+        final ConsumerBinding? binding = _bindingLocked(resolvedConsumer);
+        if (binding == null || !expectedIdentity.matches(binding.identity)) {
+          throw staleBinding('消费者绑定版本已变化');
+        }
+      }
       final Object previousConfirmations = jsonDecode(
         jsonEncode(confirmations),
       );

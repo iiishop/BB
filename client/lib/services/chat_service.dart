@@ -111,6 +111,7 @@ class ChatService {
     DateTime Function()? clock,
     this.eventPollInterval = const Duration(seconds: 2),
     bool webSocketHints = true,
+    this.beforeCommit,
   }) : _resolver = resolver ?? MediaSourceResolver(),
        _coverExtractor = coverExtractor ?? FfmpegVideoCoverExtractor(),
        _clock = clock ?? (() => DateTime.now().toUtc()) {
@@ -138,6 +139,11 @@ class ChatService {
   final VideoCoverExtractor _coverExtractor;
   final DateTime Function() _clock;
   final Duration eventPollInterval;
+
+  /// Fault-injection seam for the identity-check → durable-write window. It is
+  /// null in production; tests use it to switch the session at the exact
+  /// commit point and prove the watermark is not written.
+  final Future<void> Function()? beforeCommit;
 
   late final EventFeed eventFeed;
   late DownloadManager downloads;
@@ -379,9 +385,35 @@ class ChatService {
   /// This is what a v2 caller echoes back as `expected_identity`; it contains
   /// no token.
   Future<ExpectedIdentity> identityFor(String consumerSession) async {
+    final AuthIdentity? captured = session.identity;
+    if (captured == null) {
+      throw unauthenticated;
+    }
     final ({AuthIdentity identity, ConsumerBinding binding}) context =
-        await _captureBinding(consumerSession);
+        consumerSession == _humanSession(captured.account)
+        ? await _captureLocalBinding(captured.account)
+        : await _captureBinding(consumerSession);
     return context.binding.identity;
+  }
+
+  /// Captures the client-owned human consumer for UI/plain sends.
+  ///
+  /// This alias is the client's own session, so a new login legitimately
+  /// rotates it. Plugin `consumer_session` aliases are never rotated
+  /// implicitly.
+  Future<({AuthIdentity identity, ConsumerBinding binding})>
+  _captureLocalBinding(String account) async {
+    final AuthIdentity? captured = session.identity;
+    if (captured == null) {
+      throw unauthenticated;
+    }
+    final ConsumerBinding binding = await ledger.bindConsumer(
+      account: account,
+      authGeneration: captured.authGeneration,
+      consumerSession: _humanSession(account),
+      allowGenerationRotation: true,
+    );
+    return (identity: captured, binding: binding);
   }
 
   /// Captures the login identity and resolves the stable consumer binding in
@@ -391,8 +423,9 @@ class ChatService {
   /// the operation: later steps never re-read the mutable session to decide
   /// which account's row to write or which token to use.
   Future<({AuthIdentity identity, ConsumerBinding binding})> _captureBinding(
-    String consumerSession,
-  ) async {
+    String consumerSession, {
+    bool create = true,
+  }) async {
     final AuthIdentity? captured = session.identity;
     if (captured == null) {
       throw unauthenticated;
@@ -401,6 +434,7 @@ class ChatService {
       account: captured.account,
       authGeneration: captured.authGeneration,
       consumerSession: consumerSession,
+      requireExisting: !create,
     );
     return (identity: captured, binding: binding);
   }
@@ -570,7 +604,7 @@ class ChatService {
     }
     final ({AuthIdentity identity, ConsumerBinding binding}) context =
         expectedIdentity == null
-        ? await _captureBinding(_humanSession(maybeCurrent.account))
+        ? await _captureLocalBinding(maybeCurrent.account)
         : await requireIdentity(expectedIdentity);
     final AuthIdentity captured = context.identity;
     final String account = captured.account;
@@ -902,7 +936,7 @@ class ChatService {
     }
     final ({AuthIdentity identity, ConsumerBinding binding}) context =
         expectedIdentity == null
-        ? await _captureBinding(_humanSession(maybeCurrent.account))
+        ? await _captureLocalBinding(maybeCurrent.account)
         : await requireIdentity(expectedIdentity);
     final AuthIdentity captured = context.identity;
     final String account = captured.account;
@@ -1571,7 +1605,7 @@ class ChatService {
       throw _validation('request_digest 不能为空');
     }
     final ({AuthIdentity identity, ConsumerBinding binding}) context =
-        await _captureBinding(consumerSession);
+        await _captureBinding(consumerSession, create: false);
     final AuthIdentity captured = context.identity;
     _expectCurrentIdentity(expectedIdentity, context.binding, captured);
     final List<String> confirmed = await ledger.confirmPresentationAttempt(
@@ -1581,12 +1615,15 @@ class ChatService {
       attemptId: attemptId,
       requestDigest: requestDigest,
       receiptIds: receiptIds,
+      expectedIdentity: expectedIdentity ?? context.binding.identity,
+      stillCurrent: () => session.isCurrent(captured),
+      beforeCommit: beforeCommit,
     );
-    // An in-flight request must never be applied to a different account after
-    // a login switch. The write above is already scoped to the captured
-    // account; this check makes such a switch observable to the caller.
+    // The confirmation was only written while the captured identity was
+    // current. A switch during the flush keeps the original account's fact but
+    // must not report success to the new context.
     if (!session.isCurrent(captured)) {
-      throw unauthenticated;
+      throw staleIdentity;
     }
     return confirmed;
   }
@@ -1604,84 +1641,28 @@ class ChatService {
       throw _validation('through_position 不能为负');
     }
     final ({AuthIdentity identity, ConsumerBinding binding}) context =
-        await _captureBinding(consumerSession);
+        await _captureBinding(consumerSession, create: false);
     final AuthIdentity captured = context.identity;
     _expectCurrentIdentity(expectedIdentity, context.binding, captured);
-    final String consumerId = context.binding.consumerId;
-    final String account = captured.account;
-    // Scope validation (above) happens before the idempotent short-circuit: a
-    // consumer without receipts can never inherit another consumer's cursor.
-    final int consumed = await ledger.consumedThrough(
-      account,
-      peerAccount,
-      consumerId: consumerId,
-    );
-    if (throughPosition <= consumed) {
-      return consumed;
-    }
-    final List<PresentationReceipt> receipts = await ledger.receiptsForPeer(
-      account: account,
+    // Everything below happens inside one ledger lock: identity and binding are
+    // re-verified, the gap is recomputed and only then is the watermark
+    // written. A switch at the commit pause cannot advance any cursor.
+    final int committed = await ledger.commitAck(
+      account: captured.account,
       consumerSession: consumerSession,
+      consumerId: context.binding.consumerId,
       peerAccount: peerAccount,
-      consumerId: consumerId,
+      throughPosition: throughPosition,
+      expectedIdentity: expectedIdentity ?? context.binding.identity,
+      stillCurrent: () => session.isCurrent(captured),
+      beforeCommit: beforeCommit,
     );
-    final Map<int, bool> confirmedByPosition = <int, bool>{
-      for (final PresentationReceipt receipt in receipts)
-        if (receipt.consumerId == consumerId ||
-            (receipt.consumerId == null &&
-                receipt.consumerSession == consumerSession))
-          receipt.position: receipt.confirmed,
-    };
-    final List<int> gaps = <int>[
-      for (int position = consumed + 1; position <= throughPosition; position++)
-        if (confirmedByPosition[position] != true) position,
-    ];
-    if (gaps.isNotEmpty) {
-      final Map<String, dynamic>? legacy = await ledger.legacyMigrationForPeer(
-        account,
-        peerAccount,
-      );
-      final int? legacyWatermark = legacy?['legacy_watermark'] is int
-          ? legacy!['legacy_watermark'] as int
-          : null;
-      if (legacy != null &&
-          legacy['outcome'] == 'migration_required' &&
-          legacyWatermark != null &&
-          gaps.any((int position) => position <= legacyWatermark)) {
-        // The legacy watermark exists but cannot be proven for this consumer:
-        // keep it preserved, advance nothing, and report migration.
-        throw migrationRequired(
-          '旧消费水位无法从可验证 receipts 迁移，请显式迁移或重新确认',
-          fields: <AuthFieldError>[
-            AuthFieldError(
-              field: 'through_position',
-              code: migrationRequiredCode,
-              message: '位置 ${_summarize(gaps)} 缺少可迁移的展示凭据',
-            ),
-          ],
-        );
-      }
-      throw consumptionGap(
-        '消费水位存在未确认展示的位置',
-        fields: <AuthFieldError>[
-          AuthFieldError(
-            field: 'through_position',
-            code: 'gap',
-            message: '缺少展示确认的位置：${_summarize(gaps)}',
-          ),
-        ],
-      );
-    }
-    await ledger.setConsumedThrough(
-      account,
-      peerAccount,
-      throughPosition,
-      consumerId: consumerId,
-    );
+    // The fact is scoped to the captured account. Reporting success to a
+    // different login would leak it into the new context.
     if (!session.isCurrent(captured)) {
-      throw unauthenticated;
+      throw staleIdentity;
     }
-    return throughPosition;
+    return committed;
   }
 
   // ----------------------------------------------------------------- media --
@@ -1934,13 +1915,6 @@ class ChatService {
       code: 'unsupported_media_type',
       message: '图片格式不受支持',
     );
-  }
-
-  static String _summarize(List<int> positions) {
-    if (positions.length <= 5) {
-      return positions.join(', ');
-    }
-    return '${positions.take(4).join(', ')}… (${positions.length})';
   }
 
   static bool _isUncertain(AuthFailure failure) {

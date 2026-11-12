@@ -551,7 +551,9 @@ class ChatV2Router {
       },
     );
     final Object? revision = value['binding_revision'];
-    if (revision is! int) {
+    if (revision is! int ||
+        revision < 1 ||
+        revision > maxBindingRevision) {
       throw _validation('expected_identity');
     }
     try {

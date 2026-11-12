@@ -584,6 +584,26 @@ void main() {
       owner: ownerOne,
     );
     expect(sent['identity'], first);
+    // The plan belongs to the validated v2 consumer, not the UI human alias.
+    final Map<String, dynamic> doc =
+        jsonDecode(await File(ledgerPath).readAsString())
+            as Map<String, dynamic>;
+    final Map<String, dynamic> accountState =
+        (doc['accounts'] as Map<String, dynamic>)[_account]
+            as Map<String, dynamic>;
+    expect(
+      (accountState['consumer_aliases'] as Map<String, dynamic>).keys
+          .where((String key) => key.startsWith('human:')),
+      isEmpty,
+    );
+    final Map<String, dynamic> storedOperation =
+        (accountState['operations'] as Map<String, dynamic>)['v2-send-one']
+            as Map<String, dynamic>;
+    expect(
+      (storedOperation['expected_identity'] as Map<String, dynamic>)[
+          'consumer_id'],
+      first['consumer_id'],
+    );
     final Map<String, dynamic> operation = await call(
       '/v2/operations/get',
       <String, dynamic>{
