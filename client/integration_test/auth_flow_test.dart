@@ -17,6 +17,7 @@ import 'package:bb_client/services/profile_service.dart';
 import 'package:bb_client/services/session_store.dart';
 import 'package:bb_client/ui/auth_shell.dart';
 import 'package:bb_client/ui/chat/chat_composer.dart';
+import 'package:bb_client/ui/chat/media_actions.dart';
 import 'package:bb_client/ui/chat/chat_page.dart';
 import 'package:bb_client/ui/chat/users_view.dart';
 import 'package:bb_client/ui/home_view.dart';
@@ -32,6 +33,7 @@ import 'package:integration_test/integration_test.dart';
 import '../test/support/fake_auth_backend.dart';
 import '../test/support/fake_auth_gateway.dart';
 import '../test/support/fake_chat_backend.dart';
+import '../test/support/fake_chat_service.dart';
 import '../test/support/fake_profile_gateway.dart';
 
 /// Linux desktop end-to-end coverage of STEP-1 against a real HTTP upstream.
@@ -646,6 +648,90 @@ void main() {
       isTrue,
     );
   });
+
+  testWidgets(
+    'real ffmpeg: pasted video gets a real cover and mixes with text',
+    (WidgetTester tester) async {
+      final Directory root = await Directory.systemTemp.createTemp(
+        'bb-integration-video-',
+      );
+      addTearDown(() async {
+        if (await root.exists()) {
+          await root.delete(recursive: true);
+        }
+      });
+      final String videoPath = '${root.path}/clip.mp4';
+      final ProcessResult generated = await Process.run('ffmpeg', <String>[
+        '-y',
+        '-f',
+        'lavfi',
+        '-i',
+        'color=c=teal:s=64x64:d=1',
+        '-pix_fmt',
+        'yuv420p',
+        '-movflags',
+        '+faststart',
+        videoPath,
+      ]);
+      expect(generated.exitCode, 0, reason: '${generated.stderr}');
+      final Uint8List videoBytes = await File(videoPath).readAsBytes();
+      final FakeChatService chat = FakeChatService(
+        self: const AuthUser(account: '10000001', username: 'alice'),
+        users: const <ChatUser>[],
+      );
+      final _IntegrationClipboard clipboard = _IntegrationClipboard(
+        PickedMedia(
+          bytes: videoBytes,
+          filename: 'clip.mp4',
+          mimeType: 'video/mp4',
+          path: videoPath,
+        ),
+      );
+
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ChatComposer(
+              chat: chat,
+              peerAccount: '10000002',
+              clipboard: clipboard,
+              onSent: (List<ChatMessage> _) {},
+            ),
+          ),
+        ),
+      );
+      await tester.enterText(find.byKey(ChatComposer.inputKey), '真实视频混排');
+      await tester.tap(find.byKey(ChatComposer.pasteKey));
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(seconds: 1));
+      });
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(ChatComposer.sendKey));
+      await tester.pumpAndSettle();
+
+      expect(chat.lastSentBody, hasLength(1));
+      expect(chat.lastSentAttachments, hasLength(1));
+      expect(chat.lastSentAttachments.single.cover, isNotNull);
+      expect(chat.lastSentAttachments.single.cover!.mimeType, 'image/png');
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+    },
+  );
+}
+
+class _IntegrationClipboard implements ClipboardMediaReader {
+  _IntegrationClipboard(this.media);
+
+  final PickedMedia media;
+
+  @override
+  Future<PickedMedia?> read() async => media;
 }
 
 const String _chatPng =

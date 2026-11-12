@@ -11,6 +11,7 @@ import 'package:bb_client/services/chat_api_client.dart';
 import 'package:bb_client/services/chat_ledger.dart';
 import 'package:bb_client/services/chat_service.dart';
 import 'package:bb_client/services/media_source.dart';
+import 'package:bb_client/services/media_stream_proxy.dart';
 import 'package:bb_client/services/session_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -314,6 +315,7 @@ void main() {
           videoPath,
         ]);
         expect(generated.exitCode, 0, reason: 'ffmpeg fixture creation');
+        final Uint8List videoBytes = await File(videoPath).readAsBytes();
         final OutgoingAttachment video = OutgoingAttachment(
           source: MediaSource(
             path: videoPath,
@@ -333,6 +335,29 @@ void main() {
         final Attachment videoMeta = videoSent.message!.attachment!;
         expect(videoMeta.kind, AttachmentKind.video);
         expect(videoMeta.coverMediaId, isNotNull);
+
+        // Click-scoped online stream against the real FastAPI media route:
+        // only the requested range is forwarded, never a pre-download.
+        final MediaStreamHandle stream = await chatB.openMediaStream(
+          videoMeta.mediaId,
+        );
+        final HttpClient streamClient = HttpClient();
+        try {
+          final HttpClientRequest streamRequest = await streamClient.getUrl(
+            stream.uri,
+          );
+          streamRequest.headers.set(HttpHeaders.rangeHeader, 'bytes=0-3');
+          final HttpClientResponse streamResponse = await streamRequest.close();
+          final List<int> streamed = await streamResponse.fold<List<int>>(
+            <int>[],
+            (List<int> acc, List<int> chunk) => acc..addAll(chunk),
+          );
+          expect(streamResponse.statusCode, 206);
+          expect(streamed, videoBytes.sublist(0, 4));
+        } finally {
+          streamClient.close(force: true);
+          await stream.close();
+        }
 
         final Uint8List pdfBytes = Uint8List.fromList(
           utf8.encode('%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n'),

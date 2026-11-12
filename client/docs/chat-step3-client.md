@@ -30,6 +30,7 @@ client/lib/services/chat_ledger.dart       原子 JSON 账本：operation/downlo
 client/lib/services/chat_service.dart      有序发送、幂等重试、read/wait/ACK/展示凭据
 client/lib/services/download_manager.dart  预留路径、唯一命名、后台下载、完成/失败事件
 client/lib/services/event_feed.dart        服务端事件补取到持久本地事件日志
+client/lib/services/media_stream_proxy.dart 点击播放的 loopback Range 流代理
 client/lib/services/local_auth_server.dart 九工具 + R3 内部路由（保留 auth/profile）
 client/lib/ui/chat/users_view.dart         注册用户列表、预览、在线状态、分页/刷新
 client/lib/ui/chat/chat_page.dart          消息时间分组、附件卡、下载/播放/另存为
@@ -94,15 +95,21 @@ R3 新增内部路由（不导出为 MCP 工具）：
   按原顺序夹在 text block 之间。
 - 独立附件：消息只带元信息；`read_messages` 返回文本摘要，视频额外返回真实 cover image
   block；不下载原文件。
-- 视频封面：桌面用 `ffmpeg` 抽取首帧；Android 用 `video_thumbnail`；无法抽取时发送失败。
-- 播放：Android/iOS 用 `video_player`；Linux/Windows 下载后交给系统默认播放器
-  （`xdg-open` / `cmd start` / `open`）。Linux 不使用 `video_player`，因为该插件没有
-  Linux 实现。
+- 视频封面：文件选取保留真实 `path`；bytes-only 剪贴板/URI 来源先安全落临时文件，桌面用
+  `ffmpeg` 抽取首帧、Android 用 `video_thumbnail`，完成后删除临时文件；无法抽取时明确拒发。
+- 播放：**点击才建立** loopback 流会话，`MediaStreamProxy` 生成随机 token 的
+  `http://127.0.0.1:<port>/stream/<token>`，按播放器 Range 请求带当前 Bearer 透传到
+  `/media/{id}`，不预下载原文件。Android/iOS 用 `VideoPlayerController.networkUrl` 在线播放；
+  Linux/Windows 将流 URL 交给系统播放器，并保留取消/停止、错误提示和重试。播放器失败时关闭
+  流；另存为仍是独立操作。
 - 另存为：`file_selector.getSaveLocation`，用户选目录/文件名；已存在时追加 ` (2)` 后缀，
   不静默覆盖；Agent 下载支持指定目录，默认按媒体类型分到 cache 子目录
   `images/videos/audio/documents/other`。
-- 粘贴图片：Linux 依次尝试 `wl-paste` / `xclip` / `xsel`；缺少工具时明确提示不支持。
-  Android/iOS 的图片剪贴板本轮为 **NOT RUN**（Flutter 平台通道只暴露文本）。
+- 剪贴板：桌面先尝试 image/png、image/jpeg、video/mp4、video/webm 的二进制剪贴板目标
+  （`wl-paste`/`xclip`），再解析 text/uri-list、`file://` 与绝对路径，只接受本地图片/视频；
+  Android 通过 `bb/media_clipboard` 平台通道读取 ClipData 的 `content://` URI、MIME、
+  文件名与字节，校验大小后进入同一草稿逻辑。图片进入正文，视频进入独立附件并真实抽封面。
+  iOS 无本轮 runner，未接入；Android 真机仍需单独验证。
 
 ## 6. 展示凭据与消费 ACK
 
@@ -138,15 +145,16 @@ R3 新增内部路由（不导出为 MCP 工具）：
 - 视口：手机 390×844、宽屏 1440×900、折叠注入 `DisplayFeature` 1024×768 均无溢出；
   主页列表最大宽度 760，聊天最大宽度 860。
 
-## 9. 实际执行与证据
+## 10. 实际执行与证据
 
 以下命令均在本次工作副本真实执行，使用本机 Flutter 3.47.9 / Dart 3.13.7。
 
 | 命令 | 结果 |
 | --- | --- |
 | `flutter analyze` | `No issues found!`，exit 0 |
-| `QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_tests.sh client` | `RESULT=PASS`，exit 0；analyze PASS、flutter-test 241 passed/8 skipped、linux-integration 12 passed |
-| `flutter test test/live_chat_e2e_test.dart`（`BB_LIVE_SERVER_URL=http://127.0.0.1:8171`，真实 FastAPI） | 3 tests passed，exit 0：有序图文、真实 blocks、receipt→ACK 409/通过、第三方 ACL、附件元信息、视频封面、异步下载文件内容、持久事件、wait 积压/提前到达 |
+| `QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_tests.sh client` | `RESULT=PASS`，exit 0；analyze PASS、flutter-test 248 passed/8 skipped、linux-integration 13 passed |
+| `flutter test test/live_chat_e2e_test.dart`（`BB_LIVE_SERVER_URL=http://127.0.0.1:8171`，真实 FastAPI） | 3 tests passed，exit 0：有序图文、真实 blocks、receipt→ACK 409/通过、第三方 ACL、附件元信息、视频封面、异步下载文件内容、真实 Range 在线流、持久事件、wait 积压/提前到达 |
+| 真实 FastAPI 在线流 | `MediaStreamHandle` 以 `bytes=0-3` 请求真实 `/media/{id}` 返回 206 且字节一致；到达阶段未请求原视频 |
 | 独立 `dart run bin/bb_client_api.dart` + 真实 FastAPI | `STANDALONE CHAIN: PASS`：本地登录、list_users、有序发送/重放、read/confirm/ACK、附件上传、`downloads/start` 202→`get` succeeded、`operations/get`、`events/subscribe/read/wait`、`wait_messages` 积压 |
 | `uv run --project server --locked pytest server/tests -q --tb=short` | 103 passed，exit 0（仅既有弃用警告） |
 | 截图测试 | 6 张 390×844 / 1440×900 / 1024×768（含 hinge）PNG，见 `client/.qa-artifacts/screenshots/` |
@@ -154,7 +162,7 @@ R3 新增内部路由（不导出为 MCP 工具）：
 截图是 Flutter widget-test raster，不是 Android/Windows 运行截图；真实设备验收仍由
 Owner/独立 QA 执行。
 
-## 10. NOT RUN / 已知限制
+## 11. NOT RUN / 已知限制
 
 - **Android / Windows 运行**：本环境无模拟器/真机、无 MSVC；一律 NOT RUN。
 - **物理折叠设备**：只注入 `DisplayFeature` 渲染，没有真实折叠硬件运行。
@@ -162,17 +170,18 @@ Owner/独立 QA 执行。
   DSH 插件的真实模型展示、continuation、跨重启调度由 Forge/独立 QA 验证。
 - **真实 MCP 插件链**：Nine-tool 本地契约由 Dart 测试覆盖；真实 dsh-plugin MCP 进程
   端到端仍 NOT RUN（属于 Forge/集成 QA）。
-- **Android 图片剪贴板**：平台限制，NOT RUN。
-- **Linux 内嵌视频播放**：`video_player` 无 Linux 实现，改为系统播放器；这是平台差异，
-  不是“已通过 Linux 内嵌播放”。
-- **分页上限**：聊天初始加载最多 6 页×100 条；更早历史不自动补拉，后续可扩展“加载更早”
-  （不影响发送/读取/ACK 语义）。
+- **Android 真机**：`bb/media_clipboard` 通道与 `video_player` 在线播放已实现，但无设备，
+  NOT RUN；不以 Linux 结果代替。`flutter build apk --debug` 在本环境因 Gradle wrapper 缓存
+  只读/守护进程启动失败而未完成编译，Kotlin 通道仍需在可构建的 Android 环境复验。
+- **桌面在线播放 GUI**：loopback Range 代理、点击触发、权限/取消与系统播放器交接已自动
+  验证；实际播放窗口/解码未在无交互环境人工验收，NOT RUN，不记作已通过。
+- **iOS**：无本轮 runner，剪贴板与播放路径未接入。
 - **事件日志不设丢弃窗口**：按契约保留，避免有限内存缓存丢旧事件；长期运行的清理策略
   未在本步实现。
 - 服务器/共享 schema 未改；若 R3 正式 schema 字段名有差异，以 Forge 的共享 schema 为准，
   客户端再进行对齐（当前按 R3 文档实现）。
 
-## 11. 本地运行
+## 12. 本地运行
 
 ```bash
 # 真实 FastAPI（示例）

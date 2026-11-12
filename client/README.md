@@ -87,10 +87,14 @@ Linux 默认窗口 1180×780，Windows 同样 1180×780。Windows 构建/运行�
 - **主页**：`GET /users` 的账号升序 keyset 分页（1–100），每行头像、username、在线状态、
   最后联系时间、最后消息“谁：预览”（本人显示“我”）；无历史显示“尚未联系 / 暂无消息”；
   30s 静默刷新 + 下拉刷新；列表按 account 路由，重名 username 不串会话。预览不下载附件原文件。
+- **历史/并发**：初次加载连续拉取全部分页（不再固定 6×100 截断）；`_fetchedThrough` 只由
+  连续服务器页推进，`_displayedMax` 仅表示本地已显示水位，本地发送不推动拉取游标；初始化/3s
+  轮询/发送并发时统一按稳定 `id@position` 合并、排序、去重，补取中的新消息不会跳过 601–1000。
 - **正文**：`POST /messages` 的 content 是有序 text/image；图片先由客户端上传为媒体资源，
   发送/存储/接收/UI/MCP read 均保持原顺序。空正文不发消息。
 - **独立附件**：视频/音频/PDF 等走 `POST /messages/attachments`；消息只带元信息，默认不下载
-  原文件；视频带真实封面（桌面 ffmpeg 抽帧、Android `video_thumbnail`）。
+  原文件；视频带真实封面（桌面 ffmpeg 抽帧、Android `video_thumbnail`）。文件选择保留真实
+  `path`，bytes-only 剪贴板/URI 来源会安全落临时文件再抽帧并清理。
 - **幂等**：正文与每个附件各自使用稳定 operation id；重试复用同一 id，成功项不重发；
   409 冲突、uncertain 先查询再原样重试；部分成功保留成功项。
 - **异步下载**：`/downloads/start` 立即返回 202 + 计划路径；`/downloads/get` 查询完成/失败；
@@ -99,6 +103,13 @@ Linux 默认窗口 1180×780，Windows 同样 1180×780。Windows 构建/运行�
 - **持久事件/展示/ACK**：`/events/{subscribe,read,wait}`、`/chat/confirm_presentation`、
   `/chat/ack_messages`；receipt 绑定账号/consumer/peer/message/有序 blocks；未确认的位置
   ACK 返回 409 `consumption_gap`；下载完成不推进消息水位。
+- **剪贴板**：桌面先尝试图片/视频二进制剪贴板目标，再解析 text/uri-list、file:// 或绝对路径
+  （仅本地文件）；Android 通过 `bb/media_clipboard` 平台通道读取 ClipData content URI 的
+  图片/视频。图片进入正文，视频进入带真实封面的独立附件；iOS 无本轮 runner，未接入。
+- **在线播放**：附件到达只取封面；点击播放时才启动 `127.0.0.1` 随机 token 的 loopback 流代理，
+  按播放器 Range 向带 Bearer 的 `/media/{id}` 透传，不预下载原文件。Android/iOS 用
+  `VideoPlayerController.networkUrl` 在线播放；桌面把流 URL 交给系统播放器并保留“停止/取消”
+  与重试；另存为仍是独立目录选择操作。桌面 GUI 播放未在本环境人工验收，见 NOT RUN。
 - **UI**：日期/5 分钟时间分组、有序文本+图片、附件卡右击/长按“下载/播放/另存为”、
   输入区图片/文件/粘贴与草稿顺序、失败重试提示；手机 390×844、桌面 1440×900、折叠
   1024×768 均无溢出。
@@ -150,11 +161,12 @@ flutter test integration_test -d linux
 QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_tests.sh client
 ```
 
-- 默认 `flutter test`：最新严格 runner 为 **241 passed / 8 skipped / exit 0**。新增覆盖
-  有序图文发送、幂等/冲突、read→receipt→ACK 缺口、附件只读元信息、异步下载内容、持久事件、
-  wait 积压/提前到达、用户列表分页/预览/在线状态、聊天输入与附件卡、账本重启与媒体源解析。
+- 默认 `flutter test`：最新严格 runner 为 **248 passed / 8 skipped / exit 0**。新增覆盖
+  1000 条真实分页下发送/接收并发补取无缺口、有序图文发送、幂等/冲突、read→receipt→ACK 缺口、
+  附件只读元信息、异步下载内容、持久事件、wait 积压/提前到达、用户列表分页/预览/在线状态、
+  图片/视频剪贴板、真实 ffmpeg 视频封面、点击在线流 Range 与“到达不请求原视频”。
 - 严格命令：`QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_tests.sh client`
-  → `RESULT=PASS`（analyze PASS、flutter-test PASS、linux-integration 12 PASS）。
+  → `RESULT=PASS`（analyze PASS、flutter-test PASS、linux-integration 13 PASS）。
 - `test/qa_metrics_test.dart` / `qa_session_race_test.dart` 保留独立 QA 的失败回归：
   打开面板后实时缩放/折叠重排、旧会话延迟 401 不得清掉新登录会话。
 - `test/qa_resize_transition_test.dart`、`profile_transition_reflow_test.dart` 保留并覆盖
@@ -164,8 +176,8 @@ QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_test
   `--help` 必须 exit 0（QA-465-01 回归），本地登录后 1s 测试心跳自动开启，401 后内存与
   磁盘凭据都被清除且 token 不落日志。
 - `integration_test/auth_flow_test.dart`：Linux 上真实 HTTP 的 STEP-1 流程 + STEP-2
-  UI 链路 + STEP-3 用户主页→聊天→图片渲染→文本发送；`flutter test integration_test -d linux`
-  12 例通过。
+  UI 链路 + STEP-3 用户主页→聊天→图片渲染→文本发送 + 真实 ffmpeg 粘贴视频生成封面并混排；
+  `flutter test integration_test -d linux` 13 例通过。
 - STEP-3 真实链路（需自行启动 `bb_server`）：`BB_LIVE_SERVER_URL=http://127.0.0.1:8171
   flutter test test/live_chat_e2e_test.dart`，覆盖真实 FastAPI 的有序图文、receipt/ACK、
   第三方 ACL、视频封面、异步下载与持久事件；本次实际 3 例通过。
@@ -183,9 +195,9 @@ QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_test
 - 不做 token 过期/刷新；真正重新登录只有主动退出或服务端清理 24h 离线会话后 401。
 - 不做群聊、好友申请/搜索、动态、产品已读回执、跨机器文件传输、附件自动解析。
 - Android 真机与 Windows 构建/运行 **NOT RUN**；折叠屏形态为注入 `DisplayFeature` 的
-  widget 渲染验证，未在真实折叠设备运行。Android 图片剪贴板、Linux 内嵌视频播放为平台
-  限制（分别 NOT RUN / 改系统播放器），不得记作通过。
-- 聊天初始最多加载 6 页×100 条；更早历史未做“加载更早”。事件日志不设有限内存丢弃窗口，
-  长期清理策略未实现。
+  widget 渲染验证，未在真实折叠设备运行。Android 剪贴板通道已实现，但未在真机验证；
+  Linux/Windows 的在线流交给系统播放器，桌面 GUI 实际播放未在本环境人工验收；这两项均
+  如实 NOT RUN，不记 PASS。
+- 事件日志不设有限内存丢弃窗口，长期清理策略未实现。
 - 真实 DSH 模型展示、continuation、九工具真实 MCP 端到端仍由 Forge/集成 QA 验证，本客户端
   只覆盖本机 FastAPI 与本地 loopback 契约。
