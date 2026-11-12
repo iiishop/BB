@@ -4,7 +4,7 @@
 
 ## Supported environment and installation
 
-Verified target: Linux, Node 26.8.2, installed DSH packages 0.2.1-rc.5, Cordis 4.0.5, Python 3.12+ and uv. The native profile must provide the standard `attachments` service (for example the shipped `dsh-attachment-local` backend). The bridge requires a local filesystem supporting atomic rename, hard-link creation and directory fsync. Windows durability and rendered Settings UI have not been validated; do not infer them from Linux service tests. Dependencies remain fixed by the existing uv lock and exact DSH MCP peer version. No SurfCore dependency exists.
+Verified target: Linux, Node 26.8.2, installed DSH packages 0.2.1-rc.5, Cordis 4.0.5, Python 3.12+ and uv. The native profile must provide the standard `attachments` service (for example the shipped `dsh-attachment-local` backend). The bridge requires a local filesystem supporting atomic rename, hard-link creation and directory fsync. Windows durability has not been validated. Dependencies remain fixed by the existing uv lock and exact DSH MCP peer version. No SurfCore dependency exists.
 
 From the repository root:
 
@@ -12,7 +12,7 @@ From the repository root:
 python3 dsh-plugin/build_bundle.py /absolute/fresh/bb-bundle
 ```
 
-Use the isolated product profile's native Plugin Manager to install that directory (`pluginManager.installBundle`), then restart the profile when the host requests it. Do not edit the profile's package.json/patch by hand. The host applies the bundle's `cordis.patch.yml` and exposes the **BB Chat Bridge** Settings form (`bb-bridge`).
+In the isolated product profile's actual Web UI, open **Plugins → Add plugin**, enter the built directory, choose **Install**, then **Enable now**. Follow any restart requested by the host. Open **Plugins → BB Chat Bridge** to edit its configuration; the same editor contributes to native **Settings**. No developer console or profile-file editing is required. Earlier builds registered only a host Settings namespace, which did not generate a browser form. The bundle now exports its own public Web UI contribution, using the native `plugins.bundle.config` / `settings.section` slots and `configForms` mirror for `bb-bridge`.
 
 Settings:
 
@@ -20,8 +20,12 @@ Settings:
 - `targetSession`: ID of an existing/resumed DSH session. Set the model in DSH; this plugin does not select or replace a provider.
 - `peerAccount`: optional eight-digit peer filter; empty follows authorized conversations using the shared keyset query.
 - `enabled`, `pollMs`: lifecycle switch and bounded background refresh interval. Model polling is not needed.
-- `stateDirectory`: optional private local recovery directory; defaults to the profile's `.bb-bridge`.
-- `uvCommand`, `pythonProject`: executable/path overrides; by default use uv and the bundled locked Python project.
+
+The five fields above are editable together and saved atomically against the native Settings revision. Valid changes apply live; saving does not restart the host. Reopening and restarting read the host's persisted values. URL validation allows only a `127.0.0.1` HTTP origin with an optional valid port; session IDs allow up to 200 ASCII letters/digits/underscores/hyphens, peers are empty or eight digits starting with 1–9, and refresh is an integer from 250 to 30000 ms. Both the form and host reject invalid values. A stale edit cannot overwrite a newer revision: the draft is retained, save is refused, and **Reload saved values** explicitly accepts the current configuration.
+
+Connection status distinguishes disabled, waiting for login/client/session, bound, and recovery/identity fencing. The optional host-owned GET `/api/bb-bridge/status` uses the public authenticated owner Fetch route service and exposes only state, diagnostic code and required session IDs. It does not expose tokens or consumer capability, and is removed on unload. The browser status timer/requests are disposed on leaving the editor. This is a local DSH plugin interface; the BB HTTP contract is unchanged.
+
+Advanced installation defaults (`stateDirectory`, `uvCommand`, `pythonProject`) are not editable connection fields: state defaults to the private profile `.bb-bridge`, and MCP uses uv with the bundled locked project.
 
 Register/login remain actual MCP tools before binding. Account passwords and server tokens remain client-owned; the plugin stores only a local consumer capability and dispatch metadata. After switching accounts select a fresh DSH session and explicitly disable/enable to bind. A native session already associated with another account is refused (`session_identity_mismatch`), so its old context is never relabelled. A failed ownership fence stops automatic rebinding: an old process cannot repeatedly steal the new process's revision. `bb_bridge_status` exposes safe binding/recovery diagnostics, never the capability.
 
@@ -90,8 +94,24 @@ DSH_HOME=/absolute/new/lifecycle/home node dsh-plugin/probes/product/lifecycle.m
 
 `--context` uses six separate plugin processes: seed/settle, new native session, restore that session, rebuild the same ID, unknown model outcome, and lost original session rejection. It checks cursor/request/receipt facts and actual red/blue native image bytes. The installed product test also switches a fully settled session via the real Settings service and proves automatic historical context plus one new task. `history.test.mjs` separately uses a query double for budgets, omissions and peer/session scoping. Neither test's deterministic provider is evidence of real model visual understanding.
 
-Only sanitized `results.json`, `sources.json`, `host-integrity.json`, lifecycle/installed summaries are distributable. Private service logs, native sessions, owner files, databases and raw configs may contain synthetic credentials/capabilities and must not be attached. The runner hashes the fixed eight host files before/after and records product source hashes. Real model/visual understanding, browser Settings screenshots, Windows/Android, final same-SHA Flutter/CI and Sentinel independent QA remain separate acceptance work; deterministic media projection is not visual-understanding evidence.
+Only sanitized `results.json`, `sources.json`, `host-integrity.json`, lifecycle/installed summaries and inspected UI screenshots are distributable. Private service logs, browser storage, native sessions, owner files, databases and raw configs may contain synthetic credentials/capabilities and must not be attached. The runner hashes the fixed eight host files before/after and records product source hashes. Real model/visual understanding, Windows/Android, final same-SHA Flutter/CI and Sentinel independent QA remain separate acceptance work; deterministic media projection is not visual-understanding evidence.
 
-## Remaining raw-client contract discrepancy
+## Rendered settings reproduction
 
-On client tree `dea50f14f0d3c8470ed87573370887f6580d424a`, a direct `/v2/chat/send_attachment` request omitting optional `cover` returns 422; the identical request with `cover: null` returns 200. The machine contract accepts omission. The MCP transport now emits the canonical explicit null, so the installed bundle's attachment/download test passes; that does not fix the raw Dart HTTP parser. Reproduce independently with `BB_PRODUCT_CASES=cover` before the `--product` command above. Its result is `REPRODUCED_GAP`, not a passing contract test. Client ownership remains with Muse/Orion; no Flutter production source was edited in the bundle work.
+Use the already installed Playwright and Chromium; this test does not install or upgrade external dependencies:
+
+```bash
+BB_PROBE_PLAYWRIGHT=/absolute/existing/playwright/package.json \
+BB_PROBE_CHROMIUM=/absolute/existing/chromium \
+uv run --project server --locked python dsh-plugin/probes/journal/live.py --settings \
+  --runtime /absolute/fixed/dsh/package \
+  --dart /absolute/existing/dart-sdk/bin/dart \
+  --crypto /absolute/existing/crypto-3.0.7 \
+  --output /absolute/new/settings-evidence
+```
+
+This launches a clean stock Web profile, installs through actual Plugins controls, edits/saves the native form, exercises two browser edit revisions, tests invalid writes, binds a real isolated Dart/FastAPI client, disables/re-enables, restarts and uninstalls. A test-only public plugin creates a deterministic native session and observes tools/owned subprocesses; it does not modify the host or replace Settings. Native runtime-context messages and automatic title requests are counted separately from BB inputs/turns. The model is a double; no real provider credentials are used.
+
+## Closed raw-client cover discrepancy
+
+The former omitted-cover 422 counterexample belongs to client tree `dea50f14f0d3c8470ed87573370887f6580d424a`. Muse's fix is integrated at `5a0739f` (client tree `c4d96de34d6dc790d471b86f08504e5886b876ff`). `BB_PRODUCT_CASES=cover` now asserts omitted and explicit-null cover both return 200 and reconcile the same operation. The historical negative evidence is retained; this gate no longer expects the old defect. No client production source was edited in the Settings work.

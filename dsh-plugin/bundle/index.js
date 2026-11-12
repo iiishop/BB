@@ -17,10 +17,25 @@ export const inject = [
 ];
 export const Config = z.object({
   enabled: z.boolean().default(true).volatile(),
-  clientUrl: z.string().default("http://127.0.0.1:9187").volatile(),
-  targetSession: z.string().default("").volatile(),
-  peerAccount: z.string().default("").volatile(),
-  pollMs: z.number().min(250).max(30000).default(1000).volatile(),
+  clientUrl: z
+    .string()
+    .pattern(
+      /^http:\/\/127\.0\.0\.1(?::(?:[1-9]\d{0,3}|[1-5]\d{4}|6[0-4]\d{3}|65[0-4]\d{2}|655[0-2]\d|6553[0-5]))?\/?$/,
+    )
+    .default("http://127.0.0.1:9187")
+    .volatile(),
+  targetSession: z
+    .string()
+    .max(200)
+    .pattern(/^[A-Za-z0-9_-]*$/)
+    .default("")
+    .volatile(),
+  peerAccount: z
+    .string()
+    .pattern(/^(?:[1-9][0-9]{7})?$/)
+    .default("")
+    .volatile(),
+  pollMs: z.number().min(250).max(30000).step(1).default(1000).volatile(),
   stateDirectory: z.string().default(""),
   uvCommand: z.string().default("uv"),
   pythonProject: z.string().default(""),
@@ -45,6 +60,39 @@ export async function apply(ctx, config) {
     fenced = false,
     ready = false;
   const get = (key) => config[key].get();
+  const connectionStatus = () => ({
+    state: !get("enabled")
+      ? "disabled"
+      : fenced
+        ? "blocked"
+        : ready && bridge && mcpFiber
+          ? "bound"
+          : !get("targetSession")
+            ? "choose_session"
+            : !ctx.agents.get(get("targetSession"))
+              ? "session_unavailable"
+              : lastError === "unauthenticated"
+                ? "login_required"
+                : "connecting",
+    error: lastError ?? null,
+    required_sessions: requiredSessions ?? [],
+  });
+  // Optional browser carrier; headless profiles keep the existing tool interface.
+  // This owns only a read-only status endpoint, never a replacement settings store.
+  ctx.inject(["connection"], (scope) => {
+    scope.effect(() =>
+      scope.connection.fetch.register({
+        path: "/api/bb-bridge/status",
+        methods: ["GET"],
+        requestBody: "buffered",
+        // Connection admits only authenticated owner peers to exact Fetch routes.
+        fetch: async () =>
+          Response.json(connectionStatus(), {
+            headers: { "Cache-Control": "no-store" },
+          }),
+      }),
+    );
+  });
   async function stop() {
     ready = false;
     const oldBridge = bridge,

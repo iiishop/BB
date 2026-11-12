@@ -122,14 +122,15 @@ def run(
             headers={"X-BB-Consumer-Key": owner},
             trust_env=False,
         )
-        assert missing.status_code == 422 and explicit.status_code == 200
+        assert missing.status_code == 200 and explicit.status_code == 200
+        assert missing.json() == explicit.json(), "same operation must reconcile"
         record(
             "nullable-cover-wire",
-            status="REPRODUCED_GAP",
-            missing_cover=422,
+            status="PASS",
+            missing_cover=200,
             explicit_null=200,
             expected_missing_cover=200,
-            client_tree="dea50f14f0d3c8470ed87573370887f6580d424a",
+            same_operation_reconciled=True,
         )
         return
     for cut in cuts:
