@@ -1,0 +1,4 @@
+- insert:
+    - id: bb-public-host-probe
+      name: '@bb-probe/public-host'
+      config: {}
