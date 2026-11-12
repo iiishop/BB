@@ -76,7 +76,7 @@ export class Bridge {
             const m = options.messages.find((m) => m.id === row.nativeId);
             if (
               m.content.filter((b) => b.type === "image" && !b.offloaded)
-                .length < row.imageCount
+                .length < (row.projectionImageCount ?? row.imageCount)
             )
               throw new Error("BB image presentation gap");
             row.nativeId = m.id;
@@ -193,7 +193,14 @@ export class Bridge {
                 throw new Error("Missing BB query metadata");
               for (const item of items)
                 if (item.presentation)
-                  await self.claim(item, { callId: exec.callId });
+                  await self.claim(item, {
+                    callId: exec.callId,
+                    projectionImageCount: items.reduce(
+                      (n, i) =>
+                        n + i.blocks.filter((b) => b.type === "image").length,
+                      0,
+                    ),
+                  });
             }
             return await next();
           } finally {
@@ -286,7 +293,7 @@ export class Bridge {
       ),
     ];
   }
-  async claim(item, { callId } = {}) {
+  async claim(item, { callId, projectionImageCount } = {}) {
     return this.serial(async () => {
       await this.check();
       if (!callId && this.waiters.size) return;
@@ -320,6 +327,7 @@ export class Bridge {
             ...prior,
             callId,
             claimTurn: this.turn,
+            projectionImageCount,
             nativeId: undefined,
             state: "prepared",
           });
@@ -340,7 +348,9 @@ export class Bridge {
         state: "claimed",
         session: this.agent.session.id,
         attempt: "bb-" + randomUUID(),
-        ...(callId ? { callId, claimTurn: this.turn } : {}),
+        ...(callId
+          ? { callId, claimTurn: this.turn, projectionImageCount }
+          : {}),
       };
       await this.flush();
       row = await this.journal.put(row);
