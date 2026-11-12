@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 
+import '../models/auth_models.dart';
 import '../models/chat_models.dart';
 
 /// Client-owned immutable operation record.
@@ -306,6 +307,49 @@ class ChatLedger {
     });
   }
 
+  /// Per-consumer source cursor. A new consumer starts at 0 so it can recover
+  /// its own pre-registration backlog; another consumer's progress is never
+  /// treated as acceptance for this one.
+  Future<int> consumerEventCursor(String account, String consumerSession) {
+    return _locked(() async {
+      final Object? feed =
+          (_account(account)['events']
+              as Map<String, dynamic>)[consumerSession];
+      if (feed is! Map<String, dynamic>) {
+        return 0;
+      }
+      final Object? value = feed['server_cursor'];
+      return value is int ? value : 0;
+    });
+  }
+
+  Future<void> setConsumerEventCursor(
+    String account,
+    String consumerSession,
+    int cursor,
+  ) {
+    return _locked(() async {
+      final Map<String, dynamic> events =
+          _account(account)['events'] as Map<String, dynamic>;
+      final Map<String, dynamic> feed = events.putIfAbsent(
+        consumerSession,
+        () => <String, dynamic>{
+          'next_cursor': 1,
+          'entries': <dynamic>[],
+          'source_event_ids': <String>[],
+          'server_cursor': 0,
+        },
+      ) as Map<String, dynamic>;
+      final int current = feed['server_cursor'] is int
+          ? feed['server_cursor'] as int
+          : 0;
+      if (cursor > current) {
+        feed['server_cursor'] = cursor;
+        await _flush();
+      }
+    });
+  }
+
   // ----------------------------------------------------------- subscription --
 
   Future<void> subscribe(
@@ -316,9 +360,31 @@ class ChatLedger {
     return _locked(() async {
       final Map<String, dynamic> subscriptions =
           _account(account)['subscriptions'] as Map<String, dynamic>;
+      final Map<String, dynamic> events =
+          _account(account)['events'] as Map<String, dynamic>;
       final Map<String, dynamic>? prior =
           subscriptions[consumerSession] as Map<String, dynamic>?;
-      if (prior != null && prior['peer_account'] == peerAccount) {
+      if (prior != null && prior['peer_account'] != peerAccount) {
+        throw const AuthFailure(
+          status: 409,
+          code: 'conflict',
+          message: 'consumer_session 已绑定另一个 peer',
+        );
+      }
+      final bool feedExisted = events.containsKey(consumerSession);
+      final Map<String, dynamic> feed = events.putIfAbsent(
+        consumerSession,
+        () => <String, dynamic>{
+          'next_cursor': 1,
+          'entries': <dynamic>[],
+          'source_event_ids': <String>[],
+          'server_cursor': 0,
+        },
+      ) as Map<String, dynamic>;
+      feed.putIfAbsent('server_cursor', () => 0);
+      final bool sameBinding =
+          prior != null && prior['peer_account'] == peerAccount;
+      if (sameBinding && feedExisted) {
         return;
       }
       subscriptions[consumerSession] = <String, dynamic>{
@@ -536,6 +602,108 @@ class ChatLedger {
     });
   }
 
+  /// Atomically validates an attempt binding and confirms every member.
+  ///
+  /// Validation completes before any receipt or attempt is mutated. The attempt
+  /// record and all receipt confirmations are then written in one locked
+  /// mutation and flushed once. Any conflict/invalid member leaves the ledger
+  /// unchanged, so an ACK cannot cross the original gap.
+  Future<List<String>> confirmPresentationAttempt({
+    required String account,
+    required String consumerSession,
+    required String attemptId,
+    required String requestDigest,
+    required List<String> receiptIds,
+  }) {
+    return _locked(() async {
+      final Map<String, dynamic> state = _account(account);
+      final Map<String, dynamic> confirmations =
+          state['confirmations'] as Map<String, dynamic>;
+      final Map<String, dynamic> receipts =
+          state['receipts'] as Map<String, dynamic>;
+      final List<String> ids = receiptIds.toSet().toList()..sort();
+
+      final Object? existing = confirmations[attemptId];
+      if (existing is Map<String, dynamic>) {
+        final List<String> existingIds =
+            (existing['receipt_ids'] as List<dynamic>? ?? <dynamic>[])
+                .whereType<String>()
+                .toList()
+              ..sort();
+        final bool sameBinding =
+            existing['consumer_session'] == consumerSession &&
+            existing['request_digest'] == requestDigest;
+        final bool sameMembers =
+            existingIds.length == ids.length &&
+            <String>{...existingIds}.containsAll(ids);
+        if (sameBinding && sameMembers) {
+          return existingIds;
+        }
+        throw const AuthFailure(
+          status: 409,
+          code: 'conflict',
+          message: 'attempt 已绑定另一个 consumer/digest/receipt 成员',
+        );
+      }
+
+      final List<PresentationReceipt> validated = <PresentationReceipt>[];
+      for (final String id in ids) {
+        final Object? raw = receipts[id];
+        if (raw is! Map<String, dynamic>) {
+          throw const AuthFailure(
+            status: 404,
+            code: 'not_found',
+            message: '展示凭据不存在',
+          );
+        }
+        final PresentationReceipt receipt = PresentationReceipt.fromJson(raw);
+        if (receipt.consumerSession != consumerSession) {
+          throw const AuthFailure(
+            status: 409,
+            code: 'conflict',
+            message: '展示凭据属于另一个会话',
+          );
+        }
+        if (receipt.confirmed &&
+            receipt.attemptId != null &&
+            receipt.attemptId != attemptId) {
+          throw const AuthFailure(
+            status: 409,
+            code: 'conflict',
+            message: '展示凭据已由另一个 attempt 确认',
+          );
+        }
+        validated.add(receipt);
+      }
+
+      final Object previousConfirmations = jsonDecode(
+        jsonEncode(confirmations),
+      );
+      final Object previousReceipts = jsonDecode(jsonEncode(receipts));
+      try {
+        for (final PresentationReceipt receipt in validated) {
+          receipts[receipt.receiptId] = receipt
+              .copyWith(confirmed: true, attemptId: attemptId)
+              .toJson();
+        }
+        confirmations[attemptId] = <String, dynamic>{
+          'consumer_session': consumerSession,
+          'request_digest': requestDigest,
+          'receipt_ids': ids,
+          'confirmed_at': DateTime.now().toUtc().toIso8601String(),
+        };
+        await _flush();
+      } catch (_) {
+        // The atomic rename failed: restore the in-memory view so a retry
+        // cannot observe a half-applied confirmation.
+        state['confirmations'] = previousConfirmations;
+        state['receipts'] = previousReceipts;
+        rethrow;
+      }
+      return ids;
+    });
+  }
+
   Future<List<String>> confirmReceipts({
     required String account,
     required List<String> receiptIds,
@@ -611,6 +779,7 @@ class ChatLedger {
           'next_cursor': 1,
           'entries': <dynamic>[],
           'source_event_ids': <String>[],
+          'server_cursor': 0,
         },
       ) as Map<String, dynamic>;
       final List<String> sourceIds = (feed['source_event_ids'] as List<dynamic>)

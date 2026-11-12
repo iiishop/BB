@@ -531,11 +531,13 @@ class LocalAuthServer {
         _rejectUnknownFields(body, const <String>{
           'consumer_session',
           'after_cursor',
+          'limit',
           'timeout',
         });
         final LocalEventPage page = await service.waitEvents(
           consumerSession: _requireString(body, 'consumer_session'),
           afterCursor: _requireInt(body, 'after_cursor'),
+          limit: _optionalInt(body, 'limit') ?? 50,
           timeoutSeconds: _optionalInt(body, 'timeout') ?? 60,
         );
         await _writeJson(request, 200, page.toWire());

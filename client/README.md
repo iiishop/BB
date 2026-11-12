@@ -161,8 +161,9 @@ flutter test integration_test -d linux
 QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_tests.sh client
 ```
 
-- 默认 `flutter test`：最新严格 runner 为 **248 passed / 8 skipped / exit 0**。新增覆盖
-  1000 条真实分页下发送/接收并发补取无缺口、有序图文发送、幂等/冲突、read→receipt→ACK 缺口、
+- 默认 `flutter test`：最新严格 runner 为 **254 passed / 8 skipped / exit 0**。新增覆盖
+  1000 条真实分页下发送/接收并发补取无缺口、events/wait limit 边界、原子展示确认/冲突/全组
+  拒绝/重启幂等、新 consumer 独立补取、有序图文发送、幂等/冲突、read→receipt→ACK 缺口、
   附件只读元信息、异步下载内容、持久事件、wait 积压/提前到达、用户列表分页/预览/在线状态、
   图片/视频剪贴板、真实 ffmpeg 视频封面、点击在线流 Range 与“到达不请求原视频”。
 - 严格命令：`QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_tests.sh client`
