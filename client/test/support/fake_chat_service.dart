@@ -9,6 +9,7 @@ import 'package:bb_client/services/auth_session.dart';
 import 'package:bb_client/services/chat_api_client.dart';
 import 'package:bb_client/services/chat_ledger.dart';
 import 'package:bb_client/services/chat_service.dart';
+import 'package:bb_client/services/client_identity.dart';
 import 'package:bb_client/services/download_manager.dart';
 import 'package:bb_client/services/media_stream_proxy.dart';
 
@@ -275,6 +276,7 @@ class FakeDownloads extends DownloadManager {
     required String consumerSession,
     required String mediaId,
     String? directory,
+    ExpectedIdentity? expectedIdentity,
   }) async {
     starts.add(mediaId);
     for (final DownloadTask prior in tasks.values) {

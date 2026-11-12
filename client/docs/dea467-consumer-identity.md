@@ -51,12 +51,40 @@
 
 409 不代表远端一定未执行；调用方不得当网络故障自动重发。
 
-## 5. 未接线 / NOT RUN
+## 5. v2 本地协议（共享契约 `dea467-local-v2`）
 
-- HTTP v2 `expected_identity` 路由、版本协商、状态/绑定启动端点：等 Forge 机器契约，本地
-  v1 路由保持严格 payload（不偷偷放宽白名单，`expected_identity` 仍被 422 拒绝）。
-- 完整 wait/被动竞争、多进程消费者所有权、session/下载恢复、真实模型/视觉与最终集成 CI
-  未在本轮验证；下载与会话恢复仍按现有实现记录为未完成项。
+契约 SHA `45f003bc76a9618cc703d72c0fecdebe1904acfb`（作者 Forge）。实现位于
+`lib/services/chat_v2.dart`，由 `LocalAuthServer` 挂到 `/v2/`，只本机 loopback、全部 POST。
+
+- `POST /v2/protocol/negotiate`：`{supported_versions:[2]}` → selected_version=2、
+  contract、owner_header；无共同版本 426，未知字段/类型 422。协商不建立登录。
+- `POST /v2/status`：`{protocol_version:2,auth:null|{account,auth_generation}}`，无 token。
+- `POST /v2/consumers/{create,get,bind}`：需 `X-BB-Consumer-Key`（43 字符本地能力）与
+  `expected_auth`；客户端只持久化 `sha256(key)`，先写 pending 预留再建 consumer。
+  create 按 account＋key hash 幂等，重试不换 session/generation；get 只返回调用者能力
+  覆盖的记录；bind 用 revision CAS，同 revision 竞争最多一个 200，其余
+  `stale_binding`。返回 `{identity,session_id,active,migration}`，`active` 由当前登录
+  generation 计算，旧 generation 只返回旧快照。
+- 业务 `/v2/chat/*`、`/v2/operations/get`、`/v2/downloads/*`、`/v2/events/*`：严格四字段
+  `expected_identity`，成功统一 `{identity,result}`；身份校验顺序为解析 → 401 →
+  `stale_identity` → `stale_binding`（含 revision/consumer 拼接检查）→ 业务。
+- 消费查询 `/v2/chat/consumption` 返回 `{consumed_through,migration}`；`get_operation`
+  只对同一 consumer 返回其计划（其他 consumer 404），恢复查询不改 `operation_id`、不重发。
+- v2 事件 `version=2` + `origin_identity`：事件在写入时快照绑定；缺少来源的旧事件读取
+  返回 `migration_required`，不回写成新绑定。v2 事件/下载以稳定 consumer id 作为持久
+  key，重绑不重置 cursor。下载任务保存 `origin_identity`，旧任务无来源时
+  `migration_required`。
+- v2 错误 envelope 固定 `{error:{code,message,fields}}`，`fields` 只含 schema 字段名，
+  不回显输入值；`conflict` 映射为 `idempotency_conflict`。
+
+## 6. 未接线 / NOT RUN
+
+- 真实 `journal/live.py --v2` 链路尚未在本分支运行（需要 Orion 把本 SHA 与 Forge 契约
+  SHA 整合后执行）。
+- 共享 `chat-v2-cases.json` 语义 fixtures 的消费测试位于整合树，本分支未运行；本轮以
+  `test/chat_v2_local_server_test.dart` 覆盖同等路由/校验断言。
+- 完整 wait/被动竞争、多进程消费者所有权、session/在途下载身份、迁移故障注入、真实
+  模型/视觉与最终集成 CI 未在本轮验证。
 - 测试：`QA_REQUIRE_INTEGRATION=1 bash scripts/run_flutter_tests.sh client`；新增用例见
   `test/chat_consumer_isolation_test.dart`、`test/chat_identity_generation_test.dart`、
-  `test/chat_ledger_migration_test.dart`。
+  `test/chat_ledger_migration_test.dart`、`test/chat_v2_local_server_test.dart`。

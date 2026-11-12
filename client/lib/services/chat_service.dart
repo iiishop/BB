@@ -179,6 +179,201 @@ class ChatService {
   /// Stable client consumer for human/UI-originated work on an account.
   static String _humanSession(String account) => 'human:$account';
 
+  /// Strict v2 identity check at the business linearization point.
+  ///
+  /// Order: logged in → account/auth generation → stored consumer binding.
+  /// The request identity must be exactly the stored binding snapshot; mixing
+  /// a current generation with an old revision is a binding conflict.
+  Future<({AuthIdentity identity, ConsumerBinding binding})> requireIdentity(
+    ExpectedIdentity expected,
+  ) async {
+    final AuthIdentity? captured = session.identity;
+    if (captured == null) {
+      throw unauthenticated;
+    }
+    if (expected.account != captured.account ||
+        expected.authGeneration != captured.authGeneration) {
+      throw staleIdentity;
+    }
+    final ConsumerBinding? binding = await ledger.bindingById(
+      expected.consumerId,
+    );
+    if (binding == null || binding.account != captured.account) {
+      throw staleBinding('消费者能力或归属不匹配');
+    }
+    if (!expected.matches(binding.identity)) {
+      throw staleBinding('消费者绑定版本已变化');
+    }
+    return (identity: captured, binding: binding);
+  }
+
+  /// v2 owner enrollment. The owner key itself never reaches this layer; only
+  /// its hash is persisted before the consumer exists.
+  Future<ConsumerBinding> enrollConsumer({
+    required String ownerKeyHash,
+    required String sessionId,
+  }) async {
+    final AuthIdentity? captured = session.identity;
+    if (captured == null) {
+      throw unauthenticated;
+    }
+    return ledger.enrollConsumer(
+      account: captured.account,
+      authGeneration: captured.authGeneration,
+      ownerKeyHash: ownerKeyHash,
+      sessionId: sessionId,
+    );
+  }
+
+  Future<ConsumerBinding> consumerForOwner({
+    required String ownerKeyHash,
+    required String consumerId,
+  }) async {
+    final AuthIdentity? captured = session.identity;
+    if (captured == null) {
+      throw unauthenticated;
+    }
+    return ledger.consumerForOwner(
+      account: captured.account,
+      ownerKeyHash: ownerKeyHash,
+      consumerId: consumerId,
+    );
+  }
+
+  Future<ConsumerBinding> bindConsumerOwner({
+    required String ownerKeyHash,
+    required String consumerId,
+    required int expectedBindingRevision,
+    required String sessionId,
+  }) async {
+    final AuthIdentity? captured = session.identity;
+    if (captured == null) {
+      throw unauthenticated;
+    }
+    return ledger.bindConsumerOwner(
+      account: captured.account,
+      authGeneration: captured.authGeneration,
+      ownerKeyHash: ownerKeyHash,
+      consumerId: consumerId,
+      expectedBindingRevision: expectedBindingRevision,
+      sessionId: sessionId,
+    );
+  }
+
+  /// Consumer-scoped consumption plus legacy migration state.
+  Future<({int consumedThrough, String migration})> consumptionFor({
+    required ExpectedIdentity expectedIdentity,
+    required String peerAccount,
+  }) async {
+    final ({AuthIdentity identity, ConsumerBinding binding}) context =
+        await requireIdentity(expectedIdentity);
+    final int consumed = await ledger.consumedThrough(
+      context.identity.account,
+      peerAccount,
+      consumerId: context.binding.consumerId,
+    );
+    return (consumedThrough: consumed, migration: context.binding.migration);
+  }
+
+  /// v2 operation lookup scoped to the requesting consumer.
+  ///
+  /// A plan belongs to the consumer that accepted it: another consumer of the
+  /// same account gets `null` (404) and never reaches the server idempotency
+  /// record, so old results cannot leak sideways.
+  Future<OperationResult?> operationForIdentity(
+    ExpectedIdentity expectedIdentity,
+    String operationId,
+  ) async {
+    _validateOperationId(operationId);
+    final ({AuthIdentity identity, ConsumerBinding binding}) context =
+        await requireIdentity(expectedIdentity);
+    final String account = context.identity.account;
+    final ChatOperationRecord? record = await ledger.operation(
+      account,
+      operationId,
+    );
+    if (record == null) {
+      return null;
+    }
+    final ExpectedIdentity? owner = record.expectedIdentity;
+    if (owner == null || owner.consumerId != expectedIdentity.consumerId) {
+      return null;
+    }
+    if (record.state == 'succeeded' && record.message != null) {
+      return OperationResult(
+        operationId: operationId,
+        kind: record.kind,
+        status: OperationStatus.succeeded,
+        message: record.message,
+      );
+    }
+    final OperationResult? remote = await api.getOperation(
+      token: context.identity.token,
+      operationId: operationId,
+    );
+    if (remote != null) {
+      if (remote.status == OperationStatus.succeeded &&
+          remote.message != null) {
+        await _succeed(account, record, remote.message!);
+      }
+      return remote;
+    }
+    return OperationResult(
+      operationId: operationId,
+      kind: record.kind,
+      status: switch (record.state) {
+        'succeeded' => OperationStatus.succeeded,
+        'failed' => OperationStatus.failed,
+        'uncertain' => OperationStatus.uncertain,
+        _ => OperationStatus.pending,
+      },
+      message: record.message,
+      errorCode: record.errorCode,
+    );
+  }
+
+  Future<void> subscribeEventsFor({
+    required ExpectedIdentity expectedIdentity,
+    required String peerAccount,
+  }) async {
+    await requireIdentity(expectedIdentity);
+    await eventFeed.subscribe(
+      consumerSession: expectedIdentity.consumerId,
+      peerAccount: peerAccount,
+    );
+  }
+
+  Future<LocalEventPage> readEventsFor({
+    required ExpectedIdentity expectedIdentity,
+    required int afterCursor,
+    int limit = 50,
+  }) async {
+    await requireIdentity(expectedIdentity);
+    return eventFeed.read(
+      consumerSession: expectedIdentity.consumerId,
+      afterCursor: afterCursor,
+      limit: limit,
+    );
+  }
+
+  Future<LocalEventPage> waitEventsFor({
+    required ExpectedIdentity expectedIdentity,
+    required int afterCursor,
+    int limit = 50,
+    int timeoutSeconds = 60,
+  }) async {
+    if (!const <int>{30, 60, 120}.contains(timeoutSeconds)) {
+      throw _validation('timeout 只能是 30、60 或 120 秒');
+    }
+    await requireIdentity(expectedIdentity);
+    return eventFeed.wait(
+      consumerSession: expectedIdentity.consumerId,
+      afterCursor: afterCursor,
+      limit: limit,
+      timeout: Duration(seconds: timeoutSeconds),
+    );
+  }
+
   /// Current client-issued identity metadata for one consumer alias.
   ///
   /// This is what a v2 caller echoes back as `expected_identity`; it contains
@@ -374,7 +569,9 @@ class ChatService {
       throw unauthenticated;
     }
     final ({AuthIdentity identity, ConsumerBinding binding}) context =
-        await _captureBinding(_humanSession(maybeCurrent.account));
+        expectedIdentity == null
+        ? await _captureBinding(_humanSession(maybeCurrent.account))
+        : await requireIdentity(expectedIdentity);
     final AuthIdentity captured = context.identity;
     final String account = captured.account;
     final String token = captured.token;
@@ -704,7 +901,9 @@ class ChatService {
       throw unauthenticated;
     }
     final ({AuthIdentity identity, ConsumerBinding binding}) context =
-        await _captureBinding(_humanSession(maybeCurrent.account));
+        expectedIdentity == null
+        ? await _captureBinding(_humanSession(maybeCurrent.account))
+        : await requireIdentity(expectedIdentity);
     final AuthIdentity captured = context.identity;
     final String account = captured.account;
     final String token = captured.token;
