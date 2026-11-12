@@ -172,3 +172,12 @@ analyze PASS、flutter-test **318 passed / 8 skipped**、linux-integration **13 
 以显式有界前向扫描实现（`maxScanMessages`），共享双向路由到位后替换传输层，不改语义。
 `test/chat_query_service_test.dart` 覆盖目录隔离/稳定分页、unread、双向历史、有序媒体、
 安全失败、截断与“查询不消费”。
+
+查询边界修正（Orion 审阅）：`getMessage` 区分“恰好扫完”和“仍有未扫描记录”——
+`has_more=false` 且整页扫描完成时即使 `maxScanMessages` 恰好等于条数也返回
+`truncated=false`；命中发生在上界内同样是完整结果。所有查询在异步返回前用捕获的
+`AuthIdentity` 再验证：账号切换或同账号重新登录都会返回 409 `stale_identity`，不会把旧
+结果交给新上下文。`listConversations` 的调用方 `consumerId` 必须是当前账号的 binding
+（否则 409 `stale_binding`）；owner header/revision 校验留待共享 v2 路由接线时叠加。
+对应回归见 `test/chat_query_service_test.dart`（恰好扫完/尚有未扫描/上界内命中、账号切换、
+同账号重登、跨账号 consumer）。

@@ -5,6 +5,7 @@ import '../models/chat_models.dart';
 import 'auth_session.dart';
 import 'chat_api_client.dart';
 import 'chat_ledger.dart';
+import 'client_identity.dart';
 
 /// Unified client query facts for conversations, messages and context.
 ///
@@ -51,6 +52,15 @@ class ChatQueryService {
     if (afterAccount.isNotEmpty && !_accountPattern.hasMatch(afterAccount)) {
       throw _validation('after_account');
     }
+    if (consumerId != null) {
+      // A caller-supplied consumer id is not authority by itself: it must
+      // belong to the authenticated account. Owner/revision checks stay in the
+      // v2 route layer when it is wired.
+      final ConsumerBinding? binding = await ledger.bindingById(consumerId);
+      if (binding == null || binding.account != captured.account) {
+        throw staleBindingFailure;
+      }
+    }
     final int pageSize = limit.clamp(1, maxPageSize);
     final List<ConversationSummary> conversations = <ConversationSummary>[];
     String cursor = afterAccount;
@@ -75,7 +85,13 @@ class ChatQueryService {
         if (user.lastMessage == null || user.lastContactAt == null) {
           continue;
         }
-        conversations.add(await _summary(captured, user, consumerId));
+        final ConversationSummary summary = await _summary(
+          captured,
+          user,
+          consumerId,
+        );
+        _ensureCurrent(captured);
+        conversations.add(summary);
         if (conversations.length >= pageSize) {
           break;
         }
@@ -93,6 +109,7 @@ class ChatQueryService {
         break;
       }
     }
+    _ensureCurrent(captured);
     return ConversationPage(
       items: List<ConversationSummary>.unmodifiable(conversations),
       nextCursor: nextCursor,
@@ -108,6 +125,7 @@ class ChatQueryService {
     ConversationUnread unread = ConversationUnread.unknown;
     int? firstUnread;
     if (consumerId != null) {
+      _ensureCurrent(captured);
       unread = ConversationUnread.none;
       final int consumed = await ledger.consumedThrough(
         captured.account,
@@ -136,6 +154,7 @@ class ChatQueryService {
         unread = ConversationUnread.unknown;
       }
     }
+    _ensureCurrent(captured);
     return ConversationSummary(
       peer: peer,
       lastMessage: peer.lastMessage,
@@ -175,20 +194,31 @@ class ChatQueryService {
       if (page.items.isEmpty) {
         return const MessageLookup(message: null, truncated: false);
       }
+      bool boundHit = false;
       for (final ChatMessage message in page.items) {
         scanned += 1;
         if (scanned > scanBound) {
+          boundHit = true;
           break;
         }
         if (message.id == messageId) {
           return MessageLookup(message: message, truncated: false);
         }
       }
+      if (boundHit) {
+        return const MessageLookup(message: null, truncated: true);
+      }
       if (!page.hasMore) {
-        return MessageLookup(
-          message: null,
-          truncated: scanned >= scanBound,
-        );
+        // The scan completed exactly at the bound: this is a complete,
+        // successful miss, not a truncated scan.
+        return const MessageLookup(message: null, truncated: false);
+      }
+      if (scanned >= scanBound) {
+        // The page ended at the bound and more records exist beyond it.
+        return const MessageLookup(message: null, truncated: true);
+      }
+      if (page.nextPosition <= after) {
+        return const MessageLookup(message: null, truncated: true);
       }
       after = page.nextPosition;
     }
@@ -274,6 +304,7 @@ class ChatQueryService {
         window.isNotEmpty &&
         window.last.position < end &&
         limitTruncated;
+    _ensureCurrent(captured);
     return ContextResult(
       message: target,
       items: List<ChatMessage>.unmodifiable(window),
@@ -369,6 +400,7 @@ class ChatQueryService {
       }
       after = page.nextPosition;
     }
+    _ensureCurrent(captured);
     final int from = math.max(0, collected.length - pageSize);
     return HistoryPage(
       items: List<ChatMessage>.unmodifiable(collected.sublist(from)),
@@ -388,6 +420,12 @@ class ChatQueryService {
       throw unauthenticated;
     }
     return captured;
+  }
+
+  void _ensureCurrent(AuthIdentity captured) {
+    if (!session.isCurrent(captured)) {
+      throw staleIdentityFailure;
+    }
   }
 
   void _requirePeer(AuthIdentity captured, String peerAccount) {
@@ -531,4 +569,13 @@ const AuthFailure staleIdentityFailure = AuthFailure(
   status: 409,
   code: 'stale_identity',
   message: '身份已变化，请重新登录或显式重绑',
+);
+
+/// A caller-supplied consumer id that does not belong to the authenticated
+/// account. Owner capability and revision validation are layered by the v2
+/// route; this is the minimum service-level authorization.
+const AuthFailure staleBindingFailure = AuthFailure(
+  status: 409,
+  code: 'stale_binding',
+  message: '消费者能力或绑定不匹配',
 );

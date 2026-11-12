@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -8,6 +9,7 @@ import 'package:bb_client/services/chat_api_client.dart';
 import 'package:bb_client/services/chat_ledger.dart';
 import 'package:bb_client/services/chat_query.dart';
 import 'package:bb_client/services/chat_service.dart';
+import 'package:bb_client/services/client_identity.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/fake_chat_backend.dart';
@@ -16,6 +18,56 @@ import 'support/fake_chat_backend.dart';
 /// stable pagination, uniform safe misses, ordered/bounded history and context,
 /// and no implicit ACK/consumption. The shared v2 query routes will delegate to
 /// this service; wire routing stays with Forge's exact contract commit.
+class _Gate {
+  final Completer<void> entered = Completer<void>();
+  final Completer<void> release = Completer<void>();
+
+  Future<void> pause() async {
+    if (!entered.isCompleted) {
+      entered.complete();
+    }
+    await release.future;
+  }
+}
+
+class _GatedQueryApi extends ChatApiClient {
+  _GatedQueryApi({required super.baseUri, required this.gate});
+
+  final _Gate gate;
+
+  @override
+  Future<MessagePage> conversation({
+    required String token,
+    required String account,
+    int afterPosition = 0,
+    int limit = 50,
+  }) async {
+    final MessagePage page = await super.conversation(
+      token: token,
+      account: account,
+      afterPosition: afterPosition,
+      limit: limit,
+    );
+    await gate.pause();
+    return page;
+  }
+
+  @override
+  Future<UserPage> listUsers({
+    required String token,
+    String afterAccount = '',
+    int limit = 50,
+  }) async {
+    final UserPage page = await super.listUsers(
+      token: token,
+      afterAccount: afterAccount,
+      limit: limit,
+    );
+    await gate.pause();
+    return page;
+  }
+}
+
 const String _a = '10000001';
 const String _b = '10000002';
 const String _c = '10000003';
@@ -331,6 +383,127 @@ void main() {
     );
     expect(truncated.message, isNull);
     expect(truncated.truncated, isTrue);
+  });
+
+  test('getMessage truncation distinguishes complete and bounded scans',
+      () async {
+    // C has exactly one message: a one-record scan is complete, not truncated.
+    final ChatQueryService one = ChatQueryService(
+      api: service.api,
+      session: service.session,
+      ledger: service.ledger,
+      maxScanMessages: 1,
+    );
+    final MessageLookup exhausted = await one.getMessage(
+      peerAccount: _c,
+      messageId: 'missing',
+    );
+    expect(exhausted.message, isNull);
+    expect(
+      exhausted.truncated,
+      isFalse,
+      reason: 'has_more=false and the complete page was scanned',
+    );
+
+    // B has three messages; a one-record bound leaves records unscanned.
+    final MessageLookup bounded = await one.getMessage(
+      peerAccount: _b,
+      messageId: 'missing',
+    );
+    expect(bounded.message, isNull);
+    expect(bounded.truncated, isTrue);
+
+    // A hit inside the bound is a complete lookup.
+    final ChatQueryService two = ChatQueryService(
+      api: service.api,
+      session: service.session,
+      ledger: service.ledger,
+      maxScanMessages: 2,
+    );
+    final MessageLookup hit = await two.getMessage(
+      peerAccount: _b,
+      messageId: a2Id,
+    );
+    expect(hit.message!.position, 2);
+    expect(hit.truncated, isFalse);
+    final MessageLookup firstHit = await one.getMessage(
+      peerAccount: _b,
+      messageId: b1Id,
+    );
+    expect(firstHit.message!.position, 1);
+    expect(firstHit.truncated, isFalse);
+  });
+
+  test('a query rejects an account switch before returning an old result',
+      () async {
+    final _Gate gate = _Gate();
+    final ChatQueryService gated = ChatQueryService(
+      api: _GatedQueryApi(baseUri: backend.baseUri, gate: gate),
+      session: session,
+      ledger: service.ledger,
+    );
+    final Future<MessageLookup> pending = gated.getMessage(
+      peerAccount: _b,
+      messageId: a2Id,
+    );
+    await gate.entered.future;
+    session.establish(token: backend.tokenFor(_b), user: user(_b));
+    gate.release.complete();
+    await expectLater(pending, throwsA(same(staleIdentityFailure)));
+  });
+
+  test('a query rejects a same-account re-login before returning old data',
+      () async {
+    final _Gate gate = _Gate();
+    final ChatQueryService gated = ChatQueryService(
+      api: _GatedQueryApi(baseUri: backend.baseUri, gate: gate),
+      session: session,
+      ledger: service.ledger,
+    );
+    final Future<HistoryPage> pending = gated.readHistory(
+      peerAccount: _b,
+      afterPosition: 0,
+    );
+    await gate.entered.future;
+    session.establish(token: backend.tokenFor(_a), user: user(_a));
+    gate.release.complete();
+    await expectLater(pending, throwsA(same(staleIdentityFailure)));
+  });
+
+  test('conversation listing rejects a switch during the directory page',
+      () async {
+    final _Gate gate = _Gate();
+    final ChatQueryService gated = ChatQueryService(
+      api: _GatedQueryApi(baseUri: backend.baseUri, gate: gate),
+      session: session,
+      ledger: service.ledger,
+    );
+    final Future<ConversationPage> pending = gated.listConversations();
+    await gate.entered.future;
+    session.establish(token: backend.tokenFor(_b), user: user(_b));
+    gate.release.complete();
+    await expectLater(pending, throwsA(same(staleIdentityFailure)));
+  });
+
+  test('a caller-supplied consumer id must belong to the account', () async {
+    await expectLater(
+      service.query.listConversations(consumerId: 'c-not-a-binding'),
+      throwsA(failure(409, 'stale_binding')),
+    );
+    final ConsumerBinding other = await service.ledger.bindConsumer(
+      account: _b,
+      authGeneration: 'g-other',
+      consumerSession: 'b-query',
+    );
+    await expectLater(
+      service.query.listConversations(consumerId: other.consumerId),
+      throwsA(failure(409, 'stale_binding')),
+    );
+    final String own = (await service.identityFor('q-reader')).consumerId;
+    expect(
+      (await service.query.listConversations(consumerId: own)).items,
+      isNotEmpty,
+    );
   });
 
   test('queries never ACK, confirm or create receipts', () async {
