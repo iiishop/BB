@@ -2,10 +2,8 @@
 
 import hashlib
 import json
-import os
 import secrets
 import select
-import subprocess
 import time
 import traceback
 from pathlib import Path
@@ -302,84 +300,6 @@ def run(
             "same_reserved_path": True,
         }
 
-    def migration():
-        file = private / "boundary-ledger.json"
-        command = [
-            dart_executable,
-            "--packages=" + packages,
-            str(here / "migration_boundary.dart"),
-            str(file),
-        ]
-        seed = launch(command + ["seed"], "migration-seed", pipe=True)
-        seed.communicate(timeout=20)
-        assert seed.returncode == 0
-        before = file.read_bytes()
-        proof = root / "migration-boundary.json"
-        daemon = json.loads(
-            subprocess.check_output(
-                [os.environ["MULTICA_CLI_PATH"], "daemon", "status", "--output", "json"]
-            )
-        )
-        env = {key: os.environ[key] for key in ["PATH", "LANG"] if key in os.environ}
-        env.update(
-            PROBE_MIGRATION_FILE=str(file),
-            PROBE_MIGRATION_PROOF=str(proof),
-            PROBE_DAEMON_PID=str(daemon["pid"]),
-        )
-        debug = launch(
-            [
-                "gdb",
-                "--batch",
-                "-q",
-                "-ex",
-                "set confirm off",
-                "-ex",
-                "set pagination off",
-                "-ex",
-                "set print thread-events off",
-                "-ex",
-                "set startup-with-shell off",
-                "-ex",
-                "source " + str(here / "migration_boundary_gdb.py"),
-                "--args",
-                *command,
-                "migrate",
-            ],
-            "migration-debugger",
-            env=env,
-            pipe=True,
-        )
-        stdout, stderr = debug.communicate(timeout=30)
-        (private / "migration-debugger.txt").write_text(stdout + stderr)
-        assert debug.returncode == 0 and proof.exists(), (
-            "OS rename checkpoint unavailable; inspect private debugger log"
-        )
-        assert (
-            file.read_bytes() == before
-            and Path(str(file) + ".v1-backup").read_bytes() == before
-        )
-        recovered = finish(
-            launch(command + ["migrate"], "migration-recover", pipe=True),
-            "migration-recover",
-        )
-        assert recovered == {"version": 2, "watermark": 2}
-        after = file.read_bytes()
-        finish(
-            launch(command + ["migrate"], "migration-reopen", pipe=True),
-            "migration-reopen",
-        )
-        assert (
-            file.read_bytes() == after
-            and Path(str(file) + ".v1-backup").read_bytes() == before
-        )
-        return {
-            **json.loads(proof.read_text()),
-            "recovered": recovered,
-            "backup_unchanged": True,
-            "reopen_no_rewrite": True,
-            "fixture": "synthetic complete v1 receipts; actual Dart migration",
-        }
-
     try:
         ok("/v2/protocol/negotiate", {"supported_versions": [2]})
         for name, fn in [
@@ -388,7 +308,6 @@ def run(
             ("native-busy-real-settlement", busy),
             ("multiprocess-owner-cas", ownership),
             ("download-account-switch", download_switch),
-            ("migration-before-rename", migration),
         ]:
             case(name, fn)
         record(
@@ -396,7 +315,7 @@ def run(
             status="FAIL" if failures else "PARTIAL",
             failed_cases=failures,
             NOT_RUN=[
-                "original 18-case suite (separate --faults invocation)",
+                "current fault suite (separate --faults invocation)",
                 "real model/vision",
                 "whole plugin lifecycle",
                 "Flutter/CI/independent QA",

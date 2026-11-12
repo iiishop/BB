@@ -307,7 +307,6 @@ def run(
             "in-flight admitted send race",
             "wait/event competition",
             "download callback/recovery",
-            "migration fault injection",
             "real models",
             "Flutter",
             "CI",

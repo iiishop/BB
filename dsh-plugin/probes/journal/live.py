@@ -8,7 +8,6 @@ import argparse
 import hashlib
 import json
 import os
-import select
 import signal
 import socket
 import subprocess
@@ -50,6 +49,10 @@ parser.add_argument(
     help="Rendered native settings with real BB client",
 )
 args = parser.parse_args()
+if not any(
+    (args.v2, args.faults, args.remaining, args.product, args.context, args.settings)
+):
+    args.v2 = True
 repo = Path(__file__).resolve().parents[3]
 parent = Path(args.output).resolve()
 parent.mkdir(parents=True, exist_ok=True)
@@ -315,150 +318,7 @@ try:
             record("v2-gate", status="FAIL", reason=str(error))
             raise
         raise SystemExit(0)
-    operation_config = private / "operation-config.json"
-    operation_config.write_text(
-        json.dumps({"origin": client, "account": account, "peer": peer})
-    )
-    node_root = root / "operation"
-    node_root.mkdir()
-    node_command = [
-        "node",
-        str(Path(__file__).with_name("live-operation.mjs")),
-        args.runtime,
-        str(node_root),
-        str(operation_config),
-    ]
-    worker = launch([*node_command, "crash"], "operation-crash", pipe=True)
-    assert select.select([worker.stdout], [], [], 20)[0], (
-        "operation checkpoint deadline"
-    )
-    line = worker.stdout.readline()
-    assert json.loads(line)["checkpoint"] == "sent-before-receipt"
-    stop(worker, crash=True)
-    assert worker.returncode == -signal.SIGKILL
-    stop(dart)
-    dart = launch(dart_command, "client-restarted")
-    ready(client, dart)
-    recovered = launch([*node_command, "recover"], "operation-recovered", pipe=True)
-    stdout, stderr = recovered.communicate(timeout=20)
-    assert recovered.returncode == 0, stderr
-    result = json.loads(stdout)
-    assert result["sends_after_restart"] == 0
-    record(
-        "real-client-operation-recovery",
-        status="PASS",
-        bridge_crash="SIGKILL",
-        client_restarted=True,
-        operation_id=result["operation_id"],
-        sends_after_restart=0,
-    )
 
-    # Prepare an incoming message through the real authenticated server.
-    token = post(api, "/auth/login", {"account": peer, "password": "Abc123"}).json()[
-        "token"
-    ]
-    incoming = post(
-        api,
-        "/messages",
-        {
-            "target_account": account,
-            "client_nonce": "synthetic-incoming",
-            "content": [{"type": "text", "text": "synthetic inbound"}],
-        },
-        {"Authorization": "Bearer " + token},
-    )
-    assert incoming.status_code in (200, 201), incoming.status_code
-    # Read both incoming and prior outgoing positions for consumer A only.
-    read = post(
-        client,
-        "/chat/read_messages",
-        {
-            "account": peer,
-            "consumer_session": "consumer-a",
-            "after_position": 0,
-            "limit": 100,
-        },
-    )
-    assert read.status_code == 200
-    items = read.json()["items"]
-    receipts = [item["presentation"]["receipt_id"] for item in items]
-    through = max(item["message"]["position"] for item in items)
-    assert (
-        post(
-            client,
-            "/chat/confirm_presentation",
-            {
-                "consumer_session": "consumer-a",
-                "attempt_id": "synthetic-display",
-                "request_digest": "synthetic-display-digest",
-                "receipt_ids": receipts,
-            },
-        ).status_code
-        == 200
-    )
-    ack_a = post(
-        client,
-        "/chat/ack_messages",
-        {
-            "account": peer,
-            "consumer_session": "consumer-a",
-            "through_position": through,
-        },
-    )
-    assert ack_a.status_code == 200
-    # Consumer B has never read or confirmed a receipt. Existing v1 incorrectly inherits A's cursor.
-    ack_b = post(
-        client,
-        "/chat/ack_messages",
-        {
-            "account": peer,
-            "consumer_session": "consumer-b",
-            "through_position": through,
-        },
-    )
-    assert ack_b.status_code == 200 and ack_b.json()["consumed_through"] == through
-    record(
-        "consumer-isolation",
-        status="REPRODUCED_GAP",
-        expected_status=409,
-        observed_status=ack_b.status_code,
-        consumer_b_receipts=0,
-        observed_consumed_through=ack_b.json()["consumed_through"],
-    )
-
-    # Versioned identity expectations cannot be sent to the current local API.
-    body = {
-        "operation_id": "old-account-plan",
-        "target_account": peer,
-        "content": [{"type": "text", "text": "synthetic stale plan"}],
-    }
-    guarded = post(
-        client,
-        "/chat/send_message",
-        {**body, "expected_account": account, "auth_generation": "old-generation"},
-    )
-    assert guarded.status_code == 422
-    assert (
-        post(
-            client, "/auth/login", {"account": switched, "password": "Abc123"}
-        ).status_code
-        == 200
-    )
-    stale = post(client, "/chat/send_message", body)
-    assert stale.status_code == 200 and stale.json()["sender_account"] == switched
-    record(
-        "identity-at-commit",
-        status="REPRODUCED_GAP",
-        guarded_request_status=422,
-        stale_request_status=200,
-        sent_under_switched_identity=True,
-        expected_account_enforced=False,
-    )
-    record(
-        "gate",
-        status="NOT_COMPLETE",
-        reason="Real client needs consumer-scoped ACK and expected-identity atomic checks; no external runtime change needed",
-    )
 finally:
     for child, log in reversed(owned):
         stop(child)

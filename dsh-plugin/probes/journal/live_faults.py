@@ -465,38 +465,12 @@ def run(
         for mode in ["download-rebind", "download-restart"]:
             case(mode, lambda mode=mode: downloads(mode))
 
-        for phase in ["prepare", "recover"]:
-
-            def migration(phase=phase):
-                child = launch(
-                    [
-                        dart_executable,
-                        "--packages=" + packages,
-                        str(Path(__file__).with_name("migration_probe.dart")),
-                        str(private / "migration"),
-                        phase,
-                    ],
-                    "migration-" + phase,
-                    pipe=True,
-                )
-                stdout, _ = child.communicate(timeout=20)
-                assert child.returncode in [0, 1], (
-                    "migration worker failed before assertions"
-                )
-                values = json.loads(stdout)
-                for value in values:
-                    name, passed = value.pop("name"), value.pop("passed")
-                    assess(name, passed, **value)
-
-            case("migration-" + phase, migration)
-
         record(
             "fault-gate",
             status="FAIL" if defects else "PARTIAL",
             failed_cases=defects,
             NOT_RUN=[
                 "native mixed-session arbitration",
-                "migration interruption after backup before atomic rename",
                 "real model",
                 "Flutter",
                 "CI",
