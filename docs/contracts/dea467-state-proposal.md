@@ -2,7 +2,9 @@ DEA-467 状态、查询与兼容提案（待 Orion 协调）
 ==========================================
 
 这是第一阶段设计提案，不是生效的 wire contract，也不改变当前实现。
-宿主恢复门槛未通过；Orion 确定路线、协调 Muse 后，才生成 v2 schema/fixture、
+最新授权已允许持续公开插件探索，无需再等 Owner 选择路线；外部 DSH/依赖固定，
+旧补丁路线撤销。恢复实测进展及当前客户端缺口见 `dea467-journal-recovery.md`。
+六项完整门槛尚未通过；Orion 协调 Muse 的客户端字段后，才生成生效 v2 schema/fixture、
 迁移与集成测试。沿用当前 Account（八位数字字符串）、Message、position、
 operation_id、客户端认证所有权；不新增密码/token 存储或插件直连服务端路径。
 register_account/login_account 始终是 MCP 工具。
@@ -66,7 +68,8 @@ message_id/position/event_id` 和 `text,image,text,image` 顺序，不注入人�
 相同 ID+不同内容拒绝。超时/回执丢失先 get_operation，pending/unknown 不能当
 failed。真实失败是否可重试由错误类别决定。跨 provider 不承诺全局 exactly-once。
 
-公开存储可保存插件 journal，但实测该版本写入不校验 schema，需在每次写前
+公开存储可保存插件 journal，该版本类型声明将验证放在冷读边界，写入调用者
+负责保证值合法；因此本插件需在每次写前
 显式验证，cold-open 错误保持 fail-closed。单条持久写不能与 Session flush 或
 客户端消费提交自动形成一个事务，必须有准备/对账/幂等协议。这个跨边界证明仍
 是宿主门槛的一部分，不能以「已经有 KV」宣称恢复解决。
