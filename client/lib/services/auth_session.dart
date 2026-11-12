@@ -1,4 +1,5 @@
 import '../models/auth_models.dart';
+import 'client_identity.dart';
 
 /// Immutable identity captured at the start of an in-flight client operation.
 ///
@@ -11,17 +12,23 @@ class AuthIdentity {
     required this.account,
     required this.token,
     required this.generation,
+    required this.authGeneration,
   });
 
   final String account;
   final String token;
   final int generation;
 
+  /// Opaque generation issued by [AuthSession.establish]. Unlike [generation]
+  /// it is a random string, so a later process can never mint the same value
+  /// by restarting a counter at zero.
+  final String authGeneration;
+
   bool sameAs(AuthIdentity? other) {
     return other != null &&
         other.account == account &&
         other.token == token &&
-        other.generation == generation;
+        other.authGeneration == authGeneration;
   }
 }
 
@@ -36,6 +43,10 @@ class AuthSession {
   AuthUser? _user;
   int _generation = 0;
 
+  /// Opaque value rotated on every establish/clear. It is what v2 clients send
+  /// as `auth_generation`; an old value is never valid again.
+  String? _authGeneration;
+
   bool get hasToken => _token != null;
 
   AuthUser? get user => _user;
@@ -44,16 +55,23 @@ class AuthSession {
   /// [updateUser] (Profile nickname refresh is not a new authentication).
   int get generation => _generation;
 
+  String? get authGeneration => _authGeneration;
+
   AuthIdentity? get identity {
     final String? token = _token;
     final AuthUser? user = _user;
-    if (token == null || token.isEmpty || user == null) {
+    final String? authGeneration = _authGeneration;
+    if (token == null ||
+        token.isEmpty ||
+        user == null ||
+        authGeneration == null) {
       return null;
     }
     return AuthIdentity(
       account: user.account,
       token: token,
       generation: _generation,
+      authGeneration: authGeneration,
     );
   }
 
@@ -67,6 +85,7 @@ class AuthSession {
     _token = token;
     _user = user;
     _generation += 1;
+    _authGeneration = newAuthGeneration();
   }
 
   /// Credential for future authenticated requests. Not for serialization.
@@ -86,5 +105,6 @@ class AuthSession {
     _token = null;
     _user = null;
     _generation += 1;
+    _authGeneration = null;
   }
 }
