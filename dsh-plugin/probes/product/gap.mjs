@@ -76,7 +76,7 @@ const rt = await boot(
       native.push({ type: data.event.type, turn: data.event.data.turn });
   },
 );
-const agent = await rt.open("r3-gap", phase !== "seed");
+const agent = await rt.open("r3-gap-" + config.query, phase !== "seed");
 await client.bind(agent.session.id);
 const mcp = await rt.load("dsh-mcp-client");
 const mcpFiber = await rt.ctx.plugin(mcp, {

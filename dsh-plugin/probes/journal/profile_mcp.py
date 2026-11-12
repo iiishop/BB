@@ -36,9 +36,10 @@ async def post(path, body, key=None):
 async def bind():
     global identity
     auth = (await post("/v2/status", {})).json()["auth"]
+    session_id = "profile-" + auth["account"]
     made = await post(
         "/v2/consumers/create",
-        {"expected_auth": auth, "session_id": "profile-integration"},
+        {"expected_auth": auth, "session_id": session_id},
         owner,
     )
     assert made.status_code == 200
@@ -49,7 +50,7 @@ async def bind():
             "expected_auth": auth,
             "consumer_id": current["consumer_id"],
             "expected_binding_revision": current["binding_revision"],
-            "session_id": "profile-integration",
+            "session_id": session_id,
         },
         owner,
     )
