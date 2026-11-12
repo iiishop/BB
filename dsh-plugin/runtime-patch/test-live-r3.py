@@ -23,6 +23,11 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 parser = argparse.ArgumentParser()
 parser.add_argument("--client", required=True)
+parser.add_argument(
+    "--expected-client-sha",
+    required=True,
+    help="Full reviewed commit of the client checkout (no implicit HEAD pin)",
+)
 parser.add_argument("--runtime", required=True)
 parser.add_argument("--dart", required=True)
 parser.add_argument("--crypto", required=True)
@@ -31,10 +36,15 @@ client = Path(args.client).resolve()
 client_sha = subprocess.check_output(
     ["git", "-C", str(client), "rev-parse", "HEAD"], text=True
 ).strip()
-assert client_sha == "c684e29371b0236dadecb05f8ff18802175502ef", (
-    "Re-review/update this pinned client test before using another revision"
-)
-root = Path(tempfile.mkdtemp(prefix="r3-live-", dir=HERE.parent / ".evidence"))
+if len(args.expected_client_sha) != 40 or client_sha != args.expected_client_sha:
+    parser.error("Client HEAD does not match the explicitly reviewed full SHA")
+if subprocess.check_output(
+    ["git", "-C", str(client), "status", "--porcelain", "--", "."], text=True
+).strip():
+    parser.error("Client working tree must be clean for a pinned integration run")
+evidence_parent = HERE.parent / ".evidence"
+evidence_parent.mkdir(exist_ok=True)
+root = Path(tempfile.mkdtemp(prefix="r3-live-", dir=evidence_parent))
 private = root / "private"
 private.mkdir()
 results = []
@@ -66,18 +76,27 @@ def launch(command, name, env=None):
     return process
 
 
-def stop(process):
-    # Only the exact new process group that this runner created, never daemon/name.
+def signal_owned_group(process, signum):
+    # Only groups launched with start_new_session by this runner are eligible.
+    assert any(child is process for child, _ in owned)
     assert process.pid != daemon_pid
     try:
-        assert os.getpgid(daemon_pid) != process.pid
-        os.killpg(process.pid, signal.SIGTERM)
+        daemon_group = os.getpgid(daemon_pid)
+    except ProcessLookupError:
+        daemon_group = None
+    assert daemon_group != process.pid
+    try:
+        os.killpg(process.pid, signum)
     except ProcessLookupError:
         pass
+
+
+def stop(process):
+    signal_owned_group(process, signal.SIGTERM)
     try:
         process.wait(timeout=5)
     except subprocess.TimeoutExpired:
-        os.killpg(process.pid, signal.SIGKILL)
+        signal_owned_group(process, signal.SIGKILL)
         process.wait(timeout=5)
 
 
@@ -226,11 +245,7 @@ try:
                 if select.select([process.stdout], [], [], 0.2)[0]:
                     captured += os.read(process.stdout.fileno(), 65536)
                     if b"KILL_CHECKPOINT" in captured:
-                        assert (
-                            process.pid != daemon_pid
-                            and os.getpgid(daemon_pid) != process.pid
-                        )
-                        os.killpg(process.pid, signal.SIGKILL)
+                        signal_owned_group(process, signal.SIGKILL)
                         break
             process.wait(timeout=5)
         finally:
