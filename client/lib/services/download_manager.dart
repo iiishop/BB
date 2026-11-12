@@ -260,12 +260,24 @@ class DownloadManager {
         '${cacheRoot.path}${Platform.pathSeparator}.staging',
       );
       await stagingDirectory.create(recursive: true);
+      final int size = media.bytes.length;
+      final String digest = sha256.convert(media.bytes).toString();
+      // Persist the trusted expected length/digest before any staging bytes.
+      // Recovery must compare against this value, never re-derive it from a
+      // leftover staging file.
+      if (!await _writeExpected(
+        account: account,
+        task: task,
+        size: size,
+        digest: digest,
+      )) {
+        return;
+      }
       final File staging = File(_stagingPath(task.taskId));
       await staging.writeAsBytes(media.bytes, flush: true);
-      final int size = await staging.length();
-      final String digest = sha256
-          .convert(await staging.readAsBytes())
-          .toString();
+      if (!await _matches(staging, size, digest)) {
+        return;
+      }
       // Preparation is durable before the final path is touched. A failure to
       // persist this record leaves only the task-specific staging file; it
       // never places/overwrites the final file and never invents a transport
@@ -280,7 +292,7 @@ class DownloadManager {
       )) {
         return;
       }
-      if (!await _placePrepared(staging, target, size, digest)) {
+      if (!await _placePrepared(staging, target, size, digest, task.taskId)) {
         return;
       }
     } catch (error) {
@@ -342,6 +354,10 @@ class DownloadManager {
       '${cacheRoot.path}${Platform.pathSeparator}.staging'
       '${Platform.pathSeparator}$taskId.part';
 
+  String _expectedPath(String taskId) =>
+      '${cacheRoot.path}${Platform.pathSeparator}.staging'
+      '${Platform.pathSeparator}$taskId.expect.json';
+
   Future<bool> _writePrepare({
     required String account,
     required DownloadTask task,
@@ -388,20 +404,86 @@ class DownloadManager {
     File target,
     int size,
     String digest,
+    String taskId,
   ) async {
+    File? temporary;
     try {
+      if (await target.exists() && await target.length() > 0) {
+        return false;
+      }
+      // Copy through a task-specific temporary file in the *destination*
+      // directory. This works across filesystems (EXDEV) and keeps the final
+      // rename atomic on the target filesystem.
+      temporary = File(
+        '${target.path}.part-$taskId-${DateTime.now().microsecondsSinceEpoch}',
+      );
+      final IOSink sink = temporary.openWrite();
+      try {
+        await sink.addStream(staging.openRead());
+        await sink.flush();
+      } finally {
+        await sink.close();
+      }
+      if (!await _matches(temporary, size, digest)) {
+        return false;
+      }
       if (await target.exists()) {
-        if (await target.length() == 0) {
-          await target.delete();
-        } else {
+        if (await target.length() != 0) {
           return false;
         }
+        await target.delete();
       }
-      await staging.rename(target.path);
-      if (!await target.exists() ||
-          await target.length() != size ||
-          sha256.convert(await target.readAsBytes()).toString() != digest) {
-        return false;
+      await temporary.rename(target.path);
+      temporary = null;
+      return await _matches(target, size, digest);
+    } catch (_) {
+      return false;
+    } finally {
+      if (temporary != null && await temporary.exists()) {
+        await temporary.delete();
+      }
+    }
+  }
+
+  Future<bool> _matches(File file, int size, String digest) async {
+    try {
+      return await file.exists() &&
+          await file.length() == size &&
+          sha256.convert(await file.readAsBytes()).toString() == digest;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> _writeExpected({
+    required String account,
+    required DownloadTask task,
+    required int size,
+    required String digest,
+  }) async {
+    try {
+      final File target = File(_expectedPath(task.taskId));
+      await target.parent.create(recursive: true);
+      final File temporary = File(
+        '${target.path}.part-${DateTime.now().microsecondsSinceEpoch}',
+      );
+      final Map<String, dynamic> expected = <String, dynamic>{
+        'version': 1,
+        'task_id': task.taskId,
+        'operation_id': task.operationId,
+        'account': account,
+        'consumer_session': task.consumerSession,
+        'media_id': task.mediaId,
+        'size': size,
+        'sha256': digest,
+      };
+      try {
+        await temporary.writeAsString(jsonEncode(expected), flush: true);
+        await temporary.rename(target.path);
+      } finally {
+        if (await temporary.exists()) {
+          await temporary.delete();
+        }
       }
       return true;
     } catch (_) {
@@ -480,7 +562,13 @@ class DownloadManager {
             await stagingFile.length() == size &&
             sha256.convert(await stagingFile.readAsBytes()).toString() ==
                 digest) {
-          if (!await _placePrepared(stagingFile, finalFile, size, digest)) {
+          if (!await _placePrepared(
+            stagingFile,
+            finalFile,
+            size,
+            digest,
+            task.taskId,
+          )) {
             return const _Recovery.blocked();
           }
           return _Recovery(
@@ -497,18 +585,34 @@ class DownloadManager {
       }
     }
 
-    // Preparation may have written staging bytes and then failed to persist
-    // the record. The task-specific staging file is still evidence we can
-    // verify and promote once the record is writable again.
+    // Without a prepare record, only a separately persisted expected
+    // size/digest can authenticate a task-specific staging file. Never derive
+    // the expected value from the leftover bytes themselves.
+    final File expected = File(_expectedPath(task.taskId));
     final File staging = File(_stagingPath(task.taskId));
-    if (await staging.exists()) {
+    if (await expected.exists()) {
       try {
-        final int size = await staging.length();
-        final String digest = sha256
-            .convert(await staging.readAsBytes())
-            .toString();
+        final Object? decoded = jsonDecode(await expected.readAsString());
+        if (decoded is! Map<String, dynamic>) {
+          return const _Recovery.blocked();
+        }
+        final int? size = decoded['size'] as int?;
+        final String? digest = decoded['sha256'] as String?;
+        if (decoded['version'] != 1 ||
+            decoded['task_id'] != task.taskId ||
+            decoded['operation_id'] != task.operationId ||
+            decoded['account'] != account ||
+            decoded['consumer_session'] != task.consumerSession ||
+            decoded['media_id'] != task.mediaId ||
+            size == null ||
+            digest == null) {
+          return const _Recovery.blocked();
+        }
         final File finalFile = File(task.plannedPath);
         if (await finalFile.exists() && await finalFile.length() > 0) {
+          return const _Recovery.blocked();
+        }
+        if (!await staging.exists() || !await _matches(staging, size, digest)) {
           return const _Recovery.blocked();
         }
         if (!await _writePrepare(
@@ -526,7 +630,10 @@ class DownloadManager {
         return const _Recovery.blocked();
       }
     }
-
+    if (await staging.exists()) {
+      // Orphan/legacy staging without an independent expected value.
+      return const _Recovery.blocked();
+    }
     final File finalFile = File(task.plannedPath);
     if (await finalFile.exists() && await finalFile.length() > 0) {
       // Old pending ledger with a non-empty target: no proof this task owns it.
@@ -544,6 +651,10 @@ class DownloadManager {
       final File staging = File(_stagingPath(taskId));
       if (await staging.exists()) {
         await staging.delete();
+      }
+      final File expected = File(_expectedPath(taskId));
+      if (await expected.exists()) {
+        await expected.delete();
       }
     } catch (_) {
       // A stale record/staging is harmless: recovery validates identity/hash.

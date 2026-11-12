@@ -152,7 +152,7 @@ R3 新增内部路由（不导出为 MCP 工具）：
 | 命令 | 结果 |
 | --- | --- |
 | `flutter analyze` | `No issues found!`，exit 0 |
-| `QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_tests.sh client` | `RESULT=PASS`，exit 0；analyze PASS、flutter-test 268 passed/8 skipped、linux-integration 13 passed |
+| `QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_tests.sh client` | `RESULT=PASS`，exit 0；analyze PASS、flutter-test 269 passed/8 skipped、linux-integration 13 passed |
 | `flutter test test/live_chat_e2e_test.dart`（`BB_LIVE_SERVER_URL=http://127.0.0.1:8171`，真实 FastAPI） | 3 tests passed，exit 0：有序图文、真实 blocks、receipt→ACK 409/通过、第三方 ACL、附件元信息、视频封面、异步下载文件内容、真实 Range 在线流、持久事件、wait 积压/提前到达 |
 | 真实 FastAPI 在线流 | `MediaStreamHandle` 以 `bytes=0-3` 请求真实 `/media/{id}` 返回 206 且字节一致；到达阶段未请求原视频 |
 | 独立 `dart run bin/bb_client_api.dart` + 真实 FastAPI | `STANDALONE CHAIN: PASS`：本地登录、list_users、有序发送/重放、read/confirm/ACK、附件上传、`downloads/start` 202→`get` succeeded、`operations/get`、`events/subscribe/read/wait`、`wait_messages` 积压 |
@@ -218,23 +218,21 @@ Owner/独立 QA 执行。
   重开补取仍为一条 `downloadSucceeded`，PASS。
 - Sentinel `qa-r4-boundaries.dart` 六项检查：**6/6 PASS / exit 0**（GET/HEAD 401、终态失败恢复
   succeeded、两条 replay dedup、pending-publish 控制）。
-- 严格 runner 更新为 **268 passed / 8 skipped**（新增 2 条边界测试），Linux integration 13。
+- 严格 runner 更新为 **269 passed / 8 skipped**（新增 2 条边界测试），Linux integration 13。
 
-### R5/R6 准备先于落位与重启恢复
+### R5/R6/R7 准备、期望值与跨文件系统落位
 
-- 下载字节先完整写入**任务专属暂存** `cacheRoot/.staging/<task_id>.part` 并 flush；计算
-  长度/SHA256 后，在 `cacheRoot/.terminal/<task_id>.json` 原子写 `version:2` 准备记录：
-  account、consumer、task/operation、media、暂存路径、最终路径、长度、摘要。
-- **准备记录持久化成功后才落位最终文件**；目标为空/不存在才可 rename，非空目标绝不覆盖。
-  准备写入失败只保留暂存与 pending，不落位、不伪造失败。
-- 恢复先于传输：准备记录的最终文件哈希匹配则直接按原路径补终态，不访问上游；仅暂存匹配
-  则安全落位后补终态。记录损坏、摘要不符、目标被替换、旧 pending 账本已有非空目标时保持
-  pending/可诊断不确定，不另存副本、不覆盖第三方文件；无任何证据且目标为空/不存在的正常
-  pending 才继续传输。旧 v1 完成标记兼容读取。
-- 准备记录/暂存只在终态+pending event 持久化成功后清理；三次终态写盘失败时保留。
-- 新增“prepare 失败阻止落位后从 staging 恢复”“三次 ledger 失败 → 离线重启恢复原路径”回归；
-  Sentinel `qa-r5-restart.dart` online/offline 均 PASS，`qa-r4-boundaries.dart` 6/6 PASS。
-- 严格 runner 更新为 **268 passed / 8 skipped**（新增 prepare 失败回归）。
+- 完整响应在内存时，先持久化绑定 task/account/consumer/media 的**期望长度/SHA256**
+  `cacheRoot/.staging/<task_id>.expect.json`；再写任务专属暂存并核对，再写 `.terminal`
+  `version:2` 准备记录，最后落位。无记录的残留暂存绝不重算“期望值”晋升成功。
+- 落位通过**目标目录内任务专属临时文件**复制、flush、按期望摘要校验，再同文件系统 rename；
+  支持跨文件系统（如 `/dev/shm`），不覆盖非空目标，不依赖调大重试或仅限 cache。
+- 恢复：准备记录的最终文件哈希匹配则原路径补终态；仅暂存匹配则安全落位；无准备记录时
+  必须有独立期望记录且暂存完全匹配才可恢复。无记录截断/损坏暂存、记录损坏、摘要不符、
+  目标替换、旧 pending 非空目标均保持 pending 不确定，不发成功事件；旧 v1 标记兼容。
+- 准备/期望/暂存只在终态+pending event 持久化后清理；故障恢复可重复重启，事件 ID 稳定。
+- 新增期望记录/跨文件系统/截断暂存不成功/目标替换回归；严格 runner 更新为
+  **269 passed / 8 skipped**，Linux integration 13。
 
 ## 12. NOT RUN / 已知限制
 

@@ -161,7 +161,7 @@ flutter test integration_test -d linux
 QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_tests.sh client
 ```
 
-- 默认 `flutter test`：最新严格 runner 为 **268 passed / 8 skipped / exit 0**。新增覆盖
+- 默认 `flutter test`：最新严格 runner 为 **269 passed / 8 skipped / exit 0**。新增覆盖
   1000 条真实分页下发送/接收并发补取无缺口、events/wait limit 边界、原子展示确认/冲突/全组
   拒绝/重启幂等、新 consumer 独立补取、有序图文发送、幂等/冲突、read→receipt→ACK 缺口、
   附件只读元信息、异步下载内容、持久事件、wait 积压/提前到达、用户列表分页/预览/在线状态、
@@ -190,10 +190,10 @@ QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_test
   不输出 A 的 body/headers；新增 GET/HEAD 回归。
 - D2 终态首次写盘失败：传输成功后独立提交账本终态，最多重试 3 次；持久化失败保留
   可恢复状态，绝不改记 `downloadFailed`；新增注入一次写盘失败后恢复成功的回归。
-- D2 重启恢复：字节先写任务专属 staging 并 flush，再原子写 `.terminal/<task>.json`
-  准备记录（绑定 account/consumer/task/operation/media/路径/大小/SHA256），成功后落位；
-  重启先验证记录/最终文件/暂存再恢复原路径，不重新下载，上游离线也不会伪造
-  `downloadFailed`。准备失败不落位；记录损坏/目标替换保持 pending，不覆盖第三方文件。
+- D2 重启恢复：完整响应先在内存计算并持久化期望 size/SHA256，再写任务专属暂存与
+  `.terminal` 准备记录，最后通过目标目录内临时文件复制/校验/同文件系统 rename 落位；
+  支持跨文件系统，不覆盖目标。恢复先验证最终文件或可信暂存与独立期望值；无记录截断/
+  损坏暂存、记录损坏、目标替换保持 pending，不发成功事件。
 - D3 Android：移除不兼容的 `video_thumbnail`，项目内 `MediaMetadataRetriever` 抽帧；
   `flutter build apk --debug` 实际产出 APK（见 docs）。
 - 真实 Dart/native R3 联调：`test-live-r3.py`（本地副本仅更新 client SHA 与 daemon 保护）

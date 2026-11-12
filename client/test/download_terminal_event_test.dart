@@ -540,4 +540,80 @@ void main() {
     );
     expect(page.items, isEmpty);
   });
+
+  test('truncated staging without prepare record never succeeds', () async {
+    if (!Platform.isLinux) {
+      return;
+    }
+    final HttpServer upstream = await HttpServer.bind(
+      InternetAddress.loopbackIPv4,
+      0,
+    );
+    upstream.listen((HttpRequest request) async {
+      request.response.headers.contentType = ContentType('application', 'pdf');
+      request.response.headers.set(
+        'content-disposition',
+        'attachment; filename="qa.pdf"',
+      );
+      request.response.write('%PDF-1.4 trusted staged bytes');
+      await request.response.close();
+    });
+    final String ledgerPath = '${root.path}/corrupt-ledger.json';
+    final ChatLedger backing = ChatLedger.atPath(ledgerPath);
+    final Directory cacheRoot = Directory('${root.path}/corrupt-cache');
+    final Directory terminal = Directory('${cacheRoot.path}/.terminal');
+    await terminal.create(recursive: true);
+    await Process.run('chmod', <String>['500', terminal.path]);
+    final DownloadManager first = DownloadManager(
+      api: ChatApiClient(
+        baseUri: Uri.parse('http://127.0.0.1:${upstream.port}'),
+      ),
+      session: session,
+      ledger: backing,
+      cacheRoot: cacheRoot,
+      onEvent: (LocalEvent event) =>
+          backing.deliverPendingEvents(event.account),
+    );
+    DownloadTask? task;
+    try {
+      task = await first.start(
+        operationId: 'corrupt-op',
+        consumerSession: 'origin-consumer',
+        mediaId: 'qa-media',
+      );
+      await first.dispose();
+    } finally {
+      await first.dispose();
+      await Process.run('chmod', <String>['700', terminal.path]);
+      await upstream.close(force: true);
+    }
+    final File staging = File('${cacheRoot.path}/.staging/${task.taskId}.part');
+    await staging.writeAsString('%PDF', flush: true);
+    final DownloadManager second = DownloadManager(
+      api: ChatApiClient(baseUri: Uri.parse('http://127.0.0.1:1')),
+      session: session,
+      ledger: backing,
+      cacheRoot: cacheRoot,
+      onEvent: (LocalEvent event) =>
+          backing.deliverPendingEvents(event.account),
+    );
+    try {
+      await second.resumePending();
+      await second.dispose();
+    } finally {
+      await second.dispose();
+    }
+    final DownloadTask pending = (await backing.download(
+      _accountA,
+      task.taskId,
+    ))!;
+    expect(pending.status, DownloadStatus.pending);
+    expect(pending.actualPath, isNull);
+    final LocalEventPage page = await backing.readLocalEvents(
+      account: _accountA,
+      consumerSession: 'origin-consumer',
+      afterCursor: 0,
+    );
+    expect(page.items, isEmpty);
+  });
 }
