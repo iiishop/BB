@@ -121,6 +121,10 @@ class _LoopbackStream implements MediaStreamHandle {
           token: auth,
           mediaId: mediaId,
         );
+        if (!session.isCurrent(identity)) {
+          await _writeError(request, HttpStatus.unauthorized);
+          return;
+        }
         final HttpResponse head = request.response;
         head.statusCode = 200;
         head.headers.set(HttpHeaders.contentTypeHeader, probe.mimeType);
@@ -147,6 +151,11 @@ class _LoopbackStream implements MediaStreamHandle {
         outbound.headers.set(HttpHeaders.rangeHeader, range);
       }
       final HttpClientResponse upstreamResponse = await outbound.close();
+      if (!session.isCurrent(identity)) {
+        await upstreamResponse.drain<void>();
+        await _writeError(request, HttpStatus.unauthorized);
+        return;
+      }
       if (upstreamResponse.statusCode != 200 &&
           upstreamResponse.statusCode != 206) {
         request.response.statusCode = upstreamResponse.statusCode;

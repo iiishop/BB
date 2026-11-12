@@ -8,6 +8,7 @@ import 'package:bb_client/services/auth_session.dart';
 import 'package:bb_client/services/chat_api_client.dart';
 import 'package:bb_client/services/chat_ledger.dart';
 import 'package:bb_client/services/chat_service.dart';
+import 'package:bb_client/services/media_stream_proxy.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/fake_chat_backend.dart';
@@ -244,4 +245,59 @@ void main() {
       await handle.close();
     }
   });
+
+  test(
+    'in-flight media GET/HEAD rejects identity switch after upstream await',
+    () async {
+      for (final String method in <String>['GET', 'HEAD']) {
+        final Completer<void> entered = Completer<void>();
+        final Completer<void> release = Completer<void>();
+        final HttpServer upstream = await HttpServer.bind(
+          InternetAddress.loopbackIPv4,
+          0,
+        );
+        upstream.listen((HttpRequest request) async {
+          if (!entered.isCompleted) {
+            entered.complete();
+          }
+          await release.future;
+          request.response.headers.contentType = ContentType('video', 'mp4');
+          request.response.write('A-only-body');
+          await request.response.close();
+        });
+        final AuthSession auth = AuthSession()
+          ..establish(token: 'token-a', user: user(_accountA));
+        final MediaStreamProxy proxy = MediaStreamProxy(
+          api: ChatApiClient(
+            baseUri: Uri.parse('http://127.0.0.1:${upstream.port}'),
+          ),
+          session: auth,
+        );
+        final MediaStreamHandle handle = await proxy.open('media-a');
+        final HttpClient client = HttpClient();
+        try {
+          final HttpClientRequest request = await client.openUrl(
+            method,
+            handle.uri,
+          );
+          final Future<HttpClientResponse> pending = request.close();
+          await entered.future;
+          auth.establish(token: 'token-b', user: user(_accountB));
+          release.complete();
+          final HttpClientResponse response = await pending;
+          await response.drain<void>();
+          expect(
+            response.statusCode,
+            401,
+            reason: '$method must not serve A bytes after B login',
+          );
+        } finally {
+          client.close(force: true);
+          await handle.close();
+          await proxy.close();
+          await upstream.close(force: true);
+        }
+      }
+    },
+  );
 }

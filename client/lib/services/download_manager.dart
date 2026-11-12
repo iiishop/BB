@@ -201,6 +201,7 @@ class DownloadManager {
   }
 
   Future<void> _run(String account, String token, DownloadTask task) async {
+    File target;
     try {
       final MediaResponse media = await api.fetchMedia(
         token: token,
@@ -209,7 +210,7 @@ class DownloadManager {
       if (media.bytes.isEmpty) {
         throw _failure('empty_file');
       }
-      File target = File(task.plannedPath);
+      target = File(task.plannedPath);
       // Reuse our own reservation only when it is still empty; never overwrite
       // a file the user placed there in the meantime.
       if (!await target.exists() || await target.length() != 0) {
@@ -237,21 +238,6 @@ class DownloadManager {
           await temporary.delete();
         }
       }
-      final DownloadTask done = task.copyWith(
-        status: DownloadStatus.succeeded,
-        plannedPath: target.path,
-        actualPath: target.path,
-      );
-      final LocalEvent event = _terminalEvent(account, done);
-      // Task status + event delivery (or pending marker) commit together in the
-      // origin account's ledger, regardless of the current login.
-      await ledger.finishDownload(account: account, task: done, event: event);
-      try {
-        await onEvent(event);
-      } catch (_) {
-        // The durable pending event is retried on the origin account's next
-        // read/wait or restart; a successful saved file is never reclassified.
-      }
     } catch (error) {
       if (error is AuthFailure &&
           (error.status == 401 || error.status == 403)) {
@@ -259,31 +245,69 @@ class DownloadManager {
         // leave the accepted task resumable for the origin account.
         return;
       }
-      final String code = error is AuthFailure ? error.code : 'download_failed';
-      final File planned = File(task.plannedPath);
+      await _recordFailed(account, task, error);
+      return;
+    }
+
+    // The bytes are saved. A ledger commit failure below is a persistence
+    // problem, not a transfer failure: retry it, and never relabel the file as
+    // a failed download.
+    final DownloadTask done = task.copyWith(
+      status: DownloadStatus.succeeded,
+      plannedPath: target.path,
+      actualPath: target.path,
+    );
+    final LocalEvent event = _terminalEvent(account, done);
+    bool committed = false;
+    for (int attempt = 0; attempt < 3 && !committed; attempt++) {
       try {
-        if (await planned.exists() && await planned.length() == 0) {
-          await planned.delete();
+        await ledger.finishDownload(account: account, task: done, event: event);
+        committed = true;
+      } catch (_) {
+        if (attempt < 2) {
+          await Future<void>.delayed(const Duration(milliseconds: 100));
         }
-      } catch (_) {
-        // A leftover zero-byte reservation is harmless; report the real error.
       }
-      final DownloadTask failed = task.copyWith(
-        status: DownloadStatus.failed,
-        errorCode: code,
-      );
-      final LocalEvent event = _terminalEvent(account, failed);
-      try {
-        await ledger.finishDownload(
-          account: account,
-          task: failed,
-          event: event,
-        );
-        await onEvent(event);
-      } catch (_) {
-        // Keep the accepted task resumable rather than inventing a second
-        // failure fact when the ledger commit itself failed.
+    }
+    if (!committed) {
+      // Leave the accepted task pending/recoverable rather than inventing a
+      // failed download fact. The saved file and task remain for a later
+      // repair/read.
+      return;
+    }
+    try {
+      await onEvent(event);
+    } catch (_) {
+      // The durable pending event is retried on the origin account's next
+      // read/wait or restart; a successful saved file is never reclassified.
+    }
+  }
+
+  Future<void> _recordFailed(
+    String account,
+    DownloadTask task,
+    Object error,
+  ) async {
+    final String code = error is AuthFailure ? error.code : 'download_failed';
+    final File planned = File(task.plannedPath);
+    try {
+      if (await planned.exists() && await planned.length() == 0) {
+        await planned.delete();
       }
+    } catch (_) {
+      // A leftover zero-byte reservation is harmless; report the real error.
+    }
+    final DownloadTask failed = task.copyWith(
+      status: DownloadStatus.failed,
+      errorCode: code,
+    );
+    final LocalEvent event = _terminalEvent(account, failed);
+    try {
+      await ledger.finishDownload(account: account, task: failed, event: event);
+      await onEvent(event);
+    } catch (_) {
+      // Keep the accepted task resumable rather than inventing a second
+      // failure fact when the ledger commit itself failed.
     }
   }
 

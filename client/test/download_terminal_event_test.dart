@@ -6,10 +6,60 @@ import 'package:bb_client/services/auth_session.dart';
 import 'package:bb_client/services/chat_api_client.dart';
 import 'package:bb_client/services/chat_ledger.dart';
 import 'package:bb_client/services/chat_service.dart';
+import 'package:bb_client/services/download_manager.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const String _accountA = '10000001';
 const String _accountB = '10000002';
+
+class _FailFirstFinishLedger implements ChatLedger {
+  _FailFirstFinishLedger(this.backing);
+
+  final ChatLedger backing;
+  bool failed = false;
+
+  @override
+  Future<void> saveDownload(String account, DownloadTask task) =>
+      backing.saveDownload(account, task);
+
+  @override
+  Future<DownloadTask?> download(String account, String taskId) =>
+      backing.download(account, taskId);
+
+  @override
+  Future<void> saveDownloadOperation(
+    String account,
+    String operationId,
+    String taskId,
+  ) => backing.saveDownloadOperation(account, operationId, taskId);
+
+  @override
+  Future<String?> downloadTaskForOperation(
+    String account,
+    String operationId,
+  ) => backing.downloadTaskForOperation(account, operationId);
+
+  @override
+  Future<int> deliverPendingEvents(String account) =>
+      backing.deliverPendingEvents(account);
+
+  @override
+  Future<void> finishDownload({
+    required String account,
+    required DownloadTask task,
+    required LocalEvent event,
+  }) {
+    if (!failed && task.status == DownloadStatus.succeeded) {
+      failed = true;
+      throw const FileSystemException('injected permission failure');
+    }
+    return backing.finishDownload(account: account, task: task, event: event);
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnsupportedError('not used by this test');
+}
 
 void main() {
   late Directory root;
@@ -162,4 +212,74 @@ void main() {
     expect(page.items, hasLength(1));
     expect(page.items.single.event.type, LocalEventType.downloadFailed);
   });
+
+  test(
+    'terminal ledger write failure retries success, never failure',
+    () async {
+      final HttpServer upstream = await HttpServer.bind(
+        InternetAddress.loopbackIPv4,
+        0,
+      );
+      upstream.listen((HttpRequest request) async {
+        request.response.headers.contentType = ContentType(
+          'application',
+          'pdf',
+        );
+        request.response.headers.set(
+          'content-disposition',
+          'attachment; filename="qa.pdf"',
+        );
+        request.response.write('%PDF-1.4 saved-before-ledger-fault');
+        await request.response.close();
+      });
+      final String ledgerPath = '${root.path}/fault-ledger.json';
+      final _FailFirstFinishLedger fault = _FailFirstFinishLedger(
+        ChatLedger.atPath(ledgerPath),
+      );
+      final DownloadManager manager = DownloadManager(
+        api: ChatApiClient(
+          baseUri: Uri.parse('http://127.0.0.1:${upstream.port}'),
+        ),
+        session: session,
+        ledger: fault,
+        cacheRoot: Directory('${root.path}/fault-cache'),
+        onEvent: (LocalEvent event) =>
+            fault.deliverPendingEvents(event.account),
+      );
+      try {
+        final DownloadTask task = await manager.start(
+          operationId: 'fault-op',
+          consumerSession: 'origin-consumer',
+          mediaId: 'qa-media',
+        );
+        await manager.dispose();
+        expect(fault.failed, isTrue, reason: 'fault must be injected');
+        final ChatLedger restored = ChatLedger.atPath(ledgerPath);
+        await restored.deliverPendingEvents(_accountA);
+        final DownloadTask? saved = await restored.download(
+          _accountA,
+          task.taskId,
+        );
+        expect(saved?.status, DownloadStatus.succeeded);
+        final File file = File(saved!.actualPath!);
+        expect(
+          await file.readAsString(),
+          contains('saved-before-ledger-fault'),
+        );
+        final LocalEventPage events = await restored.readLocalEvents(
+          account: _accountA,
+          consumerSession: 'origin-consumer',
+          afterCursor: 0,
+        );
+        expect(events.items, hasLength(1));
+        expect(
+          events.items.single.event.type,
+          LocalEventType.downloadSucceeded,
+        );
+      } finally {
+        await manager.dispose();
+        await upstream.close(force: true);
+      }
+    },
+  );
 }
