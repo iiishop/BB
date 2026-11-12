@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { unlink } from "node:fs/promises";
 import { Client } from "./client.js";
 import { Bridge } from "./bridge.js";
+import { diagnostic, stoppedState } from "./status.js";
 
 export const name = "bb-bridge";
 export const inject = [
@@ -56,6 +57,7 @@ export async function apply(ctx, config) {
     pending = Promise.resolve(),
     configuration,
     lastError,
+    stopReason,
     requiredSessions,
     fenced = false,
     ready = false;
@@ -64,7 +66,7 @@ export async function apply(ctx, config) {
     state: !get("enabled")
       ? "disabled"
       : fenced
-        ? "blocked"
+        ? stoppedState(stopReason)
         : ready && bridge && mcpFiber
           ? "bound"
           : !get("targetSession")
@@ -74,7 +76,7 @@ export async function apply(ctx, config) {
               : lastError === "unauthenticated"
                 ? "login_required"
                 : "connecting",
-    error: lastError ?? null,
+    error: (fenced ? stopReason : lastError) ?? null,
     required_sessions: requiredSessions ?? [],
   });
   // Optional browser carrier; headless profiles keep the existing tool interface.
@@ -140,6 +142,7 @@ export async function apply(ctx, config) {
       await stop();
       configuration = desired;
       fenced = false;
+      stopReason = undefined;
     }
     if (!get("enabled")) return;
     const target = get("targetSession"),
@@ -149,7 +152,8 @@ export async function apply(ctx, config) {
       try {
         await client.check();
       } catch (error) {
-        lastError = error.code ?? "client_unavailable";
+        lastError = diagnostic(error, "client_unavailable");
+        stopReason = lastError;
         fenced = true;
         await stop();
       }
@@ -176,9 +180,12 @@ export async function apply(ctx, config) {
       } catch (error) {
         candidate.close();
         await stop();
-        lastError = error.code ?? "binding_unavailable";
+        lastError = diagnostic(error, "binding_unavailable");
         requiredSessions = error.required_sessions;
-        if (error.status !== 401) fenced = true;
+        if (error.status !== 401) {
+          fenced = true;
+          stopReason = lastError;
+        }
       }
     }
     if (!mcpFiber) await connectMcp();
@@ -198,7 +205,7 @@ export async function apply(ctx, config) {
   }
   function queue() {
     pending = pending.then(refresh).catch((error) => {
-      lastError = error.code ?? "bridge_unavailable";
+      lastError = diagnostic(error, "bridge_unavailable");
       ctx.emit("bb-bridge/error", {
         type: error.name,
         code: lastError,
@@ -227,10 +234,7 @@ export async function apply(ctx, config) {
         enabled: get("enabled"),
         targetSession: get("targetSession"),
         peerAccount: get("peerAccount"),
-        state:
-          ready && bridge && mcpFiber ? "bound" : "awaiting_login_or_session",
-        error: lastError ?? null,
-        required_sessions: requiredSessions ?? [],
+        ...connectionStatus(),
         ...(bridge ? { recovery: bridge.status() } : {}),
       }),
     }),

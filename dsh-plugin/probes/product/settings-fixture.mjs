@@ -17,7 +17,8 @@ export async function apply(ctx) {
   const { LlmAdapter } = await import(
     pathToFileURL(require.resolve("@deepseek-ai/dsh-llm"))
   );
-  let calls = 0;
+  let calls = 0,
+    failModel = false;
   class Model extends LlmAdapter {
     async resolveModel(provider, id) {
       return {
@@ -30,6 +31,7 @@ export async function apply(ctx) {
     }
     async *stream() {
       calls++;
+      if (failModel) throw new Error("synthetic unknown provider outcome");
       yield { type: "finish", reason: { kind: "stop" } };
     }
   }
@@ -48,6 +50,24 @@ export async function apply(ctx) {
     });
   }
   ctx.effect(() => () => handle.dispose());
+  if (process.env.BB_PROBE_STATUS === "1") {
+    const replacement = await ctx.agents.create({
+      sessionId: "settings-replacement",
+      agentOptions,
+    });
+    ctx.effect(() => () => replacement.dispose());
+    ctx.effect(() =>
+      ctx.connection.fetch.register({
+        path: "/api/bb-settings-test/unknown",
+        methods: ["POST"],
+        requestBody: "buffered",
+        fetch: async () => {
+          failModel = true;
+          return Response.json({ enabled: true });
+        },
+      }),
+    );
+  }
   ctx.effect(() =>
     ctx.connection.fetch.register({
       path: "/api/bb-settings-test/probe",

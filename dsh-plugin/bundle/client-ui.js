@@ -43,12 +43,21 @@ window.__ModuleLoader__.load({
         refresh: "Refresh status",
         disabled: "Disabled",
         blocked: "Binding stopped by a recovery or identity fence",
+        connection_unavailable:
+          "Client connection unavailable; automatic rebinding is paused",
+        stopped: "Bridge stopped; manual recovery is required",
+        connectionHelp:
+          "Start the BB client and check its loopback URL and port. Save a corrected URL, or uncheck Enable bridge and save, then check it and save again. Existing uncertain work is retained.",
+        blockedHelp:
+          "Resolve the diagnostic before rebinding. Keep the original account/session and recovery records; do not delete uncertain work. After resolving it, disable and save, then enable and save.",
+        stoppedHelp:
+          "Check the diagnostic and restore the client/plugin prerequisites. Then disable and save, and enable and save. Preserve recovery records; do not resend uncertain operations.",
         bound: "Connected and bound",
         choose_session: "Choose a session",
         session_unavailable:
           "Target session is not running; open or resume it in DSH",
         login_required:
-          "Log in using BB client or the registration/login MCP tools",
+          "Log in using BB client or the registration/login MCP tools; then disable/save and enable/save to rebind",
         connecting: "Connecting / waiting for client",
         statusUnavailable: "Status unavailable",
         recovery: "Resume the original session before rebinding:",
@@ -87,10 +96,19 @@ window.__ModuleLoader__.load({
         refresh: "刷新状态",
         disabled: "已停用",
         blocked: "身份或恢复围栏已停止绑定",
+        connection_unavailable: "客户端连接不可用；自动重绑已暂停",
+        stopped: "桥接已停止，需要手动恢复",
+        connectionHelp:
+          "请启动 BB 客户端并检查本机地址和端口。修正地址后保存，或取消“启用桥接”并保存，再勾选并保存。既有不确定任务会保留。",
+        blockedHelp:
+          "请先解决诊断指出的限制，保留原账号、会话及恢复记录，不得删除不确定任务。解决后停用并保存，再启用并保存。",
+        stoppedHelp:
+          "请检查诊断并恢复客户端或插件所需条件，再停用并保存、启用并保存。保留恢复记录，不得重发结果不确定的操作。",
         bound: "已连接并绑定",
         choose_session: "请选择目标会话",
         session_unavailable: "目标会话尚未运行，请在 DSH 中打开或恢复",
-        login_required: "请通过 BB 客户端或注册/登录 MCP 工具登录",
+        login_required:
+          "请通过 BB 客户端或注册/登录 MCP 工具登录，再停用并保存、启用并保存以重新绑定",
         connecting: "正在连接或等待客户端",
         statusUnavailable: "暂时无法读取状态",
         recovery: "重新绑定前请恢复原会话：",
@@ -262,6 +280,21 @@ window.__ModuleLoader__.load({
           h("strong", null, t("status")),
           ": ",
           t(health?.state || "statusUnavailable"),
+          ["connection_unavailable", "blocked", "stopped"].includes(
+            health?.state,
+          )
+            ? h(
+                "small",
+                null,
+                t(
+                  health.state === "connection_unavailable"
+                    ? "connectionHelp"
+                    : health.state === "blocked"
+                      ? "blockedHelp"
+                      : "stoppedHelp",
+                ),
+              )
+            : null,
           health?.error
             ? h("small", null, `${t("error")}: ${health.error}`)
             : null,

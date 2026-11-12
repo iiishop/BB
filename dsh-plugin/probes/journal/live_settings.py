@@ -13,6 +13,7 @@ def run(
     origin,
     account,
     peer,
+    switched,
     api,
     runtime,
     root,
@@ -43,6 +44,9 @@ def run(
         "DSH_HOME": str(private / "dsh-home"),
         "BB_PROBE_RUNTIME": runtime,
     }
+    status_case = os.environ.get("BB_SETTINGS_CASES") == "status"
+    if status_case:
+        env["BB_PROBE_STATUS"] = "1"
     cli = str(Path(runtime) / "lib/bin.js")
     subprocess.run(
         [
@@ -73,7 +77,7 @@ def run(
             ]
         )
     )
-    for phase in ["edit", "restart"]:
+    for phase in ["status"] if status_case else ["edit", "restart"]:
         host = launch(
             [
                 "node",
@@ -108,6 +112,10 @@ def run(
                     "api": api,
                     "account": account,
                     "peer": peer,
+                    "switched": switched,
+                    "state_root": str(
+                        private / "dsh-home/profiles/bb-settings-test/.bb-bridge"
+                    ),
                     "bundle": str(bundle),
                     "host_log": str(log),
                     "host_pid": host.pid,

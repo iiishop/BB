@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import { readFile, writeFile, mkdir, stat } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
+import { runStatus } from "./settings-status.mjs";
 const [configPath, phase] = process.argv.slice(2);
 const config = JSON.parse(await readFile(configPath));
 const require = createRequire(config.playwright),
@@ -128,7 +129,7 @@ async function gone(pids) {
 }
 try {
   await open(p);
-  if (phase === "edit") {
+  if (phase === "edit" || phase === "status") {
     await p.getByRole("button", { name: "Add plugin", exact: true }).click();
     await p
       .getByRole("textbox", { name: "Package name or address" })
@@ -141,7 +142,20 @@ try {
   }
   await editor(p);
   assert.equal(await p.locator(".bb-settings input").count(), 5);
-  if (phase === "edit") {
+  if (phase === "status") {
+    await runStatus({
+      p,
+      config,
+      context,
+      origin,
+      probe,
+      until,
+      save,
+      screenshot,
+      facts,
+      metrics,
+    });
+  } else if (phase === "edit") {
     await p.locator('.bb-settings input[name="clientUrl"]').fill(config.origin);
     await p
       .locator('.bb-settings input[name="targetSession"]')
