@@ -438,6 +438,12 @@ class ChatLedger {
           'peer_account': peer,
           'legacy_watermark': watermark,
           'consumer_id': null,
+          // Ambiguity blocks exactly the consumers that could claim the
+          // legacy watermark; unrelated verified consumers stay usable.
+          'consumer_ids': <String>[
+            for (final MapEntry<String, int> candidate in candidates)
+              candidate.key,
+          ],
           'outcome': 'migration_required',
           'reason': candidates.isEmpty
               ? 'no_consumer_has_continuous_receipts'
@@ -1318,6 +1324,31 @@ class ChatLedger {
       if (!stillCurrent()) {
         throw staleIdentity;
       }
+      // Migration ambiguity is an independent consumption blocker. It is
+      // checked before the idempotent short-circuit and before the receipt
+      // gap, so continuous receipts cannot bypass it and neither can an ACK
+      // that is already at/below the cursor. It never modifies the preserved
+      // legacy evidence and only blocks the affected consumers.
+      final Map<String, dynamic>? legacyEntry = _legacyMigrationForPeerLocked(
+        account,
+        peerAccount,
+      );
+      if (legacyEntry != null &&
+          legacyEntry['outcome'] == 'migration_required') {
+        final Object? affected = legacyEntry['consumer_ids'];
+        if (affected is List && affected.contains(consumerId)) {
+          throw migrationRequired(
+            '旧消费迁移存在歧义，需显式解决后才能确认消费',
+            fields: <AuthFieldError>[
+              AuthFieldError(
+                field: 'through_position',
+                code: migrationRequiredCode,
+                message: '迁移歧义阻塞该消费者水位',
+              ),
+            ],
+          );
+        }
+      }
       final int consumed = _consumedLocked(account, consumerId, peerAccount);
       if (throughPosition <= consumed) {
         if (!stillCurrent()) {
@@ -1345,10 +1376,7 @@ class ChatLedger {
           if (confirmedByPosition[position] != true) position,
       ];
       if (gaps.isNotEmpty) {
-        final Map<String, dynamic>? legacy = _legacyMigrationForPeerLocked(
-          account,
-          peerAccount,
-        );
+        final Map<String, dynamic>? legacy = legacyEntry;
         final int? legacyWatermark = legacy?['legacy_watermark'] is int
             ? legacy!['legacy_watermark'] as int
             : null;

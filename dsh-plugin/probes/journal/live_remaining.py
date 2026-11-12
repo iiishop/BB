@@ -288,7 +288,9 @@ def run(
             if v.get("task_id") == task["task_id"]
         ]
         assert not related
-        assert task["task_id"] not in json.dumps(other), "download leaked into switched account"
+        assert task["task_id"] not in json.dumps(other), (
+            "download leaked into switched account"
+        )
         ok("/auth/login", {"account": account, "password": "Abc123"})
         return {
             "task_status": "succeeded",

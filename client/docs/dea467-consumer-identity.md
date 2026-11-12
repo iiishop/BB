@@ -121,3 +121,29 @@ flutter-test **312 passed / 8 skipped**、linux-integration **13 passed**，`RES
   `test/chat_ledger_migration_test.dart`、`test/chat_v2_local_server_test.dart`、
   `test/chat_v2_shared_contract_test.dart`、`test/chat_atomic_commit_test.dart`、
   `test/client_identity_contract_test.dart`。
+
+## 8. 真实故障门槛修复（2026-11-12）
+
+按 `docs/contracts/dea467-real-fault-gate.md` 修复两个最小反例（只改 client/）：
+
+- `admitted-send-switch`：v2 send 在远端成功、回执返回前切换账号，服务层原先在
+  `_succeed` 后抛 `unauthenticated`（401）。现改为 `stale_identity`（409）；`sendBody`
+  与 `sendAttachment` 的“已接纳成功后再切换”及其他身份切换分支统一按 stale 分类，
+  原账号的 succeeded operation 仍先落盘保留，真实未登录入口继续是 401，不做全局映射。
+- `migration-ambiguous-prepare/recover`：`ChatLedger.commitAck` 现在在幂等短路和
+  receipt gap 之前先检查 legacy 迁移歧义；迁移报告对歧义记录保存 `consumer_ids`，
+  受影响的旧 consumer 无论 receipts 是否连续、ACK 是否 lower/equal 都返回 409
+  `migration_required`，水位保持 0。备份与 `legacy_consumption` 原证据不改；未受影响且
+  有自己连续 receipts 的消费者仍可 ACK，完整迁移 scope 的幂等 ACK 不回归。
+
+真实故障门槛在修复树实跑（`live.py --faults`，真实 v2 客户端/FastAPI/文件账本/原版 DSH，
+模型为确定性替身）：**18 项用例全部 PASS，退出 0**，其中 `admitted-send-switch` 观测
+409 stale_identity、原账号 plan succeeded、新账号无 plan、恢复查询 succeeded；
+`migration-ambiguous-prepare` 观测 409 migration_required、水位 0、备份原文一致；
+`migration-ambiguous-recover` 观测 409（stale_identity）且水位 0。`fault-gate` 仍报
+PARTIAL，NOT RUN 为原生 wait/被动仲裁、备份完成到 rename 之间的迁移中断、真实模型、
+集成版 Flutter 与 CI。证据目录的 `sources.json` 记录实际 client tree。
+
+严格三层：`QA_REQUIRE_INTEGRATION=1 bash scripts/run_flutter_tests.sh client` →
+analyze PASS、flutter-test **318 passed / 8 skipped**、linux-integration **13 passed**，
+`RESULT=PASS`。8 个 skip 仍为第 6 节列出的 6 个真实服务/MCP 用例和 2 个截图用例，不计通过。
