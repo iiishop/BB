@@ -170,8 +170,12 @@ Forge 的共享查询契约（`4b91a5b`/`900429c`）唯一制定字段与语义�
   presentation，绝不把图像占位符当完整展示。
 - `read_messages` 增加 `before_position`，与 `after_position` 非 null 互斥；两向升序，
   before 的 `next_position` 是首条位置，空页保持请求边界；旧 after 调用与 v1 白名单不变。
-- 查询可以准备展示 receipts，但不 confirm、不 ACK、不推进水位；所有异步返回前用捕获的
-  `AuthIdentity` 再验证，账号切换/同账号重登返回 409 `stale_identity`。
+- 查询可以准备展示 receipts，但不 confirm、不 ACK、不推进水位。查询完成处（异步查询/
+  媒体读取之后、结果暴露之前）复核完整 `expected_identity` 与当前 ledger binding：
+  账号/auth_generation 变化 → 409 `stale_identity`，同账号同 generation 但 revision
+  变化（CAS 重绑）→ 409 `stale_binding`；失败查询本次新建且未确认/未绑定 attempt 的
+  receipts 会被丢弃，替换绑定不能消费旧查询的虚假完整展示。已确认或已绑定 attempt 的
+  历史 receipt 保留。
 - 回归：`test/chat_query_service_test.dart`（直接 lookup/context、consumer 富化、双向
   历史、缺口、身份）、`test/chat_v2_query_routes_test.dart`（严格 DTO、owner/identity、
   有序媒体与缺图不发放 receipt、before 分页、查询不消费）、

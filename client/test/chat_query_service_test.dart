@@ -433,6 +433,30 @@ void main() {
     );
   });
 
+  test('stale query receipts can be discarded before exposure', () async {
+    final ExpectedIdentity consumer = await service.identityFor('q-reader');
+    final ConsumerBinding binding =
+        (await service.ledger.bindingById(consumer.consumerId))!;
+    final ChatMessage message = (await service.query.messageById(a2Id))!;
+    final Set<String> created = <String>{};
+    final QueryVisibleMessage visible = await service.visibleMessageForQuery(
+      captured: session.identity!,
+      binding: binding,
+      peerAccount: _b,
+      message: message,
+      createdReceiptIds: created,
+    );
+    expect(visible.item.presentation, isNotNull);
+    expect(created, hasLength(1));
+    final String receiptId = created.single;
+    expect(
+      (await service.ledger.receipt(_a, receiptId))!.confirmed,
+      isFalse,
+    );
+    await service.ledger.discardUnconfirmedReceipts(_a, created);
+    expect(await service.ledger.receipt(_a, receiptId), isNull);
+  });
+
   test('queries never ACK, confirm or create receipts', () async {
     final String consumer = (await service.identityFor('q-reader')).consumerId;
     final int consumedBefore = await service.ledger.consumedThrough(

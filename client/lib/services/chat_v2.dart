@@ -290,69 +290,80 @@ class ChatV2Router {
 
     switch (path) {
       case '/v2/chat/list_conversations':
-        final ConversationPage page = await service.query.listConversations(
-          afterAccount: (args.values['after_account'] as String?) ?? '',
-          limit: (args.values['limit'] as int?) ?? 50,
-          consumerId: context.binding.consumerId,
-        );
-        _ensureCurrent(context.identity);
-        return _reply(expected, page.toJson());
-      case '/v2/chat/get_message':
-        final ChatMessage? message = await service.query.messageById(
-          args.values['message_id'] as String,
-        );
-        if (message == null) {
-          throw _V2Error(404, 'not_found', _messageByCode['not_found']!);
-        }
-        final QueryVisibleMessage visible =
-            await service.visibleMessageForQuery(
-              captured: context.identity,
-              binding: context.binding,
-              peerAccount: _peerOf(message, context.identity.account),
-              message: message,
-            );
-        _ensureCurrent(context.identity);
-        return _reply(expected, <String, dynamic>{
-          'item': visible.item.toJson(),
-          'missing_media_ids': visible.missingMediaIds,
+        return _queryReply(expected, service, context.identity, context.binding, (
+          Set<String> created,
+        ) async {
+          final ConversationPage page = await service.query.listConversations(
+            afterAccount: (args.values['after_account'] as String?) ?? '',
+            limit: (args.values['limit'] as int?) ?? 50,
+            consumerId: context.binding.consumerId,
+          );
+          return page.toJson();
         });
-      case '/v2/chat/get_context':
-        final ContextResult? contextResult = await service.query.getContext(
-          messageId: args.values['message_id'] as String,
-          beforeLimit: (args.values['before_limit'] as int?) ?? 10,
-          afterLimit: (args.values['after_limit'] as int?) ?? 10,
-        );
-        if (contextResult == null) {
-          throw _V2Error(404, 'not_found', _messageByCode['not_found']!);
-        }
-        final List<Map<String, dynamic>> items = <Map<String, dynamic>>[];
-        final Set<String> missing = <String>{};
-        for (final ChatMessage message in contextResult.items) {
+      case '/v2/chat/get_message':
+        return _queryReply(expected, service, context.identity, context.binding, (
+          Set<String> created,
+        ) async {
+          final ChatMessage? message = await service.query.messageById(
+            args.values['message_id'] as String,
+          );
+          if (message == null) {
+            throw _V2Error(404, 'not_found', _messageByCode['not_found']!);
+          }
           final QueryVisibleMessage visible =
               await service.visibleMessageForQuery(
                 captured: context.identity,
                 binding: context.binding,
-                peerAccount: contextResult.peerAccount,
+                peerAccount: _peerOf(message, context.identity.account),
                 message: message,
+                createdReceiptIds: created,
               );
-          items.add(visible.item.toJson());
-          missing.addAll(visible.missingMediaIds);
-        }
-        _ensureCurrent(context.identity);
-        return _reply(expected, <String, dynamic>{
-          'peer_account': contextResult.peerAccount,
-          'anchor_message_id': contextResult.anchorMessageId,
-          'range': <String, dynamic>{
-            'start_position': contextResult.startPosition,
-            'end_position': contextResult.endPosition,
-          },
-          'before_has_more': contextResult.beforeHasMore,
-          'after_has_more': contextResult.afterHasMore,
-          'missing_positions': contextResult.missingPositions,
-          'missing_truncated': contextResult.missingTruncated,
-          'reply_relations': contextResult.replyRelations,
-          'items': items,
-          'missing_media_ids': missing.take(9900).toList(),
+          return <String, dynamic>{
+            'item': visible.item.toJson(),
+            'missing_media_ids': visible.missingMediaIds,
+          };
+        });
+      case '/v2/chat/get_context':
+        return _queryReply(expected, service, context.identity, context.binding, (
+          Set<String> created,
+        ) async {
+          final ContextResult? contextResult = await service.query.getContext(
+            messageId: args.values['message_id'] as String,
+            beforeLimit: (args.values['before_limit'] as int?) ?? 10,
+            afterLimit: (args.values['after_limit'] as int?) ?? 10,
+          );
+          if (contextResult == null) {
+            throw _V2Error(404, 'not_found', _messageByCode['not_found']!);
+          }
+          final List<Map<String, dynamic>> items = <Map<String, dynamic>>[];
+          final Set<String> missing = <String>{};
+          for (final ChatMessage message in contextResult.items) {
+            final QueryVisibleMessage visible =
+                await service.visibleMessageForQuery(
+                  captured: context.identity,
+                  binding: context.binding,
+                  peerAccount: contextResult.peerAccount,
+                  message: message,
+                  createdReceiptIds: created,
+                );
+            items.add(visible.item.toJson());
+            missing.addAll(visible.missingMediaIds);
+          }
+          return <String, dynamic>{
+            'peer_account': contextResult.peerAccount,
+            'anchor_message_id': contextResult.anchorMessageId,
+            'range': <String, dynamic>{
+              'start_position': contextResult.startPosition,
+              'end_position': contextResult.endPosition,
+            },
+            'before_has_more': contextResult.beforeHasMore,
+            'after_has_more': contextResult.afterHasMore,
+            'missing_positions': contextResult.missingPositions,
+            'missing_truncated': contextResult.missingTruncated,
+            'reply_relations': contextResult.replyRelations,
+            'items': items,
+            'missing_media_ids': missing.take(9900).toList(),
+          };
         });
       case '/v2/chat/list_users':
         final UserPage page = await service.listUsers(
@@ -380,28 +391,32 @@ class ChatV2Router {
         return _reply(expected, messageToJson(message));
       case '/v2/chat/read_messages':
         final String peer = args.values['account'] as String;
-        final HistoryPage history = await service.query.readHistory(
-          peerAccount: peer,
-          afterPosition: args.values['after_position'] as int?,
-          beforePosition: args.values['before_position'] as int?,
-          limit: (args.values['limit'] as int?) ?? 50,
-        );
-        final List<Map<String, dynamic>> items = <Map<String, dynamic>>[];
-        for (final ChatMessage message in history.items) {
-          final QueryVisibleMessage visible =
-              await service.visibleMessageForQuery(
-                captured: context.identity,
-                binding: context.binding,
-                peerAccount: peer,
-                message: message,
-              );
-          items.add(visible.item.toJson());
-        }
-        _ensureCurrent(context.identity);
-        return _reply(expected, <String, dynamic>{
-          'items': items,
-          'next_position': history.nextPosition,
-          'has_more': history.hasMore,
+        return _queryReply(expected, service, context.identity, context.binding, (
+          Set<String> created,
+        ) async {
+          final HistoryPage history = await service.query.readHistory(
+            peerAccount: peer,
+            afterPosition: args.values['after_position'] as int?,
+            beforePosition: args.values['before_position'] as int?,
+            limit: (args.values['limit'] as int?) ?? 50,
+          );
+          final List<Map<String, dynamic>> items = <Map<String, dynamic>>[];
+          for (final ChatMessage message in history.items) {
+            final QueryVisibleMessage visible =
+                await service.visibleMessageForQuery(
+                  captured: context.identity,
+                  binding: context.binding,
+                  peerAccount: peer,
+                  message: message,
+                  createdReceiptIds: created,
+                );
+            items.add(visible.item.toJson());
+          }
+          return <String, dynamic>{
+            'items': items,
+            'next_position': history.nextPosition,
+            'has_more': history.hasMore,
+          };
         });
       case '/v2/chat/wait_messages':
         final VisibleMessagePage page = await service.waitMessages(
@@ -721,9 +736,66 @@ class ChatV2Router {
     };
   }
 
-  void _ensureCurrent(AuthIdentity captured) {
-    if (!session.isCurrent(captured)) {
+  /// Query completion fence.
+  ///
+  /// Re-reads the full binding snapshot after all asynchronous query/media
+  /// work and before any result is exposed. A same-account CAS rebind is a
+  /// binding conflict; an account/generation change is a stale identity.
+  Future<void> _ensureBindingCurrent(
+    ChatService service,
+    AuthIdentity captured,
+    ConsumerBinding binding,
+  ) async {
+    final AuthIdentity? current = session.identity;
+    if (current == null ||
+        current.account != captured.account ||
+        current.authGeneration != captured.authGeneration) {
       throw staleIdentity;
+    }
+    final ConsumerBinding? stored = await service.ledger.bindingById(
+      binding.consumerId,
+    );
+    if (stored == null ||
+        stored.account != captured.account ||
+        !stored.identity.matches(binding.identity)) {
+      throw staleBinding('消费者绑定版本已变化');
+    }
+  }
+
+  /// Runs a query and guards its result with the completion fence.
+  ///
+  /// Receipts freshly prepared by a query that becomes stale are discarded, so
+  /// they cannot be consumed under the replacement binding. Genuine 401s are
+  /// preserved; a 401 caused by a switch during the query maps to the query
+  /// contract's stale identity.
+  Future<({int status, Map<String, dynamic> body})> _queryReply(
+    ExpectedIdentity expected,
+    ChatService service,
+    AuthIdentity captured,
+    ConsumerBinding binding,
+    Future<Map<String, dynamic>> Function(Set<String> created) build,
+  ) async {
+    final Set<String> created = <String>{};
+    try {
+      final Map<String, dynamic> result = await build(created);
+      await _ensureBindingCurrent(service, captured, binding);
+      return _reply(expected, result);
+    } on AuthFailure catch (failure) {
+      await service.ledger.discardUnconfirmedReceipts(
+        captured.account,
+        created,
+      );
+      if (failure.code == unauthenticated.code &&
+          !session.isCurrent(captured)) {
+        throw staleIdentity;
+      }
+      rethrow;
+    } catch (_) {
+      await service.ledger.discardUnconfirmedReceipts(
+        captured.account,
+        created,
+      );
+      rethrow;
     }
   }
 

@@ -1478,6 +1478,7 @@ class ChatLedger {
     required int position,
     required String contentDigest,
     String? consumerId,
+    Set<String>? createdReceiptIds,
   }) {
     return _locked(() async {
       final String resolvedConsumer =
@@ -1514,8 +1515,41 @@ class ChatLedger {
         contentDigest: contentDigest,
       );
       receipts[receiptId] = receipt.toJson();
+      createdReceiptIds?.add(receiptId);
       await _flush();
       return receipt;
+    });
+  }
+
+  /// Removes only freshly prepared, unconfirmed and unbound receipts.
+  ///
+  /// Used when a query becomes stale before its result is exposed, so a
+  /// replacement binding cannot consume a presentation that was never
+  /// delivered. Confirmed receipts and receipts bound to an attempt are
+  /// preserved as durable evidence.
+  Future<void> discardUnconfirmedReceipts(
+    String account,
+    Iterable<String> receiptIds,
+  ) {
+    return _locked(() async {
+      final Map<String, dynamic> receipts =
+          _account(account)['receipts'] as Map<String, dynamic>;
+      bool changed = false;
+      for (final String id in receiptIds.toSet()) {
+        final Object? raw = receipts[id];
+        if (raw is! Map<String, dynamic>) {
+          continue;
+        }
+        final PresentationReceipt receipt = PresentationReceipt.fromJson(raw);
+        if (receipt.confirmed || receipt.attemptId != null) {
+          continue;
+        }
+        receipts.remove(id);
+        changed = true;
+      }
+      if (changed) {
+        await _flush();
+      }
     });
   }
 

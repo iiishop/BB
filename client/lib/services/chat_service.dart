@@ -1576,6 +1576,7 @@ class ChatService {
     required ConsumerBinding binding,
     required String peerAccount,
     required ChatMessage message,
+    Set<String>? createdReceiptIds,
   }) {
     return _buildVisible(
       captured,
@@ -1584,6 +1585,7 @@ class ChatService {
       peerAccount,
       message,
       tolerateMissingMedia: true,
+      createdReceiptIds: createdReceiptIds,
     );
   }
 
@@ -1594,6 +1596,7 @@ class ChatService {
     String peerAccount,
     ChatMessage message, {
     required bool tolerateMissingMedia,
+    Set<String>? createdReceiptIds,
   }) async {
     if (!captured.sameAs(session.identity)) {
       throw unauthenticated;
@@ -1669,6 +1672,7 @@ class ChatService {
       messageId: message.id,
       position: message.position,
       contentDigest: digest,
+      createdReceiptIds: createdReceiptIds,
     );
     return QueryVisibleMessage(
       item: VisibleMessage(
