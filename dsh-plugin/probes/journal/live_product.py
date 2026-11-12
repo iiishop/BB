@@ -22,6 +22,24 @@ def run(
     record,
     **unused,
 ):
+    import os
+
+    if os.environ.get("BB_PRODUCT_CASES") == "gap":
+        from live_gap import run as run_gap
+
+        return run_gap(
+            origin=origin,
+            account=account,
+            peer=peer,
+            api=api,
+            runtime=runtime,
+            root=root,
+            private=private,
+            launch=launch,
+            stop=stop,
+            record=record,
+            **unused,
+        )
     token = httpx.post(
         api + "/auth/login",
         json={"account": peer, "password": "Abc123"},
@@ -70,8 +88,6 @@ def run(
     )
     here = Path(__file__).parent
     failures = []
-    import os
-
     cuts = [
         "claimed",
         "wait-claimed",
