@@ -51,7 +51,23 @@ export class Operations {
     }
   }
   async prepare(exec) {
-    const key = digest([exec.agent.session.id, exec.callId]),
+    const origin = exec.agent.session
+      .snapshotEvents()
+      .findLast(
+        (e) =>
+          e.type === "assistant/message" &&
+          e.data.message.content.some(
+            (b) => b.type === "tool-call" && b.id === exec.callId,
+          ),
+      );
+    const ordinal = origin?.data.message.content.findIndex(
+      (b) => b.type === "tool-call" && b.id === exec.callId,
+    );
+    const key = digest([
+        exec.agent.session.id,
+        origin?.data.message.id ?? "manual",
+        ordinal ?? exec.callId,
+      ]),
       payloadDigest = digest([exec.name, exec.arguments]);
     const existing = this.rows.get(key);
     if (existing) {
