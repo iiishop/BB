@@ -8,6 +8,7 @@ import '../../app.dart';
 import '../../models/auth_models.dart';
 import '../../models/chat_models.dart';
 import '../../services/chat_service.dart';
+import '../../services/media_stream_proxy.dart';
 import 'chat_composer.dart';
 import 'chat_format.dart';
 import 'media_actions.dart';
@@ -15,10 +16,23 @@ import 'message_bubble.dart';
 
 /// One-to-one chat with ordered text/image content and independent attachments.
 class ChatPage extends StatefulWidget {
-  const ChatPage({super.key, required this.peer, required this.chat});
+  const ChatPage({
+    super.key,
+    required this.peer,
+    required this.chat,
+    this.openExternalStream,
+    this.onMessagesChanged,
+  });
 
   final ChatUser peer;
   final ChatService chat;
+
+  /// Test seam for the desktop streaming hand-off. Production uses the
+  /// platform opener on the authenticated loopback stream URL.
+  final Future<void> Function(Uri uri)? openExternalStream;
+
+  /// Test/inspection seam: emitted after every ordered merge.
+  final void Function(List<ChatMessage> messages)? onMessagesChanged;
 
   static const Key listKey = Key('chat-message-list');
   static const Key errorKey = Key('chat-error');
@@ -33,10 +47,17 @@ class _ChatPageState extends State<ChatPage> {
   final ScrollController _scrollController = ScrollController();
   final List<ChatMessage> _messages = <ChatMessage>[];
   final Set<String> _busyMedia = <String>{};
+  final List<MediaStreamHandle> _streamHandles = <MediaStreamHandle>[];
   bool _loading = true;
   String? _error;
   Timer? _pollTimer;
-  int _lastPosition = 0;
+
+  /// Highest contiguous server position whose page has been fetched.
+  int _fetchedThrough = 0;
+
+  /// Highest position currently rendered (may be a local send beyond the
+  /// fetched window). It must never advance the fetch cursor by itself.
+  int _displayedMax = 0;
   bool _fetching = false;
 
   String get _consumerSession =>
@@ -56,41 +77,60 @@ class _ChatPageState extends State<ChatPage> {
   @override
   void dispose() {
     _pollTimer?.cancel();
+    for (final MediaStreamHandle handle in _streamHandles) {
+      unawaited(handle.close());
+    }
+    _streamHandles.clear();
     _scrollController.dispose();
     super.dispose();
   }
 
   Future<void> _loadInitial() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+    if (_fetching) {
+      return;
+    }
+    _fetching = true;
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
     try {
       final List<ChatMessage> loaded = <ChatMessage>[];
       int cursor = 0;
       bool hasMore = true;
       int pages = 0;
-      while (hasMore && pages < 6) {
+      // Fetch the complete contiguous history rather than a fixed page cap.
+      // A page that makes no progress terminates the loop instead of hiding a
+      // gap behind has_more=true.
+      while (hasMore && pages < 1000) {
         final MessagePage page = await widget.chat.loadConversation(
           peerAccount: widget.peer.account,
           afterPosition: cursor,
           limit: 100,
         );
         loaded.addAll(page.items);
-        cursor = page.nextPosition;
-        hasMore = page.hasMore;
+        final int next = page.nextPosition > cursor
+            ? page.nextPosition
+            : cursor;
+        final bool progressed = page.items.isNotEmpty || next > cursor;
+        cursor = next;
+        hasMore = page.hasMore && progressed;
         pages += 1;
+        if (!progressed) {
+          break;
+        }
       }
       if (!mounted) {
         return;
       }
       setState(() {
-        _messages
-          ..clear()
-          ..addAll(_dedupe(loaded));
-        _lastPosition = _messages.isEmpty ? 0 : _messages.last.position;
+        _mergeMessages(loaded);
+        _fetchedThrough = cursor;
         _loading = false;
       });
+      widget.onMessagesChanged?.call(List<ChatMessage>.unmodifiable(_messages));
       _scrollToBottom(animate: false);
     } on AuthFailure catch (failure) {
       if (!mounted) {
@@ -108,6 +148,8 @@ class _ChatPageState extends State<ChatPage> {
         _loading = false;
         _error = '消息加载失败，请稍后重试';
       });
+    } finally {
+      _fetching = false;
     }
   }
 
@@ -117,29 +159,41 @@ class _ChatPageState extends State<ChatPage> {
     }
     _fetching = true;
     try {
-      final MessagePage page = await widget.chat.loadConversation(
-        peerAccount: widget.peer.account,
-        afterPosition: _lastPosition,
-        limit: 100,
-      );
-      if (!mounted || page.items.isEmpty) {
-        return;
+      final List<ChatMessage> loaded = <ChatMessage>[];
+      int cursor = _fetchedThrough;
+      bool hasMore = true;
+      int pages = 0;
+      while (hasMore && pages < 1000) {
+        final MessagePage page = await widget.chat.loadConversation(
+          peerAccount: widget.peer.account,
+          afterPosition: cursor,
+          limit: 100,
+        );
+        loaded.addAll(page.items);
+        final int next = page.nextPosition > cursor
+            ? page.nextPosition
+            : cursor;
+        final bool progressed = page.items.isNotEmpty || next > cursor;
+        cursor = next;
+        hasMore = page.hasMore && progressed;
+        pages += 1;
+        if (!progressed) {
+          break;
+        }
       }
-      final Set<String> known = _messages
-          .map((ChatMessage message) => message.identity)
-          .toSet();
-      final List<ChatMessage> fresh = <ChatMessage>[
-        for (final ChatMessage message in page.items)
-          if (known.add(message.identity)) message,
-      ];
-      if (fresh.isEmpty) {
+      if (!mounted) {
         return;
       }
       setState(() {
-        _messages.addAll(fresh);
-        _lastPosition = page.nextPosition;
+        _mergeMessages(loaded);
+        // Only a contiguous server read advances the fetch cursor. Local
+        // sends in _onSent never touch this value.
+        _fetchedThrough = cursor;
       });
-      _scrollToBottom();
+      widget.onMessagesChanged?.call(List<ChatMessage>.unmodifiable(_messages));
+      if (loaded.isNotEmpty) {
+        _scrollToBottom();
+      }
     } catch (_) {
       // Polling is best effort; the explicit refresh keeps the error visible.
     } finally {
@@ -147,18 +201,22 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
-  List<ChatMessage> _dedupe(List<ChatMessage> input) {
-    final Set<String> seen = <String>{};
-    final List<ChatMessage> result = <ChatMessage>[];
-    for (final ChatMessage message in input) {
-      if (seen.add(message.identity)) {
-        result.add(message);
-      }
+  /// Merge by stable message identity and keep the displayed order. Existing
+  /// local sends are preserved when an in-flight history page arrives.
+  void _mergeMessages(Iterable<ChatMessage> incoming) {
+    final Map<String, ChatMessage> byIdentity = <String, ChatMessage>{
+      for (final ChatMessage message in _messages) message.identity: message,
+    };
+    for (final ChatMessage message in incoming) {
+      byIdentity.putIfAbsent(message.identity, () => message);
     }
-    result.sort(
-      (ChatMessage a, ChatMessage b) => a.position.compareTo(b.position),
-    );
-    return result;
+    _messages
+      ..clear()
+      ..addAll(byIdentity.values)
+      ..sort(
+        (ChatMessage a, ChatMessage b) => a.position.compareTo(b.position),
+      );
+    _displayedMax = _messages.isEmpty ? 0 : _messages.last.position;
   }
 
   void _onSent(List<ChatMessage> messages) {
@@ -172,14 +230,14 @@ class _ChatPageState extends State<ChatPage> {
     if (added.isEmpty) {
       return;
     }
+    final int before = _displayedMax;
     setState(() {
-      _messages.addAll(added);
-      _messages.sort(
-        (ChatMessage a, ChatMessage b) => a.position.compareTo(b.position),
-      );
-      _lastPosition = _messages.last.position;
+      _mergeMessages(added);
     });
-    _scrollToBottom();
+    widget.onMessagesChanged?.call(List<ChatMessage>.unmodifiable(_messages));
+    if (_displayedMax > before) {
+      _scrollToBottom();
+    }
   }
 
   void _scrollToBottom({bool animate = true}) {
@@ -273,19 +331,12 @@ class _ChatPageState extends State<ChatPage> {
       return;
     }
     _setBusy(attachment.mediaId, true);
+    MediaStreamHandle? handle;
     try {
-      final String operationId =
-          'ui-play-${attachment.mediaId.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '')}';
-      final DownloadTask started = await widget.chat.downloads.start(
-        operationId: operationId,
-        consumerSession: _consumerSession,
-        mediaId: attachment.mediaId,
-      );
-      final DownloadTask done = await _waitForDownload(started);
-      if (done.status != DownloadStatus.succeeded || done.actualPath == null) {
-        _snack('播放前下载失败（${done.errorCode ?? '未知原因'}）');
-        return;
-      }
+      // Opening the stream is the click action. Nothing is requested for the
+      // original video before this method runs.
+      handle = await widget.chat.openMediaStream(attachment.mediaId);
+      _streamHandles.add(handle);
       if (!mounted) {
         return;
       }
@@ -293,19 +344,46 @@ class _ChatPageState extends State<ChatPage> {
           (Platform.isAndroid || Platform.isIOS)) {
         await showDialog<void>(
           context: context,
-          builder: (BuildContext context) =>
-              _VideoDialog(path: done.actualPath!),
+          builder: (BuildContext context) => _VideoDialog(
+            uri: handle!.uri,
+            mediaId: attachment.mediaId,
+            onClose: () => _closeStream(handle!),
+          ),
         );
       } else {
-        await MediaActions.openLocalPath(done.actualPath!);
+        await (widget.openExternalStream ?? MediaActions.openUrl)(handle.uri);
+        if (!mounted) {
+          return;
+        }
+        final bool? stop = await showDialog<bool>(
+          context: context,
+          builder: (BuildContext context) => _StreamingDialog(
+            kind: attachment.kind,
+            filename: attachment.filename,
+          ),
+        );
+        if (stop ?? true) {
+          await _closeStream(handle);
+        }
       }
     } on AuthFailure catch (failure) {
       _snack(failure.message);
+      if (handle != null) {
+        await _closeStream(handle);
+      }
     } catch (_) {
-      _snack('无法打开该文件');
+      _snack('无法打开在线播放流');
+      if (handle != null) {
+        await _closeStream(handle);
+      }
     } finally {
       _setBusy(attachment.mediaId, false);
     }
+  }
+
+  Future<void> _closeStream(MediaStreamHandle handle) async {
+    _streamHandles.remove(handle);
+    await handle.close();
   }
 
   void _setBusy(String mediaId, bool value) {
@@ -537,9 +615,15 @@ class _DaySeparator extends StatelessWidget {
 }
 
 class _VideoDialog extends StatefulWidget {
-  const _VideoDialog({required this.path});
+  const _VideoDialog({
+    required this.uri,
+    required this.mediaId,
+    required this.onClose,
+  });
 
-  final String path;
+  final Uri uri;
+  final String mediaId;
+  final Future<void> Function() onClose;
 
   @override
   State<_VideoDialog> createState() => _VideoDialogState();
@@ -547,26 +631,58 @@ class _VideoDialog extends StatefulWidget {
 
 class _VideoDialogState extends State<_VideoDialog> {
   VideoPlayerController? _controller;
+  String? _error;
 
   @override
   void initState() {
     super.initState();
-    final VideoPlayerController controller = VideoPlayerController.file(
-      File(widget.path),
+    unawaited(_initialize());
+  }
+
+  Future<void> _initialize() async {
+    final VideoPlayerController controller = VideoPlayerController.networkUrl(
+      widget.uri,
     );
     _controller = controller;
-    controller.initialize().then((_) {
+    try {
+      await controller.initialize();
       if (!mounted) {
         return;
       }
-      controller.play();
-      setState(() {});
+      await controller.play();
+      setState(() {
+        _error = null;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _error = '在线播放初始化失败，请重试';
+      });
+    }
+  }
+
+  Future<void> _retry() async {
+    await _controller?.dispose();
+    _controller = null;
+    setState(() {
+      _error = null;
     });
+    await _initialize();
+  }
+
+  Future<void> _cancel() async {
+    await widget.onClose();
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
   }
 
   @override
   void dispose() {
     _controller?.dispose();
+    unawaited(widget.onClose());
     super.dispose();
   }
 
@@ -578,31 +694,92 @@ class _VideoDialogState extends State<_VideoDialog> {
         aspectRatio: controller != null && controller.value.isInitialized
             ? controller.value.aspectRatio
             : 16 / 9,
-        child: controller == null || !controller.value.isInitialized
-            ? const Center(child: CircularProgressIndicator())
-            : GestureDetector(
-                onTap: () {
-                  if (controller.value.isPlaying) {
-                    controller.pause();
-                  } else {
-                    controller.play();
-                  }
-                  setState(() {});
-                },
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: <Widget>[
-                    VideoPlayer(controller),
-                    if (!controller.value.isPlaying)
-                      const Icon(
-                        Icons.play_circle_fill,
-                        size: 56,
-                        color: Colors.white70,
+        child: Stack(
+          children: <Widget>[
+            Positioned.fill(
+              child: _error != null
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(AppSpacing.lg),
+                        child: Text(
+                          _error!,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(color: AppColors.inkMuted),
+                        ),
                       ),
-                  ],
-                ),
+                    )
+                  : controller != null && controller.value.isInitialized
+                  ? GestureDetector(
+                      onTap: () {
+                        if (controller.value.isPlaying) {
+                          controller.pause();
+                        } else {
+                          controller.play();
+                        }
+                        setState(() {});
+                      },
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: <Widget>[
+                          VideoPlayer(controller),
+                          if (!controller.value.isPlaying)
+                            const Icon(
+                              Icons.play_circle_fill,
+                              size: 56,
+                              color: Colors.white70,
+                            ),
+                        ],
+                      ),
+                    )
+                  : const Center(child: CircularProgressIndicator()),
+            ),
+            Positioned(
+              top: 4,
+              right: 4,
+              child: IconButton(
+                tooltip: '取消',
+                onPressed: _cancel,
+                icon: const Icon(Icons.close_rounded),
               ),
+            ),
+            if (_error != null)
+              Positioned(
+                bottom: 8,
+                left: 8,
+                child: TextButton(onPressed: _retry, child: const Text('重试')),
+              ),
+          ],
+        ),
       ),
+    );
+  }
+}
+
+class _StreamingDialog extends StatelessWidget {
+  const _StreamingDialog({required this.kind, required this.filename});
+
+  final AttachmentKind kind;
+  final String filename;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('在线播放'),
+      content: Text(
+        kind == AttachmentKind.video
+            ? '正在通过本机回环流播放 $filename。视频原始文件不会被预先下载。'
+            : '正在使用系统播放器打开 $filename 的在线流。',
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('继续播放'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(true),
+          child: const Text('停止'),
+        ),
+      ],
     );
   }
 }

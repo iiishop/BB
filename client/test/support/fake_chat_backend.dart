@@ -43,6 +43,7 @@ class FakeChatBackend {
   int failNextSendStatus = 0;
   int _messageSeq = 0;
   int _mediaSeq = 0;
+  String? lastMediaRange;
   int _eventSeq = 0;
 
   Uri get baseUri => Uri.parse('http://127.0.0.1:${_server.port}');
@@ -83,16 +84,36 @@ class FakeChatBackend {
     required String peer,
     required Uint8List bytes,
     String filename = 'image.png',
+  }) {
+    return addMedia(
+      owner: owner,
+      peer: peer,
+      bytes: bytes,
+      mime: 'image/png',
+      kind: 'image',
+      filename: filename,
+    );
+  }
+
+  Future<String> addMedia({
+    required String owner,
+    required String peer,
+    required Uint8List bytes,
+    required String mime,
+    required String kind,
+    required String filename,
+    String? coverId,
   }) async {
     final String id = 'seed-media-${++_mediaSeq}';
     _media[id] = _FakeMedia(
       id: id,
       owner: owner,
       peer: peer,
-      mime: 'image/png',
-      kind: 'image',
+      mime: mime,
+      kind: kind,
       filename: filename,
       bytes: bytes,
+      coverId: coverId,
     );
     return id;
   }
@@ -580,6 +601,7 @@ class FakeChatBackend {
       return;
     }
     final String? range = request.headers.value(HttpHeaders.rangeHeader);
+    lastMediaRange = range;
     final HttpResponse response = request.response;
     response.headers.set(HttpHeaders.contentTypeHeader, media.mime);
     response.headers.set(
@@ -587,16 +609,29 @@ class FakeChatBackend {
       'attachment; filename="${media.filename}"',
     );
     response.headers.set(HttpHeaders.cacheControlHeader, 'private, no-store');
-    if (range != null &&
-        range.startsWith('bytes=0-0') &&
-        media.bytes.isNotEmpty) {
+    final RegExpMatch? rangeMatch = range == null
+        ? null
+        : RegExp(r'bytes=(\d+)-(\d*)').firstMatch(range);
+    if (rangeMatch != null && media.bytes.isNotEmpty) {
+      final int start = int.parse(rangeMatch.group(1)!);
+      final int requestedEnd = rangeMatch.group(2)!.isEmpty
+          ? media.bytes.length - 1
+          : int.parse(rangeMatch.group(2)!);
+      final int end = requestedEnd >= media.bytes.length
+          ? media.bytes.length - 1
+          : requestedEnd;
+      if (start > end) {
+        response.statusCode = 416;
+        await response.close();
+        return;
+      }
       response.statusCode = 206;
       response.headers.set(
         HttpHeaders.contentRangeHeader,
-        'bytes 0-0/${media.bytes.length}',
+        'bytes $start-$end/${media.bytes.length}',
       );
-      response.contentLength = 1;
-      response.add(media.bytes.sublist(0, 1));
+      response.contentLength = end - start + 1;
+      response.add(media.bytes.sublist(start, end + 1));
     } else {
       response.statusCode = 200;
       response.contentLength = media.bytes.length;

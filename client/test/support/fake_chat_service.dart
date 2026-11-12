@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -9,6 +10,7 @@ import 'package:bb_client/services/chat_api_client.dart';
 import 'package:bb_client/services/chat_ledger.dart';
 import 'package:bb_client/services/chat_service.dart';
 import 'package:bb_client/services/download_manager.dart';
+import 'package:bb_client/services/media_stream_proxy.dart';
 
 /// In-memory ChatService double for Flutter widget tests.
 ///
@@ -21,6 +23,9 @@ class FakeChatService extends ChatService {
     required List<ChatUser> users,
     Map<String, List<ChatMessage>>? conversations,
     Uint8List? png,
+    this.pageSize,
+    this.gateAtPosition,
+    this.gate,
   }) : users = List<ChatUser>.from(users),
        conversations = conversations ?? <String, List<ChatMessage>>{},
        pngBytes = png ?? base64Decode(_pngBase64),
@@ -51,6 +56,15 @@ class FakeChatService extends ChatService {
   final Uint8List greenBytes = base64Decode(_greenPngBase64);
   final List<String> savedPaths = <String>[];
   final List<String> sentTexts = <String>[];
+  final List<int> conversationCalls = <int>[];
+  final List<String> mediaBytesCalls = <String>[];
+  final List<String> openMediaStreamCalls = <String>[];
+  FakeMediaStreamHandle? lastStreamHandle;
+  final List<OutgoingPart> lastSentBody = <OutgoingPart>[];
+  final List<OutgoingAttachment> lastSentAttachments = <OutgoingAttachment>[];
+  final int? pageSize;
+  final int? gateAtPosition;
+  final Completer<void>? gate;
   int _seq = 100;
 
   @override
@@ -76,14 +90,21 @@ class FakeChatService extends ChatService {
           ..sort((ChatMessage a, ChatMessage b) {
             return a.position.compareTo(b.position);
           });
-    final List<ChatMessage> page = all
+    conversationCalls.add(afterPosition);
+    final List<ChatMessage> remaining = all
         .where((ChatMessage message) => message.position > afterPosition)
-        .take(limit)
         .toList();
+    final int effectiveLimit = pageSize != null && pageSize! < limit
+        ? pageSize!
+        : limit;
+    final List<ChatMessage> page = remaining.take(effectiveLimit).toList();
+    if (gate != null && gateAtPosition == afterPosition) {
+      await gate!.future;
+    }
     return MessagePage(
       items: page,
       nextPosition: page.isEmpty ? afterPosition : page.last.position,
-      hasMore: false,
+      hasMore: remaining.length > page.length,
     );
   }
 
@@ -95,6 +116,12 @@ class FakeChatService extends ChatService {
     String? operationSeed,
   }) async {
     final String seed = operationSeed ?? 'fake-${++_seq}';
+    lastSentBody
+      ..clear()
+      ..addAll(body);
+    lastSentAttachments
+      ..clear()
+      ..addAll(attachments);
     final List<ChatMessage> target = conversations.putIfAbsent(
       targetAccount,
       () => <ChatMessage>[],
@@ -192,8 +219,20 @@ class FakeChatService extends ChatService {
   }
 
   @override
-  Future<Uint8List> mediaBytes(String mediaId) async =>
-      mediaId.contains('2') ? greenBytes : pngBytes;
+  Future<Uint8List> mediaBytes(String mediaId) async {
+    mediaBytesCalls.add(mediaId);
+    return mediaId.contains('2') ? greenBytes : pngBytes;
+  }
+
+  @override
+  Future<MediaStreamHandle> openMediaStream(String mediaId) async {
+    openMediaStreamCalls.add(mediaId);
+    final FakeMediaStreamHandle handle = FakeMediaStreamHandle(
+      uri: Uri.parse('http://127.0.0.1:1/stream/$mediaId'),
+    );
+    lastStreamHandle = handle;
+    return handle;
+  }
 
   @override
   Future<String> saveAs({
@@ -202,6 +241,19 @@ class FakeChatService extends ChatService {
   }) async {
     savedPaths.add(targetPath);
     return targetPath;
+  }
+}
+
+class FakeMediaStreamHandle implements MediaStreamHandle {
+  FakeMediaStreamHandle({required this.uri});
+
+  @override
+  final Uri uri;
+  bool closed = false;
+
+  @override
+  Future<void> close() async {
+    closed = true;
   }
 }
 
@@ -215,6 +267,7 @@ class FakeDownloads extends DownloadManager {
   });
 
   final Map<String, DownloadTask> tasks = <String, DownloadTask>{};
+  final List<String> starts = <String>[];
 
   @override
   Future<DownloadTask> start({
@@ -223,6 +276,7 @@ class FakeDownloads extends DownloadManager {
     required String mediaId,
     String? directory,
   }) async {
+    starts.add(mediaId);
     for (final DownloadTask prior in tasks.values) {
       if (prior.operationId == operationId) {
         return prior;
