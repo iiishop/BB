@@ -41,6 +41,13 @@ class FakeChatBackend {
 
   /// One-shot injected failure for retry tests.
   int failNextSendStatus = 0;
+
+  /// Send requests that reached the transport, including idempotent replays.
+  /// A stale plan must not increase this counter.
+  int sendRequests = 0;
+
+  /// Account that authenticated each send request, in order.
+  final List<String> sendRequestAccounts = <String>[];
   int _messageSeq = 0;
   int _mediaSeq = 0;
   String? lastMediaRange;
@@ -297,6 +304,8 @@ class FakeChatBackend {
   }
 
   Future<void> _sendMessage(HttpRequest request, String account) async {
+    sendRequests += 1;
+    sendRequestAccounts.add(account);
     final Map<String, dynamic> body = await _json(request);
     final Object? target = body['target_account'];
     final Object? nonce = body['client_nonce'];
@@ -348,6 +357,8 @@ class FakeChatBackend {
   }
 
   Future<void> _sendAttachment(HttpRequest request, String account) async {
+    sendRequests += 1;
+    sendRequestAccounts.add(account);
     final Map<String, dynamic> body = await _json(request);
     final Object? target = body['target_account'];
     final Object? nonce = body['client_nonce'];

@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart';
 
 import '../models/auth_models.dart';
 import '../models/chat_models.dart';
+import 'client_identity.dart';
 
 /// Client-owned immutable operation record.
 ///
@@ -30,6 +31,7 @@ class ChatOperationRecord {
     this.attempts = 0,
     this.createdAt,
     this.updatedAt,
+    this.expectedIdentity,
   });
 
   final String operationId;
@@ -37,6 +39,10 @@ class ChatOperationRecord {
   final String targetAccount;
   final String state;
   final String sourceDigest;
+
+  /// Identity captured when the plan was accepted (persisted before any
+  /// network attempt). Null only for records written by an older client.
+  final ExpectedIdentity? expectedIdentity;
 
   /// Persisted ordered content for body operations.
   final List<Map<String, dynamic>> parts;
@@ -67,6 +73,7 @@ class ChatOperationRecord {
     String? errorMessage,
     int? attempts,
     DateTime? updatedAt,
+    ExpectedIdentity? expectedIdentity,
   }) {
     return ChatOperationRecord(
       operationId: operationId,
@@ -86,6 +93,7 @@ class ChatOperationRecord {
       attempts: attempts ?? this.attempts,
       createdAt: createdAt,
       updatedAt: updatedAt,
+      expectedIdentity: expectedIdentity ?? this.expectedIdentity,
     );
   }
 
@@ -107,6 +115,7 @@ class ChatOperationRecord {
     'attempts': attempts,
     'created_at': createdAt?.toIso8601String(),
     'updated_at': updatedAt?.toIso8601String(),
+    'expected_identity': expectedIdentity?.toJson(),
   };
 
   factory ChatOperationRecord.fromJson(Object? json) {
@@ -161,6 +170,7 @@ class ChatOperationRecord {
       updatedAt: json['updated_at'] is String
           ? DateTime.tryParse(json['updated_at'] as String)
           : null,
+      expectedIdentity: ExpectedIdentity.tryParse(json['expected_identity']),
     );
   }
 }
@@ -179,10 +189,23 @@ class ChatLedger {
   }
 
   factory ChatLedger.inMemory([Map<String, dynamic>? initial]) {
-    return ChatLedger._(null, initial ?? <String, dynamic>{});
+    final Map<String, dynamic> data = <String, dynamic>{
+      'version': _version,
+      'accounts': <String, dynamic>{},
+      'consumers': <String, dynamic>{},
+    };
+    if (initial != null) {
+      data.addAll(initial);
+    }
+    data.putIfAbsent('accounts', () => <String, dynamic>{});
+    data.putIfAbsent('consumers', () => <String, dynamic>{});
+    return ChatLedger._(null, data);
   }
 
-  static const int _version = 1;
+  /// Current document version. Version 1 stored account+peer consumption
+  /// watermarks; version 2 stores consumer-scoped consumption plus the
+  /// client-owned consumer registry.
+  static const int _version = 2;
   final File? _file;
   Map<String, dynamic> _data;
   bool _loaded = false;
@@ -216,13 +239,26 @@ class ChatLedger {
       return;
     }
     try {
-      final Object? decoded = jsonDecode(await file.readAsString());
-      if (decoded is Map<String, dynamic> && decoded['version'] == _version) {
+      final String raw = await file.readAsString();
+      final Object? decoded = jsonDecode(raw);
+      if (decoded is! Map<String, dynamic>) {
+        throw const FormatException('chat ledger must be an object');
+      }
+      final Object? version = decoded['version'];
+      if (version == _version) {
         _data = decoded;
         final Object? accounts = _data['accounts'];
         if (accounts is! Map<String, dynamic>) {
           throw const FormatException('chat ledger accounts are invalid');
         }
+        final Object? consumers = _data['consumers'];
+        if (consumers is! Map<String, dynamic>) {
+          throw const FormatException('chat ledger consumers are invalid');
+        }
+      } else if (version == 1) {
+        // A v1 document is migrated once, with a preserved backup, before any
+        // new write is allowed. It is never mixed with v2 writes.
+        _data = await _migrateV1(decoded, raw);
       } else {
         // An unknown newer/older document is never silently rewritten.
         throw const FormatException('unsupported chat ledger version');
@@ -237,7 +273,209 @@ class ChatLedger {
   Map<String, dynamic> _empty() => <String, dynamic>{
     'version': _version,
     'accounts': <String, dynamic>{},
+    'consumers': <String, dynamic>{},
   };
+
+  /// Migrates a version-1 document to version 2.
+  ///
+  /// Old `account+peer` watermarks are never broadcast. Each watermark is only
+  /// carried over when exactly one consumer of that account has its own
+  /// continuous confirmed receipts up to the watermark; anything incomplete or
+  /// ambiguous is preserved under `legacy_consumption` and reported as
+  /// `migration_required`. The migration is idempotent: the document becomes
+  /// version 2 on first success and re-opening it never re-runs the migration.
+  Future<Map<String, dynamic>> _migrateV1(
+    Map<String, dynamic> legacy,
+    String raw,
+  ) async {
+    final Object? rawAccounts = legacy['accounts'];
+    if (rawAccounts is! Map<String, dynamic>) {
+      throw const FormatException('chat ledger accounts are invalid');
+    }
+    final File? file = _file;
+    final String backupPath = file == null ? '' : '${file.path}.v1-backup';
+    final String now = DateTime.now().toUtc().toIso8601String();
+    final Map<String, dynamic> consumers = <String, dynamic>{};
+    final Map<String, dynamic> accounts = <String, dynamic>{};
+    final List<Map<String, dynamic>> entries = <Map<String, dynamic>>[];
+
+    for (final MapEntry<String, dynamic> accountEntry in rawAccounts.entries) {
+      final String account = accountEntry.key;
+      final Object? rawState = accountEntry.value;
+      if (rawState is! Map<String, dynamic>) {
+        throw const FormatException('chat ledger account state is invalid');
+      }
+      final Map<String, dynamic> state = Map<String, dynamic>.from(rawState);
+      for (final String key in <String>[
+        'server_event_cursor',
+        'subscriptions',
+        'operations',
+        'downloads',
+        'download_operations',
+        'receipts',
+        'events',
+        'confirmations',
+        'pending_events',
+      ]) {
+        state.putIfAbsent(
+          key,
+          () => key == 'server_event_cursor'
+              ? 0
+              : <String, dynamic>{},
+        );
+      }
+      final Object? legacyConsumption = state.remove('consumption');
+      final Map<String, dynamic> legacyByPeer =
+          legacyConsumption is Map<String, dynamic>
+          ? Map<String, dynamic>.from(legacyConsumption)
+          : <String, dynamic>{};
+
+      // Group old receipts by the legacy consumer_session that wrote them.
+      final Map<String, List<PresentationReceipt>> receiptsBySession =
+          <String, List<PresentationReceipt>>{};
+      for (final Object? value
+          in (state['receipts'] as Map<String, dynamic>).values) {
+        if (value is! Map<String, dynamic>) {
+          continue;
+        }
+        final PresentationReceipt receipt = PresentationReceipt.fromJson(value);
+        receiptsBySession
+            .putIfAbsent(receipt.consumerSession, () => <PresentationReceipt>[])
+            .add(receipt);
+      }
+      // Every session that ever subscribed, received or downloaded is a
+      // verifiable one-to-one alias for exactly one consumer.
+      final Set<String> sessions = <String>{
+        ...receiptsBySession.keys,
+        ...(state['subscriptions'] as Map<String, dynamic>).keys,
+        ...(state['events'] as Map<String, dynamic>).keys,
+      };
+      final Map<String, String> consumerBySession = <String, String>{};
+      final Map<String, dynamic> aliases = <String, dynamic>{};
+      for (final String session in sessions) {
+        final String consumerId = _legacyConsumerId(account, session);
+        consumerBySession[session] = consumerId;
+        aliases[session] = consumerId;
+        consumers.putIfAbsent(
+          consumerId,
+          () => <String, dynamic>{
+            'account': account,
+            'auth_generation': '',
+            'binding_revision': 1,
+            'aliases': <String, dynamic>{session: true},
+            'created_at': now,
+            'updated_at': now,
+          },
+        );
+      }
+
+      // Rebuild each consumer's continuous confirmed range per peer.
+      final Map<String, Map<String, int>> continuous =
+          <String, Map<String, int>>{};
+      for (final MapEntry<String, List<PresentationReceipt>> bySession
+          in receiptsBySession.entries) {
+        final String consumerId = consumerBySession[bySession.key]!;
+        final List<PresentationReceipt> ordered =
+            bySession.value.toList()
+              ..sort(
+                (PresentationReceipt a, PresentationReceipt b) =>
+                    a.position.compareTo(b.position),
+              );
+        for (final PresentationReceipt receipt in ordered) {
+          if (!receipt.confirmed) {
+            continue;
+          }
+          final Map<String, int> peerRanges = continuous.putIfAbsent(
+            consumerId,
+            () => <String, int>{},
+          );
+          final int current = peerRanges[receipt.peerAccount] ?? 0;
+          if (receipt.position == current + 1) {
+            peerRanges[receipt.peerAccount] = receipt.position;
+          }
+        }
+      }
+
+      final Map<String, dynamic> scoped = <String, dynamic>{};
+      final Set<String> peers = <String>{
+        ...legacyByPeer.keys,
+        for (final Map<String, int> ranges in continuous.values) ...ranges.keys,
+      };
+      for (final String peer in peers) {
+        final int watermark = legacyByPeer[peer] is int
+            ? legacyByPeer[peer] as int
+            : 0;
+        final List<MapEntry<String, int>> candidates = <MapEntry<String, int>>[
+          for (final MapEntry<String, Map<String, int>> consumer
+              in continuous.entries)
+            if ((consumer.value[peer] ?? 0) >= watermark && watermark > 0)
+              MapEntry<String, int>(consumer.key, watermark),
+        ];
+        if (watermark <= 0) {
+          continue;
+        }
+        if (candidates.length == 1) {
+          final Map<String, dynamic> peerMap =
+              (scoped[candidates.single.key] as Map<String, dynamic>?) ??
+              <String, dynamic>{};
+          peerMap[peer] = watermark;
+          scoped[candidates.single.key] = peerMap;
+          entries.add(<String, dynamic>{
+            'account': account,
+            'peer_account': peer,
+            'legacy_watermark': watermark,
+            'consumer_id': candidates.single.key,
+            'outcome': 'migrated',
+          });
+          continue;
+        }
+        entries.add(<String, dynamic>{
+          'account': account,
+          'peer_account': peer,
+          'legacy_watermark': watermark,
+          'consumer_id': null,
+          'outcome': 'migration_required',
+          'reason': candidates.isEmpty
+              ? 'no_consumer_has_continuous_receipts'
+              : 'ambiguous_consumers',
+        });
+      }
+
+      state['consumption_by_consumer'] = scoped;
+      state['consumer_aliases'] = aliases;
+      state['legacy_consumption'] = legacyByPeer;
+      accounts[account] = state;
+    }
+
+    final Map<String, dynamic> migrated = <String, dynamic>{
+      'version': _version,
+      'accounts': accounts,
+      'consumers': consumers,
+      'legacy_migration': <String, dynamic>{
+        'legacy_version': 1,
+        'migrated_at': now,
+        'backup': backupPath,
+        'entries': entries,
+        'requires_attention': entries.any(
+          (Map<String, dynamic> entry) =>
+              entry['outcome'] != 'migrated',
+        ),
+      },
+    };
+    if (file != null) {
+      final File backup = File(backupPath);
+      if (!await backup.exists()) {
+        await backup.writeAsString(raw, flush: true);
+      }
+    }
+    _data = migrated;
+    await _flush();
+    return migrated;
+  }
+
+  String _legacyConsumerId(String account, String consumerSession) {
+    return 'c-${sha256Hex(utf8.encode('legacy\u0001$account\u0001$consumerSession')).substring(0, 32)}';
+  }
 
   Map<String, dynamic> _account(String account) {
     final Map<String, dynamic> accounts =
@@ -253,7 +491,8 @@ class ChatLedger {
     value.putIfAbsent('operations', () => <String, dynamic>{});
     value.putIfAbsent('downloads', () => <String, dynamic>{});
     value.putIfAbsent('download_operations', () => <String, dynamic>{});
-    value.putIfAbsent('consumption', () => <String, dynamic>{});
+    value.putIfAbsent('consumption_by_consumer', () => <String, dynamic>{});
+    value.putIfAbsent('consumer_aliases', () => <String, dynamic>{});
     value.putIfAbsent('receipts', () => <String, dynamic>{});
     value.putIfAbsent('events', () => <String, dynamic>{});
     value.putIfAbsent('confirmations', () => <String, dynamic>{});
@@ -423,6 +662,29 @@ class ChatLedger {
     });
   }
 
+  /// Account that owns an operation id, if it is known to this client.
+  ///
+  /// Operation facts belong to the original account: a switched account must
+  /// never resume or read another account's plan through a reused id.
+  Future<String?> accountForOperation(String operationId) {
+    return _locked(() async {
+      final Map<String, dynamic> accounts =
+          _data['accounts'] as Map<String, dynamic>;
+      for (final MapEntry<String, dynamic> entry in accounts.entries) {
+        final Object? state = entry.value;
+        if (state is! Map<String, dynamic>) {
+          continue;
+        }
+        final Object? operations = state['operations'];
+        if (operations is Map<String, dynamic> &&
+            operations.containsKey(operationId)) {
+          return entry.key;
+        }
+      }
+      return null;
+    });
+  }
+
   Future<void> saveOperation(String account, ChatOperationRecord record) {
     return _locked(() async {
       (_account(account)['operations']
@@ -497,13 +759,261 @@ class ChatLedger {
     });
   }
 
+  // ------------------------------------------------------------- consumers --
+
+  /// Stable client-owned consumer registry, keyed by opaque consumer id.
+  Map<String, dynamic> get _consumers =>
+      _data['consumers'] as Map<String, dynamic>;
+
+  String? _consumerIdForAliasLocked(String account, String consumerSession) {
+    final Object? value =
+        (_account(account)['consumer_aliases']
+            as Map<String, dynamic>)[consumerSession];
+    return value is String ? value : null;
+  }
+
+  /// Creates the one-to-one alias for [consumerSession] the first time it is
+  /// seen. The consumer id is random and persisted, never derived from a
+  /// credential or a transient session.
+  String _ensureConsumerLocked({
+    required String account,
+    required String consumerSession,
+    String authGeneration = '',
+  }) {
+    final String? existing = _consumerIdForAliasLocked(
+      account,
+      consumerSession,
+    );
+    if (existing != null) {
+      return existing;
+    }
+    final String consumerId = newConsumerId();
+    final String now = DateTime.now().toUtc().toIso8601String();
+    _consumers[consumerId] = <String, dynamic>{
+      'account': account,
+      'auth_generation': authGeneration,
+      'binding_revision': 1,
+      'aliases': <String, dynamic>{consumerSession: true},
+      'created_at': now,
+      'updated_at': now,
+    };
+    (_account(account)['consumer_aliases']
+        as Map<String, dynamic>)[consumerSession] =
+        consumerId;
+    return consumerId;
+  }
+
+  ConsumerBinding? _bindingLocked(String consumerId) {
+    final Object? raw = _consumers[consumerId];
+    if (raw is! Map<String, dynamic>) {
+      return null;
+    }
+    final Object? aliases = raw['aliases'];
+    return ConsumerBinding(
+      consumerId: consumerId,
+      account: raw['account'] is String ? raw['account'] as String : '',
+      authGeneration: raw['auth_generation'] is String
+          ? raw['auth_generation'] as String
+          : '',
+      bindingRevision: raw['binding_revision'] is int
+          ? raw['binding_revision'] as int
+          : 1,
+      aliases: <String>{
+        if (aliases is Map<String, dynamic>)
+          for (final String alias in aliases.keys) alias,
+      },
+    );
+  }
+
+  /// Resolves (and on first use creates) the consumer behind a stable
+  /// client-owned `(account, consumer_session)` alias.
+  ///
+  /// The alias never switches account: a legacy session reused by another
+  /// account is a binding conflict, not a fresh consumer.
+  Future<ConsumerBinding> ensureConsumer({
+    required String account,
+    required String consumerSession,
+    String? authGeneration,
+  }) {
+    return _locked(() async {
+      final String? existing = _consumerIdForAliasLocked(
+        account,
+        consumerSession,
+      );
+      if (existing != null) {
+        final ConsumerBinding? binding = _bindingLocked(existing);
+        if (binding != null && binding.account != account) {
+          throw staleBinding('该消费者已绑定另一个账号');
+        }
+      }
+      final String consumerId = _ensureConsumerLocked(
+        account: account,
+        consumerSession: consumerSession,
+        authGeneration: authGeneration ?? '',
+      );
+      final ConsumerBinding binding = _bindingLocked(consumerId)!;
+      if (authGeneration != null &&
+          authGeneration.isNotEmpty &&
+          binding.authGeneration != authGeneration) {
+        _consumers[consumerId] = <String, dynamic>{
+          ...(_consumers[consumerId] as Map<String, dynamic>),
+          'auth_generation': authGeneration,
+          'binding_revision': binding.bindingRevision + 1,
+          'updated_at': DateTime.now().toUtc().toIso8601String(),
+        };
+        await _flush();
+        return _bindingLocked(consumerId)!;
+      }
+      await _flush();
+      return binding;
+    });
+  }
+
+  /// Binds the current login to a consumer.
+  ///
+  /// * a first `(account, consumer_session)` is a new consumer with revision 1;
+  /// * a new authentication generation on an existing alias rotates the
+  ///   binding and bumps the revision, so every previously issued identity is
+  ///   stale;
+  /// * adopting another alias's consumer requires the exact
+  ///   [expectedBindingRevision] — a consumer id alone cannot take it over, and
+  ///   a consumer of another account can never be adopted.
+  Future<ConsumerBinding> bindConsumer({
+    required String account,
+    required String authGeneration,
+    required String consumerSession,
+    String? consumerId,
+    int? expectedBindingRevision,
+  }) {
+    return _locked(() async {
+      String? resolved = consumerId;
+      if (resolved != null) {
+        final ConsumerBinding? target = _bindingLocked(resolved);
+        if (target == null) {
+          throw staleBinding('消费者不存在或已失效');
+        }
+        if (target.account != account) {
+          throw staleBinding('该消费者属于另一个账号');
+        }
+        final String? aliased = _consumerIdForAliasLocked(
+          account,
+          consumerSession,
+        );
+        if (aliased != resolved) {
+          if (expectedBindingRevision == null ||
+              expectedBindingRevision != target.bindingRevision) {
+            throw staleBinding('接管消费者需要匹配的绑定版本');
+          }
+        } else if (expectedBindingRevision != null &&
+            expectedBindingRevision != target.bindingRevision) {
+          throw staleBinding('消费者绑定版本已变化');
+        }
+      } else {
+        resolved = _consumerIdForAliasLocked(account, consumerSession);
+        if (resolved != null) {
+          final ConsumerBinding? target = _bindingLocked(resolved);
+          if (target != null && target.account != account) {
+            throw staleBinding('该消费者已绑定另一个账号');
+          }
+        }
+      }
+
+      if (resolved == null) {
+        resolved = _ensureConsumerLocked(
+          account: account,
+          consumerSession: consumerSession,
+          authGeneration: authGeneration,
+        );
+        await _flush();
+        return _bindingLocked(resolved)!;
+      }
+
+      ConsumerBinding binding = _bindingLocked(resolved)!;
+      if (expectedBindingRevision != null &&
+          expectedBindingRevision != binding.bindingRevision) {
+        throw staleBinding('消费者绑定版本已变化');
+      }
+      final Map<String, dynamic> aliases = <String, dynamic>{
+        ...((_consumers[resolved] as Map<String, dynamic>)['aliases']
+                as Map<String, dynamic>? ??
+            <String, dynamic>{}),
+        consumerSession: true,
+      };
+      final bool generationChanged =
+          authGeneration.isNotEmpty && binding.authGeneration != authGeneration;
+      final bool aliasAdded = !binding.aliases.contains(consumerSession);
+      if (generationChanged || aliasAdded) {
+        _consumers[resolved] = <String, dynamic>{
+          ...(_consumers[resolved] as Map<String, dynamic>),
+          'auth_generation': generationChanged
+              ? authGeneration
+              : binding.authGeneration,
+          'binding_revision': generationChanged
+              ? binding.bindingRevision + 1
+              : binding.bindingRevision,
+          'aliases': aliases,
+          'updated_at': DateTime.now().toUtc().toIso8601String(),
+        };
+        (_account(account)['consumer_aliases']
+            as Map<String, dynamic>)[consumerSession] =
+            resolved;
+        await _flush();
+        binding = _bindingLocked(resolved)!;
+      }
+      return binding;
+    });
+  }
+
+  Future<ConsumerBinding?> consumerBinding(String consumerId) {
+    return _locked(() async {
+      final ConsumerBinding? binding = _bindingLocked(consumerId);
+      return binding;
+    });
+  }
+
+  Future<String?> consumerIdForSession(
+    String account,
+    String consumerSession,
+  ) {
+    return _locked(() async {
+      return _consumerIdForAliasLocked(account, consumerSession);
+    });
+  }
+
+  /// Full identity of the consumer currently bound to this alias, if any.
+  Future<ExpectedIdentity?> expectedIdentityForSession(
+    String account,
+    String consumerSession,
+  ) {
+    return _locked(() async {
+      final String? consumerId = _consumerIdForAliasLocked(
+        account,
+        consumerSession,
+      );
+      if (consumerId == null) {
+        return null;
+      }
+      return _bindingLocked(consumerId)?.identity;
+    });
+  }
+
   // ------------------------------------------------------------ consumption --
 
-  Future<int> consumedThrough(String account, String peerAccount) {
+  /// Consumer-scoped consumption watermark. Another consumer of the same
+  /// account and peer can never advance or inherit it.
+  Future<int> consumedThrough(
+    String account,
+    String peerAccount, {
+    required String consumerId,
+  }) {
     return _locked(() async {
-      final Object? value =
-          (_account(account)['consumption']
-              as Map<String, dynamic>)[peerAccount];
+      final Object? perConsumer =
+          (_account(account)['consumption_by_consumer']
+              as Map<String, dynamic>)[consumerId];
+      if (perConsumer is! Map<String, dynamic>) {
+        return 0;
+      }
+      final Object? value = perConsumer[peerAccount];
       return value is int ? value : 0;
     });
   }
@@ -511,18 +1021,60 @@ class ChatLedger {
   Future<void> setConsumedThrough(
     String account,
     String peerAccount,
-    int position,
-  ) {
+    int position, {
+    required String consumerId,
+  }) {
     return _locked(() async {
+      final Map<String, dynamic> scopes =
+          _account(account)['consumption_by_consumer']
+              as Map<String, dynamic>;
       final Map<String, dynamic> consumption =
-          _account(account)['consumption'] as Map<String, dynamic>;
+          (scopes[consumerId] as Map<String, dynamic>?) ??
+          <String, dynamic>{};
       final int current = consumption[peerAccount] is int
           ? consumption[peerAccount] as int
           : 0;
       if (position > current) {
         consumption[peerAccount] = position;
+        scopes[consumerId] = consumption;
         await _flush();
       }
+    });
+  }
+
+  /// Legacy v1 consumption preserved by the migration, never used to grant an
+  /// ACK. Returns the migration entry for one account+peer, if any.
+  Future<Map<String, dynamic>?> legacyMigrationForPeer(
+    String account,
+    String peerAccount,
+  ) {
+    return _locked(() async {
+      final Object? raw = _data['legacy_migration'];
+      if (raw is! Map<String, dynamic>) {
+        return null;
+      }
+      final Object? entries = raw['entries'];
+      if (entries is! List) {
+        return null;
+      }
+      for (final Object? entry in entries) {
+        if (entry is Map<String, dynamic> &&
+            entry['account'] == account &&
+            entry['peer_account'] == peerAccount) {
+          return Map<String, dynamic>.from(entry);
+        }
+      }
+      return null;
+    });
+  }
+
+  /// The whole preserved legacy migration report (read-only diagnostics).
+  Future<Map<String, dynamic>?> legacyMigrationReport() {
+    return _locked(() async {
+      final Object? raw = _data['legacy_migration'];
+      return raw is Map<String, dynamic>
+          ? Map<String, dynamic>.from(raw)
+          : null;
     });
   }
 
@@ -535,8 +1087,16 @@ class ChatLedger {
     required String messageId,
     required int position,
     required String contentDigest,
+    String? consumerId,
   }) {
     return _locked(() async {
+      final String resolvedConsumer =
+          consumerId ??
+          _consumerIdForAliasLocked(account, consumerSession) ??
+          _ensureConsumerLocked(
+            account: account,
+            consumerSession: consumerSession,
+          );
       final String receiptId = receiptIdFor(
         account: account,
         consumerSession: consumerSession,
@@ -555,6 +1115,7 @@ class ChatLedger {
         receiptId: receiptId,
         account: account,
         consumerSession: consumerSession,
+        consumerId: resolvedConsumer,
         peerAccount: peerAccount,
         messageId: messageId,
         position: position,
@@ -580,6 +1141,7 @@ class ChatLedger {
     required String account,
     required String consumerSession,
     required String peerAccount,
+    String? consumerId,
   }) {
     return _locked(() async {
       final Map<String, dynamic> raw =
@@ -590,8 +1152,12 @@ class ChatLedger {
           continue;
         }
         final PresentationReceipt receipt = PresentationReceipt.fromJson(value);
-        if (receipt.consumerSession == consumerSession &&
-            receipt.peerAccount == peerAccount) {
+        // A consumer keeps its display history across host-session rebuilds,
+        // so the stable consumer id wins whenever it is known.
+        final bool sameConsumer = consumerId != null
+            ? receipt.consumerId == consumerId
+            : receipt.consumerSession == consumerSession;
+        if (sameConsumer && receipt.peerAccount == peerAccount) {
           items.add(receipt);
         }
       }
@@ -615,9 +1181,17 @@ class ChatLedger {
     required String attemptId,
     required String requestDigest,
     required List<String> receiptIds,
+    String? consumerId,
   }) {
     return _locked(() async {
       final Map<String, dynamic> state = _account(account);
+      final String resolvedConsumer =
+          consumerId ??
+          _consumerIdForAliasLocked(account, consumerSession) ??
+          _ensureConsumerLocked(
+            account: account,
+            consumerSession: consumerSession,
+          );
       final Map<String, dynamic> confirmations =
           state['confirmations'] as Map<String, dynamic>;
       final Map<String, dynamic> receipts =
@@ -631,8 +1205,10 @@ class ChatLedger {
                 .whereType<String>()
                 .toList()
               ..sort();
+        final Object? existingConsumer = existing['consumer_id'];
         final bool sameBinding =
             existing['consumer_session'] == consumerSession &&
+            (existingConsumer == null || existingConsumer == resolvedConsumer) &&
             existing['request_digest'] == requestDigest;
         final bool sameMembers =
             existingIds.length == ids.length &&
@@ -658,11 +1234,14 @@ class ChatLedger {
           );
         }
         final PresentationReceipt receipt = PresentationReceipt.fromJson(raw);
-        if (receipt.consumerSession != consumerSession) {
+        final bool sameConsumer = receipt.consumerId != null
+            ? receipt.consumerId == resolvedConsumer
+            : receipt.consumerSession == consumerSession;
+        if (!sameConsumer) {
           throw const AuthFailure(
             status: 409,
             code: 'conflict',
-            message: '展示凭据属于另一个会话',
+            message: '展示凭据属于另一个消费者',
           );
         }
         // A receipt can legitimately be re-presented by a later model request
@@ -687,6 +1266,7 @@ class ChatLedger {
         }
         confirmations[attemptId] = <String, dynamic>{
           'consumer_session': consumerSession,
+          'consumer_id': resolvedConsumer,
           'request_digest': requestDigest,
           'receipt_ids': ids,
           'confirmed_at': DateTime.now().toUtc().toIso8601String(),
@@ -743,6 +1323,7 @@ class ChatLedger {
           _account(account)['confirmations'] as Map<String, dynamic>;
       confirmations[attemptId] = <String, dynamic>{
         'consumer_session': consumerSession,
+        'consumer_id': _consumerIdForAliasLocked(account, consumerSession),
         'request_digest': requestDigest,
         'receipt_ids': receiptIds,
         'confirmed_at': DateTime.now().toUtc().toIso8601String(),

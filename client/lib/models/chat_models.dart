@@ -815,11 +815,16 @@ class PresentationReceipt {
     required this.contentDigest,
     this.confirmed = false,
     this.attemptId,
+    this.consumerId,
   });
 
   final String receiptId;
   final String account;
   final String consumerSession;
+
+  /// Stable client consumer that owns this display fact. Null only for
+  /// receipts written before the consumer-scoped ledger existed.
+  final String? consumerId;
   final String peerAccount;
   final String messageId;
   final int position;
@@ -827,11 +832,16 @@ class PresentationReceipt {
   final bool confirmed;
   final String? attemptId;
 
-  PresentationReceipt copyWith({bool? confirmed, String? attemptId}) {
+  PresentationReceipt copyWith({
+    bool? confirmed,
+    String? attemptId,
+    String? consumerId,
+  }) {
     return PresentationReceipt(
       receiptId: receiptId,
       account: account,
       consumerSession: consumerSession,
+      consumerId: consumerId ?? this.consumerId,
       peerAccount: peerAccount,
       messageId: messageId,
       position: position,
@@ -845,6 +855,7 @@ class PresentationReceipt {
     'receipt_id': receiptId,
     'account': account,
     'consumer_session': consumerSession,
+    'consumer_id': consumerId,
     'peer_account': peerAccount,
     'message_id': messageId,
     'position': position,
@@ -877,6 +888,9 @@ class PresentationReceipt {
       receiptId: id,
       account: account,
       consumerSession: consumer,
+      consumerId: json['consumer_id'] is String
+          ? json['consumer_id'] as String
+          : null,
       peerAccount: peer,
       messageId: message,
       position: position,
