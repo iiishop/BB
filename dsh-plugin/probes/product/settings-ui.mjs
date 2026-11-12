@@ -368,6 +368,9 @@ try {
     await until((r) => !r.installed && r.form === null && !r.bridge);
     await open(p);
     await p.getByRole("button", { name: "Add plugin", exact: true }).waitFor();
+    await until(async () =>
+      p.getByRole("button", { name: "Add plugin", exact: true }).isEnabled(),
+    );
     await p
       .getByRole("button", { name: "View BB Chat Bridge", exact: true })
       .waitFor({ state: "hidden" });
