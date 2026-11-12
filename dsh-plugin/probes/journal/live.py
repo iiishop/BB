@@ -23,6 +23,11 @@ parser.add_argument("--runtime", required=True)
 parser.add_argument("--dart", required=True)
 parser.add_argument("--crypto", required=True)
 parser.add_argument("--output", required=True)
+parser.add_argument(
+    "--v2",
+    action="store_true",
+    help="Run positive guarded-contract assertions; no v1 fallback",
+)
 args = parser.parse_args()
 repo = Path(__file__).resolve().parents[3]
 parent = Path(args.output).resolve()
@@ -99,6 +104,31 @@ def record(name, **facts):
     (root / "results.json").write_text(json.dumps(results, indent=2) + "\n")
 
 
+def record_sources():
+    paths = list((repo / "client/lib/services").glob("*.dart"))
+    paths += list(Path(__file__).parent.glob("*.py"))
+    paths += list(Path(__file__).parent.glob("*.mjs"))
+    paths += [repo / "server/uv.lock", repo / "server/contract/chat-v2-openapi.json"]
+    (root / "sources.json").write_text(
+        json.dumps(
+            {
+                "files": {
+                    str(path.relative_to(repo)): hashlib.sha256(
+                        path.read_bytes()
+                    ).hexdigest()
+                    for path in paths
+                },
+                "client_tree": subprocess.check_output(
+                    ["git", "rev-parse", "HEAD:client"], cwd=repo, text=True
+                ).strip(),
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+
+
+record_sources()
 try:
     api_port, client_port = port(), port()
     api, client = f"http://127.0.0.1:{api_port}", f"http://127.0.0.1:{client_port}"
@@ -162,6 +192,33 @@ try:
         ).status_code
         == 200
     )
+    if args.v2:
+        from live_v2 import run
+
+        def restart_client():
+            global dart
+            stop(dart)
+            dart = launch(dart_command, "client-v2-restarted")
+            ready(client, dart)
+
+        try:
+            run(
+                origin=client,
+                account=account,
+                peer=peer,
+                switched=switched,
+                runtime=args.runtime,
+                root=root,
+                private=private,
+                launch=launch,
+                stop=stop,
+                restart=restart_client,
+                record=record,
+            )
+        except Exception as error:
+            record("v2-gate", status="FAIL", reason=str(error))
+            raise
+        raise SystemExit(0)
     operation_config = private / "operation-config.json"
     operation_config.write_text(
         json.dumps({"origin": client, "account": account, "peer": peer})
@@ -300,25 +357,6 @@ try:
         stale_request_status=200,
         sent_under_switched_identity=True,
         expected_account_enforced=False,
-    )
-    hashes = {
-        str(path.relative_to(repo)): hashlib.sha256(path.read_bytes()).hexdigest()
-        for path in (repo / "client/lib/services").glob("*.dart")
-    }
-    (root / "sources.json").write_text(
-        json.dumps(
-            {
-                "client_services": hashes,
-                "server_lock": hashlib.sha256(
-                    (repo / "server/uv.lock").read_bytes()
-                ).hexdigest(),
-                "client_tree": subprocess.check_output(
-                    ["git", "rev-parse", "HEAD:client"], cwd=repo, text=True
-                ).strip(),
-            },
-            indent=2,
-        )
-        + "\n"
     )
     record(
         "gate",
