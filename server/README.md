@@ -1,13 +1,13 @@
-BB STEP-1 账号与 STEP-2 Profile 服务，Python 项目由 uv 管理。必须从同一仓库保留 `server/contract/`；该纯 Python 包只包含 DTO、校验及错误文案，同时供插件使用，不包含网络或数据库代码。
+BB STEP-1 账号、STEP-2 Profile 与 STEP-3 Chat 服务，Python 项目由 uv 管理。必须从同一仓库保留 `server/contract/`；该纯 Python 包只包含 DTO、校验及错误文案，同时供插件使用，不包含网络或数据库代码。
 
 从仓库根目录启动（以下地址、端口、路径均为本机示例，可替换）：
 
 ```bash
 uv sync --project server --locked
-BB_DATABASE_PATH=./local-data/auth.db BB_AVATAR_DIRECTORY=./local-data/avatars BB_HOST=127.0.0.1 BB_PORT=8000 uv run --project server --locked bb-server
+BB_DATABASE_PATH=./local-data/auth.db BB_AVATAR_DIRECTORY=./local-data/avatars BB_MEDIA_DIRECTORY=./local-data/media BB_HOST=127.0.0.1 BB_PORT=8000 uv run --project server --locked bb-server
 ```
 
-Windows Git Bash 同样使用上述命令。以上四个环境变量均必填，不自动加载 `.env`。服务启动时事务性应用 `src/bb_server/migrations/001_auth.sql` 和 `002_profile.sql`，以 SQLite `user_version=2` 记录版本；已有数据不重建，遇到更高版本拒绝启动。
+Windows Git Bash 同样使用上述命令。以上五个环境变量均必填，不自动加载 `.env`。服务启动时事务性应用 `src/bb_server/migrations/001_auth.sql` 、`002_profile.sql` 和 `003_chat.sql`，以 SQLite `user_version=3` 记录版本；已有数据不重建，遇到更高版本拒绝启动。
 
 | 接口 | 成功响应 | 失败 |
 | --- | --- | --- |
@@ -50,3 +50,5 @@ STEP-2 完整接口、错误、头像规范、六个本地接口与客户端接�
 ```bash
 uv run --project server --locked python -m bb_server.export_openapi server/openapi.json --local-profile-output server/contract/profile-local-schema.json
 ```
+
+存储锁竞争的事务边界、503 分类、实测数据、方案比较与重跑/撤回步骤见 `server/docs/storage-locks.md`。本轮保持 DELETE journal，不启用 WAL。

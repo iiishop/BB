@@ -1,6 +1,5 @@
 import asyncio
 import hashlib
-import logging
 import math
 import secrets
 import sqlite3
@@ -56,6 +55,7 @@ from bb_server.storage import (
     migrate,
     update_profile,
 )
+from bb_server.storage_errors import storage_failure
 from bb_server.upload_limit import UploadLimit
 
 
@@ -92,10 +92,8 @@ def create_app(
                 except TimeoutError:
                     try:
                         await run_in_threadpool(cleanup_sessions, path, clock())
-                    except sqlite3.Error:
-                        logging.getLogger(__name__).warning(
-                            "session_maintenance_storage_unavailable"
-                        )
+                    except (sqlite3.Error, OSError) as error:
+                        storage_failure(error)
 
         worker = asyncio.create_task(maintain())
         try:
@@ -117,14 +115,19 @@ def create_app(
         return JSONResponse(status_code=safe.status, content=safe.body)
 
     @app.exception_handler(sqlite3.Error)
-    async def storage_error(request: Request, error: sqlite3.Error):
-        safe = ContractError(503, "storage_unavailable", "存储暂不可用，请稍后再试")
-        return JSONResponse(status_code=safe.status, content=safe.body)
-
     @app.exception_handler(OSError)
-    async def media_storage_error(request: Request, error: OSError):
-        safe = ContractError(503, "storage_unavailable", "存储暂不可用，请稍后再试")
-        return JSONResponse(status_code=safe.status, content=safe.body)
+    async def storage_error(request: Request, error: Exception):
+        code = storage_failure(
+            error,
+            method=request.method,
+            route=getattr(request.scope.get("route"), "path", "unmatched"),
+        )
+        safe = ContractError(503, code, "存储暂不可用，请稍后再试")
+        return JSONResponse(
+            status_code=safe.status,
+            content=safe.body,
+            headers={"Retry-After": "1"} if code == "storage_busy" else None,
+        )
 
     responses = {422: {"model": ErrorResponse}, 503: {"model": ErrorResponse}}
 

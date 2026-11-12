@@ -38,7 +38,7 @@ from PIL import UnidentifiedImageError
 from starlette.concurrency import run_in_threadpool
 
 from .avatars import default_version
-from .storage import connection, find_session, maintain_sessions
+from .storage import connection, find_session
 
 MAX_MEDIA = 32 * 1024 * 1024
 MIMES = {
@@ -95,8 +95,7 @@ def submit(path, account, body, clock):
             request, sort_keys=True, separators=(",", ":"), ensure_ascii=False
         ).encode()
     ).hexdigest()
-    with connection(path) as db:
-        db.execute("BEGIN IMMEDIATE")
+    with connection(path, write=True) as db:
         prior = db.execute(
             "SELECT * FROM operations WHERE account=? AND operation_id=?",
             (account, body.client_nonce),
@@ -270,11 +269,9 @@ def install(app, path, directory, current_session, clock):
         identity=identity_dep,
     ):
         with connection(path) as db:
-            db.execute("BEGIN IMMEDIATE")
-            maintain_sessions(db, clock())
             rows = db.execute(
-                "SELECT *, EXISTS(SELECT 1 FROM sessions s WHERE s.account=users.account AND s.status='online') AS online FROM users WHERE account!=? AND account>? ORDER BY account LIMIT ?",
-                (identity["account"], after_account, limit + 1),
+                "SELECT *, EXISTS(SELECT 1 FROM sessions s WHERE s.account=users.account AND s.status='online' AND s.last_seen_at>?) AS online FROM users WHERE account!=? AND account>? ORDER BY account LIMIT ?",
+                (clock() - 90, identity["account"], after_account, limit + 1),
             ).fetchall()
             items = []
             for row in rows[:limit]:
@@ -405,8 +402,7 @@ def install(app, path, directory, current_session, clock):
         )
         mid = uuid.uuid4().hex
         directory.mkdir(parents=True, exist_ok=True)
-        with connection(path) as db:
-            db.execute("BEGIN IMMEDIATE")
+        with connection(path, write=True) as db:
             peer_exists(db, identity["account"], target_account)
             if kind == "video" and not cover_media_id:
                 fail(422, "validation_error")

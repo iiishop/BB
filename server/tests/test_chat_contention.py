@@ -27,7 +27,7 @@ def test_auth_read_during_writer_and_message_retry_is_atomic(tmp_path):
             assert api.get("/auth/session", headers=headers).status_code == 200
             blocked = api.post("/messages", headers=headers, json=body)
             assert blocked.status_code == 503
-            assert blocked.json()["error"]["code"] == "storage_unavailable"
+            assert blocked.json()["error"]["code"] == "storage_busy"
             assert (
                 api.get("/operations/stable-nonce", headers=headers).status_code == 404
             )

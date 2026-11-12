@@ -13,7 +13,9 @@ class FieldError(BaseModel):
 
 
 class ErrorDetail(BaseModel):
-    code: str
+    code: str = Field(
+        description="HTTP 503: storage_busy (bounded lock contention), storage_io_error (IO/read-only/full), or storage_unavailable (other storage failures). Unknown codes retain the same error envelope and HTTP status."
+    )
     message: str
     fields: list[FieldError] = Field(default_factory=list)
 

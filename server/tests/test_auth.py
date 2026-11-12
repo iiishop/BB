@@ -178,7 +178,7 @@ def test_locked_db_does_not_confirm_uncommitted_user(api):
         lock.execute("BEGIN IMMEDIATE")
         result = register(client)
         assert result.status_code == 503
-        assert result.json()["error"]["code"] == "storage_unavailable"
+        assert result.json()["error"]["code"] == "storage_busy"
         assert lock.execute("SELECT count(*) FROM users").fetchone()[0] == 0
 
 

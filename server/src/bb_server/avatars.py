@@ -105,8 +105,7 @@ def replace_avatar(database: Path, directory: Path, account: str, png: bytes | N
     version = "sha256-" + hashlib.sha256(png).hexdigest() if png is not None else None
     created = False
     try:
-        with connection(database) as db:
-            db.execute("BEGIN IMMEDIATE")
+        with connection(database, write=True) as db:
             old = db.execute(
                 "SELECT avatar_path FROM users WHERE account=?", (account,)
             ).fetchone()[0]
@@ -139,10 +138,9 @@ def replace_avatar(database: Path, directory: Path, account: str, png: bytes | N
 
 
 def read_avatar(database: Path, directory: Path, account: str):
-    with connection(database) as db:
+    with connection(database, write=True) as db:
         # Serialize file lookup/read with replacement so the old file cannot be
         # removed between the lookup and read, including across server workers.
-        db.execute("BEGIN IMMEDIATE")
         row = db.execute(
             "SELECT avatar_path,avatar_version FROM users WHERE account=?", (account,)
         ).fetchone()
