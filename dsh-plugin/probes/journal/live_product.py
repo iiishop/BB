@@ -86,6 +86,51 @@ def run(
     ]
     if os.environ.get("BB_PRODUCT_CASES") == "installed":
         cuts = []
+    if os.environ.get("BB_PRODUCT_CASES") == "cover":
+        import secrets
+
+        owner = secrets.token_urlsafe(32)
+        auth = httpx.post(origin + "/v2/status", json={}, trust_env=False).json()[
+            "auth"
+        ]
+        identity = httpx.post(
+            origin + "/v2/consumers/create",
+            json={"expected_auth": auth, "session_id": "nullable-cover"},
+            headers={"X-BB-Consumer-Key": owner},
+            trust_env=False,
+        ).json()["identity"]
+        body = {
+            "expected_identity": identity,
+            "target_account": peer,
+            "operation_id": "nullable-cover",
+            "source": {
+                "base64": "c3ludGhldGlj",
+                "mime_type": "text/plain",
+                "filename": "probe.txt",
+            },
+        }
+        missing = httpx.post(
+            origin + "/v2/chat/send_attachment",
+            json=body,
+            headers={"X-BB-Consumer-Key": owner},
+            trust_env=False,
+        )
+        explicit = httpx.post(
+            origin + "/v2/chat/send_attachment",
+            json={**body, "cover": None},
+            headers={"X-BB-Consumer-Key": owner},
+            trust_env=False,
+        )
+        assert missing.status_code == 422 and explicit.status_code == 200
+        record(
+            "nullable-cover-wire",
+            status="REPRODUCED_GAP",
+            missing_cover=422,
+            explicit_null=200,
+            expected_missing_cover=200,
+            client_tree="dea50f14f0d3c8470ed87573370887f6580d424a",
+        )
+        return
     for cut in cuts:
         case_root = root / cut
         case_root.mkdir()
