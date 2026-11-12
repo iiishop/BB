@@ -664,15 +664,10 @@ class ChatLedger {
             message: '展示凭据属于另一个会话',
           );
         }
-        if (receipt.confirmed &&
-            receipt.attemptId != null &&
-            receipt.attemptId != attemptId) {
-          throw const AuthFailure(
-            status: 409,
-            code: 'conflict',
-            message: '展示凭据已由另一个 attempt 确认',
-          );
-        }
+        // A receipt can legitimately be re-presented by a later model request
+        // under a new attempt. Its display fact stays valid; the attempt record
+        // below binds this request's member set. Only the same attempt changing
+        // its binding is a conflict.
         validated.add(receipt);
       }
 
@@ -683,7 +678,10 @@ class ChatLedger {
       try {
         for (final PresentationReceipt receipt in validated) {
           receipts[receipt.receiptId] = receipt
-              .copyWith(confirmed: true, attemptId: attemptId)
+              .copyWith(
+                confirmed: true,
+                attemptId: receipt.attemptId ?? attemptId,
+              )
               .toJson();
         }
         confirmations[attemptId] = <String, dynamic>{

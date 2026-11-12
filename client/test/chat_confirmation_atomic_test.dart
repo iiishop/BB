@@ -116,18 +116,19 @@ void main() {
       ),
       throwsA(_failure(409, 'conflict')),
     );
-    // A new attempt cannot steal an already-confirmed receipt.
-    await expectLater(
-      ledger.confirmPresentationAttempt(
+    // A later request may legitimately re-present an already-confirmed
+    // receipt under a new attempt; its own attempt record is still bound.
+    expect(
+      await ledger.confirmPresentationAttempt(
         account: _account,
         consumerSession: 'c1',
         attemptId: 'attempt-2',
         requestDigest: 'digest-2',
         receiptIds: <String>[r1.receiptId],
       ),
-      throwsA(_failure(409, 'conflict')),
+      <String>[r1.receiptId],
     );
-    expect(await ledger.confirmation(_account, 'attempt-2'), isNull);
+    expect(await ledger.confirmation(_account, 'attempt-2'), isNotNull);
 
     // Lost response + restart: the persisted attempt replays idempotently.
     final ChatLedger restarted = ChatLedger.atPath(path);
