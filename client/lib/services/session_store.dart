@@ -21,6 +21,7 @@ class PersistedSession {
     required this.username,
     required this.token,
     this.generation = 0,
+    this.assignGeneration = false,
   });
 
   factory PersistedSession.fromJson(Object? json) {
@@ -58,6 +59,10 @@ class PersistedSession {
   /// Monotonic commit generation used to reject stale credential writes.
   /// Older files without the field read as zero.
   final int generation;
+
+  /// A new login asks the store to allocate its generation inside the commit
+  /// queue, after any earlier queued clear. Repairs use a fixed generation.
+  final bool assignGeneration;
 
   Map<String, dynamic> toJson() => <String, dynamic>{
     'account': account,
@@ -168,21 +173,34 @@ class SessionStore {
   }
 
   Future<void> _writeLocked(PersistedSession session) async {
-    // A stale repair/login may reach this point after a newer login or a
-    // completed logout. The generation is the commit ownership token: ignore
-    // the older write instead of overwriting the current credential.
-    if (session.generation < _generation) {
-      return;
-    }
-    if (session.generation > _generation) {
-      _generation = session.generation;
+    // Generation is allocated inside the serialized commit for a new login:
+    // an earlier queued clear must not invalidate a login that was enqueued
+    // after it. Repairs use their fixed generation and are rejected when a
+    // newer login/logout already owns the file.
+    final PersistedSession effective;
+    if (session.assignGeneration) {
+      _generation += 1;
+      effective = PersistedSession(
+        account: session.account,
+        username: session.username,
+        token: session.token,
+        generation: _generation,
+      );
+    } else {
+      if (session.generation < _generation) {
+        return;
+      }
+      if (session.generation > _generation) {
+        _generation = session.generation;
+      }
+      effective = session;
     }
     final Directory parent = file.parent;
     final File temporary = File('${file.path}.$pid.${_nonce()}.tmp');
     try {
       await parent.create(recursive: true);
       await _restrict(parent.path, '700');
-      await temporary.writeAsString(jsonEncode(session.toJson()), flush: true);
+      await temporary.writeAsString(jsonEncode(effective.toJson()), flush: true);
       await _restrict(temporary.path, '600');
       await _replace(temporary, file);
       await _restrict(file.path, '600');

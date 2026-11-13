@@ -62,14 +62,13 @@ class AuthService implements AuthGateway {
       account: account.trim(),
       password: password,
     );
-    final int generation = store?.nextGeneration() ?? session.generation + 1;
-    session.establish(
-      token: result.token,
-      user: result.user,
-      generation: generation,
-    );
+    session.establish(token: result.token, user: result.user);
     try {
-      await _persist(result.user, result.token, generation: generation);
+      await _persist(result.user, result.token, assignGeneration: true);
+      final SessionStore? store = this.store;
+      if (store != null) {
+        session.adoptCredentialGeneration(store.currentGeneration);
+      }
     } on SessionStorageException {
       // Login succeeded at the server, but the restart capability did not. Do
       // not report success: drop the half-established session so the caller
@@ -256,6 +255,7 @@ class AuthService implements AuthGateway {
     AuthUser user,
     String token, {
     int? generation,
+    bool assignGeneration = false,
   }) async {
     final SessionStore? store = this.store;
     if (store == null) {
@@ -267,6 +267,7 @@ class AuthService implements AuthGateway {
         username: user.username,
         token: token,
         generation: generation ?? session.generation,
+        assignGeneration: assignGeneration,
       ),
     );
   }

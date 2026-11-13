@@ -94,6 +94,14 @@ class AuthSession {
     _authGeneration = newAuthGeneration();
   }
 
+  /// Aligns the in-memory generation with the generation the credential store
+  /// assigned inside its serialized commit. Does not rotate auth_generation.
+  void adoptCredentialGeneration(int generation) {
+    if (generation > _generation) {
+      _generation = generation;
+    }
+  }
+
   /// Credential for future authenticated requests. Not for serialization.
   String? get tokenForRequest => _token;
 
