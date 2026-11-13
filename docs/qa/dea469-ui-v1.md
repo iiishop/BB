@@ -7,6 +7,20 @@
 - 契约：`server/contract/admin-openapi.json` 1.0.0；`docs/contracts/dea469-admin-v1.md`；
   B/C 交接增量的 `POST /admin/api/tasks/{task_id}/authorization`（Forge 负责服务端实现）
 
+## 本轮修复（Orion 反馈：执行幂等键）
+
+上一候选 `bad880d` 在 `admin-state.ts` 使用 `exec:<plan_id>` 作为
+`PlanExecute.idempotency_key`，不符合唯一契约的 UUID 格式；真实服务端会在执行前
+返回 422。本次修复：
+
+- 每个 `plan_id` 在页面会话内缓存一个 `crypto.randomUUID()`；同一计划的重试与
+  双击复用同一 UUID，不同计划使用不同 UUID；双击仍由提交中守卫阻断。
+- 新增契约回归：把界面实际生成的 `/executions` 请求体（含 `idempotency_key`）
+  交给服务端规范 DTO `PlanExecute` 校验；旧 `exec:<plan_id>` 必须失败于
+  `idempotency_key / uuid_parsing`，修复值必须通过。该回归在 `npm test` 内执行。
+- 浏览器桩同步按 UUID 校验执行请求，旧值会得到 422，不再只比字段字符串。
+- 原有取消、版本失效、刷新恢复、双击不重复等断言保留。
+
 ## 交付内容
 
 `admin-ui/` 为独立 Vue 3 + TypeScript + Vite 应用，资源 base `/admin/`，API 相对
@@ -19,8 +33,9 @@ authorization 恢复浮层、错误/断线/501 状态、1440×900 与 390×844 �
 - 管理凭据 write-only：确认浮层与授权浮层提交后立即清空，不进入任何浏览器存储或日志。
 - 任务真相只在服务端：刷新从 `/tasks/current` 恢复，再按快照 `seq` 订阅 SSE；
   断线不重建任务，旧序列被忽略。
-- 双击/重复确认：提交中守卫 + 计划级幂等键（`exec:<plan_id>`），单元测试与浏览器
-  测试都验证只发出一次执行请求。
+- 双击/重复确认：提交中守卫 + 计划级 UUID 幂等键（同一 plan_id 在页面会话内复用），
+  单元测试与浏览器测试都验证只发出一次执行请求；浏览器桩按服务端规则把非 UUID
+  幂等键视为 422，旧缺陷会被该层捕获。
 - 计划取消不发任何执行请求；保存新域名/配置版本变化使未执行计划失效；服务端
   409 时清空确认并提示重新探测。
 
@@ -30,9 +45,14 @@ authorization 恢复浮层、错误/断线/501 状态、1440×900 与 390×844 �
 | --- | --- | --- |
 | `cd admin-ui && npm ci --no-audit --no-fund` | 0 | 159 packages，干净安装 |
 | `npm run typecheck` | 0 | `vue-tsc --noEmit` 无错误 |
-| `npm test` | 0 | 5 个文件、**34 passed / 0 failed / 0 skipped**，680ms；JUnit：`.evidence/vitest-junit.xml` |
-| `npm run build` | 0 | 44 modules；`dist/index.html` 0.45 kB、CSS 13.36 kB、JS 131.11 kB |
-| `npm run test:e2e` | 0 | **1 passed**，3.6s；JUnit：`.evidence/playwright-junit.xml`；12 张截图 |
+| `npm test` | 0 | 6 个文件、**38 passed / 0 failed / 0 skipped**，758ms；JUnit：`.evidence/vitest-junit.xml` |
+| `npx vitest run tests/contract-execute-body.test.ts` | 0 | **2 passed**；实际请求体：合法 UUID 通过，旧 `exec:<plan_id>` 在 `idempotency_key / uuid_parsing` 失败 |
+| `npm run build` | 0 | 44 modules；`dist/index.html` 0.45 kB、CSS 13.36 kB、JS 131.15 kB |
+| `npm run test:e2e` | 0 | **1 passed**，3.7s；JUnit：`.evidence/playwright-junit.xml`；12 张截图 |
+
+`npm test` 的规范 DTO 回归优先使用 `server/.venv` 的 Python，否则执行
+`uv run --project ../server --locked python`；CI 的 admin-ui job 需安装 uv 或用
+`ADMIN_UI_PYTHON` 指向带 pydantic 的解释器。
 
 浏览器测试使用真实生产构建 + 真实 `bb-admin`（阶段 A 应用），在
 `127.0.0.1:9477` 同一管理 origin 上运行。`admin-ui/e2e/harness.py` 是仅测试用的
@@ -63,7 +83,7 @@ Cookie/501/登出仍是真实服务端。**不据此宣称端到端完成。**
 - “创建并连接 Tunnel”弹出确认浮层，列出域名、服务端选择的目标、资源意图、
   公开范围、风险；取消后 **executions = 0**。
 - 再次打开并双派发点击 → **executions = 1**；请求带同一计划的
-  `plan_id`/`digest`/`config_version`，幂等键为 `exec:<plan_id>`。
+  `plan_id`/`digest`/`config_version`，幂等键为合法 UUID（同一 plan_id 复用；旧 `exec:<plan_id>` 已由契约回归显式拒绝）。
 - 刷新页面：`/tasks/current` 返回终态快照，胶囊显示“公网验证通过”，资源标为
   “本次创建”，**没有新建任务/重复执行**（executions 仍为 1）。
 - 保存新域名后打开新计划；服务端版本在确认前前进 → 执行返回 409，浮层关闭并

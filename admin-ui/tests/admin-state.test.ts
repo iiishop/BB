@@ -3,6 +3,9 @@ import { AdminApiError } from '../src/api/client';
 import { createAdminState } from '../src/stores/admin-state';
 import { FakeApi, SESSION, makePlan, makeTask } from './helpers/fake-api';
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 function setup(now = () => 1_800_000_000_000) {
   const api = new FakeApi();
   let uuidCount = 0;
@@ -54,8 +57,42 @@ describe('admin state — configuration and confirmation', () => {
     expect(plan?.plan_id).toBe(opened?.plan_id);
     expect(plan?.digest).toBe(opened?.digest);
     expect(plan?.config_version).toBe(3);
-    expect(key).toBe(`exec:${opened?.plan_id}`);
+    expect(key).toMatch(UUID_RE);
+    expect(key).not.toBe(`exec:${opened?.plan_id}`);
     expect(token).toBeUndefined();
+    expect(state.plan.value).toBeNull();
+  });
+
+  it('reuses the same valid UUID for a retry of the same plan after a failed execution', async () => {
+    const { api, state } = await readyState();
+    api.probeResult = async () => makeTask({ allowed_actions: ['create_and_connect'] });
+    await state.startProbe();
+    await state.requestPlan('create_and_connect');
+    let fail = true;
+    api.executeResult = async () => {
+      if (fail) {
+        fail = false;
+        throw new AdminApiError(503, 'storage_busy', '管理存储暂不可用');
+      }
+      return makeTask({
+        seq: 6,
+        kind: 'execute',
+        stage: 'queued',
+        classification: 'pending',
+        allowed_actions: [],
+      });
+    };
+
+    await state.confirmPlan();
+    expect(api.calls.executePlan).toHaveLength(1);
+    expect(state.plan.value).not.toBeNull();
+    await state.confirmPlan();
+    expect(api.calls.executePlan).toHaveLength(2);
+
+    const firstKey = api.calls.executePlan[0][1];
+    const secondKey = api.calls.executePlan[1][1];
+    expect(firstKey).toMatch(UUID_RE);
+    expect(secondKey).toBe(firstKey);
     expect(state.plan.value).toBeNull();
   });
 

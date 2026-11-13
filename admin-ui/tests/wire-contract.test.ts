@@ -10,7 +10,7 @@ import {
 
 interface Schema {
   required?: string[];
-  properties?: Record<string, { enum?: string[]; items?: { enum?: string[] } }>;
+  properties?: Record<string, { enum?: string[]; format?: string; items?: { enum?: string[] } }>;
 }
 
 const contract = JSON.parse(
@@ -107,6 +107,12 @@ describe('management wire contract (server/contract/admin-openapi.json)', () => 
     expect(sorted(task.allowed_actions?.items?.enum ?? [])).toEqual(sorted(Object.keys(ACTION_LABELS)));
     const check = schema('CheckResult').properties ?? {};
     expect(sorted(check.check?.enum ?? [])).toEqual(sorted(Object.keys(CHECK_LABELS)));
+  });
+
+  it('requires the canonical UUID idempotency key on plan execution', () => {
+    const planExecute = schema('PlanExecute').properties ?? {};
+    expect(planExecute.idempotency_key?.format).toBe('uuid');
+    expect(sorted(schema('PlanExecute').required ?? [])).toContain('idempotency_key');
   });
 
   it('requires the session fields the UI relies on after a refresh', () => {

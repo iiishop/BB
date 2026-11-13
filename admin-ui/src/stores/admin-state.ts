@@ -93,6 +93,7 @@ export function createAdminState(
   function clearSession(noticeText?: string) {
     applySession(null);
     closeTaskStream();
+    executeKeys.clear();
     config.value = null;
     task.value = null;
     plan.value = null;
@@ -387,8 +388,14 @@ export function createAdminState(
     }
     error.value = null;
     busy.value = 'execute';
-    const key = executeKeys.get(currentPlan.plan_id) ?? `exec:${currentPlan.plan_id}`;
-    executeKeys.set(currentPlan.plan_id, key);
+    // Contract PlanExecute.idempotency_key is a UUID. One UUID per plan is
+    // cached for this page session so a failed/retried request and a double
+    // click reuse the same key; a different plan gets a different UUID.
+    let key = executeKeys.get(currentPlan.plan_id);
+    if (!key) {
+      key = uuid();
+      executeKeys.set(currentPlan.plan_id, key);
+    }
     try {
       const next = await api.executePlan(currentPlan, key, managementToken || undefined);
       plan.value = null;

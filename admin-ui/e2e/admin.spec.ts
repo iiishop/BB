@@ -7,6 +7,8 @@ const NEW_PASSWORD = 'Muse-Admin-Pass-2026';
 const TASK_ID = '33333333-3333-4333-8333-333333333333';
 const DOMAIN = 'bb.muse-preview.test';
 const CHANGED_DOMAIN = 'bb.muse-preview-2.test';
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type MockState = {
   version: number;
@@ -18,6 +20,7 @@ type MockState = {
   authorizations: number;
   lastPlan: ActionPlan | null;
   lastExecution: Record<string, unknown> | null;
+  executionKeys: string[];
   sse: number;
 };
 
@@ -157,6 +160,18 @@ async function installMockStageB(page: Page, state: MockState) {
       const body = JSON.parse(request.postData() ?? '{}') as Record<string, unknown>;
       state.executions += 1;
       state.lastExecution = body;
+      state.executionKeys.push(String(body.idempotency_key ?? ''));
+      // Mirror the server's canonical UUID requirement so a regression fails
+      // here instead of only after integration.
+      if (!UUID_RE.test(String(body.idempotency_key ?? ''))) {
+        return json(route, 422, {
+          error: {
+            code: 'validation_error',
+            message: '请求字段校验失败',
+            fields: [{ field: 'idempotency_key', code: 'uuid_parsing' }],
+          },
+        });
+      }
       const plan = state.lastPlan;
       if (
         !plan ||
@@ -292,6 +307,7 @@ test('DEA-469 admin UI: real stage A backend, then stage B contract preview @rea
     authorizations: 0,
     lastPlan: null,
     lastExecution: null,
+    executionKeys: [],
     sse: 0,
   };
   await installMockStageB(page, mock);
@@ -352,7 +368,9 @@ test('DEA-469 admin UI: real stage A backend, then stage B contract preview @rea
   expect(mock.lastExecution?.plan_id).toBe(mock.lastPlan?.plan_id);
   expect(mock.lastExecution?.digest).toBe(mock.lastPlan?.digest);
   expect(mock.lastExecution?.expected_version).toBe(mock.lastPlan?.config_version);
-  expect(mock.lastExecution?.idempotency_key).toBe(`exec:${mock.lastPlan?.plan_id}`);
+  expect(mock.lastExecution?.idempotency_key).toMatch(UUID_RE);
+  expect(mock.lastExecution?.idempotency_key).not.toContain('exec:');
+  expect(mock.executionKeys).toHaveLength(1);
   await expect(page.getByText('已排队').first()).toBeVisible();
   await shot('08-task-queued-after-confirm');
 
@@ -402,6 +420,9 @@ test('DEA-469 admin UI: real stage A backend, then stage B contract preview @rea
   await expect(staleDialog).toBeHidden();
   await expect(page.getByText('服务端拒绝了本次执行')).toBeVisible();
   expect(mock.executions).toBe(2);
+  expect(mock.executionKeys).toHaveLength(2);
+  expect(mock.executionKeys.every((key) => UUID_RE.test(key))).toBe(true);
+  expect(mock.executionKeys[1]).not.toBe(mock.executionKeys[0]);
   await shot('10-stale-plan-rejected-409');
 
   // Responsive: 390x844 mobile viewport on the same real build.

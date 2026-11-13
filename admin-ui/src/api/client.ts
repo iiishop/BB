@@ -42,6 +42,35 @@ interface RequestOptions {
   csrf?: string | null;
 }
 
+export interface PlanExecutionBody {
+  plan_id: string;
+  digest: string;
+  expected_version: number;
+  idempotency_key: string;
+  confirmed: true;
+  management_token?: string;
+}
+
+/**
+ * Exact /executions request body. Exported so the contract regression can feed
+ * the real generated body to the canonical DTO and catch invalid idempotency
+ * keys before they reach the server.
+ */
+export function buildPlanExecutionBody(
+  plan: ActionPlan,
+  idempotencyKey: string,
+  managementToken?: string,
+): PlanExecutionBody {
+  return {
+    plan_id: plan.plan_id,
+    digest: plan.digest,
+    expected_version: plan.config_version,
+    idempotency_key: idempotencyKey,
+    confirmed: true,
+    ...(managementToken ? { management_token: managementToken } : {}),
+  };
+}
+
 export type TaskStreamHandlers = {
   onTask: (task: AdminTask) => void;
   onStateChange?: (state: 'connecting' | 'open' | 'error') => void;
@@ -151,14 +180,7 @@ export function createAdminApi(getCsrf: () => string | null): AdminApi {
     executePlan: (plan, idempotencyKey, managementToken) =>
       request<AdminTask>('/executions', {
         method: 'POST',
-        body: {
-          plan_id: plan.plan_id,
-          digest: plan.digest,
-          expected_version: plan.config_version,
-          idempotency_key: idempotencyKey,
-          confirmed: true,
-          ...(managementToken ? { management_token: managementToken } : {}),
-        },
+        body: buildPlanExecutionBody(plan, idempotencyKey, managementToken),
         csrf: getCsrf(),
       }),
     currentTask: () => request<CurrentTask>('/tasks/current'),

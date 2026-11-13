@@ -19,6 +19,10 @@ npm test             # Vitest 单元/组件/契约测试
 npm run test:e2e     # Playwright + 真实 bb-admin（见下）
 ```
 
+`npm test` 中包含一个规范 DTO 回归：优先使用 `server/.venv` 的 Python，否则执行
+`uv run --project ../server --locked python`。CI 需安装 uv（或用
+`ADMIN_UI_PYTHON` 指向带 pydantic 的解释器）。
+
 `npm run verify` 依次执行 typecheck、test、build。CI 由 Forge 从仓库根接线；
 本目录不修改共享 CI。
 
@@ -34,6 +38,11 @@ npm run test:e2e     # Playwright + 真实 bb-admin（见下）
   `POST /admin/api/tasks/{task_id}/authorization` 补交凭据（B/C 交接增量）。
 - Vue 不持有任务真相：只展示服务端快照；断线不重建任务。双击由提交中守卫 +
   计划级幂等键约束；刷新从 `tasks/current` 恢复并从快照 `seq` 重新订阅 SSE。
+- `PlanExecute.idempotency_key` 必须是 UUID：界面为每个 `plan_id` 在页面会话内
+  缓存一个 `crypto.randomUUID()`，同一计划的重试/双击复用同一值。`npm test` 会把
+  实际生成的 `/executions` 请求体交给服务端规范 DTO（`PlanExecute`）校验；旧
+  `exec:<plan_id>` 值必须得到 `idempotency_key / uuid_parsing`，修复值必须通过。
+  该回归需要 `uv`/`server/.venv`（见“开发与校验”），CI 的 admin-ui job 需提供其一。
 
 ## 阶段边界
 
