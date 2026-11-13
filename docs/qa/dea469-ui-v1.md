@@ -1,121 +1,132 @@
-# DEA-469 阶段 C：Vue 管理后台证据（review fixes v2）
+# DEA-469 阶段 C：Vue 管理后台证据（authority rework v3）
 
-- 固定基线：`2fe1320d2d49bc3a6f90715504efeb22104d0c9a`（含 PR14，保留其 CI 修复）
-- 分支：`agent/muse/dea469-r2`，仅写 `admin-ui/` 与本文件；未改 `server/`、共享 CI、
-  `main` 或集成分支
+- 固定基线：`32f89632ce84d0a8238b5ef2f809400ff181610d`（保留 PR14/PR15）
+- 分支：`agent/muse/dea469-r3`；仅写 `admin-ui/` 与本文件，未改 `server/`、PR15
+  检查器、共享 CI、契约、锁文件或集成分支
 - 环境：Arch Linux x86_64；Node 26.8.2；npm 12.0.2；Chromium 158.0.8127.18
   （Playwright 1.65）；Vue 3.5.x；Vite 8.3.8；TypeScript 5.9.3
 
-## 本轮修复（PR13 review 第 1–3 项）
+## 本轮必要规则与修复
 
-### 1. 任务读取/SSE 归属（`admin-ui/src/stores/admin-state.ts`）
+### task-authority：旧任务授权响应不得夺取新任务
 
-根因：`/tasks/current` 延迟返回时只按“同 task_id 的 seq”比较，不同旧 task_id
-会被无条件接收；finished 快照还会关闭新 execution 的 SSE。旧 stream 的回调也未
-绑定到具体 stream。
+`authorizeTask` 在 await 期间可能：Escape 关闭授权弹窗、旧任务 SSE 结束、其他标签
+启动新任务、当前页刷新采纳新任务。旧响应返回时不得覆盖 `task` 或关闭/替换新通道。
 
-修复：所有任务接收入口共用一套时序/归属规则，不再靠 task_id 特判。
+修复：mutation 响应绑定发起时的任务归属。`authorizeTask`、`startProbe`、
+`confirmPlan`、`requestPlan` 捕获 `task_id`（无任务时为 `null`）和 session epoch；
+响应返回时只有 `taskResponseStillOwned(owner)` 且 session 未变才应用。旧任务响应
+不再 `applyTaskAndStream`，不会关闭新 SSE。所有入口共用同一归属 helper，不按
+单个 task_id 写特判。
 
-- 每个被接受的权威快照推进 `taskEpoch`；`/tasks/current` 请求捕获启动时的
-  epoch，返回时若 epoch 已变化则丢弃该读取。
-- `taskReadSerial` 只允许最新一次 `/tasks/current` 应用结果；并发读取的旧响应
-  不会覆盖新响应。
-- 每条 SSE 有独立 `streamSerial`；流关闭/替换后，迟到的事件和连接状态回调都被
-  忽略，finished 旧读取也不能关闭新任务流。
-- 直接 mutation 响应仍为权威；`applyTaskAndStream` 仅在快照被接受时重订流。
+### config-authority：GET/PUT 乱序不得让配置版本倒退
 
-永久回归（`admin-ui/tests/admin-state.test.ts`）：
+`loadConfig` 与 `saveDomain` 都可能晚于更新快照返回。修复集中在
+`applyConfig`（配置状态的唯一写入点）：
 
-- “ignores a delayed /tasks/current read after a newer execution owns the stream”：
-  延迟旧 probe 读取不得替换新 execution、不得增加 stream close；新任务后续 SSE
-  事件与 authorization 请求仍使用新 task_id。
-- “lets only the newest concurrent /tasks/current request apply its snapshot”。
-- “ignores late events from a replaced task stream without task-id special cases”。
+- 低于当前 `version` 的快照一律 stale；
+- 相同 version 只允许合并更新的 `active.verified_at`，不得改变 domain/draft；
+- 更高 version 才完整采纳并失效旧计划。
+- `saveDomain` 只在新快照被采纳时清空草稿并显示“已保存”；迟到/落后响应提示
+  页面保留较新版本，不显示失实保存结果。
 
-### 2. 安装成功文案（`admin-ui/src/lib/labels.ts`）
+`config.value` 的写入仅剩 `applyConfig`（以及 `clearSession` 清空），避免 GET/PUT
+各自一套判断。
 
-根因：`taskHeadline` 对任何 `finished/passed` 任务都显示“公网验证通过”，包括
-server 安装完成后直接返回的 install-only 任务。
+### session-authority：退出/失效后旧会话响应不得复活状态
 
-修复：只有 `checks` 中 `instance` 检查实际 `passed` 时才显示“公网验证通过”；
-`installation` 检查 passed 显示“安装完成”；其余 finished/passed 显示
-“只读检查完成”或“任务已完成”。安装成功不再声称公网验证成功。
+`applySession` 推进 `sessionEpoch`；`clearSession`（logout、401、改密后）同样推进。
+所有登录态异步写入口捕获 epoch，返回时 `sessionStillCurrent` 不成立即丢弃：
 
-永久回归（`admin-ui/tests/labels.test.ts`，3 项）：install-only、installation-only
-与 instance passed/unverified 四种事实的文案分离；`StatusCapsule` 组件断言同步更新。
+- `loadCurrentTask` / `loadConfig`（成功与失败分支）
+- `saveDomain`（不写 config、不显示保存成功）
+- `startProbe` / `requestPlan` / `confirmPlan` / `authorizeTask`
+- `restoreSession` / `login` / `changePassword`
 
-### 3. 未保存域名草稿边界（`admin-ui/src/stores/admin-state.ts`、`ConfigView.vue`）
+会话失效后迟到响应不能写 task/config、不能创建 SSE、不能写迟到错误。该边界是
+客户端状态归属，不是服务端鉴权绕过。
 
-根因：域名输入只存在视图内；用户输入新域名但未保存时，仍可基于旧保存版本探测/
-生成计划，确认弹窗显示旧域名，容易被误认为使用新域名。
+## 写入/清空入口清单与共同修复点
 
-修复：草稿进入 store，明确“未保存草稿 / 已保存配置”边界。
+| 入口 | 写入/清空 | 所有者与共同规则 |
+| --- | --- | --- |
+| `applySession` | session、CSRF、`sessionEpoch++` | 登录/恢复会话；所有异步响应靠它判新旧会话 |
+| `clearSession` / `handleUnauthorized` | session/config/task/plan/draft/stream 全清、`sessionEpoch++` | logout、401、改密；让所有在途响应失效 |
+| `applyConfig` | config、configState、draft 清空、plan 失效 | 唯一 config 写入点，按单调 version 接收 |
+| `loadConfig` | 经 `applyConfig` | session epoch + version；落后 GET 不写 |
+| `saveDomain` | config（经 applyConfig）、draft、notice/error、busy | session epoch + version；只有 newer 才报保存成功 |
+| `applyTask` | task、taskState、`taskEpoch++`、终态关流 | 唯一被采纳快照写入点；同任务旧 seq 拒绝 |
+| `loadCurrentTask` | 经 `applyTaskAndStream` 或清空 task/stream | session epoch + `taskEpoch` + `taskReadSerial` |
+| `streamTask` | subscribeTask、streamState、`streamSerial` | 旧流事件/状态回调按 stream serial 丢弃 |
+| `startProbe` | task/stream、notice、busy | session epoch + 目标 task 归属 |
+| `requestPlan` | plan、error/notice、busy | session epoch + 目标 task 归属 + config version |
+| `confirmPlan` | task/stream、plan、notice、busy | session epoch + 目标 task 归属 + config version |
+| `authorizeTask` | task/stream、authorizationPrompt、notice、busy | session epoch + 目标 task 归属 |
+| `setDomainDraft` / `discardDomainDraft` / `invalidatePlan` / `cancelPlan` | draft/plan/notice | UI 草稿边界；不改 config |
 
-- `setDomainDraft` / `discardDomainDraft` / `draftDirty`；草稿修改使未执行计划失效。
-- 草稿未保存时阻止只读探测、生成计划和确认执行；允许 authorize/local_admin 等
-  恢复动作。
-- 保存新域名后 `task.config_version !== config.version` 时，计划动作被禁用并提示
-  重新探测；服务端契约不变。
-- ConfigView 显示“域名草稿尚未保存”提示、保存/放弃修改按钮，并禁用计划按钮；
-  空探针按钮也受草稿边界约束。
-
-永久回归：
-
-- `admin-ui/tests/admin-state.test.ts`：“blocks probe, plan and execute while a
-  domain draft is unsaved”；“requires a new probe before planning against a newly
-  saved domain version”。
-- `admin-ui/tests/config-view.test.ts`：未保存草稿点击旧计划动作时
-  `createPlan` 调用数为 0，并显示边界提示。
-- `admin-ui/tests/components.test.ts`：`planningDisabled` 只禁用计划类动作，
-  不阻断授权恢复。
+共同修复点：session epoch（会话归属）、task `taskEpoch/readSerial/streamSerial` +
+`taskResponseStillOwned`（任务归属）、`applyConfig` 单调 version（配置归属）。三者
+不能互相替代：退出不改变配置 version；旧任务响应与新配置快照不是同一所有权；
+配置 version 也不能证明任务归属。因此分开建模、集中调用。
 
 ## 修前失败 → 修后通过
 
-修前命令（同一组新增回归，基线代码）：
+### 1. 固定基线 review probes（独立 requirement）
+
+干净基线 `32f89632ce84d0a8238b5ef2f809400ff181610d`，通过
+`scripts/ci/qa_evidence.py run` 执行 `npm run test:review-probes`：
+**4 failed / 0 passed，退出 1**，对应两个 P2（配置乱序 2 例、authorize 旧响应 2 例）。
+产物：`qa-r3-before-probes/`（run.json、junit.xml、output.log）。
+
+### 2. 配对 before 证据（同一 testcase 名）
+
+为让 review probes 进入默认回归后仍能配对，先在**仅测试**提交
+`b813c463d34b9010be4c622b2611a2e3bcb32ef8`（源码与上述基线一致）加入
+`tests/authority.test.ts` 与 session/mutation 回归，并用同一 runner 执行：
 
 ```bash
-npx vitest run tests/admin-state.test.ts tests/labels.test.ts tests/config-view.test.ts --reporter=verbose
+npx vitest run tests/authority.test.ts tests/admin-state.test.ts --reporter=junit
 ```
 
-结果：**7 failed / 16 passed，退出码 1**；失败项为 3 条任务归属、3 条安装文案、
-1 条未保存草稿计划。原始日志 `.evidence/review-before.log`（不提交，随回复附件）。
+结果：**33 tests / 10 failed / 23 passed，退出 1**。失败覆盖：
+配置 GET-before-PUT、PUT-before-GET；authorize seq=2/4；迟到 probe、迟到 execute、
+迟到 save；logout 后 current/config、save、错误回调。产物：
+`qa-r3-before-authority/`。
 
-修后：
+### 3. 候选通过
 
 ```bash
+npm test                             # 9 files, 60 passed / 0 failed / 0 skipped
+npx vitest run tests/authority.test.ts tests/admin-state.test.ts
+                                     # 2 files, 33 passed
 npm run typecheck                    # 退出 0
-npm test                             # 8 files, 48 passed / 0 failed / 0 skipped
-npx vitest run tests/admin-state.test.ts tests/labels.test.ts tests/config-view.test.ts
-                                     # 3 files, 25 passed
-npm run build                        # 退出 0；JS 133.81 kB
-npm run test:e2e                     # 1 passed，3.9s
+npm run build                        # 退出 0；JS 135.04 kB
 ```
 
-- JUnit：`.evidence/vitest-junit.xml`（48 项，0 failures/0 errors/0 skipped）；
-  `.evidence/playwright-junit.xml`（1 项，0 failures）。
-- 新增回归全部进入现有 `npm test`；仓库现有 `admin-ui` CI job 已执行
-  `npm ci` + `npm test` + build/typecheck，不新增 job。
-- 修前/修后使用同一测试文件与断言，未跳过或放宽断言。
+`review-probes` 的相同断言已迁入 `tests/authority.test.ts`，默认 `npm test` 收集；
+重复的 `review-probes/authority.test.ts`、`vitest.review.config.ts` 与
+`test:review-probes` 脚本已删除。没有 skip/xfail，断言未放宽。
 
-## 浏览器证据
+### 4. 真实 UI 可达性
 
-`e2e/admin.spec.ts` 在真实生产构建 + 测试用同源外壳上运行：
+`TMPDIR=<workspace>/tmp PLAYWRIGHT_BROWSERS_PATH=<workspace>/.pw-browsers node server/probes/public_browser.mjs`：
+**7 项快速回归 + 2 条产品入口流程通过，退出 0**；`page_errors`、CSP violations
+均为空。真实管理后端、SQLite、SSE、静态挂载参与。第二条场景仅云端/安装器/
+公网验证器为替身，不计真实云验收。产物：`server/.evidence/browser-b-*`（随附件）。
+组件挂载、store 替身和浏览器 E2E 分开报告，不互相冒充。
 
-- 真实 `bb-admin` 的登录/强制改密/旧密码与旧会话失效/刷新恢复/登出；
-- 当前基线的真实 `GET /public-config`（200）与配置版本 v0 页面；
-- 随后在浏览器路由层桩接 B 的 probe/plan/execution/SSE，验证取消无副作用、
-  双击一次执行、UUID 幂等键、刷新恢复、409 失效，以及未保存草稿/旧版本任务的
-  禁用与重新探测边界。
+## QA evidence
 
-截图写入 `admin-ui/.evidence/screens/`（gitignore）。真实产品入口/SSE 的独立
-证据由 `server/probes/public_browser.mjs` 负责；本目录的浏览器桩不计为端到端。
-本轮未重跑该产品入口脚本。
+- 报告与 runner 目录：`qa-r3-report.json`、`qa-r3-before-probes/`、
+  `qa-r3-before-authority/`、`qa-r3-after-authority/`（workspace 隔离目录，附件交付）。
+- 三项规则均以 `--require` 与 `--require-regression` 校验；`before` 使用同一
+  classname/name。检查器通过只证明证据一致性，入口覆盖/语义仍由独立 QA 复核。
+- 候选 SHA、CI 与最终 checker 输出以回复/附件为准；本文件不把本地测试当作 CI。
 
 ## 未运行 / 限制
 
 - 真实 Cloudflare/DNS/Tunnel、Arch 提权安装、Windows 真机/UAC/服务生命周期：
-  NOT RUN；无本轮专用云权限与系统安装授权。
-- 真实 Android/iOS/Windows 设备、真实移动浏览器：NOT RUN；只有 1440×900 与
-  390×844 视口。
-- 独立 QA 与固定候选 CI 结果：尚未开始/未收集；本文件是开发定向自测。
-- 本分支不改服务端契约、锁文件、共享 CI 或集成分支；外部 NOT RUN 边界不变。
+  NOT RUN；无本轮专用授权。
+- 真实移动设备浏览器：NOT RUN；仅有既有 1440×900/390×844 夹具截图。
+- 独立 QA 未开始；未改 PR15 检查器、共享 CI、服务端、契约或锁文件；未合
+  PR13/main、未部署、未发布、未置 Done。

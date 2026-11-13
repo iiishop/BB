@@ -21,8 +21,6 @@
     "src/**/*.ts",
     "src/**/*.vue",
     "tests/**/*.ts",
-    "review-probes/**/*.ts",
-    "vitest.review.config.ts",
     "e2e/**/*.ts",
     "vite.config.ts",
     "vitest.config.ts",

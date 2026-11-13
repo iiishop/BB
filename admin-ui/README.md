@@ -41,6 +41,11 @@ npm run test:e2e     # Playwright + 真实 bb-admin（见下）
 - 任务接收统一按“权威快照 epoch + 最新读取序列 + stream 所有权”裁决：延迟返回的
   `/tasks/current`、并发读取和已替换 EventSource 的迟到回调都不能覆盖新任务或
   关闭其事件流；不按单个 task_id 特判。
+- 所有登录态异步响应绑定 session epoch：logout/会话失效后，迟到的 current、config、
+  save 与 authorize/probe/execute 响应不能写状态、显示保存成功或创建 SSE。
+- mutation 响应只在其目标 task 仍是当前任务时被采纳；旧 authorize/probe/execute
+  响应不能重新夺取任务归属。配置快照按单调 `version` 接收，GET/PUT 落后版本不回滚
+  草稿、保存提示或后续计划。
 - 胶囊标题只在 `instance` 检查实际 passed 时显示“公网验证通过”；安装完成或
   只读检查完成不冒充公网验证。
 - 域名草稿与已保存配置分离：草稿未保存时禁止探测/生成计划，计划/执行使用

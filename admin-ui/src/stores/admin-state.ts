@@ -81,6 +81,7 @@ export function createAdminState(
   let taskEpoch = 0;
   let taskReadSerial = 0;
   let streamSerial = 0;
+  let sessionEpoch = 0;
 
   function setCsrf(value: string | null) {
     csrfToken = value;
@@ -94,8 +95,18 @@ export function createAdminState(
   }
 
   function applySession(next: AdminSession | null) {
+    sessionEpoch += 1;
     session.value = next;
     setCsrf(next?.csrf_token ?? null);
+  }
+
+  function sessionStillCurrent(epoch: number): boolean {
+    return epoch === sessionEpoch;
+  }
+
+  function taskResponseStillOwned(ownerTaskId: string | null): boolean {
+    const current = task.value;
+    return ownerTaskId === null ? current === null : current?.task_id === ownerTaskId;
   }
 
   function clearSession(noticeText?: string) {
@@ -106,6 +117,7 @@ export function createAdminState(
     domainDraft.value = null;
     task.value = null;
     plan.value = null;
+    authorizationPrompt.value = false;
     configState.value = 'idle';
     taskState.value = 'idle';
     if (noticeText) notice.value = noticeText;
@@ -131,14 +143,32 @@ export function createAdminState(
     error.value = cause instanceof AdminApiError ? cause.message : (fallback ?? messageOf(cause));
   }
 
-  function applyConfig(next: PublicConfig) {
+  type ConfigApply = 'newer' | 'same' | 'stale';
+
+  function applyConfig(next: PublicConfig): ConfigApply {
     const previous = config.value;
+    if (previous && next.version < previous.version) return 'stale';
+    if (previous && next.version === previous.version) {
+      // Active verification does not bump the draft version. Accept a newer
+      // active snapshot at the same version, but never let a same-version
+      // response roll back the domain or an already verified active config.
+      if (next.domain !== previous.domain) return 'stale';
+      if (
+        next.active &&
+        (!previous.active || next.active.verified_at >= previous.active.verified_at)
+      ) {
+        config.value = { ...previous, active: next.active };
+        configState.value = 'ready';
+      }
+      return 'same';
+    }
     config.value = next;
     configState.value = 'ready';
     if (domainDraft.value !== null && domainDraft.value === next.domain) {
       domainDraft.value = null;
     }
-    if (previous && previous.version !== next.version) invalidatePlan();
+    if (previous) invalidatePlan();
+    return 'newer';
   }
 
   function applyTask(next: AdminTask): boolean {
@@ -188,11 +218,15 @@ export function createAdminState(
   }
 
   async function restoreSession(): Promise<boolean> {
+    const epoch = sessionEpoch;
     restoring.value = true;
     try {
-      applySession(await api.session());
+      const next = await api.session();
+      if (!sessionStillCurrent(epoch)) return false;
+      applySession(next);
       return true;
     } catch (cause) {
+      if (!sessionStillCurrent(epoch)) return false;
       if (cause instanceof AdminApiError && cause.isUnauthenticated) {
         clearSession();
       } else {
@@ -208,10 +242,14 @@ export function createAdminState(
     error.value = null;
     notice.value = null;
     busy.value = 'login';
+    const epoch = sessionEpoch;
     try {
-      applySession(await api.login(username, password));
+      const next = await api.login(username, password);
+      if (!sessionStillCurrent(epoch)) return false;
+      applySession(next);
       return true;
     } catch (cause) {
+      if (!sessionStillCurrent(epoch)) return false;
       // A 401 from /login means wrong credentials, not an expired session:
       // keep the form and never redirect through the session-expiry path.
       if (cause instanceof AdminApiError && (cause.isUnauthenticated || cause.status === 429)) {
@@ -228,11 +266,14 @@ export function createAdminState(
   async function changePassword(oldPassword: string, newPassword: string): Promise<boolean> {
     error.value = null;
     busy.value = 'password';
+    const epoch = sessionEpoch;
     try {
       await api.changePassword(oldPassword, newPassword);
+      if (!sessionStillCurrent(epoch)) return false;
       clearSession('密码已修改，所有旧会话已失效，请用新密码重新登录。');
       return true;
     } catch (cause) {
+      if (!sessionStillCurrent(epoch)) return false;
       handleError(cause, '修改密码失败，请重试。');
       return false;
     } finally {
@@ -256,12 +297,16 @@ export function createAdminState(
   }
 
   async function loadConfig(): Promise<void> {
+    const epoch = sessionEpoch;
     configState.value = 'loading';
     try {
-      config.value = await api.getPublicConfig();
+      const next = await api.getPublicConfig();
+      if (!sessionStillCurrent(epoch)) return;
+      applyConfig(next);
       stageBUnavailable.value = false;
       configState.value = 'ready';
     } catch (cause) {
+      if (!sessionStillCurrent(epoch)) return;
       if (cause instanceof AdminApiError && cause.isStageBUnavailable) {
         stageBUnavailable.value = true;
         config.value = null;
@@ -281,9 +326,12 @@ export function createAdminState(
   async function loadCurrentTask(): Promise<void> {
     const request = ++taskReadSerial;
     const startedAt = taskEpoch;
+    const epoch = sessionEpoch;
     taskState.value = 'loading';
     try {
       const current = await api.currentTask();
+      // A new session (login/logout) invalidates this response completely.
+      if (!sessionStillCurrent(epoch)) return;
       // A newer task was adopted (mutation/SSE) or a newer read started while
       // this one was in flight: this snapshot is stale and owns nothing.
       if (request !== taskReadSerial || startedAt !== taskEpoch) return;
@@ -296,6 +344,7 @@ export function createAdminState(
         taskState.value = 'ready';
       }
     } catch (cause) {
+      if (!sessionStillCurrent(epoch)) return;
       if (cause instanceof AdminApiError && cause.isUnauthenticated) {
         handleUnauthorized();
         taskState.value = 'error';
@@ -335,15 +384,23 @@ export function createAdminState(
     error.value = null;
     notice.value = null;
     busy.value = 'save';
+    const epoch = sessionEpoch;
     try {
       const hadPlan = plan.value !== null;
-      applyConfig(await api.savePublicConfig(config.value.version, value));
+      const next = await api.savePublicConfig(config.value.version, value);
+      if (!sessionStillCurrent(epoch)) return false;
+      if (applyConfig(next) !== 'newer') {
+        error.value =
+          '另一个配置更新已生效，本次较早的保存响应未覆盖当前页面；请刷新核对。';
+        return false;
+      }
       domainDraft.value = null;
       notice.value = hadPlan
         ? '域名已保存为草稿，原确认计划已失效；请重新探测并确认后才会生效。'
         : '域名已保存为草稿；需要重新探测、计划并确认后才会生效。';
       return true;
     } catch (cause) {
+      if (!sessionStillCurrent(epoch)) return false;
       if (cause instanceof AdminApiError && cause.status === 409) {
         error.value = '配置版本已变化，请刷新后重新探测并确认。';
         invalidatePlan();
@@ -366,6 +423,8 @@ export function createAdminState(
     error.value = null;
     notice.value = null;
     busy.value = 'probe';
+    const ownerTaskId = task.value?.task_id ?? null;
+    const epoch = sessionEpoch;
     probeKey ??= uuid();
     try {
       const next = await api.startProbe(
@@ -373,10 +432,16 @@ export function createAdminState(
         probeKey,
         managementToken || undefined,
       );
+      if (!sessionStillCurrent(epoch)) return false;
+      if (!taskResponseStillOwned(ownerTaskId)) {
+        notice.value = '已有更新任务，较早的探测响应未覆盖当前任务。';
+        return false;
+      }
       applyTaskAndStream(next);
       probeKey = null;
       return true;
     } catch (cause) {
+      if (!sessionStillCurrent(epoch)) return false;
       if (cause instanceof AdminApiError && cause.status === 409) {
         error.value = '已有任务占用当前配置目标，已读取当前任务。';
         await loadCurrentTask();
@@ -404,8 +469,14 @@ export function createAdminState(
     error.value = null;
     notice.value = null;
     busy.value = 'plan';
+    const ownerTaskId = task.value.task_id;
+    const epoch = sessionEpoch;
     try {
-      const next = await api.createPlan(config.value.version, task.value.task_id, action);
+      const next = await api.createPlan(config.value.version, ownerTaskId, action);
+      if (!sessionStillCurrent(epoch) || !taskResponseStillOwned(ownerTaskId)) {
+        error.value = '任务已被更新，较早的计划响应未覆盖当前任务；请重新探测。';
+        return false;
+      }
       if (next.config_version !== config.value.version) {
         error.value = '计划对应版本与当前配置不一致，请重新探测。';
         return false;
@@ -413,6 +484,7 @@ export function createAdminState(
       plan.value = next;
       return true;
     } catch (cause) {
+      if (!sessionStillCurrent(epoch)) return false;
       handleError(cause, '创建执行计划失败。');
       return false;
     } finally {
@@ -454,12 +526,21 @@ export function createAdminState(
       key = uuid();
       executeKeys.set(currentPlan.plan_id, key);
     }
+    const ownerTaskId = task.value?.task_id ?? null;
+    const epoch = sessionEpoch;
     try {
       const next = await api.executePlan(currentPlan, key, managementToken || undefined);
+      if (!sessionStillCurrent(epoch)) return false;
+      if (!taskResponseStillOwned(ownerTaskId)) {
+        plan.value = null;
+        notice.value = '任务已被更新，较早的执行响应未覆盖当前任务；请刷新核对。';
+        return false;
+      }
       plan.value = null;
       applyTaskAndStream(next);
       return true;
     } catch (cause) {
+      if (!sessionStillCurrent(epoch)) return false;
       if (cause instanceof AdminApiError && cause.status === 409) {
         plan.value = null;
         error.value = '计划或配置已变化，服务端拒绝了本次执行；请重新探测并确认。';
@@ -483,14 +564,23 @@ export function createAdminState(
 
   async function authorizeTask(managementToken: string): Promise<boolean> {
     if (!task.value || !managementToken) return false;
+    const ownerTaskId = task.value.task_id;
+    const epoch = sessionEpoch;
     error.value = null;
     busy.value = 'authorize';
     try {
-      const next = await api.authorizeTask(task.value.task_id, managementToken);
+      const next = await api.authorizeTask(ownerTaskId, managementToken);
+      if (!sessionStillCurrent(epoch)) return false;
+      if (!taskResponseStillOwned(ownerTaskId)) {
+        authorizationPrompt.value = false;
+        notice.value = '任务已被更新，较早的授权响应未覆盖当前任务；请刷新核对。';
+        return false;
+      }
       authorizationPrompt.value = false;
       applyTaskAndStream(next);
       return true;
     } catch (cause) {
+      if (!sessionStillCurrent(epoch)) return false;
       if (cause instanceof AdminApiError && cause.status === 409) {
         authorizationPrompt.value = false;
         error.value = '该任务已结束或无需授权，已刷新当前任务。';
