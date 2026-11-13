@@ -96,7 +96,7 @@
 `{code,message,fields}` 形状，以及 probe 路径结果/identity 的 key 集合。
 
 `QA_REQUIRE_INTEGRATION=1 bash scripts/run_flutter_tests.sh client`：analyze PASS、
-flutter-test **323 passed / 6 skipped**、linux-integration **13 passed**，`RESULT=PASS`。
+flutter-test **324 passed / 6 skipped**、linux-integration **13 passed**，`RESULT=PASS`。
 
 6 个既有 skip（未算通过）：
 
@@ -134,7 +134,7 @@ Owner 纠正“没有部署、没有旧调用方”后，本轮不再修补 v1 �
 - 之前 `admitted-send-switch` 的 `stale_identity` 分类修复保留。旧 `live.py --faults` 的
   migration-ambiguous 用例依赖已删除的迁移分支，不再作为当前树的门槛；未重跑旧全矩阵。
 
-严格三层（清理后）：analyze PASS、flutter-test **323 passed / 6 skipped**、
+严格三层（清理后）：analyze PASS、flutter-test **324 passed / 6 skipped**、
 linux-integration **13 passed**，`RESULT=PASS`，退出 0。
 
 ## 9. 统一会话/消息/上下文查询服务（共享契约 900429c 接线）
@@ -189,7 +189,7 @@ R1/R2 不再用 v1 权限特判解决，而是消除旧通路本身：
 非 200，无 identity 为 422，owner+identity 为 200；关闭服务并从同一账本重启后，
 `/v2/consumers/get` 与业务调用仍返回同一稳定 consumer。
 
-严格三层：analyze PASS、flutter-test **323 passed / 6 skipped**、linux-integration
+严格三层：analyze PASS、flutter-test **324 passed / 6 skipped**、linux-integration
 **13 passed**，`RESULT=PASS`，退出 0。
 
 
@@ -224,11 +224,14 @@ R1/R2 不再用 v1 权限特判解决，而是消除旧通路本身：
   新登录的持久化代次在**提交队列内**分配：队列中较早的 clear 先执行并推进墓碑后，排在它
   后面的登录再取得更高代次并落盘，因此 earlier clear 不会让 later login 被判旧；登录写入
   的失败会抛错而不是静默跳过。`test/f4_queued_clear_login_test.dart` 覆盖“旧 clear 入队→
-  新登录入队→释放”的确定性反例，冷读磁盘保持新 token。
+  新登录入队→释放”的确定性反例，冷读磁盘保持新 token。登录持久化失败时也只清理该次
+  捕获的 `AuthIdentity`；若失败等待期间已有新登录建立会话，不执行无条件 `clear`，旧登录
+  返回失败而新登录的内存/磁盘归属保留。`test/f4_login_failure_queue_test.dart` 在旧登录
+  的真实 replace 注入一次 `FileSystemException`，后续登录仍返回 200 且冷读为新 token。
 
 回归：`test/chat_identity_capture_race_test.dart`（锁等待/捕获后切号）、
 `test/chat_ledger_io_rollback_test.dart`（真实 ACK/bind 写盘失败+冷重开）、
 `test/local_v2_unauthorized_test.dart`（当前 401 清理与并发新登录保护）；
 真实 FastAPI A/B/C 对照：修复前旧 A 请求返回 200 且含 B-C 私聊预览，修复后返回 409 且
-无该预览。严格三层：analyze PASS、flutter-test **323 passed / 6 skipped**、
+无该预览。严格三层：analyze PASS、flutter-test **324 passed / 6 skipped**、
 linux-integration **13 passed**，`RESULT=PASS`，退出 0。

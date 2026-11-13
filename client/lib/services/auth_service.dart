@@ -63,6 +63,7 @@ class AuthService implements AuthGateway {
       password: password,
     );
     session.establish(token: result.token, user: result.user);
+    final AuthIdentity established = session.identity!;
     try {
       await _persist(result.user, result.token, assignGeneration: true);
       final SessionStore? store = this.store;
@@ -71,9 +72,11 @@ class AuthService implements AuthGateway {
       }
     } on SessionStorageException {
       // Login succeeded at the server, but the restart capability did not. Do
-      // not report success: drop the half-established session so the caller
-      // cannot mistake it for a durable login.
-      session.clear();
+      // not report success. Only drop this login; a newer login that committed
+      // while the failed write was queued owns the session now.
+      if (session.isCurrent(established)) {
+        session.clear();
+      }
       throw sessionStorageUnavailable;
     }
     return result.user;
