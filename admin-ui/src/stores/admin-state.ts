@@ -14,6 +14,14 @@ import {
   type PublicConfig,
 } from '../api/types';
 
+// Probe admission returns 409 for several distinct reasons; only `task_busy`
+// is actually about another task holding the target.
+const probeConflictMessages: Record<string, string> = {
+  draft_required: '配置里还没有保存的域名草稿：先填域名并保存，再运行探测。',
+  task_busy: '已有未结束的任务占用当前配置目标，已读取当前任务。',
+  configuration_conflict: '配置版本已变化，请刷新后重新探测。',
+};
+
 export type BusyAction =
   | 'login'
   | 'password'
@@ -485,7 +493,13 @@ export function createAdminState(
     } catch (cause) {
       if (!sessionStillCurrent(epoch)) return false;
       if (cause instanceof AdminApiError && cause.status === 409) {
-        error.value = '已有任务占用当前配置目标，已读取当前任务。';
+        // A 409 from probe admission is not always "another task is running":
+        // a config without a saved draft domain is rejected with
+        // `draft_required`, and reporting that as task contention sends the
+        // user looking for a task that does not exist.
+        error.value =
+          probeConflictMessages[cause.code] ??
+          '配置或任务状态已变化，请刷新后重新探测。';
         await loadCurrentTask();
         return false;
       }
