@@ -72,7 +72,11 @@ class FakeChatService extends ChatService {
   String get selfAccount => self.account;
 
   @override
-  Future<UserPage> listUsers({String afterAccount = '', int limit = 50}) async {
+  Future<UserPage> listUsers({
+    String afterAccount = '',
+    int limit = 50,
+    ExpectedIdentity? expectedIdentity,
+  }) async {
     return UserPage(
       items: users
           .where((ChatUser user) => user.account != self.account)

@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:bb_client/models/auth_models.dart';
 import 'package:bb_client/models/profile_models.dart';
+import 'package:bb_client/services/auth_session.dart';
 import 'package:bb_client/services/profile_service.dart';
 
 /// In-memory ProfileGateway used by widget tests.
@@ -30,7 +31,7 @@ class FakeProfileGateway implements ProfileGateway {
   final List<String> avatarSources = <String>[];
 
   @override
-  Future<Profile> loadProfile({String? account}) async {
+  Future<Profile> loadProfile({String? account, AuthIdentity? captured}) async {
     loadProfileCalls += 1;
     final AuthFailure? error = failure;
     if (error != null) {
@@ -40,7 +41,7 @@ class FakeProfileGateway implements ProfileGateway {
   }
 
   @override
-  Future<AvatarImage> loadAvatar({String? account}) async {
+  Future<AvatarImage> loadAvatar({String? account, AuthIdentity? captured}) async {
     loadAvatarCalls += 1;
     final AuthFailure? error = failure;
     if (error != null) {
@@ -54,19 +55,19 @@ class FakeProfileGateway implements ProfileGateway {
   }
 
   @override
-  Future<AvatarInfo> updateAvatarFromPath(String path) async {
+  Future<AvatarInfo> updateAvatarFromPath(String path, {AuthIdentity? captured}) async {
     avatarSources.add('path:$path');
     return _avatarUpdate();
   }
 
   @override
-  Future<AvatarInfo> updateAvatarFromUrl(String url) async {
+  Future<AvatarInfo> updateAvatarFromUrl(String url, {AuthIdentity? captured}) async {
     avatarSources.add('url:$url');
     return _avatarUpdate();
   }
 
   @override
-  Future<AvatarInfo> updateAvatarFromBase64(String payload) async {
+  Future<AvatarInfo> updateAvatarFromBase64(String payload, {AuthIdentity? captured}) async {
     avatarSources.add('base64:${payload.length}');
     return _avatarUpdate();
   }
@@ -88,7 +89,7 @@ class FakeProfileGateway implements ProfileGateway {
   }
 
   @override
-  Future<AvatarInfo> removeAvatar() async {
+  Future<AvatarInfo> removeAvatar({AuthIdentity? captured}) async {
     avatar = _png;
     profile = Profile(
       account: profile.account,
@@ -104,7 +105,7 @@ class FakeProfileGateway implements ProfileGateway {
   }
 
   @override
-  Future<Profile> saveProfile(ProfilePatch patch) async {
+  Future<Profile> saveProfile(ProfilePatch patch, {AuthIdentity? captured}) async {
     patches.add(patch);
     final AuthFailure? error = saveFailure;
     if (error != null) {
@@ -127,20 +128,20 @@ class FakeProfileGateway implements ProfileGateway {
   }
 
   @override
-  Future<String> viewNickname({String? account}) async =>
+  Future<String> viewNickname({String? account, AuthIdentity? captured}) async =>
       (await loadProfile(account: account)).username;
 
   @override
-  Future<String?> viewSignature({String? account}) async =>
+  Future<String?> viewSignature({String? account, AuthIdentity? captured}) async =>
       (await loadProfile(account: account)).signature;
 
   @override
-  Future<String> updateNickname(String value) async =>
+  Future<String> updateNickname(String value, {AuthIdentity? captured}) async =>
       (await saveProfile(ProfilePatch(setUsername: true, username: value)))
           .username;
 
   @override
-  Future<String?> updateSignature(String? value) async =>
+  Future<String?> updateSignature(String? value, {AuthIdentity? captured}) async =>
       (await saveProfile(ProfilePatch(setSignature: true, signature: value)))
           .signature;
 

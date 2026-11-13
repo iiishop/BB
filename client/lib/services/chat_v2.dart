@@ -308,6 +308,7 @@ class ChatV2Router {
         ) async {
           final AvatarImage image = await _profileGateway().loadAvatar(
             account: args.values['account'] as String?,
+            captured: context.identity,
           );
           return <String, dynamic>{
             'account': image.account,
@@ -325,9 +326,18 @@ class ChatV2Router {
                   as ({String source, String value});
           final ProfileGateway gateway = _profileGateway();
           final AvatarInfo info = switch (input.source) {
-            'path' => await gateway.updateAvatarFromPath(input.value),
-            'url' => await gateway.updateAvatarFromUrl(input.value),
-            _ => await gateway.updateAvatarFromBase64(input.value),
+            'path' => await gateway.updateAvatarFromPath(
+              input.value,
+              captured: context.identity,
+            ),
+            'url' => await gateway.updateAvatarFromUrl(
+              input.value,
+              captured: context.identity,
+            ),
+            _ => await gateway.updateAvatarFromBase64(
+              input.value,
+              captured: context.identity,
+            ),
           };
           return info.toJson();
         });
@@ -339,6 +349,7 @@ class ChatV2Router {
           final String account = requested ?? context.identity.account;
           final String username = await _profileGateway().viewNickname(
             account: requested,
+            captured: context.identity,
           );
           return <String, dynamic>{
             'account': account,
@@ -351,6 +362,7 @@ class ChatV2Router {
         ) async {
           final String username = await _profileGateway().updateNickname(
             args.values['value'] as String,
+            captured: context.identity,
           );
           return <String, dynamic>{
             'account': context.identity.account,
@@ -365,6 +377,7 @@ class ChatV2Router {
           final String account = requested ?? context.identity.account;
           final String? signature = await _profileGateway().viewSignature(
             account: requested,
+            captured: context.identity,
           );
           return <String, dynamic>{
             'account': account,
@@ -377,6 +390,7 @@ class ChatV2Router {
         ) async {
           final String? signature = await _profileGateway().updateSignature(
             args.values['value'] as String?,
+            captured: context.identity,
           );
           return <String, dynamic>{
             'account': context.identity.account,
@@ -463,6 +477,7 @@ class ChatV2Router {
         final UserPage page = await service.listUsers(
           afterAccount: (args.values['after_account'] as String?) ?? '',
           limit: (args.values['limit'] as int?) ?? 50,
+          expectedIdentity: expected,
         );
         return _reply(expected, page.toJson());
       case '/v2/chat/send_message':

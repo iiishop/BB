@@ -84,9 +84,11 @@ void main() {
         profile: profile,
         chat: chat,
         port: 0,
-        onUnauthorized: () async {
+        onUnauthorized: (String token) async {
           unauthorizedCalls += 1;
-          await auth.signOut();
+          if (session.tokenForRequest == token) {
+            await auth.signOut();
+          }
         },
       );
       final Uri address = await server.start();

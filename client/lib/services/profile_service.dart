@@ -4,8 +4,10 @@ import '../models/auth_models.dart';
 import '../models/profile_models.dart';
 import '../validation/profile_rules.dart';
 import 'auth_service.dart';
+import 'auth_session.dart';
 import 'avatar_cache.dart';
 import 'avatar_source.dart';
+import 'client_identity.dart';
 import 'profile_api_client.dart';
 
 /// The Profile surface shared by the Flutter UI and the local control API.
@@ -13,28 +15,28 @@ import 'profile_api_client.dart';
 /// One implementation means the MCP tools and the panels exercise the same
 /// validation, cache revalidation and server calls.
 abstract class ProfileGateway {
-  Future<Profile> loadProfile({String? account});
+  Future<Profile> loadProfile({String? account, AuthIdentity? captured});
 
   /// Always revalidates with the server. Cached bytes are reused only on 304.
-  Future<AvatarImage> loadAvatar({String? account});
+  Future<AvatarImage> loadAvatar({String? account, AuthIdentity? captured});
 
-  Future<AvatarInfo> updateAvatarFromPath(String path);
+  Future<AvatarInfo> updateAvatarFromPath(String path, {AuthIdentity? captured});
 
-  Future<AvatarInfo> updateAvatarFromUrl(String url);
+  Future<AvatarInfo> updateAvatarFromUrl(String url, {AuthIdentity? captured});
 
-  Future<AvatarInfo> updateAvatarFromBase64(String payload);
+  Future<AvatarInfo> updateAvatarFromBase64(String payload, {AuthIdentity? captured});
 
-  Future<AvatarInfo> removeAvatar();
+  Future<AvatarInfo> removeAvatar({AuthIdentity? captured});
 
-  Future<Profile> saveProfile(ProfilePatch patch);
+  Future<Profile> saveProfile(ProfilePatch patch, {AuthIdentity? captured});
 
-  Future<String> viewNickname({String? account});
+  Future<String> viewNickname({String? account, AuthIdentity? captured});
 
-  Future<String?> viewSignature({String? account});
+  Future<String?> viewSignature({String? account, AuthIdentity? captured});
 
-  Future<String> updateNickname(String value);
+  Future<String> updateNickname(String value, {AuthIdentity? captured});
 
-  Future<String?> updateSignature(String? value);
+  Future<String?> updateSignature(String? value, {AuthIdentity? captured});
 
   Future<void> logout();
 
@@ -56,7 +58,13 @@ class ProfileService implements ProfileGateway {
   final AvatarCacheStore cache;
   final AvatarSourceReader sources;
 
-  String get _token {
+  /// The request-scoped credential. When [captured] is supplied the caller's
+  /// immutable identity/token is used, never the mutable current session.
+  String _token(AuthIdentity? captured) {
+    if (captured != null) {
+      _ensureCurrent(captured);
+      return captured.token;
+    }
     final String? token = auth.session.tokenForRequest;
     if (token == null) {
       throw unauthenticated;
@@ -64,10 +72,14 @@ class ProfileService implements ProfileGateway {
     return token;
   }
 
-  String _account(String? account) {
+  String _account(String? account, AuthIdentity? captured) {
     final String? normalized = normalizeAccount(account);
     if (normalized != null) {
       return normalized;
+    }
+    if (captured != null) {
+      _ensureCurrent(captured);
+      return captured.account;
     }
     final AuthUser? user = auth.session.user;
     if (user == null || !auth.session.hasToken) {
@@ -76,12 +88,20 @@ class ProfileService implements ProfileGateway {
     return user.account;
   }
 
+  void _ensureCurrent(AuthIdentity? captured) {
+    if (captured != null && !auth.session.isCurrent(captured)) {
+      throw staleIdentity;
+    }
+  }
+
   @override
-  Future<Profile> loadProfile({String? account}) async {
+  Future<Profile> loadProfile({String? account, AuthIdentity? captured}) async {
+    final String token = _token(captured);
     final Profile profile = await api.fetchProfile(
-      token: _token,
-      account: _account(account),
+      token: token,
+      account: _account(account, captured),
     );
+    _ensureCurrent(captured);
     if (profile.account == auth.session.user?.account &&
         profile.username != auth.session.user?.username) {
       await auth.rememberUser(
@@ -92,15 +112,16 @@ class ProfileService implements ProfileGateway {
   }
 
   @override
-  Future<AvatarImage> loadAvatar({String? account}) async {
-    final String target = _account(account);
-    final String token = _token;
+  Future<AvatarImage> loadAvatar({String? account, AuthIdentity? captured}) async {
+    final String target = _account(account, captured);
+    final String token = _token(captured);
     CachedAvatar? cached = await cache.read(target);
     AvatarFetch fetched = await api.fetchAvatar(
       token: token,
       account: target,
       ifNoneMatch: cached?.version,
     );
+    _ensureCurrent(captured);
     if (fetched.notModified) {
       if (cached == null) {
         // Defensive: a 304 without a usable cache entry must not produce an
@@ -117,6 +138,7 @@ class ProfileService implements ProfileGateway {
     if (fetched.bytes.isEmpty) {
       throw upstreamMalformed;
     }
+    _ensureCurrent(captured);
     await cache.write(target, fetched.bytes, fetched.version);
     return AvatarImage(
       account: target,
@@ -126,42 +148,59 @@ class ProfileService implements ProfileGateway {
   }
 
   @override
-  Future<AvatarInfo> updateAvatarFromPath(String path) async {
+  Future<AvatarInfo> updateAvatarFromPath(
+    String path, {
+    AuthIdentity? captured,
+  }) async {
     final Uint8List bytes = await sources.readPath(path);
-    return _upload(bytes);
+    return _upload(bytes, captured);
   }
 
   @override
-  Future<AvatarInfo> updateAvatarFromUrl(String url) async {
+  Future<AvatarInfo> updateAvatarFromUrl(
+    String url, {
+    AuthIdentity? captured,
+  }) async {
     final Uint8List bytes = await sources.readUrl(url);
-    return _upload(bytes);
+    return _upload(bytes, captured);
   }
 
   @override
-  Future<AvatarInfo> updateAvatarFromBase64(String payload) async {
+  Future<AvatarInfo> updateAvatarFromBase64(
+    String payload, {
+    AuthIdentity? captured,
+  }) async {
     final Uint8List bytes = await sources.readBase64(payload);
-    return _upload(bytes);
+    return _upload(bytes, captured);
   }
 
   @override
-  Future<AvatarInfo> removeAvatar() async {
-    final String account = _account(null);
-    final AvatarInfo info = await api.deleteAvatar(token: _token);
+  Future<AvatarInfo> removeAvatar({AuthIdentity? captured}) async {
+    final String account = _account(null, captured);
+    final AvatarInfo info = await api.deleteAvatar(token: _token(captured));
+    _ensureCurrent(captured);
     await cache.invalidate(account);
     return info;
   }
 
-  Future<AvatarInfo> _upload(Uint8List bytes) async {
-    final String account = _account(null);
+  Future<AvatarInfo> _upload(Uint8List bytes, AuthIdentity? captured) async {
+    final String account = _account(null, captured);
     validateAvatarBytes(bytes, sourceField: 'body');
-    final AvatarInfo info = await api.uploadAvatar(token: _token, bytes: bytes);
+    final AvatarInfo info = await api.uploadAvatar(
+      token: _token(captured),
+      bytes: bytes,
+    );
+    _ensureCurrent(captured);
     // The server re-encodes the upload; never keep the pre-normalized bytes.
     await cache.invalidate(account);
     return info;
   }
 
   @override
-  Future<Profile> saveProfile(ProfilePatch patch) async {
+  Future<Profile> saveProfile(
+    ProfilePatch patch, {
+    AuthIdentity? captured,
+  }) async {
     final ProfilePatch normalized = ProfilePatch(
       setUsername: patch.setUsername,
       username: patch.setUsername ? normalizeUsername(patch.username) : null,
@@ -171,10 +210,12 @@ class ProfileService implements ProfileGateway {
           : null,
     );
     final Profile profile = await api.patchProfile(
-      token: _token,
+      token: _token(captured),
       patch: normalized,
     );
-    if (profile.account == auth.session.user?.account) {
+    _ensureCurrent(captured);
+    if (profile.account == auth.session.user?.account &&
+        (captured == null || auth.session.isCurrent(captured))) {
       await auth.rememberUser(
         AuthUser(account: profile.account, username: profile.username),
       );
@@ -183,27 +224,29 @@ class ProfileService implements ProfileGateway {
   }
 
   @override
-  Future<String> viewNickname({String? account}) async {
-    return (await loadProfile(account: account)).username;
+  Future<String> viewNickname({String? account, AuthIdentity? captured}) async {
+    return (await loadProfile(account: account, captured: captured)).username;
   }
 
   @override
-  Future<String?> viewSignature({String? account}) async {
-    return (await loadProfile(account: account)).signature;
+  Future<String?> viewSignature({String? account, AuthIdentity? captured}) async {
+    return (await loadProfile(account: account, captured: captured)).signature;
   }
 
   @override
-  Future<String> updateNickname(String value) async {
+  Future<String> updateNickname(String value, {AuthIdentity? captured}) async {
     final Profile profile = await saveProfile(
       ProfilePatch(setUsername: true, username: value),
+      captured: captured,
     );
     return profile.username;
   }
 
   @override
-  Future<String?> updateSignature(String? value) async {
+  Future<String?> updateSignature(String? value, {AuthIdentity? captured}) async {
     final Profile profile = await saveProfile(
       ProfilePatch(setSignature: true, signature: value),
+      captured: captured,
     );
     return profile.signature;
   }
@@ -215,6 +258,6 @@ class ProfileService implements ProfileGateway {
 
   @override
   Future<void> heartbeat() async {
-    await auth.api.heartbeat(_token);
+    await auth.api.heartbeat(_token(null));
   }
 }

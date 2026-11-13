@@ -300,6 +300,21 @@ class ChatLedger {
     return value;
   }
 
+  /// Snapshots the in-memory document at a transaction boundary. Mutations
+  /// that flush after this point restore the snapshot if the durable write
+  /// fails, so a retry can never act on an unpersisted revision or watermark.
+  Map<String, dynamic> _snapshotLocked() =>
+      jsonDecode(jsonEncode(_data)) as Map<String, dynamic>;
+
+  Future<void> _flushTransactionLocked(Map<String, dynamic> snapshot) async {
+    try {
+      await _flush();
+    } catch (_) {
+      _data = snapshot;
+      rethrow;
+    }
+  }
+
   Future<void> _flush() async {
     final File? file = _file;
     if (file == null) {
@@ -799,6 +814,7 @@ class ChatLedger {
             <String, dynamic>{}),
         sessionId: true,
       };
+      final Map<String, dynamic> snapshot = _snapshotLocked();
       _consumers[consumerId] = <String, dynamic>{
         ...record,
         'auth_generation': authGeneration,
@@ -810,7 +826,7 @@ class ChatLedger {
       (_account(account)['consumer_aliases']
           as Map<String, dynamic>)[sessionId] =
           consumerId;
-      await _flush();
+      await _flushTransactionLocked(snapshot);
       return _bindingLocked(consumerId)!;
     });
   }
@@ -877,12 +893,13 @@ class ChatLedger {
       }
 
       if (resolved == null) {
+        final Map<String, dynamic> snapshot = _snapshotLocked();
         resolved = _ensureConsumerLocked(
           account: account,
           consumerSession: consumerSession,
           authGeneration: authGeneration,
         );
-        await _flush();
+        await _flushTransactionLocked(snapshot);
         return _bindingLocked(resolved)!;
       }
 
@@ -922,6 +939,7 @@ class ChatLedger {
       if (generationChanged || aliasAdded) {
         final bool firstBinding =
             generationChanged && binding.authGeneration.isEmpty;
+        final Map<String, dynamic> snapshot = _snapshotLocked();
         _consumers[resolved] = <String, dynamic>{
           ...(_consumers[resolved] as Map<String, dynamic>),
           'auth_generation': generationChanged
@@ -936,7 +954,7 @@ class ChatLedger {
         (_account(account)['consumer_aliases']
             as Map<String, dynamic>)[consumerSession] =
             resolved;
-        await _flush();
+        await _flushTransactionLocked(snapshot);
         binding = _bindingLocked(resolved)!;
       }
       return binding;
@@ -1088,9 +1106,10 @@ class ChatLedger {
       final Map<String, dynamic> consumption =
           (scopes[consumerId] as Map<String, dynamic>?) ?? <String, dynamic>{};
       if (throughPosition > _consumedLocked(account, consumerId, peerAccount)) {
+        final Map<String, dynamic> snapshot = _snapshotLocked();
         consumption[peerAccount] = throughPosition;
         scopes[consumerId] = consumption;
-        await _flush();
+        await _flushTransactionLocked(snapshot);
       }
       return throughPosition;
     });
