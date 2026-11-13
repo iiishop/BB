@@ -30,13 +30,35 @@ def identifier(value):
     return value
 
 
+def tunnel_identifier(value):
+    if isinstance(value, str):
+        try:
+            return str(UUID(value))
+        except ValueError:
+            pass
+    raise unknown("cloud_response_invalid")
+
+
+def response_object(value):
+    if not isinstance(value, dict):
+        raise unknown("cloud_response_invalid")
+    return value
+
+
+def response_envelope(value):
+    value = response_object(value)
+    if value.get("success") is not True or "result" not in value:
+        raise unknown("cloud_response_invalid")
+    return value
+
+
 class Cloudflare:
     def __init__(self, token, transport=None):
         self._token, self._transport = token, transport
 
     def request(self, method, path, payload=None):
         if self._transport:
-            return self._transport(method, path, payload)
+            return response_envelope(self._transport(method, path, payload))
         if not path.startswith("/") or "\r" in path or "\n" in path:
             raise ValueError("Invalid fixed API path")
         connection = http.client.HTTPSConnection(
@@ -70,10 +92,7 @@ class Cloudflare:
             body = response.read(2 * 1024 * 1024 + 1)
             if len(body) > 2 * 1024 * 1024:
                 raise unknown("cloud_response_too_large")
-            result = json.loads(body)
-            if result.get("success") is not True or "result" not in result:
-                raise unknown("cloud_response_invalid")
-            return result
+            return response_envelope(json.loads(body))
         except (OSError, ValueError, http.client.HTTPException):
             raise unknown() from None
         finally:
@@ -85,11 +104,15 @@ class Cloudflare:
             result = self.request(
                 "GET", path + "?" + urlencode({**query, "page": page, "per_page": 50})
             )
-            if not isinstance(result["result"], list):
+            if not isinstance(result["result"], list) or any(
+                not isinstance(item, dict) for item in result["result"]
+            ):
                 raise unknown("cloud_response_invalid")
             values.extend(result["result"])
-            info = result.get("result_info", {})
+            info = response_object(result.get("result_info", {}))
             total = info.get("total_pages")
+            if total is not None and (type(total) is not int or total < 0):
+                raise unknown("cloud_response_invalid")
             if (isinstance(total, int) and page >= total) or (
                 total is None and len(result["result"]) < 50
             ):
@@ -106,8 +129,10 @@ class Cloudflare:
                 raise PublicFailure("zone_ambiguous", "区域归属不唯一，停止自动配置")
             if exact:
                 return {
-                    "zone_id": identifier(exact[0]["id"]),
-                    "account_id": identifier(exact[0]["account"]["id"]),
+                    "zone_id": identifier(exact[0].get("id")),
+                    "account_id": identifier(
+                        response_object(exact[0].get("account")).get("id")
+                    ),
                 }
         raise PublicFailure(
             "zone_not_authorized",
@@ -116,21 +141,29 @@ class Cloudflare:
         )
 
     def tunnels(self, account, name=None):
-        return self.listing(
+        values = self.listing(
             f"/accounts/{identifier(account)}/cfd_tunnel",
             **({"name": name} if name else {}),
             is_deleted="false",
         )
+        for item in values:
+            item["id"] = tunnel_identifier(item.get("id"))
+            if not isinstance(item.get("name"), str):
+                raise unknown("cloud_response_invalid")
+        return values
 
     def records(self, zone, domain):
-        return self.listing(f"/zones/{identifier(zone)}/dns_records", name=domain)
+        values = self.listing(f"/zones/{identifier(zone)}/dns_records", name=domain)
+        for item in values:
+            identifier(item.get("id"))
+        return values
 
     def token(self, account, tunnel):
         value = self.request(
             "GET",
             f"/accounts/{identifier(account)}/cfd_tunnel/{UUID(str(tunnel))}/token",
         )["result"]
-        if not isinstance(value, str) or len(value) > 4096:
+        if not isinstance(value, str) or not 1 <= len(value) <= 4096:
             raise unknown("cloud_token_invalid")
         return value
 
@@ -152,13 +185,14 @@ class Cloudflare:
             f"/accounts/{identifier(account)}/cfd_tunnel",
             {"name": name, "config_src": "cloudflare", "tunnel_secret": secret},
         )["result"]
-        return str(UUID(result["id"]))
+        return tunnel_identifier(response_object(result).get("id"))
 
     def config(self, account, tunnel):
-        return self.request(
+        result = self.request(
             "GET",
             f"/accounts/{identifier(account)}/cfd_tunnel/{UUID(str(tunnel))}/configurations",
-        )["result"].get("config", {})
+        )["result"]
+        return response_object(response_object(result).get("config", {}))
 
     @staticmethod
     def ingress(domain, target):
@@ -188,7 +222,7 @@ class Cloudflare:
                 "comment": marker,
             },
         )["result"]
-        return identifier(value["id"])
+        return identifier(response_object(value).get("id"))
 
     def inspect(self, domain):
         scope = self.zone(domain)

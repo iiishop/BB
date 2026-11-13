@@ -169,3 +169,37 @@ def test_snapshot_and_event_rollback_together(store):
         store.publish(task.task_id, stage="detecting")
     assert store.get(task.task_id).seq == 1
     assert len(store.events(task.task_id, 0)) == 1
+
+
+@pytest.mark.parametrize("step", ["tunnel", "ingress", "dns", "package", "service"])
+def test_all_terminal_writers_preserve_sent_effect_and_single_target(store, step):
+    _, body = execution(store)
+    task = store.admit(kind="execute", version=1, key=body.idempotency_key, plan=body)
+    store.effect(task.task_id, step, {"name": "owned"})
+    store.mark_effect(task.task_id, step, "sent")
+    with pytest.raises(ContractError) as error:
+        store.activate(task.task_id, "resource")
+    assert error.value.body["error"]["code"] == "effect_unresolved"
+    assert store.config().active is None
+    assert store.get(task.task_id).seq == task.seq
+    for classification in ("failed", "passed"):
+        result = store.publish(
+            task.task_id, stage="finished", classification=classification
+        )
+        expected = (
+            "awaiting_local_admin"
+            if step in ("package", "service")
+            else "awaiting_authorization"
+        )
+        assert result.stage == expected
+        assert result.classification == "unknown"
+        assert store.pending() == [str(task.task_id)]
+        with pytest.raises(ContractError) as error:
+            store.admit(kind="probe", version=1, key=uuid4())
+        assert error.value.body["error"]["code"] == "task_busy"
+        assert store.effect(task.task_id, step, {"name": "owned"})["state"] == "sent"
+    # Only reconciled evidence permits terminal state and a fresh task.
+    store.mark_effect(task.task_id, step, "done", {"id": "resource"})
+    store.publish(task.task_id, stage="finished", classification="failed")
+    assert store.pending() == []
+    assert store.admit(kind="probe", version=1, key=uuid4()).task_id != task.task_id

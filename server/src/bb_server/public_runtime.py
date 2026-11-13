@@ -170,11 +170,6 @@ class PublicRuntime:
                     allowed_actions=actions,
                     message=error.message,
                 )
-            # An invalid/expired key must not cause a 2-second authorization retry loop.
-            if error.waiting == "authorization":
-                with self.mutex:
-                    self.credentials.pop(str(task_id), None)
-                    self.credentials.pop(context.get("probe_task_id"), None)
         except (ContractError, OSError, ValueError, KeyError, TypeError):
             self.store.publish(
                 task_id,
@@ -195,6 +190,16 @@ class PublicRuntime:
                 allowed_actions=[],
                 message="执行器异常中止；已记录的资源与意图保留，未自动重复副作用",
             )
+        finally:
+            # The store may turn ANY attempted terminal result into a reconciliation
+            # wait when an effect is still sent. Honor the committed state, not just
+            # the exception type, and don't retry a bad response every two seconds.
+            with self.mutex:
+                if self.store.get(task_id).stage == "awaiting_authorization":
+                    self.credentials.pop(str(task_id), None)
+                    self.credentials.pop(
+                        self.store.context(task_id).get("probe_task_id"), None
+                    )
 
     @staticmethod
     def require_cloud(cloud):

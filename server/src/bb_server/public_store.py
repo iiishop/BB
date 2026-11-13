@@ -75,9 +75,30 @@ class PublicStore:
         return row
 
     @staticmethod
+    def _unresolved(db, task_id):
+        return db.execute(
+            "SELECT step FROM public_effects WHERE task_id=? AND state='sent' ORDER BY rowid LIMIT 1",
+            (str(task_id),),
+        ).fetchone()
+
+    @staticmethod
     def _emit(db, row, **changes):
         snapshot = json.loads(row["snapshot"])
         snapshot.update(changes)
+        # A parser/programming error is not evidence that an external write failed.
+        # Every terminal writer shares this transaction boundary and target lock.
+        if snapshot["stage"] == "finished":
+            unresolved = PublicStore._unresolved(db, row["id"])
+            if unresolved:
+                local = unresolved["step"] in ("package", "service")
+                snapshot.update(
+                    stage="awaiting_local_admin" if local else "awaiting_authorization",
+                    classification="unknown",
+                    issue_code="effect_result_unknown",
+                    allowed_actions=["local_admin" if local else "authorize"],
+                    requires_confirmation=False,
+                    message="已发送操作的结果尚未核实；保留原任务和资源，请核对后恢复，禁止重新创建",
+                )
         snapshot["seq"] += 1
         snapshot = AdminTask.model_validate(snapshot).model_dump(mode="json")
         value = encode(snapshot)
@@ -383,6 +404,8 @@ class PublicStore:
             config = self._config(db)
             if row["terminal"] or config["version"] != row["version"]:
                 raise conflict()
+            if self._unresolved(db, task_id):
+                raise conflict("effect_unresolved")
             active = {
                 "domain": config["domain"],
                 "instance_id": config["instance_id"],
