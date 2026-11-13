@@ -52,3 +52,24 @@ uv run --project server --locked python -m bb_server.export_openapi server/opena
 ```
 
 存储锁竞争的事务边界、503 分类、实测数据、方案比较与重跑/撤回步骤见 `server/docs/storage-locks.md`。本轮保持 DELETE journal，不启用 WAL。
+
+## 本机管理入口（DEA-469 阶段 A）
+
+业务进程仍用上述 `bb-server`。新增的 `bb-admin` 是独立本机监听入口，不能挂到业务服务或 Tunnel 上。以普通用户启动，先设置与业务进程相同的 `BB_DATABASE_PATH`、`BB_PORT`，再设置独立管理路径和端口：
+
+```bash
+BB_DATABASE_PATH=./local-data/auth.db BB_PORT=8000 \
+BB_ADMIN_DATABASE_PATH=./local-admin/admin.db BB_ADMIN_PORT=9001 \
+  uv run --project server --locked bb-admin
+```
+
+管理入口固定为 `http://127.0.0.1:9001`（端口可配置；不要用 localhost 别名），拒绝跨源和代理转发请求，不读取 `BB_HOST` 或代理信任环境变量。数据库路径/端口必须与业务服务分离。管理身份初始 `admin/admin`，首次登录只能改密/查看会话/退出；新密码至少 12 字符，改密后所有旧会话失效，需重新登录。只支持本机 HTTP，Cookie/CSRF/Host 校验规则详见 `docs/contracts/dea469-admin-v1.md`；管理员并非普通 BB 用户。
+
+当前只交付管理 API，Vue 界面和公网编排在后续阶段。公网草稿、探针、计划、执行、恢复与事件路由有固定 schema，但完成改密后仍明确返回 `501 stage_b_not_implemented`。业务服务没有任何管理路由。不要把阶段 A 当成已可部署的 Cloudflare 自动配置服务。
+
+管理数据库创建为 POSIX 0600，独立新目录为 0700；已有父目录和 Windows 用户目录 ACL 由本机管理员保护。不要指向现有个人/生产数据库。管理员会话最长 8 小时；登录与改密共用每 60 秒 5 次的持久化预算。管理数据库和业务数据库分别备份，恢复旧管理备份会恢复旧密码及当时会话。
+
+```bash
+uv run --project server --locked pytest server/tests/test_admin.py server/tests/test_admin_http.py -q
+uv run --project server --locked python -m bb_server.export_admin_openapi server/contract/admin-openapi.json
+```

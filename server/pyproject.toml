@@ -6,6 +6,7 @@ dependencies = ["fastapi>=0.115,<1", "uvicorn>=0.34,<1", "argon2-cffi>=25.1,<26"
 
 [project.scripts]
 bb-server = "bb_server.__main__:main"
+bb-admin = "bb_server.admin_main:main"
 
 [dependency-groups]
 dev = ["pytest>=8,<10", "httpx>=0.28,<1", "ruff>=0.11,<1"]
