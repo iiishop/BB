@@ -42,6 +42,15 @@ describe('StatusCapsule', () => {
           classification: 'passed',
           allowed_actions: [],
           message: '实例挑战匹配',
+          checks: [
+            {
+              check: 'instance',
+              classification: 'passed',
+              issue_code: null,
+              message: '随机挑战匹配当前实例',
+              allowed_actions: [],
+            },
+          ],
         }),
         busy: null,
       },
@@ -49,6 +58,38 @@ describe('StatusCapsule', () => {
 
     expect(wrapper.text()).toContain('公网验证通过');
     expect(wrapper.findAll('button')).toHaveLength(0);
+  });
+
+  it('blocks only plan-generating actions while a domain draft is unsaved', async () => {
+    const planning = mount(StatusCapsule, {
+      props: {
+        task: makeTask({ allowed_actions: ['create_and_connect'] }),
+        busy: null,
+        planningDisabled: true,
+      },
+    });
+    const planButton = buttonByText(planning, '创建并连接 Tunnel') as unknown as {
+      element: HTMLButtonElement;
+      trigger: (event: string) => Promise<void>;
+    };
+    expect(planButton.element.disabled).toBe(true);
+    await planButton.trigger('click');
+    expect(planning.emitted('action')).toBeUndefined();
+
+    const authorization = mount(StatusCapsule, {
+      props: {
+        task: makeTask({ allowed_actions: ['authorize'] }),
+        busy: null,
+        planningDisabled: true,
+      },
+    });
+    const authButton = buttonByText(authorization, '补充管理凭据') as unknown as {
+      element: HTMLButtonElement;
+      trigger: (event: string) => Promise<void>;
+    };
+    expect(authButton.element.disabled).toBe(false);
+    await authButton.trigger('click');
+    expect(authorization.emitted('action')).toEqual([['authorize']]);
   });
 });
 

@@ -1,6 +1,6 @@
 # BB 管理后台（Vue）
 
-DEA-469 阶段 C 的 `admin-ui/`。消费阶段 A 的机器契约
+DEA-469 阶段 C 的 `admin-ui/`。消费现行管理机器契约
 [`server/contract/admin-openapi.json`](../server/contract/admin-openapi.json)
 和 [`docs/contracts/dea469-admin-v1.md`](../docs/contracts/dea469-admin-v1.md)，
 不另造身份、任务或 wire 定义。
@@ -38,6 +38,13 @@ npm run test:e2e     # Playwright + 真实 bb-admin（见下）
   `POST /admin/api/tasks/{task_id}/authorization` 补交凭据（B/C 交接增量）。
 - Vue 不持有任务真相：只展示服务端快照；断线不重建任务。双击由提交中守卫 +
   计划级幂等键约束；刷新从 `tasks/current` 恢复并从快照 `seq` 重新订阅 SSE。
+- 任务接收统一按“权威快照 epoch + 最新读取序列 + stream 所有权”裁决：延迟返回的
+  `/tasks/current`、并发读取和已替换 EventSource 的迟到回调都不能覆盖新任务或
+  关闭其事件流；不按单个 task_id 特判。
+- 胶囊标题只在 `instance` 检查实际 passed 时显示“公网验证通过”；安装完成或
+  只读检查完成不冒充公网验证。
+- 域名草稿与已保存配置分离：草稿未保存时禁止探测/生成计划，计划/执行使用
+  已保存版本；保存新域名后旧探测任务必须重新探测才能再计划。
 - `PlanExecute.idempotency_key` 必须是 UUID：界面为每个 `plan_id` 在页面会话内
   缓存一个 `crypto.randomUUID()`，同一计划的重试/双击复用同一值。`npm test` 会把
   实际生成的 `/executions` 请求体交给服务端规范 DTO（`PlanExecute`）校验；旧
@@ -46,18 +53,14 @@ npm run test:e2e     # Playwright + 真实 bb-admin（见下）
 
 ## 阶段边界
 
-阶段 A（当前基线 `8a99365`）只提供登录、会话、改密、登出。`public-config`、
-`probes`、`plans`、`executions`、`tasks/*` 返回 `501 stage_b_not_implemented`。
-配置页会明确显示“阶段 B 尚未接通”，并禁用会产生副作用的控件。
+当前集成基线 `2fe1320` 已包含阶段 B 与产品同源挂载；本目录只按契约调用，不修改
+`server/`。本仓库内的 `e2e/` 仍使用测试外壳和浏览器路由桩，用于稳定回归：
 
-阶段 B 由 Forge 实现并提供 `/admin/` 静态挂载；本目录只按契约调用，不修改
-`server/`。在 B 未接通前：
-
-- **真实 A 路径**（登录、强制改密、旧会话/旧密码失效、刷新恢复、501 预览、
-  登出）在真实 `bb-admin` 上验证。
-- **B 交互路径**（探测胶囊、授权恢复、确认弹窗取消/执行、刷新恢复任务、
-  计划 409 失效）由 Playwright 在浏览器路由层桩接 B 端点，与 A 的真实会话/鉴权
-  分开，只作契约预览证据，不宣称端到端完成。
+- **真实路径**：登录、强制改密、旧会话/旧密码失效、刷新恢复、真实
+  `/public-config` 读取和登出在真实 `bb-admin` 上验证。
+- **B 交互路径**（探测胶囊、授权恢复、确认弹窗取消/执行、刷新恢复任务、计划
+  409 失效）由 Playwright 在浏览器路由层桩接；真实产品入口/SSE 由
+  `server/probes/public_browser.mjs` 另行验证，不把桩证据当端到端完成。
 
 ## 浏览器证据入口
 
@@ -79,7 +82,8 @@ npm run test:e2e
 
 ## 已知限制
 
-- 阶段 B 未接通：没有真实 Cloudflare 账号/DNS/Tunnel，也没有真实公网副作用。
+- 没有真实 Cloudflare 账号/DNS/Tunnel，也没有真实公网副作用；本目录 e2e 的 B
+  变更仍为路由桩。
 - 未验证真实 Arch 提权安装、Windows UAC/服务生命周期、真实设备浏览器；
   响应式证据是 1440×900 与 390×844 视口，不是移动设备。
 - 桩接的 SSE 在快照后结束，页面会显示“实时连接中断”；真实 B 的流由服务端

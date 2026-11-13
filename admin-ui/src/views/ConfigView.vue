@@ -10,6 +10,8 @@ import { useAdminState } from '../stores/context';
 const state = useAdminState();
 const {
   config,
+  draftDirty,
+  taskVersionStale,
   task,
   plan,
   error,
@@ -22,26 +24,12 @@ const {
   streamState,
 } = state;
 
-const domainDraft = ref('');
 const localAdminNotice = ref(false);
 
-watch(
-  [domainDraft, () => config.value?.domain],
-  ([draft, saved]) => {
-    const dirty = draft !== (saved ?? '');
-    if (dirty && plan.value) {
-      state.invalidatePlan('域名草稿已修改，原确认计划不可执行；请先保存并重新探测。');
-    }
-  },
-);
-
-watch(
-  () => config.value?.domain,
-  (value) => {
-    domainDraft.value = value ?? '';
-  },
-  { immediate: true },
-);
+const domainDraft = computed({
+  get: () => state.domainDraft.value ?? config.value?.domain ?? '',
+  set: (value: string) => state.setDomainDraft(value),
+});
 
 watch(
   () => task.value?.stage,
@@ -56,9 +44,14 @@ onMounted(() => {
   void state.refreshWorkspace();
 });
 
-const draftDirty = computed(() => domainDraft.value !== (config.value?.domain ?? ''));
 const canEdit = computed(() => config.value !== null && !stageBUnavailable.value);
-const canProbe = computed(() => config.value !== null && !stageBUnavailable.value && busy.value === null);
+const canProbe = computed(
+  () =>
+    config.value !== null &&
+    !stageBUnavailable.value &&
+    !draftDirty.value &&
+    busy.value === null,
+);
 const active = computed(() => config.value?.active ?? null);
 
 const classifications: Record<Classification, string> = CLASSIFICATION_LABELS;
@@ -81,7 +74,7 @@ function formatSeq(seq: number): string {
 async function saveDomain() {
   if (!domainDraft.value.trim()) return;
   localAdminNotice.value = false;
-  await state.saveDomain(domainDraft.value);
+  await state.saveDomain();
 }
 
 async function probe() {
@@ -210,9 +203,28 @@ async function onAuthorize(managementToken: string) {
         >
           {{ busy === 'save' ? '正在保存…' : '保存域名草稿' }}
         </button>
+        <button
+          v-if="draftDirty"
+          type="button"
+          class="btn btn--quiet"
+          :disabled="busy !== null"
+          @click="state.discardDomainDraft()"
+        >
+          放弃修改
+        </button>
         <span v-if="draftDirty" class="chip chip--unknown">有未保存修改</span>
         <span v-else-if="config" class="chip">草稿已保存</span>
       </div>
+
+      <p v-if="draftDirty" class="banner banner--warning" role="status">
+        <span class="banner__icon" aria-hidden="true">!</span>
+        <span class="banner__body">
+          <strong class="banner__title">域名草稿尚未保存</strong>
+          <span class="banner__text">
+            探测、计划和执行仍使用已保存配置 v{{ config?.version ?? '—' }}（{{ config?.domain ?? '未保存域名' }}）。请先保存草稿或放弃修改，再继续。
+          </span>
+        </span>
+      </p>
 
       <p v-if="!active && !stageBUnavailable" class="banner banner--warning" role="status">
         <span class="banner__icon" aria-hidden="true">!</span>
@@ -244,7 +256,19 @@ async function onAuthorize(managementToken: string) {
       </header>
 
       <template v-if="task">
-        <StatusCapsule :task="task" :busy="busy" @action="onCapsuleAction" />
+        <StatusCapsule
+          :task="task"
+          :busy="busy"
+          :planning-disabled="draftDirty || taskVersionStale"
+          @action="onCapsuleAction"
+        />
+
+        <p v-if="taskVersionStale && !draftDirty" class="banner banner--warning" role="status">
+          <span class="banner__icon" aria-hidden="true">!</span>
+          <span class="banner__body">
+            该任务属于配置 v{{ task.config_version }}，当前配置为 v{{ config?.version }}；请重新探测后再生成执行计划。
+          </span>
+        </p>
 
         <p v-if="streamState === 'error'" class="banner banner--warning" role="status">
           <span class="banner__icon" aria-hidden="true">!</span>

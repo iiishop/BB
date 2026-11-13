@@ -46,6 +46,17 @@ export const CHECK_LABELS = {
   instance: '实例验证',
 } as const;
 
+const PLAN_ACTIONS: readonly Action[] = [
+  'install',
+  'create_and_connect',
+  'verify',
+  'reconcile',
+];
+
+export function requiresPlan(action: Action): boolean {
+  return PLAN_ACTIONS.includes(action);
+}
+
 export function primaryAction(task: AdminTask): Action | null {
   // The capsule exposes the server-selected action, never a client inference.
   return task.allowed_actions[0] ?? null;
@@ -53,5 +64,17 @@ export function primaryAction(task: AdminTask): Action | null {
 
 export function taskHeadline(task: AdminTask): string {
   if (task.stage !== 'finished') return STAGE_LABELS[task.stage];
-  return task.classification === 'passed' ? '公网验证通过' : '任务已结束';
+  if (task.classification !== 'passed') return '任务已结束';
+  const checks = task.checks;
+  if (checks.some((check) => check.check === 'instance' && check.classification === 'passed')) {
+    return '公网验证通过';
+  }
+  if (
+    checks.some(
+      (check) => check.check === 'installation' && check.classification === 'passed',
+    )
+  ) {
+    return '安装完成';
+  }
+  return task.kind === 'probe' ? '只读检查完成' : '任务已完成';
 }

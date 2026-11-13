@@ -58,6 +58,7 @@ export function createAdminState(
 
   const session = ref<AdminSession | null>(null);
   const config = ref<PublicConfig | null>(null);
+  const domainDraft = ref<string | null>(null);
   const task = ref<AdminTask | null>(null);
   const plan = ref<ActionPlan | null>(null);
   const error = ref<string | null>(null);
@@ -74,12 +75,19 @@ export function createAdminState(
   let closeStream: (() => void) | null = null;
   let probeKey: string | null = null;
   const executeKeys = new Map<string, string>();
+  // Every accepted task snapshot advances the authority epoch. A
+  // /tasks/current read that started before it is stale and must not replace
+  // the newer task or close its stream. Task ids alone are not an ordering rule.
+  let taskEpoch = 0;
+  let taskReadSerial = 0;
+  let streamSerial = 0;
 
   function setCsrf(value: string | null) {
     csrfToken = value;
   }
 
   function closeTaskStream() {
+    streamSerial += 1;
     closeStream?.();
     closeStream = null;
     streamState.value = 'idle';
@@ -95,6 +103,7 @@ export function createAdminState(
     closeTaskStream();
     executeKeys.clear();
     config.value = null;
+    domainDraft.value = null;
     task.value = null;
     plan.value = null;
     configState.value = 'idle';
@@ -126,29 +135,41 @@ export function createAdminState(
     const previous = config.value;
     config.value = next;
     configState.value = 'ready';
+    if (domainDraft.value !== null && domainDraft.value === next.domain) {
+      domainDraft.value = null;
+    }
     if (previous && previous.version !== next.version) invalidatePlan();
   }
 
-  function applyTask(next: AdminTask) {
+  function applyTask(next: AdminTask): boolean {
     const current = task.value;
     if (current && current.task_id === next.task_id && next.seq < current.seq) {
-      return; // Duplicate/older sequence: keep the newest snapshot.
+      return false; // Duplicate/older sequence: keep the newest snapshot.
     }
     task.value = next;
     taskState.value = 'ready';
+    taskEpoch += 1;
     if (next.stage === 'finished') {
       closeTaskStream();
       probeKey = null;
     }
+    return true;
   }
 
   function streamTask(nextTask: AdminTask) {
     closeTaskStream();
     if (nextTask.stage === 'finished') return;
+    const serial = ++streamSerial;
     streamState.value = 'connecting';
     const handlers: TaskStreamHandlers = {
-      onTask: applyTask,
+      onTask: (eventTask) => {
+        // A closed/replaced EventSource can still deliver a queued callback.
+        // Only the stream that currently owns delivery may update the store.
+        if (serial !== streamSerial) return;
+        applyTask(eventTask);
+      },
       onStateChange: (state) => {
+        if (serial !== streamSerial) return;
         streamState.value = state;
       },
     };
@@ -156,8 +177,8 @@ export function createAdminState(
   }
 
   function applyTaskAndStream(next: AdminTask) {
-    applyTask(next);
-    if (isNonTerminalTask(next)) streamTask(next);
+    const accepted = applyTask(next);
+    if (accepted && isNonTerminalTask(next)) streamTask(next);
   }
 
   function invalidatePlan(reason?: string) {
@@ -258,9 +279,14 @@ export function createAdminState(
   }
 
   async function loadCurrentTask(): Promise<void> {
+    const request = ++taskReadSerial;
+    const startedAt = taskEpoch;
     taskState.value = 'loading';
     try {
       const current = await api.currentTask();
+      // A newer task was adopted (mutation/SSE) or a newer read started while
+      // this one was in flight: this snapshot is stale and owns nothing.
+      if (request !== taskReadSerial || startedAt !== taskEpoch) return;
       stageBUnavailable.value = false;
       if (current.task) {
         applyTaskAndStream(current.task);
@@ -270,15 +296,16 @@ export function createAdminState(
         taskState.value = 'ready';
       }
     } catch (cause) {
+      if (cause instanceof AdminApiError && cause.isUnauthenticated) {
+        handleUnauthorized();
+        taskState.value = 'error';
+        return;
+      }
+      if (request !== taskReadSerial || startedAt !== taskEpoch) return;
       if (cause instanceof AdminApiError && cause.isStageBUnavailable) {
         stageBUnavailable.value = true;
         task.value = null;
         taskState.value = 'unavailable';
-        return;
-      }
-      if (cause instanceof AdminApiError && cause.isUnauthenticated) {
-        handleUnauthorized();
-        taskState.value = 'error';
         return;
       }
       handleError(cause, '读取当前任务失败。');
@@ -290,14 +317,28 @@ export function createAdminState(
     await Promise.all([loadConfig(), loadCurrentTask()]);
   }
 
-  async function saveDomain(domain: string): Promise<boolean> {
+  function setDomainDraft(value: string) {
+    domainDraft.value = value === (config.value?.domain ?? '') ? null : value;
+    if (domainDraft.value !== null) {
+      invalidatePlan('域名草稿已修改，原确认计划已失效；请先保存并重新探测。');
+    }
+  }
+
+  function discardDomainDraft() {
+    domainDraft.value = null;
+  }
+
+  async function saveDomain(domain?: string): Promise<boolean> {
     if (!config.value) return false;
+    const value = (domain ?? domainDraft.value ?? config.value.domain ?? '').trim();
+    if (!value) return false;
     error.value = null;
     notice.value = null;
     busy.value = 'save';
     try {
       const hadPlan = plan.value !== null;
-      applyConfig(await api.savePublicConfig(config.value.version, domain.trim()));
+      applyConfig(await api.savePublicConfig(config.value.version, value));
+      domainDraft.value = null;
       notice.value = hadPlan
         ? '域名已保存为草稿，原确认计划已失效；请重新探测并确认后才会生效。'
         : '域名已保存为草稿；需要重新探测、计划并确认后才会生效。';
@@ -318,6 +359,10 @@ export function createAdminState(
 
   async function startProbe(managementToken?: string): Promise<boolean> {
     if (!config.value) return false;
+    if (draftDirty.value) {
+      error.value = '域名草稿尚未保存；请先保存或放弃草稿，再运行探测。';
+      return false;
+    }
     error.value = null;
     notice.value = null;
     busy.value = 'probe';
@@ -346,6 +391,15 @@ export function createAdminState(
 
   async function requestPlan(action: Action): Promise<boolean> {
     if (!config.value || !task.value) return false;
+    if (draftDirty.value) {
+      error.value =
+        '域名草稿尚未保存；请先保存或放弃草稿并重新探测，再生成执行计划。';
+      return false;
+    }
+    if (task.value.config_version !== config.value.version) {
+      error.value = `探测任务属于配置 v${task.value.config_version}，当前配置为 v${config.value.version}；请重新探测后再生成计划。`;
+      return false;
+    }
     if (!task.value.allowed_actions.includes(action)) return false;
     error.value = null;
     notice.value = null;
@@ -378,6 +432,10 @@ export function createAdminState(
     const currentPlan = plan.value;
     if (!currentPlan) return false;
     if (busy.value === 'execute') return false; // Double click: one request.
+    if (draftDirty.value) {
+      invalidatePlan('域名草稿有未保存修改，原确认计划不可执行；请先保存或放弃草稿。');
+      return false;
+    }
     if (!config.value || currentPlan.config_version !== config.value.version) {
       invalidatePlan('配置已变更，原确认计划不可执行，请重新探测。');
       return false;
@@ -450,6 +508,15 @@ export function createAdminState(
     unauthorizedHandler.value = handler;
   }
 
+  const draftDirty = computed(
+    () => domainDraft.value !== null && domainDraft.value !== (config.value?.domain ?? ''),
+  );
+  const taskVersionStale = computed(
+    () =>
+      task.value !== null &&
+      config.value !== null &&
+      task.value.config_version !== config.value.version,
+  );
   const authenticated = computed(() => session.value !== null);
   const mustChangePassword = computed(() => session.value?.must_change_password ?? false);
   const planOpen = computed(() => plan.value !== null);
@@ -467,6 +534,9 @@ export function createAdminState(
     // state
     session,
     config,
+    domainDraft,
+    draftDirty,
+    taskVersionStale,
     task,
     plan,
     error,
@@ -491,6 +561,8 @@ export function createAdminState(
     loadConfig,
     loadCurrentTask,
     refreshWorkspace,
+    setDomainDraft,
+    discardDomainDraft,
     saveDomain,
     startProbe,
     requestPlan,

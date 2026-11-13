@@ -110,6 +110,25 @@ async function installMockStageB(page: Page, state: MockState) {
 
     if (path === '/admin/api/probes' && method === 'POST') {
       state.probes += 1;
+      if (state.probes > 1) {
+        state.currentTask = probeTask({
+          stage: 'finished',
+          classification: 'passed',
+          allowed: ['verify'],
+          version: state.version,
+          seq: 8,
+          message: '重新探测通过：本机与授权状态已就绪。',
+          checks: [
+            { check: 'installation', classification: 'passed', issue_code: null, message: 'cloudflared 已安装', allowed_actions: [] },
+            { check: 'service', classification: 'passed', issue_code: null, message: '系统服务运行中', allowed_actions: [] },
+            { check: 'connection', classification: 'passed', issue_code: null, message: 'Tunnel 已连接', allowed_actions: [] },
+            { check: 'authorization', classification: 'passed', issue_code: null, message: '管理权限有效', allowed_actions: [] },
+            { check: 'route', classification: 'passed', issue_code: null, message: 'DNS 路由已创建', allowed_actions: [] },
+            { check: 'instance', classification: 'passed', issue_code: null, message: '短期随机挑战匹配', allowed_actions: [] },
+          ],
+        });
+        return json(route, 202, state.currentTask);
+      }
       state.currentTask = probeTask({
         stage: 'awaiting_authorization',
         classification: 'unknown',
@@ -226,7 +245,7 @@ async function installMockStageB(page: Page, state: MockState) {
   });
 }
 
-test('DEA-469 admin UI: real stage A backend, then stage B contract preview @real-a @b-preview', async ({
+test('DEA-469 admin UI: real backend config, then stage B contract preview @real-a @b-preview', async ({
   page,
 }) => {
   mkdirSync('.evidence/screens', { recursive: true });
@@ -274,27 +293,27 @@ test('DEA-469 admin UI: real stage A backend, then stage B contract preview @rea
   await expect(page.locator('nav .nav__link').nth(1)).toHaveText('配置');
   await shot('04-home');
 
-  // Real GET /public-config is still the stage B 501 handler.
-  const notImplemented = page.waitForResponse(
+  // Real stage B config/probe routes are available on the current baseline.
+  const liveConfig = page.waitForResponse(
     (response) =>
       response.request().method() === 'GET' &&
       response.url().endsWith('/admin/api/public-config'),
   );
   await page.getByRole('link', { name: '配置', exact: true }).click();
-  const realConfigResponse = await notImplemented;
-  expect(realConfigResponse.status()).toBe(501);
-  await expect(page.getByText('阶段 B 尚未接通')).toBeVisible();
-  await expect(page.getByText('501 stage_b_not_implemented')).toBeVisible();
-  await shot('05-config-real-backend-501');
+  const realConfigResponse = await liveConfig;
+  expect(realConfigResponse.status()).toBe(200);
+  await expect(page.getByText('阶段 B 尚未接通')).toHaveCount(0);
+  await expect(page.getByText('配置版本 v0').first()).toBeVisible();
+  await expect(page.getByText('尚未生效').first()).toBeVisible();
+  await shot('05-config-real-backend');
 
-  // Refresh restores the real session and keeps the 501 preview, without login.
+  // Refresh restores the real session and the live configuration view.
   const restoredConfig = page.waitForResponse((response) =>
     response.url().endsWith('/admin/api/public-config'),
   );
   await page.reload();
-  expect((await restoredConfig).status()).toBe(501);
+  expect((await restoredConfig).status()).toBe(200);
   await expect(page.getByRole('heading', { name: '配置' })).toBeVisible();
-  await expect(page.getByText('阶段 B 尚未接通')).toBeVisible();
 
   // --- Stage B contract preview: real stage A session/auth, mocked B routes.
   const mock: MockState = {
@@ -410,6 +429,10 @@ test('DEA-469 admin UI: real stage A backend, then stage B contract preview @rea
   await page.getByRole('button', { name: '保存域名草稿' }).click();
   await expect(page.getByText('域名已保存为草稿')).toBeVisible();
   expect(mock.version).toBe(5);
+  await expect(page.getByText(/该任务属于配置 v4/)).toBeVisible();
+  await expect(page.getByRole('button', { name: '验证公网实例' })).toBeDisabled();
+  await page.getByRole('button', { name: '重新只读探测' }).click();
+  await expect(page.getByRole('button', { name: '验证公网实例' })).toBeEnabled();
   await page.getByRole('button', { name: '验证公网实例' }).click();
   const staleDialog = page.getByRole('dialog', { name: '确认公网执行计划' });
   await expect(staleDialog).toBeVisible();

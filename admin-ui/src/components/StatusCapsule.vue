@@ -6,6 +6,7 @@ import {
   CLASSIFICATION_LABELS,
   STAGE_LABELS,
   primaryAction,
+  requiresPlan,
   taskHeadline,
 } from '../lib/labels';
 import type { BusyAction } from '../stores/admin-state';
@@ -13,6 +14,7 @@ import type { BusyAction } from '../stores/admin-state';
 const props = defineProps<{
   task: AdminTask;
   busy: BusyAction;
+  planningDisabled?: boolean;
 }>();
 
 const emit = defineEmits<{ action: [action: Action] }>();
@@ -33,6 +35,9 @@ const tone = computed(() => {
 const stageLabel = computed(() => STAGE_LABELS[props.task.stage]);
 const classificationLabel = computed(() => CLASSIFICATION_LABELS[props.task.classification]);
 const isBusy = computed(() => props.busy !== null);
+const actionBlocked = computed(
+  () => Boolean(props.planningDisabled && action.value && requiresPlan(action.value)),
+);
 </script>
 
 <template>
@@ -52,7 +57,8 @@ const isBusy = computed(() => props.busy !== null);
       <button
         type="button"
         class="btn"
-        :disabled="isBusy"
+        :disabled="isBusy || actionBlocked"
+        :title="actionBlocked ? '请先保存或放弃域名草稿，再生成执行计划' : undefined"
         @click="emit('action', action)"
       >
         {{ actionLabel }}

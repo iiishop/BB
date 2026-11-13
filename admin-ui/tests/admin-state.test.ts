@@ -1,10 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import { AdminApiError } from '../src/api/client';
 import { createAdminState } from '../src/stores/admin-state';
+import type { AdminTask, CurrentTask } from '../src/api/types';
 import { FakeApi, SESSION, makePlan, makeTask } from './helpers/fake-api';
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const OLD_TASK_ID = '99999999-9999-4999-8999-999999999999';
+const NEW_TASK_ID = '88888888-8888-4888-8888-888888888888';
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
 
 function setup(now = () => 1_800_000_000_000) {
   const api = new FakeApi();
@@ -94,6 +105,44 @@ describe('admin state — configuration and confirmation', () => {
     expect(firstKey).toMatch(UUID_RE);
     expect(secondKey).toBe(firstKey);
     expect(state.plan.value).toBeNull();
+  });
+
+  it('blocks probe, plan and execute while a domain draft is unsaved', async () => {
+    const { api, state } = await readyState();
+    api.probeResult = async () => makeTask({ allowed_actions: ['create_and_connect'] });
+    await state.startProbe();
+    await state.requestPlan('create_and_connect');
+    expect(state.plan.value).not.toBeNull();
+
+    state.setDomainDraft('unsaved.example.com');
+    expect(state.draftDirty.value).toBe(true);
+    expect(state.plan.value).toBeNull();
+    expect(state.notice.value).toContain('失效');
+
+    const plansBefore = api.calls.createPlan.length;
+    const probesBefore = api.calls.startProbe.length;
+    expect(await state.startProbe()).toBe(false);
+    expect(await state.requestPlan('create_and_connect')).toBe(false);
+    expect(api.calls.startProbe).toHaveLength(probesBefore);
+    expect(api.calls.createPlan).toHaveLength(plansBefore);
+    expect(state.error.value).toContain('域名草稿尚未保存');
+
+    state.discardDomainDraft();
+    expect(state.draftDirty.value).toBe(false);
+    expect(await state.requestPlan('create_and_connect')).toBe(true);
+  });
+
+  it('requires a new probe before planning against a newly saved domain version', async () => {
+    const { api, state } = await readyState();
+    api.probeResult = async () => makeTask({ allowed_actions: ['create_and_connect'] });
+    await state.startProbe();
+
+    const plansBefore = api.calls.createPlan.length;
+    expect(await state.saveDomain('next.example.com')).toBe(true);
+    expect(state.config.value?.version).toBe(4);
+    expect(await state.requestPlan('create_and_connect')).toBe(false);
+    expect(api.calls.createPlan).toHaveLength(plansBefore);
+    expect(state.error.value).toContain('重新探测');
   });
 
   it('cancel sends no execution request and has no local side effect', async () => {
@@ -259,6 +308,122 @@ describe('admin state — idempotency and recovery', () => {
     expect(state.task.value?.stage).toBe('verifying');
     expect(JSON.stringify(localStorage)).not.toContain('secret-token-value');
     expect(JSON.stringify(sessionStorage)).not.toContain('secret-token-value');
+  });
+});
+
+describe('admin state — task read and stream ownership', () => {
+  it('ignores a delayed /tasks/current read after a newer execution owns the stream', async () => {
+    const { api, state } = await readyState();
+    const oldTask = makeTask({
+      task_id: OLD_TASK_ID,
+      seq: 5,
+      stage: 'finished',
+      classification: 'passed',
+      allowed_actions: ['create_and_connect'],
+    });
+    api.probeResult = async () => oldTask;
+    await state.startProbe();
+    await state.requestPlan('create_and_connect');
+
+    const delayed = deferred<CurrentTask>();
+    api.currentResult = () => delayed.promise;
+    const pendingRead = state.loadCurrentTask();
+
+    const newTask = makeTask({
+      task_id: NEW_TASK_ID,
+      seq: 2,
+      kind: 'execute',
+      stage: 'creating_tunnel',
+      classification: 'running',
+      allowed_actions: [],
+    });
+    api.executeResult = async () => newTask;
+    await state.confirmPlan();
+    expect(state.task.value?.task_id).toBe(NEW_TASK_ID);
+    const handlers = api.lastStream?.handlers;
+    const closesAfterNewStream = api.streamClose.mock.calls.length;
+
+    delayed.resolve({ task: oldTask });
+    await pendingRead;
+
+    expect(state.task.value?.task_id).toBe(NEW_TASK_ID);
+    expect(api.streamClose.mock.calls.length).toBe(closesAfterNewStream);
+    expect(state.streamState.value).toBe('connecting');
+
+    handlers?.onTask({ ...newTask, seq: 3, stage: 'verifying', classification: 'running' });
+    expect(state.task.value?.seq).toBe(3);
+
+    api.authorizeResult = async () => ({ ...newTask, seq: 4 });
+    await state.authorizeTask('management-token');
+    expect(api.calls.authorizeTask.at(-1)?.[0]).toBe(NEW_TASK_ID);
+  });
+
+  it('lets only the newest concurrent /tasks/current request apply its snapshot', async () => {
+    const { api, state } = await readyState();
+    const first = deferred<CurrentTask>();
+    const second = deferred<CurrentTask>();
+    let calls = 0;
+    api.currentResult = () => {
+      calls += 1;
+      return calls === 1 ? first.promise : second.promise;
+    };
+
+    const olderRead = state.loadCurrentTask();
+    const newerRead = state.loadCurrentTask();
+    const newTask = makeTask({
+      task_id: NEW_TASK_ID,
+      seq: 2,
+      stage: 'creating_tunnel',
+      classification: 'running',
+      allowed_actions: [],
+    });
+    second.resolve({ task: newTask });
+    await newerRead;
+    first.resolve({
+      task: makeTask({
+        task_id: OLD_TASK_ID,
+        seq: 5,
+        stage: 'finished',
+        classification: 'passed',
+        allowed_actions: [],
+      }),
+    });
+    await olderRead;
+
+    expect(state.task.value?.task_id).toBe(NEW_TASK_ID);
+    expect(state.streamState.value).toBe('connecting');
+  });
+
+  it('ignores late events from a replaced task stream without task-id special cases', async () => {
+    const { api, state } = await readyState();
+    const firstTask = makeTask({
+      task_id: OLD_TASK_ID,
+      seq: 1,
+      stage: 'creating_tunnel',
+      classification: 'running',
+      allowed_actions: [],
+    });
+    api.probeResult = async () => firstTask;
+    await state.startProbe();
+    const oldHandlers = api.lastStream?.handlers;
+
+    const secondTask: AdminTask = makeTask({
+      task_id: NEW_TASK_ID,
+      seq: 1,
+      stage: 'verifying',
+      classification: 'running',
+      allowed_actions: [],
+    });
+    api.probeResult = async () => secondTask;
+    await state.startProbe();
+    expect(state.task.value?.task_id).toBe(NEW_TASK_ID);
+    const closesAfterSwitch = api.streamClose.mock.calls.length;
+
+    oldHandlers?.onTask({ ...firstTask, seq: 2, stage: 'creating_route' });
+
+    expect(state.task.value?.task_id).toBe(NEW_TASK_ID);
+    expect(state.task.value?.seq).toBe(1);
+    expect(api.streamClose.mock.calls.length).toBe(closesAfterSwitch);
   });
 });
 
