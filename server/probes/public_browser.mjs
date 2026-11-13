@@ -1,12 +1,17 @@
 // Run from repository root after npm ci/build in admin-ui and uv sync --project server.
 import assert from 'node:assert/strict';
+import { closeScenario, recordScenario } from './browser_evidence.mjs';
 import { createRequire } from 'node:module';
-import { spawn, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { createWriteStream } from 'node:fs';
 import { once } from 'node:events';
 import net from 'node:net';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+// The existing CI browser command collects these fast fault-injection regressions
+// before starting real browser/process work. No new job or dependency is needed.
+execFileSync(process.execPath, ['--test', fileURLToPath(new URL('./browser_evidence.test.mjs', import.meta.url))], { stdio: 'inherit' });
 const require=createRequire(new URL('../../admin-ui/package.json',import.meta.url));
 const { chromium,expect }=require('@playwright/test');
 const root=path.resolve(new URL('../..',import.meta.url).pathname);
@@ -27,12 +32,14 @@ async function scenario(fixture){
   const log=createWriteStream(path.join(state,'server.log'));
   const child=fixture ? spawn(python,[path.join(root,'server/probes/public_browser_fixture.py'),'--directory',state,'--port',String(adminPort)],{cwd:root,stdio:['ignore','pipe','pipe']}) : spawn(cli,[],{cwd:root,env:{...process.env,BB_ADMIN_PORT:String(adminPort),BB_PORT:String(businessPort),BB_ADMIN_DATABASE_PATH:path.join(state,'admin.db'),BB_DATABASE_PATH:path.join(state,'business.db')},stdio:['ignore','pipe','pipe']});
   child.stdout.pipe(log,{end:false});child.stderr.pipe(log,{end:false});
-  const context=await browser.newContext({viewport:{width:1440,height:900}});
-  const page=await context.newPage();const errors=[];const csp=[];let eventStreams=0;
-  page.on('pageerror',e=>errors.push(e.message));
-  page.on('console',m=>{if(m.type()==='error'&&/Content Security Policy|violates/.test(m.text()))csp.push(m.text());});
-  page.on('response',r=>{if(r.url().includes('/events?'))eventStreams++;});
-  try {
+  let context;
+  await recordScenario(results, name, {
+  exercise: async () => {
+    context=await browser.newContext({viewport:{width:1440,height:900}});
+    const page=await context.newPage();const errors=[];const csp=[];let eventStreams=0;
+    page.on('pageerror',e=>errors.push(e.message));
+    page.on('console',m=>{if(m.type()==='error'&&/Content Security Policy|violates/.test(m.text()))csp.push(m.text());});
+    page.on('response',r=>{if(r.url().includes('/events?'))eventStreams++;});
     await expect.poll(async()=>{ if(child.exitCode!==null)throw new Error('server exited');try{return (await fetch(origin+'/admin/')).status;}catch{return 0;}},{timeout:20000}).toBe(200);
     await page.goto(origin+'/admin/');
     await page.getByLabel('用户名').fill('admin');
@@ -81,9 +88,12 @@ async function scenario(fixture){
     }
     await page.screenshot({path:path.join(state,'configuration.png'),fullPage:true,animations:'disabled'});
     assert.deepEqual(errors,[]);assert.deepEqual(csp,[]);assert.ok(eventStreams>=1);
-    results.push({name,status:'PASS',backend:'product bb-admin app, persistence, worker, routes, SSE, static mount',external:fixture?'FAKE cloud, installer and public-instance verifier; NOT cloud/OS acceptance':'actual local read-only probe; no cloud credentials or system modifications',task_id:task.task_id,task_stage:task.stage,event_streams:eventStreams,page_errors:errors,csp_violations:csp});
-  } finally {
-    await context.close();
+    return {backend:'product bb-admin app, persistence, worker, routes, SSE, static mount',external:fixture?'FAKE cloud, installer and public-instance verifier; NOT cloud/OS acceptance':'actual local read-only probe; no cloud credentials or system modifications',task_id:task.task_id,task_stage:task.stage,event_streams:eventStreams,page_errors:errors,csp_violations:csp};
+  },
+  cleanup: async () => {
+    await closeScenario([
+    async () => { await context?.close(); },
+    async () => {
     assert.notEqual(child.pid,daemon);
     if(child.exitCode===null){
       const exited=once(child,'exit');let timer;
@@ -95,9 +105,14 @@ async function scenario(fixture){
         child.kill('SIGKILL');await exited;throw error;
       } finally {clearTimeout(timer);}
     }
-    log.end();
-  }
+    },
+    async () => { await new Promise((resolve,reject)=>{log.once('error',reject);log.end(resolve);}); },
+    ]);
+  },
+  verify: async () => {
   if(fixture){const effects=JSON.parse(await readFile(path.join(state,'external-effects.json'),'utf8'));assert.deepEqual(effects,{cloud:{tunnel:1,ingress:1,dns:1},platform:['connect']});}
+  },
+  });
 }
 try {await scenario(false);await scenario(true);} finally {await browser.close();await writeFile(path.join(directory,'results.json'),JSON.stringify(results,null,2));}
 console.log(JSON.stringify({artifact_directory:directory,scenarios:results.length,passed:results.filter(x=>x.status==='PASS').length}));
