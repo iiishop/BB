@@ -1,41 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { AdminApiError } from '../src/api/client';
-import { createAdminState } from '../src/stores/admin-state';
+import { deferred, setup, readyState } from './helpers/state';
 import type { AdminTask, CurrentTask } from '../src/api/types';
-import { FakeApi, SESSION, makePlan, makeTask } from './helpers/fake-api';
+import { SESSION, makePlan, makeTask } from './helpers/fake-api';
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const OLD_TASK_ID = '99999999-9999-4999-8999-999999999999';
 const NEW_TASK_ID = '88888888-8888-4888-8888-888888888888';
-
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((done) => {
-    resolve = done;
-  });
-  return { promise, resolve };
-}
-
-function setup(now = () => 1_800_000_000_000) {
-  const api = new FakeApi();
-  let uuidCount = 0;
-  const state = createAdminState(() => api, {
-    now,
-    uuid: () => {
-      uuidCount += 1;
-      return `00000000-0000-4000-8000-${String(uuidCount).padStart(12, '0')}`;
-    },
-  });
-  return { api, state };
-}
-
-async function readyState() {
-  const ctx = setup();
-  await ctx.state.restoreSession();
-  await ctx.state.loadConfig();
-  return ctx;
-}
 
 describe('admin state — configuration and confirmation', () => {
   it('maps the stage B 501 to an unavailable preview without claiming readiness', async () => {
@@ -312,7 +284,7 @@ describe('admin state — idempotency and recovery', () => {
 });
 
 describe('admin state — task read and stream ownership', () => {
-  it('ignores a delayed /tasks/current read after a newer execution owns the stream', async () => {
+  it.each(['execution', 'probe'] as const)('ignores a delayed /tasks/current read after a newer %s owns the stream', async (mutation) => {
     const { api, state } = await readyState();
     const oldTask = makeTask({
       task_id: OLD_TASK_ID,
@@ -332,13 +304,18 @@ describe('admin state — task read and stream ownership', () => {
     const newTask = makeTask({
       task_id: NEW_TASK_ID,
       seq: 2,
-      kind: 'execute',
-      stage: 'creating_tunnel',
+      kind: mutation === 'execution' ? 'execute' : 'probe',
+      stage: mutation === 'execution' ? 'creating_tunnel' : 'detecting',
       classification: 'running',
       allowed_actions: [],
     });
-    api.executeResult = async () => newTask;
-    await state.confirmPlan();
+    if (mutation === 'execution') {
+      api.executeResult = async () => newTask;
+      await state.confirmPlan();
+    } else {
+      api.probeResult = async () => newTask;
+      await state.startProbe();
+    }
     expect(state.task.value?.task_id).toBe(NEW_TASK_ID);
     const handlers = api.lastStream?.handlers;
     const closesAfterNewStream = api.streamClose.mock.calls.length;
@@ -394,7 +371,7 @@ describe('admin state — task read and stream ownership', () => {
     expect(state.streamState.value).toBe('connecting');
   });
 
-  it('ignores late events from a replaced task stream without task-id special cases', async () => {
+  it.each(['creating_route', 'finished'] as const)('ignores late %s events from a replaced task stream without task-id special cases', async (stage) => {
     const { api, state } = await readyState();
     const firstTask = makeTask({
       task_id: OLD_TASK_ID,
@@ -419,7 +396,9 @@ describe('admin state — task read and stream ownership', () => {
     expect(state.task.value?.task_id).toBe(NEW_TASK_ID);
     const closesAfterSwitch = api.streamClose.mock.calls.length;
 
-    oldHandlers?.onTask({ ...firstTask, seq: 2, stage: 'creating_route' });
+    oldHandlers?.onTask({ ...firstTask, seq: 2, stage });
+    oldHandlers?.onStateChange?.('error');
+    expect(state.streamState.value).toBe('connecting');
 
     expect(state.task.value?.task_id).toBe(NEW_TASK_ID);
     expect(state.task.value?.seq).toBe(1);

@@ -77,7 +77,13 @@ cd dsh-plugin && uv run pytest -q && uv run ruff check src tests
 
 `0` 表示所有已执行阶段通过。缺用例在严格模式下记 FAIL，不会被当成 PASS；没跑的一律 NOT RUN。
 
-CI 在每次 PR 上跑四个作业：范围探测、Flutter 三层 QA、服务端 pytest、插件 pytest。发布打包见 [docs/CI-CD.md](docs/CI-CD.md)。
+CI 先探测变更范围，再运行对应子系统的检查；实际入口见 [.github/workflows/ci.yml](.github/workflows/ci.yml)。发布打包见 [docs/CI-CD.md](docs/CI-CD.md)。
+
+### Sentinel 按需证据检查
+
+[证据格式与命令](docs/QA-EVIDENCE.md)：记录 candidate SHA、规则与真实入口、runner 退出码和 JUnit 实际收集/skip、修前目标断言失败、证据文件与哈希。reviewer 用 `--require` 指定必要项、`--require-regression` 强制修复负对照；必要项未测不能通过。标准库自测自动进入已有 CI plan 的 discover，不新增 job，也不要求普通 PR 提交模型报告。
+
+已确认但未修复的两个 P2 通过 `cd admin-ui && npm run test:review-probes` 单独复现（应因目标断言退出 1），不混入默认 CI、不 skip/xfail；修复后移入常规测试。
 
 ## 已知边界
 
