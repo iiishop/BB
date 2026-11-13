@@ -165,3 +165,7 @@ class AdminTask(AdminModel):
 
 class CurrentTask(AdminModel):
     task: AdminTask | None
+
+
+class TaskAuthorization(AdminModel):
+    management_token: SecretStr = Field(min_length=1, max_length=4096)
