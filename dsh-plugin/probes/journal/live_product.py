@@ -24,6 +24,21 @@ def run(
 ):
     import os
 
+    if os.environ.get("BB_PRODUCT_CASES") == "online":
+        from live_online import run as run_online
+
+        return run_online(
+            origin=origin,
+            account=account,
+            api=api,
+            runtime=runtime,
+            root=root,
+            private=private,
+            launch=launch,
+            record=record,
+            **unused,
+        )
+
     if os.environ.get("BB_PRODUCT_CASES") == "profile":
         from live_profile import run as run_profile
 

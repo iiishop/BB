@@ -381,7 +381,7 @@ export class Bridge {
           });
           return { ...updated, bootstrapContent: bootstrap.content };
         }
-        return prior;
+        return this.resumeDelivery(prior, item);
       }
       let row = {
         version: 1,
@@ -412,8 +412,61 @@ export class Bridge {
         await this.journal.put(row);
         return { ...row, bootstrapContent: bootstrap.content };
       }
-      return this.deliver(row, item);
+      return this.resumeDelivery(row, item);
     });
+  }
+  // Called under serial() by both online claims and replacement recovery.
+  // A journal reservation is not proof of native delivery. Conversely, a native
+  // projection/pending entry must not be executed again just because a plugin
+  // callback or flush failed after followup.
+  async resumeDelivery(row, item, { replacePending = false } = {}) {
+    if (!["claimed", "prepared"].includes(row.state)) return row;
+    await this.check();
+    if (
+      row.session !== this.agent.session.id ||
+      (row.sessionCreatedAt !== undefined &&
+        row.sessionCreatedAt !== this.agent.session.header.createdAt)
+    )
+      throw Object.assign(new Error("Original native session is required"), {
+        code: "recovery_session_required",
+        required_sessions: [row.session],
+      });
+    const projected = () =>
+      this.agent.session
+        .snapshotEvents()
+        .some(
+          (e) =>
+            (row.nativeId &&
+              e.type === "user/message" &&
+              e.data.id === row.nativeId) ||
+            (row.callId &&
+              e.type === "tool/result" &&
+              e.data.turn === row.claimTurn &&
+              e.data.message.toolCallId === row.callId &&
+              !e.data.message.isError),
+        );
+    if (projected()) return row;
+    // A query result is still being prepared by the host; passive polling must
+    // not race it. Once idle, a failed result can be retried as passive input.
+    if (row.callId && this.agent.status !== "idle") return row;
+    const pending = [
+      ...this.agent.inbox.nextTurn,
+      ...this.agent.inbox.nextStep,
+    ].some((m) => m.id === row.nativeId);
+    if (pending && !replacePending) {
+      await this.flush();
+      return row;
+    }
+    if (pending) {
+      await this.agent.runMaintenance(async () => {
+        if (!projected()) this.agent.inbox.remove(row.nativeId);
+        await this.flush();
+      });
+      if (projected()) return row;
+    }
+    if (item.presentation)
+      row = { ...row, receiptId: item.presentation.receipt_id };
+    return this.deliver(row, item);
   }
   async deliver(row, item) {
     await this.check();
@@ -433,6 +486,7 @@ export class Bridge {
     delete row.turn;
     delete row.requestDigest;
     await this.journal.put(row);
+    await this.checkpoint("prepared");
     const enqueue = async () => {
       await this.check();
       this.agent.followup({
@@ -604,16 +658,9 @@ export class Bridge {
         row.kind === "download"
           ? { message: row.event, blocks: [] }
           : await this.findItem(row);
-      if (row.session !== this.agent.session.id)
-        throw new Error(
-          "Resume the recorded session before changing the target session",
-        );
-      await this.agent.runMaintenance(async () => {
-        if (row.nativeId) this.agent.inbox.remove(row.nativeId);
-        await this.flush();
-      });
-      if (item.presentation) row.receiptId = item.presentation.receipt_id;
-      await this.serial(() => this.deliver(row, item));
+      await this.serial(() =>
+        this.resumeDelivery(row, item, { replacePending: true }),
+      );
     }
   }
   async claimDownload(event, cursor) {
@@ -638,7 +685,9 @@ export class Bridge {
     const key = digest(["download", event.event_id]);
     await this.serial(async () => {
       await this.check();
-      if (this.journal.get(key)) return;
+      const prior = this.journal.get(key);
+      if (prior)
+        return this.resumeDelivery(prior, { message: prior.event, blocks: [] });
       const row = {
         key,
         kind: "download",
@@ -662,7 +711,7 @@ export class Bridge {
       };
       await this.flush();
       await this.journal.put(row);
-      await this.deliver(row, { message: row.event, blocks: [] });
+      await this.resumeDelivery(row, { message: row.event, blocks: [] });
     });
   }
   async tick(peer) {

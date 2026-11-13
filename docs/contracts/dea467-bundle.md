@@ -73,6 +73,31 @@ Every journal write is fsynced, atomically renamed and directory-synced. Owner c
 
 The metadata journal is not an alternate scheduler. The stock host owns inboxes, turns, tool calls, cancellation, Session projection and Session persistence. The bridge uses `followup`, `runMaintenance`, `inbox.remove`, `sessions.flush`, scoped tool registration and documented event hooks only.
 
+Online pre-dispatch retries use the same delivery advancement as replacement recovery.
+A `claimed` or unprojected `prepared` record can continue on the next normal tick
+after a transient history/media/projection failure. The bridge checks the original
+session incarnation and public native pending/projection facts first. An existing
+pending item is retained online; replacement recovery may replace only that owned
+pending item under maintenance. Already projected, dispatching or uncertain inputs
+are never blindly delivered again. Download callback reservations follow the same rule.
+
+Operation uncertainty is different from a pre-dispatch reservation. Ordinary ticks
+remain blocked while a send/download result is unknown; they do not retry the tool.
+The existing explicit recovery path is disable/save, then enable/save with the same
+account and original native session. Binding invokes `Bridge.recover`, which queries
+the original operation ID (or the matching download event/task). A missing fact
+remains uncertain. A terminal client fact resolves only that operation: an unfinished
+native turn still remains uncertain and cannot confirm/ACK. F5's observation that
+ticks alone do not reconcile is therefore not a violation of this replacement
+recovery contract; it does not authorize a new automatic retry policy.
+
+F2/F5 targeted checks: `BB_PRODUCT_CASES=online` with the real `live.py --product`
+entry tests one-shot HTTP history failure, pre-followup failure and post-enqueue
+failure. `node dsh-plugin/probes/product/operation-contract.mjs "$RUNTIME" "$EVIDENCE"`
+checks the explicit operation recovery contract with stock DSH and labelled
+client/model doubles; the existing `operation-result`/`download-result` product
+cases exercise actual client facts across process restart.
+
 ## Reproduction and evidence scope
 
 ```bash

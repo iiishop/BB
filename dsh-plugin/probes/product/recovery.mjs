@@ -87,7 +87,9 @@ const rt = await boot(
   },
   (kind, data) => native.push({ kind, ...data }),
 );
-const agent = await rt.open("product-recovery", phase === "recover");
+// Each independent owner/profile gets its own session. Both phases of a case
+// still reopen the exact same native session and persisted consumer capability.
+const agent = await rt.open("product-recovery-" + cut, phase === "recover");
 const oldName =
   phase === "recover" &&
   (await readdir(resolve(root, "state"))).find((n) => n.startsWith("binding-"));
