@@ -162,16 +162,37 @@ class AuthService implements AuthGateway {
   /// file may have been removed by that deletion; rewrite the current session
   /// so memory and disk agree. Never touches a newer/absent session.
   Future<void> _repersistNewLogin(String oldToken) async {
-    final String? newToken = session.tokenForRequest;
-    final AuthUser? user = session.user;
-    if (newToken == null || newToken == oldToken || user == null) {
+    // The repair write itself is asynchronous. A later login may complete
+    // while it is in flight; after every write, verify that the token on disk
+    // is still the current one and rewrite the latest login if not. Bounded
+    // so a continuous login stream cannot spin forever; the final best-effort
+    // write still gives the current credential the last word.
+    for (int attempt = 0; attempt < 4; attempt++) {
+      final String? token = session.tokenForRequest;
+      final AuthUser? user = session.user;
+      if (token == null || token == oldToken || user == null) {
+        return;
+      }
+      try {
+        await _persist(user, token);
+      } on SessionStorageException {
+        // The in-memory login is valid; a later persist/restart retries the
+        // disk copy rather than clearing it.
+        return;
+      }
+      if (session.tokenForRequest == token) {
+        return;
+      }
+    }
+    final String? latestToken = session.tokenForRequest;
+    final AuthUser? latestUser = session.user;
+    if (latestToken == null || latestToken == oldToken || latestUser == null) {
       return;
     }
     try {
-      await _persist(user, newToken);
+      await _persist(latestUser, latestToken);
     } on SessionStorageException {
-      // The in-memory login is valid; a later persist/restart retries the
-      // disk copy rather than clearing it.
+      // Keep the in-memory login; disk can be repaired by the next login.
     }
   }
 
