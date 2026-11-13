@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { AdminApiError } from '../src/api/client';
 import { deferred, setup, readyState } from './helpers/state';
-import type { AdminTask, CurrentTask, PublicConfig } from '../src/api/types';
+import type { ActionPlan, AdminSession, AdminTask, CurrentTask, PublicConfig } from '../src/api/types';
 import { CONFIG, SESSION, makePlan, makeTask } from './helpers/fake-api';
 
 const UUID_RE =
@@ -497,6 +497,104 @@ describe('admin state — mutation response ownership', () => {
     expect(state.domainDraft.value).toBe('late.example.com');
     expect(state.draftDirty.value).toBe(true);
     expect(state.notice.value ?? '').not.toContain('已保存');
+  });
+});
+
+describe('admin state — busy and restoring ownership', () => {
+  it('a stale plan success cannot write a late error or clear a newer operation busy state', async () => {
+    const { api, state } = await readyState();
+    api.probeResult = async () =>
+      makeTask({ stage: 'finished', classification: 'passed', allowed_actions: ['create_and_connect'] });
+    await state.startProbe();
+
+    const planGate = deferred<ActionPlan>();
+    api.planResult = () => planGate.promise;
+    const stalePlan = state.requestPlan('create_and_connect');
+    expect(state.busy.value).toBe('plan');
+
+    await state.logout();
+    await state.login('admin', 'admin');
+    await state.loadConfig();
+
+    const probeGate = deferred<AdminTask>();
+    api.probeResult = () => probeGate.promise;
+    const newProbe = state.startProbe();
+    expect(state.busy.value).toBe('probe');
+
+    planGate.resolve(makePlan());
+    await stalePlan;
+    expect(state.error.value).toBeNull();
+    expect(state.busy.value).toBe('probe');
+
+    probeGate.resolve(
+      makeTask({ task_id: NEW_TASK_ID, stage: 'creating_tunnel', classification: 'running', allowed_actions: [] }),
+    );
+    await newProbe;
+    expect(state.busy.value).toBeNull();
+  });
+
+  it('a stale plan rejection cannot write a late error or clear a newer operation busy state', async () => {
+    const { api, state } = await readyState();
+    api.probeResult = async () =>
+      makeTask({ stage: 'finished', classification: 'passed', allowed_actions: ['create_and_connect'] });
+    await state.startProbe();
+
+    let rejectPlan!: (reason: unknown) => void;
+    api.planResult = () => new Promise<ActionPlan>((_, reject) => { rejectPlan = reject; });
+    const stalePlan = state.requestPlan('create_and_connect');
+
+    await state.logout();
+    await state.login('admin', 'admin');
+    await state.loadConfig();
+    const probeGate = deferred<AdminTask>();
+    api.probeResult = () => probeGate.promise;
+    const newProbe = state.startProbe();
+    expect(state.busy.value).toBe('probe');
+
+    rejectPlan(new AdminApiError(503, 'storage_busy', '管理存储暂不可用'));
+    await stalePlan;
+    expect(state.error.value).toBeNull();
+    expect(state.busy.value).toBe('probe');
+
+    probeGate.resolve(makeTask({ task_id: NEW_TASK_ID, stage: 'creating_tunnel', classification: 'running', allowed_actions: [] }));
+    await newProbe;
+    expect(state.busy.value).toBeNull();
+  });
+
+  it('a stale restore finally cannot clear a newer restore state', async () => {
+    const { api, state } = setup();
+    const first = deferred<AdminSession>();
+    api.sessionResult = () => first.promise;
+    const staleRestore = state.restoreSession();
+    expect(state.restoring.value).toBe(true);
+
+    await state.logout();
+    const second = deferred<AdminSession>();
+    api.sessionResult = () => second.promise;
+    const nextRestore = state.restoreSession();
+    expect(state.restoring.value).toBe(true);
+
+    first.resolve({ ...SESSION });
+    await staleRestore;
+    expect(state.restoring.value).toBe(true);
+
+    second.resolve({ ...SESSION });
+    await nextRestore;
+    expect(state.restoring.value).toBe(false);
+  });
+
+  it('a stale logout finally cannot clear a newer session', async () => {
+    const { api, state } = setup();
+    await state.restoreSession();
+    const logoutGate = deferred<void>();
+    api.logout.mockImplementation(() => logoutGate.promise);
+    const staleLogout = state.logout();
+
+    await state.login('admin', 'admin');
+    expect(state.session.value).not.toBeNull();
+    logoutGate.resolve();
+    await staleLogout;
+    expect(state.session.value).not.toBeNull();
   });
 });
 
