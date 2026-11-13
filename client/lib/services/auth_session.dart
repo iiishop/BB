@@ -78,13 +78,19 @@ class AuthSession {
   bool isCurrent(AuthIdentity? captured) => captured?.sameAs(identity) ?? false;
 
   /// Attaches the server token to the account it belongs to.
-  void establish({required String token, required AuthUser user}) {
+  void establish({
+    required String token,
+    required AuthUser user,
+    int? generation,
+  }) {
     if (token.isEmpty) {
       throw ArgumentError.value(token, 'token', 'token 不能为空');
     }
     _token = token;
     _user = user;
-    _generation += 1;
+    _generation = (generation != null && generation > _generation)
+        ? generation
+        : _generation + 1;
     _authGeneration = newAuthGeneration();
   }
 

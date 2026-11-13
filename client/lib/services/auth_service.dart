@@ -62,9 +62,14 @@ class AuthService implements AuthGateway {
       account: account.trim(),
       password: password,
     );
-    session.establish(token: result.token, user: result.user);
+    final int generation = store?.nextGeneration() ?? session.generation + 1;
+    session.establish(
+      token: result.token,
+      user: result.user,
+      generation: generation,
+    );
     try {
-      await _persist(result.user, result.token);
+      await _persist(result.user, result.token, generation: generation);
     } on SessionStorageException {
       // Login succeeded at the server, but the restart capability did not. Do
       // not report success: drop the half-established session so the caller
@@ -93,9 +98,16 @@ class AuthService implements AuthGateway {
     }
     try {
       final AuthUser user = await api.fetchSession(stored.token);
-      session.establish(token: stored.token, user: user);
+      final int generation = stored.generation > 0
+          ? stored.generation
+          : (store.nextGeneration());
+      session.establish(
+        token: stored.token,
+        user: user,
+        generation: generation,
+      );
       if (user.account != stored.account || user.username != stored.username) {
-        await _persist(user, stored.token);
+        await _persist(user, stored.token, generation: session.generation);
       }
       return user;
     } on AuthFailure catch (failure) {
@@ -174,7 +186,7 @@ class AuthService implements AuthGateway {
         return;
       }
       try {
-        await _persist(user, token);
+        await _persist(user, token, generation: session.generation);
       } on SessionStorageException {
         // The in-memory login is valid; a later persist/restart retries the
         // disk copy rather than clearing it.
@@ -190,7 +202,11 @@ class AuthService implements AuthGateway {
       return;
     }
     try {
-      await _persist(latestUser, latestToken);
+      await _persist(
+        latestUser,
+        latestToken,
+        generation: session.generation,
+      );
     } on SessionStorageException {
       // Keep the in-memory login; disk can be repaired by the next login.
     }
@@ -207,7 +223,7 @@ class AuthService implements AuthGateway {
       return;
     }
     try {
-      await _persist(user, token);
+      await _persist(user, token, generation: session.generation);
     } on SessionStorageException {
       // The in-memory identity is correct; a restart re-reads the server.
     }
@@ -236,7 +252,11 @@ class AuthService implements AuthGateway {
     return LogoutResult(serverNotified: serverNotified, warning: warning);
   }
 
-  Future<void> _persist(AuthUser user, String token) async {
+  Future<void> _persist(
+    AuthUser user,
+    String token, {
+    int? generation,
+  }) async {
     final SessionStore? store = this.store;
     if (store == null) {
       return;
@@ -246,6 +266,7 @@ class AuthService implements AuthGateway {
         account: user.account,
         username: user.username,
         token: token,
+        generation: generation ?? session.generation,
       ),
     );
   }

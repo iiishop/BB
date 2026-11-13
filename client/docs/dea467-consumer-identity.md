@@ -96,7 +96,7 @@
 `{code,message,fields}` 形状，以及 probe 路径结果/identity 的 key 集合。
 
 `QA_REQUIRE_INTEGRATION=1 bash scripts/run_flutter_tests.sh client`：analyze PASS、
-flutter-test **318 passed / 6 skipped**、linux-integration **13 passed**，`RESULT=PASS`。
+flutter-test **320 passed / 6 skipped**、linux-integration **13 passed**，`RESULT=PASS`。
 
 6 个既有 skip（未算通过）：
 
@@ -134,7 +134,7 @@ Owner 纠正“没有部署、没有旧调用方”后，本轮不再修补 v1 �
 - 之前 `admitted-send-switch` 的 `stale_identity` 分类修复保留。旧 `live.py --faults` 的
   migration-ambiguous 用例依赖已删除的迁移分支，不再作为当前树的门槛；未重跑旧全矩阵。
 
-严格三层（清理后）：analyze PASS、flutter-test **318 passed / 6 skipped**、
+严格三层（清理后）：analyze PASS、flutter-test **320 passed / 6 skipped**、
 linux-integration **13 passed**，`RESULT=PASS`，退出 0。
 
 ## 9. 统一会话/消息/上下文查询服务（共享契约 900429c 接线）
@@ -189,7 +189,7 @@ R1/R2 不再用 v1 权限特判解决，而是消除旧通路本身：
 非 200，无 identity 为 422，owner+identity 为 200；关闭服务并从同一账本重启后，
 `/v2/consumers/get` 与业务调用仍返回同一稳定 consumer。
 
-严格三层：analyze PASS、flutter-test **318 passed / 6 skipped**、linux-integration
+严格三层：analyze PASS、flutter-test **320 passed / 6 skipped**、linux-integration
 **13 passed**，`RESULT=PASS`，退出 0。
 
 
@@ -212,12 +212,15 @@ R1/R2 不再用 v1 权限特判解决，而是消除旧通路本身：
   回归 `test/f4_clear_race_test.dart`（删除成功）与 `test/f4_clear_failure_test.dart`
   （删除失败）均在旧 401 暂停点完成新登录，断言内存与磁盘都保留新 token。补写自身也有
   异步窗口：`_repersistNewLogin` 每次落盘后核对当前 token，若写入期间又完成新登录则重写
-  最新 token；`test/f4_repair_overwrite_test.dart` 在旧 B 补写暂停时登录 C，最终内存与
-  磁盘都保持 C。
+  最新 token。进一步以**单调持久化代次**封闭异步写窗口：`PersistedSession.generation`
+  由 `SessionStore.nextGeneration()` 分配，`write` 拒绝低于当前代次的旧登录/补写，
+  `clear` 推进代次形成登出墓碑；因此五次补写暂停+五次新登录、以及旧补写遇到已完成登出，
+  都不会覆盖或复活旧凭据。`test/f4_bounded_repair_test.dart`、`test/f4_repair_logout_test.dart`
+  与 `test/f4_repair_overwrite_test.dart` 覆盖上述窗口；有限重试只作辅助，不作为一致性保证。
 
 回归：`test/chat_identity_capture_race_test.dart`（锁等待/捕获后切号）、
 `test/chat_ledger_io_rollback_test.dart`（真实 ACK/bind 写盘失败+冷重开）、
 `test/local_v2_unauthorized_test.dart`（当前 401 清理与并发新登录保护）；
 真实 FastAPI A/B/C 对照：修复前旧 A 请求返回 200 且含 B-C 私聊预览，修复后返回 409 且
-无该预览。严格三层：analyze PASS、flutter-test **318 passed / 6 skipped**、
+无该预览。严格三层：analyze PASS、flutter-test **320 passed / 6 skipped**、
 linux-integration **13 passed**，`RESULT=PASS`，退出 0。

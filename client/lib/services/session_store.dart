@@ -19,6 +19,7 @@ class PersistedSession {
     required this.account,
     required this.username,
     required this.token,
+    this.generation = 0,
   });
 
   factory PersistedSession.fromJson(Object? json) {
@@ -28,6 +29,7 @@ class PersistedSession {
     final Object? account = json['account'];
     final Object? username = json['username'];
     final Object? token = json['token'];
+    final Object? rawGeneration = json['generation'];
     if (account is! String ||
         username is! String ||
         token is! String ||
@@ -36,17 +38,31 @@ class PersistedSession {
         token.isEmpty) {
       throw const FormatException('session is missing fields');
     }
-    return PersistedSession(account: account, username: username, token: token);
+    if (rawGeneration != null &&
+        (rawGeneration is! int || rawGeneration < 0)) {
+      throw const FormatException('session generation is invalid');
+    }
+    return PersistedSession(
+      account: account,
+      username: username,
+      token: token,
+      generation: rawGeneration is int ? rawGeneration : 0,
+    );
   }
 
   final String account;
   final String username;
   final String token;
 
+  /// Monotonic commit generation used to reject stale credential writes.
+  /// Older files without the field read as zero.
+  final int generation;
+
   Map<String, dynamic> toJson() => <String, dynamic>{
     'account': account,
     'username': username,
     'token': token,
+    if (generation > 0) 'generation': generation,
   };
 }
 
@@ -86,6 +102,16 @@ class SessionStore {
   final File file;
   final SessionReplace _replace;
 
+  /// Highest credential commit generation observed by this store instance.
+  /// A write from an older login/repair is ignored after a newer login or a
+  /// completed clear, so an in-flight stale write cannot resurrect or
+  /// overwrite the current credential.
+  int _generation = 0;
+
+  int nextGeneration() => ++_generation;
+
+  int get currentGeneration => _generation;
+
   /// Default POSIX permissions for a credential file (owner read/write only).
   static const int fileMode = 0x180; // 0600
 
@@ -101,7 +127,13 @@ class SessionStore {
         return null;
       }
       final String raw = await file.readAsString();
-      return PersistedSession.fromJson(jsonDecode(raw));
+      final PersistedSession session = PersistedSession.fromJson(
+        jsonDecode(raw),
+      );
+      if (session.generation > _generation) {
+        _generation = session.generation;
+      }
+      return session;
     } on FormatException {
       await _deleteQuietly(file);
       return null;
@@ -112,6 +144,15 @@ class SessionStore {
 
   /// Writes the session without ever dropping the previous credential first.
   Future<void> write(PersistedSession session) async {
+    // A stale repair/login may reach this point after a newer login or a
+    // completed logout. The generation is the commit ownership token: ignore
+    // the older write instead of overwriting the current credential.
+    if (session.generation < _generation) {
+      return;
+    }
+    if (session.generation > _generation) {
+      _generation = session.generation;
+    }
     final Directory parent = file.parent;
     final File temporary = File('${file.path}.$pid.${_nonce()}.tmp');
     try {
@@ -138,6 +179,9 @@ class SessionStore {
 
   /// Removes the stored credential and reports failures instead of pretending.
   Future<void> clear() async {
+    // A logout is a commit too: any older in-flight credential write must not
+    // recreate the file after this point.
+    _generation += 1;
     try {
       if (await file.exists()) {
         await file.delete();
