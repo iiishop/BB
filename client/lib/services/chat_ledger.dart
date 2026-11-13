@@ -181,11 +181,14 @@ class ChatOperationRecord {
 /// and preview tools do not need the filesystem; production always uses a file
 /// under the client data directory.
 class ChatLedger {
-  ChatLedger._(this._file, Map<String, dynamic> initial) : _data = initial;
+  ChatLedger._(this._file, Map<String, dynamic> initial, [this._beforeReplace])
+    : _data = initial;
 
-  factory ChatLedger.atPath(String path) {
+  /// [beforeReplace] is a fault-test barrier after the temporary file is flushed.
+  /// Production callers leave it unset.
+  factory ChatLedger.atPath(String path, {Future<void> Function()? beforeReplace}) {
     final File file = File(path);
-    return ChatLedger._(file, <String, dynamic>{});
+    return ChatLedger._(file, <String, dynamic>{}, beforeReplace);
   }
 
   factory ChatLedger.inMemory([Map<String, dynamic>? initial]) {
@@ -209,6 +212,8 @@ class ChatLedger {
   /// client-owned consumer registry.
   static const int _version = 2;
   final File? _file;
+  final Future<void> Function()? _beforeReplace;
+  Map<String, dynamic>? _rollbackPoint;
   Map<String, dynamic> _data;
   bool _loaded = false;
   Future<void> _tail = Future<void>.value();
@@ -227,20 +232,38 @@ class ChatLedger {
     });
   }
 
+  /// Roll back to the most recent successful flush, not necessarily the start
+  /// of the call: enrollment must retain its already durable pending phase.
+  Future<T> _mutate<T>(Future<T> Function() action) {
+    return _locked(() async {
+      _rollbackPoint = _snapshotLocked();
+      try {
+        return await action();
+      } finally {
+        // Publish only the latest committed stage, on success as well as on
+        // failure. An early return must not expose an unflushed mutation.
+        _data = _rollbackPoint!;
+        _rollbackPoint = null;
+      }
+    });
+  }
+
   Future<void> _ensureLoaded() async {
     if (_loaded) {
       return;
     }
-    _loaded = true;
     final File? file = _file;
     if (file == null) {
-      return;
-    }
-    if (!await file.exists()) {
-      _data = _empty();
+      _loaded = true;
       return;
     }
     try {
+      final FileSystemEntityType type = await FileSystemEntity.type(file.path);
+      if (type == FileSystemEntityType.notFound) {
+        _data = _empty();
+        _loaded = true;
+        return;
+      }
       final String raw = await file.readAsString();
       final Object? decoded = jsonDecode(raw);
       if (decoded is! Map<String, dynamic>) {
@@ -248,16 +271,17 @@ class ChatLedger {
       }
       final Object? version = decoded['version'];
       if (version == _version) {
-        _data = decoded;
-        final Object? accounts = _data['accounts'];
+        final Object? accounts = decoded['accounts'];
         if (accounts is! Map<String, dynamic>) {
           throw const FormatException('chat ledger accounts are invalid');
         }
-        final Object? consumers = _data['consumers'];
+        final Object? consumers = decoded['consumers'];
         if (consumers is! Map<String, dynamic>) {
           throw const FormatException('chat ledger consumers are invalid');
         }
-        _data.putIfAbsent('consumer_owners', () => <String, dynamic>{});
+        decoded.putIfAbsent('consumer_owners', () => <String, dynamic>{});
+        _data = decoded;
+        _loaded = true;
       } else {
         // The single supported document version. Old pre-v2 documents are
         // rejected rather than migrated: there is no deployed v1 user to serve.
@@ -306,44 +330,50 @@ class ChatLedger {
   Map<String, dynamic> _snapshotLocked() =>
       jsonDecode(jsonEncode(_data)) as Map<String, dynamic>;
 
-  Future<void> _flushTransactionLocked(Map<String, dynamic> snapshot) async {
-    try {
-      await _flush();
-    } catch (_) {
-      _data = snapshot;
-      rethrow;
-    }
-  }
-
   Future<void> _flush() async {
+    // Every writer enters _mutate; make omissions fail visibly in tests.
+    if (_rollbackPoint == null) {
+      throw StateError('ledger flush outside a mutation');
+    }
+    final Map<String, dynamic> committed = _snapshotLocked();
     final File? file = _file;
-    if (file == null) {
-      return;
-    }
-    final Directory directory = file.parent;
-    if (!await directory.exists()) {
-      await directory.create(recursive: true);
-    }
-    final File temporary = File(
-      '${file.path}.tmp-${DateTime.now().microsecondsSinceEpoch}',
-    );
-    final RandomAccessFile handle = await temporary.open(mode: FileMode.write);
-    try {
-      await handle.writeString(jsonEncode(_data));
-      await handle.flush();
-    } finally {
-      await handle.close();
-    }
-    try {
-      await temporary.rename(file.path);
-    } on FileSystemException {
-      // Windows cannot rename over an existing file; this fallback is still
-      // write-then-replace, never an in-place partial overwrite.
-      if (await file.exists()) {
-        await file.delete();
+    if (file != null) {
+      final Directory directory = file.parent;
+      if (!await directory.exists()) {
+        await directory.create(recursive: true);
       }
-      await temporary.rename(file.path);
+      final File temporary = File(
+        '${file.path}.tmp-${DateTime.now().microsecondsSinceEpoch}',
+      );
+      try {
+        final RandomAccessFile handle = await temporary.open(mode: FileMode.write);
+        try {
+          await handle.writeString(jsonEncode(committed));
+          await handle.flush();
+        } finally {
+          await handle.close();
+        }
+        await _beforeReplace?.call();
+        try {
+          await temporary.rename(file.path);
+        } on FileSystemException {
+          // POSIX replacement is already atomic; a failed rename must not
+          // delete the prior commit. Retain the existing Windows fallback.
+          if (!Platform.isWindows) rethrow;
+          if (await file.exists()) {
+            await file.delete();
+          }
+          await temporary.rename(file.path);
+        }
+      } finally {
+        try {
+          if (await temporary.exists()) await temporary.delete();
+        } on FileSystemException {
+          // Cleanup must not turn a committed rename into an apparent failure.
+        }
+      }
     }
+    _rollbackPoint = committed;
   }
 
   // --------------------------------------------------------- server cursor --
@@ -356,7 +386,7 @@ class ChatLedger {
   }
 
   Future<void> setServerEventCursor(String account, int cursor) {
-    return _locked(() async {
+    return _mutate(() async {
       _account(account)['server_event_cursor'] = cursor;
       await _flush();
     });
@@ -383,7 +413,7 @@ class ChatLedger {
     String consumerSession,
     int cursor,
   ) {
-    return _locked(() async {
+    return _mutate(() async {
       final Map<String, dynamic> events =
           _account(account)['events'] as Map<String, dynamic>;
       final Map<String, dynamic> feed = events.putIfAbsent(
@@ -412,7 +442,7 @@ class ChatLedger {
     String consumerSession,
     String peerAccount,
   ) {
-    return _locked(() async {
+    return _mutate(() async {
       final Map<String, dynamic> subscriptions =
           _account(account)['subscriptions'] as Map<String, dynamic>;
       final Map<String, dynamic> events =
@@ -501,7 +531,7 @@ class ChatLedger {
   }
 
   Future<void> saveOperation(String account, ChatOperationRecord record) {
-    return _locked(() async {
+    return _mutate(() async {
       (_account(account)['operations']
           as Map<String, dynamic>)[record.operationId] = record
           .toJson();
@@ -526,7 +556,7 @@ class ChatLedger {
   // --------------------------------------------------------------- downloads --
 
   Future<void> saveDownload(String account, DownloadTask task) {
-    return _locked(() async {
+    return _mutate(() async {
       (_account(account)['downloads'] as Map<String, dynamic>)[task.taskId] =
           task.toJson();
       await _flush();
@@ -557,7 +587,7 @@ class ChatLedger {
     String operationId,
     String taskId,
   ) {
-    return _locked(() async {
+    return _mutate(() async {
       (_account(account)['download_operations']
               as Map<String, dynamic>)[operationId] =
           taskId;
@@ -699,7 +729,7 @@ class ChatLedger {
     required String ownerKeyHash,
     required String sessionId,
   }) {
-    return _locked(() async {
+    return _mutate(() async {
       final Map<String, dynamic> owners =
           _data['consumer_owners'] as Map<String, dynamic>;
       final Object? existingOwner = owners[ownerKeyHash];
@@ -791,7 +821,7 @@ class ChatLedger {
     required int expectedBindingRevision,
     required String sessionId,
   }) {
-    return _locked(() async {
+    return _mutate(() async {
       final Object? raw = _consumers[consumerId];
       if (raw is! Map<String, dynamic> ||
           raw['account'] != account ||
@@ -814,7 +844,7 @@ class ChatLedger {
             <String, dynamic>{}),
         sessionId: true,
       };
-      final Map<String, dynamic> snapshot = _snapshotLocked();
+
       _consumers[consumerId] = <String, dynamic>{
         ...record,
         'auth_generation': authGeneration,
@@ -826,7 +856,7 @@ class ChatLedger {
       (_account(account)['consumer_aliases']
           as Map<String, dynamic>)[sessionId] =
           consumerId;
-      await _flushTransactionLocked(snapshot);
+      await _flush();
       return _bindingLocked(consumerId)!;
     });
   }
@@ -854,7 +884,7 @@ class ChatLedger {
     bool allowGenerationRotation = false,
     bool requireExisting = false,
   }) {
-    return _locked(() async {
+    return _mutate(() async {
       String? resolved = consumerId;
       if (resolved != null) {
         final ConsumerBinding? target = _bindingLocked(resolved);
@@ -893,13 +923,13 @@ class ChatLedger {
       }
 
       if (resolved == null) {
-        final Map<String, dynamic> snapshot = _snapshotLocked();
+
         resolved = _ensureConsumerLocked(
           account: account,
           consumerSession: consumerSession,
           authGeneration: authGeneration,
         );
-        await _flushTransactionLocked(snapshot);
+        await _flush();
         return _bindingLocked(resolved)!;
       }
 
@@ -939,7 +969,7 @@ class ChatLedger {
       if (generationChanged || aliasAdded) {
         final bool firstBinding =
             generationChanged && binding.authGeneration.isEmpty;
-        final Map<String, dynamic> snapshot = _snapshotLocked();
+
         _consumers[resolved] = <String, dynamic>{
           ...(_consumers[resolved] as Map<String, dynamic>),
           'auth_generation': generationChanged
@@ -954,7 +984,7 @@ class ChatLedger {
         (_account(account)['consumer_aliases']
             as Map<String, dynamic>)[consumerSession] =
             resolved;
-        await _flushTransactionLocked(snapshot);
+        await _flush();
         binding = _bindingLocked(resolved)!;
       }
       return binding;
@@ -995,7 +1025,7 @@ class ChatLedger {
     int position, {
     required String consumerId,
   }) {
-    return _locked(() async {
+    return _mutate(() async {
       final Map<String, dynamic> scopes =
           _account(account)['consumption_by_consumer']
               as Map<String, dynamic>;
@@ -1040,7 +1070,7 @@ class ChatLedger {
     required bool Function() stillCurrent,
     Future<void> Function()? beforeCommit,
   }) {
-    return _locked(() async {
+    return _mutate(() async {
       ConsumerBinding? binding = _bindingLocked(consumerId);
       if (binding == null ||
           binding.account != account ||
@@ -1106,10 +1136,10 @@ class ChatLedger {
       final Map<String, dynamic> consumption =
           (scopes[consumerId] as Map<String, dynamic>?) ?? <String, dynamic>{};
       if (throughPosition > _consumedLocked(account, consumerId, peerAccount)) {
-        final Map<String, dynamic> snapshot = _snapshotLocked();
+
         consumption[peerAccount] = throughPosition;
         scopes[consumerId] = consumption;
-        await _flushTransactionLocked(snapshot);
+        await _flush();
       }
       return throughPosition;
     });
@@ -1127,7 +1157,7 @@ class ChatLedger {
     String? consumerId,
     Set<String>? createdReceiptIds,
   }) {
-    return _locked(() async {
+    return _mutate(() async {
       final String resolvedConsumer =
           consumerId ??
           _consumerIdForAliasLocked(account, consumerSession) ??
@@ -1162,8 +1192,8 @@ class ChatLedger {
         contentDigest: contentDigest,
       );
       receipts[receiptId] = receipt.toJson();
-      createdReceiptIds?.add(receiptId);
       await _flush();
+      createdReceiptIds?.add(receiptId);
       return receipt;
     });
   }
@@ -1178,7 +1208,7 @@ class ChatLedger {
     String account,
     Iterable<String> receiptIds,
   ) {
-    return _locked(() async {
+    return _mutate(() async {
       final Map<String, dynamic> receipts =
           _account(account)['receipts'] as Map<String, dynamic>;
       bool changed = false;
@@ -1259,7 +1289,7 @@ class ChatLedger {
     bool Function()? stillCurrent,
     Future<void> Function()? beforeCommit,
   }) {
-    return _locked(() async {
+    return _mutate(() async {
       final Map<String, dynamic> state = _account(account);
       final String resolvedConsumer =
           consumerId ??
@@ -1357,35 +1387,23 @@ class ChatLedger {
           throw staleBinding('消费者绑定版本已变化');
         }
       }
-      final Object previousConfirmations = jsonDecode(
-        jsonEncode(confirmations),
-      );
-      final Object previousReceipts = jsonDecode(jsonEncode(receipts));
-      try {
-        for (final PresentationReceipt receipt in validated) {
-          receipts[receipt.receiptId] = receipt
-              .copyWith(
-                confirmed: true,
-                attemptId: receipt.attemptId ?? attemptId,
-              )
-              .toJson();
-        }
-        confirmations[attemptKey] = <String, dynamic>{
-          'attempt_id': attemptId,
-          'consumer_session': consumerSession,
-          'consumer_id': resolvedConsumer,
-          'request_digest': requestDigest,
-          'receipt_ids': ids,
-          'confirmed_at': DateTime.now().toUtc().toIso8601String(),
-        };
-        await _flush();
-      } catch (_) {
-        // The atomic rename failed: restore the in-memory view so a retry
-        // cannot observe a half-applied confirmation.
-        state['confirmations'] = previousConfirmations;
-        state['receipts'] = previousReceipts;
-        rethrow;
+      for (final PresentationReceipt receipt in validated) {
+        receipts[receipt.receiptId] = receipt
+            .copyWith(
+              confirmed: true,
+              attemptId: receipt.attemptId ?? attemptId,
+            )
+            .toJson();
       }
+      confirmations[attemptKey] = <String, dynamic>{
+        'attempt_id': attemptId,
+        'consumer_session': consumerSession,
+        'consumer_id': resolvedConsumer,
+        'request_digest': requestDigest,
+        'receipt_ids': ids,
+        'confirmed_at': DateTime.now().toUtc().toIso8601String(),
+      };
+      await _flush();
       return ids;
     });
   }
@@ -1394,7 +1412,7 @@ class ChatLedger {
     required String account,
     required List<String> receiptIds,
   }) {
-    return _locked(() async {
+    return _mutate(() async {
       final Map<String, dynamic> receipts =
           _account(account)['receipts'] as Map<String, dynamic>;
       final List<String> confirmed = <String>[];
@@ -1425,7 +1443,7 @@ class ChatLedger {
     required String requestDigest,
     required List<String> receiptIds,
   }) {
-    return _locked(() async {
+    return _mutate(() async {
       final Map<String, dynamic> confirmations =
           _account(account)['confirmations'] as Map<String, dynamic>;
       final String? consumer = _consumerIdForAliasLocked(
@@ -1486,7 +1504,7 @@ class ChatLedger {
     required DownloadTask task,
     required LocalEvent event,
   }) {
-    return _locked(() async {
+    return _mutate(() async {
       final Map<String, dynamic> state = _account(account);
       final Map<String, dynamic> downloads =
           state['downloads'] as Map<String, dynamic>;
@@ -1500,28 +1518,20 @@ class ChatLedger {
         if (feed != null)
           ...(feed['source_event_ids'] as List<dynamic>).whereType<String>(),
       };
-      final Object previousDownloads = jsonDecode(jsonEncode(downloads));
-      final Object previousPending = jsonDecode(jsonEncode(pending));
-      try {
-        downloads[task.taskId] = task.toJson();
-        if (delivered.contains(event.eventId)) {
-          pending.remove(event.eventId);
-        } else {
-          pending[event.eventId] = event.toJson();
-        }
-        await _flush();
-      } catch (_) {
-        state['downloads'] = previousDownloads;
-        state['pending_events'] = previousPending;
-        rethrow;
+      downloads[task.taskId] = task.toJson();
+      if (delivered.contains(event.eventId)) {
+        pending.remove(event.eventId);
+      } else {
+        pending[event.eventId] = event.toJson();
       }
+      await _flush();
     });
   }
 
   /// Moves this account's pending events into their consumer feeds. The event
   /// and its pending marker change in one locked, single-flush operation.
   Future<int> deliverPendingEvents(String account) {
-    return _locked(() async {
+    return _mutate(() async {
       final Map<String, dynamic> state = _account(account);
       final Map<String, dynamic> pending =
           state['pending_events'] as Map<String, dynamic>;
@@ -1530,49 +1540,39 @@ class ChatLedger {
       }
       final Map<String, dynamic> events =
           state['events'] as Map<String, dynamic>;
-      final Object previousPending = jsonDecode(jsonEncode(pending));
-      final Object previousEvents = jsonDecode(jsonEncode(events));
       int delivered = 0;
-      try {
-        for (final MapEntry<String, dynamic> entry
-            in pending.entries.toList()) {
-          if (entry.value is! Map<String, dynamic>) {
-            pending.remove(entry.key);
-            continue;
-          }
-          final LocalEvent event = LocalEvent.fromJson(entry.value);
-          final Map<String, dynamic> feed = events.putIfAbsent(
-            event.consumerSession,
-            () => <String, dynamic>{
-              'next_cursor': 1,
-              'entries': <dynamic>[],
-              'source_event_ids': <String>[],
-              'server_cursor': 0,
-            },
-          ) as Map<String, dynamic>;
-          feed.putIfAbsent('server_cursor', () => 0);
-          final List<String> sourceIds =
-              (feed['source_event_ids'] as List<dynamic>).cast<String>();
-          if (!sourceIds.contains(event.eventId)) {
-            final int cursor = feed['next_cursor'] as int;
-            (feed['entries'] as List<dynamic>).add(
-              LocalEventEntry(cursor: cursor, event: event).toJson(),
-            );
-            sourceIds.add(event.eventId);
-            feed['next_cursor'] = cursor + 1;
-          }
+      for (final MapEntry<String, dynamic> entry
+          in pending.entries.toList()) {
+        if (entry.value is! Map<String, dynamic>) {
           pending.remove(entry.key);
-          delivered += 1;
+          continue;
         }
-        if (delivered > 0) {
-          await _flush();
+        final LocalEvent event = LocalEvent.fromJson(entry.value);
+        final Map<String, dynamic> feed = events.putIfAbsent(
+          event.consumerSession,
+          () => <String, dynamic>{
+            'next_cursor': 1,
+            'entries': <dynamic>[],
+            'source_event_ids': <String>[],
+            'server_cursor': 0,
+          },
+        ) as Map<String, dynamic>;
+        feed.putIfAbsent('server_cursor', () => 0);
+        final List<String> sourceIds =
+            (feed['source_event_ids'] as List<dynamic>).cast<String>();
+        if (!sourceIds.contains(event.eventId)) {
+          final int cursor = feed['next_cursor'] as int;
+          (feed['entries'] as List<dynamic>).add(
+            LocalEventEntry(cursor: cursor, event: event).toJson(),
+          );
+          sourceIds.add(event.eventId);
+          feed['next_cursor'] = cursor + 1;
         }
-        return delivered;
-      } catch (_) {
-        state['pending_events'] = previousPending;
-        state['events'] = previousEvents;
-        rethrow;
+        pending.remove(entry.key);
+        delivered += 1;
       }
+      await _flush();
+      return delivered;
     });
   }
 
@@ -1602,7 +1602,7 @@ class ChatLedger {
     required String consumerSession,
     required LocalEvent event,
   }) {
-    return _locked(() async {
+    return _mutate(() async {
       final Map<String, dynamic> events =
           _account(account)['events'] as Map<String, dynamic>;
       final Map<String, dynamic> feed = events.putIfAbsent(
