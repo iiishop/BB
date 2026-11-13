@@ -86,19 +86,23 @@ Future<void> main(List<String> args) async {
     expiring = true;
     heartbeat.stop();
     try {
-      await service.signOut();
+      await service.signOut(expectedToken: token);
       stdout.writeln('本地会话已失效，已清除凭据');
     } on AuthFailure catch (failure) {
-      // signOut keeps the in-memory session when the file cannot be removed;
-      // clear it anyway so the revoked token is never used again.
-      service.session.clear();
+      // Only clear the credential this callback owns. A concurrent new login
+      // must survive a failed deletion of the old file.
+      if (service.session.tokenForRequest == token) {
+        service.session.clear();
+      }
       if (failure.code == sessionStorageUnavailable.code) {
         stderr.writeln('本地会话已失效，但凭据文件删除失败，请手动检查会话目录');
       } else {
         stderr.writeln('本地会话已失效，清除凭据失败（${failure.code}）');
       }
     } catch (_) {
-      service.session.clear();
+      if (service.session.tokenForRequest == token) {
+        service.session.clear();
+      }
       stderr.writeln('本地会话已失效，清除凭据失败');
     } finally {
       expiring = false;

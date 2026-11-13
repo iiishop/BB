@@ -100,36 +100,79 @@ class AuthService implements AuthGateway {
       return user;
     } on AuthFailure catch (failure) {
       if (failure.status == 401) {
+        // Only invalidate the token this restore was validating. A login that
+        // completed while the request/file operation was in flight wins.
         try {
-          await store.clear();
-        } on SessionStorageException {
-          session.clear();
-          // The credential is invalid but the stale file could not be removed;
-          // report the storage fault instead of claiming a clean logout.
-          throw sessionStorageUnavailable;
+          await signOut(expectedToken: stored.token);
+        } on AuthFailure catch (clearFailure) {
+          if (clearFailure.code == sessionStorageUnavailable.code) {
+            rethrow;
+          }
+          if (session.tokenForRequest == stored.token) {
+            session.clear();
+          }
         }
-        session.clear();
       }
       rethrow;
     } on SessionStorageException {
-      session.clear();
+      if (session.tokenForRequest == stored.token) {
+        session.clear();
+      }
       throw sessionStorageUnavailable;
     }
   }
 
   @override
-  Future<void> signOut() async {
-    final SessionStore? store = this.store;
-    if (store != null) {
-      try {
-        await store.clear();
-      } on SessionStorageException {
-        // Keep the in-memory session: reporting a logout that a restart would
-        // undo is worse than surfacing the storage fault.
-        throw sessionStorageUnavailable;
-      }
+  Future<void> signOut({String? expectedToken}) async {
+    final String? currentToken = session.tokenForRequest;
+    // A token-aware invalidation may target a stored credential that was never
+    // established in memory (restoreSession's 401 path).
+    final String? oldToken = expectedToken ?? currentToken;
+    if (oldToken == null) {
+      return;
     }
-    session.clear();
+    // The token-aware caller must not clear a login that replaced this one
+    // before sign-out began.
+    if (expectedToken != null &&
+        currentToken != null &&
+        currentToken != expectedToken) {
+      return;
+    }
+    final SessionStore? store = this.store;
+    try {
+      if (store != null) {
+        await store.clear();
+      }
+      // A new login may have completed while the deletion was in flight. Its
+      // file can have been removed by that deletion; restore it before the
+      // conditional memory commit below.
+      await _repersistNewLogin(oldToken);
+    } on SessionStorageException {
+      await _repersistNewLogin(oldToken);
+      throw sessionStorageUnavailable;
+    }
+    // Clear only the credential this sign-out owned. A new login that
+    // committed during the await must survive in memory too.
+    if (session.tokenForRequest == oldToken) {
+      session.clear();
+    }
+  }
+
+  /// A login completed while the old credential's deletion was awaited. Its
+  /// file may have been removed by that deletion; rewrite the current session
+  /// so memory and disk agree. Never touches a newer/absent session.
+  Future<void> _repersistNewLogin(String oldToken) async {
+    final String? newToken = session.tokenForRequest;
+    final AuthUser? user = session.user;
+    if (newToken == null || newToken == oldToken || user == null) {
+      return;
+    }
+    try {
+      await _persist(user, newToken);
+    } on SessionStorageException {
+      // The in-memory login is valid; a later persist/restart retries the
+      // disk copy rather than clearing it.
+    }
   }
 
   /// Updates the cached identity after a successful profile edit.

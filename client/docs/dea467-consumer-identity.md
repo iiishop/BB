@@ -96,7 +96,7 @@
 `{code,message,fields}` 形状，以及 probe 路径结果/identity 的 key 集合。
 
 `QA_REQUIRE_INTEGRATION=1 bash scripts/run_flutter_tests.sh client`：analyze PASS、
-flutter-test **315 passed / 6 skipped**、linux-integration **13 passed**，`RESULT=PASS`。
+flutter-test **317 passed / 6 skipped**、linux-integration **13 passed**，`RESULT=PASS`。
 
 6 个既有 skip（未算通过）：
 
@@ -134,7 +134,7 @@ Owner 纠正“没有部署、没有旧调用方”后，本轮不再修补 v1 �
 - 之前 `admitted-send-switch` 的 `stale_identity` 分类修复保留。旧 `live.py --faults` 的
   migration-ambiguous 用例依赖已删除的迁移分支，不再作为当前树的门槛；未重跑旧全矩阵。
 
-严格三层（清理后）：analyze PASS、flutter-test **315 passed / 6 skipped**、
+严格三层（清理后）：analyze PASS、flutter-test **317 passed / 6 skipped**、
 linux-integration **13 passed**，`RESULT=PASS`，退出 0。
 
 ## 9. 统一会话/消息/上下文查询服务（共享契约 900429c 接线）
@@ -189,7 +189,7 @@ R1/R2 不再用 v1 权限特判解决，而是消除旧通路本身：
 非 200，无 identity 为 422，owner+identity 为 200；关闭服务并从同一账本重启后，
 `/v2/consumers/get` 与业务调用仍返回同一稳定 consumer。
 
-严格三层：analyze PASS、flutter-test **315 passed / 6 skipped**、linux-integration
+严格三层：analyze PASS、flutter-test **317 passed / 6 skipped**、linux-integration
 **13 passed**，`RESULT=PASS`，退出 0。
 
 
@@ -205,12 +205,16 @@ R1/R2 不再用 v1 权限特判解决，而是消除旧通路本身：
   真实文件 I/O 失败通过把账本路径替换为同名目录制造，恢复文件后重试并冷重开验证。
 - **F4（401 失效归属）**：v2 router 把 AuthFailure 转成 DTO 后，`LocalAuthServer` 统一检查
   401 `unauthenticated` 并调用 token-aware `onUnauthorized(token)`；回调只在当前 token 仍
-  等于请求捕获 token 时清理。当前凭据失效会清空内存/磁盘并让 `/v2/status` 变 null；并发
-  建立的新登录不会被旧请求的 401 清掉（独立进程入口同样按 token 复核）。
+  等于请求捕获 token 时清理。`AuthService.signOut` 删除凭据文件后只清理本次捕获的 token；
+  若删除期间已完成新登录，旧回调会先恢复新凭据的磁盘副本，再保留新内存登录。`restoreSession`
+  的 401 也按原 stored token 清理，不再无条件清空并发新登录；删除失败分支同样保留新登录并
+  维持原有“显式登出失败保留内存”语义。当前凭据失效会清空内存/磁盘并让 `/v2/status` 变 null。
+  回归 `test/f4_clear_race_test.dart`（删除成功）与 `test/f4_clear_failure_test.dart`
+  （删除失败）均在旧 401 暂停点完成新登录，断言内存与磁盘都保留新 token。
 
 回归：`test/chat_identity_capture_race_test.dart`（锁等待/捕获后切号）、
 `test/chat_ledger_io_rollback_test.dart`（真实 ACK/bind 写盘失败+冷重开）、
 `test/local_v2_unauthorized_test.dart`（当前 401 清理与并发新登录保护）；
 真实 FastAPI A/B/C 对照：修复前旧 A 请求返回 200 且含 B-C 私聊预览，修复后返回 409 且
-无该预览。严格三层：analyze PASS、flutter-test **315 passed / 6 skipped**、
+无该预览。严格三层：analyze PASS、flutter-test **317 passed / 6 skipped**、
 linux-integration **13 passed**，`RESULT=PASS`，退出 0。
