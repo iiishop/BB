@@ -82,6 +82,10 @@ export function createAdminState(
   let taskReadSerial = 0;
   let streamSerial = 0;
   let sessionEpoch = 0;
+  let busySerial = 0;
+  let busyOwner: number | null = null;
+  let restoringSerial = 0;
+  let restoringOwner: number | null = null;
 
   function setCsrf(value: string | null) {
     csrfToken = value;
@@ -109,6 +113,34 @@ export function createAdminState(
     return ownerTaskId === null ? current === null : current?.task_id === ownerTaskId;
   }
 
+  function beginBusy(action: Exclude<BusyAction, null>): number {
+    const token = ++busySerial;
+    busyOwner = token;
+    busy.value = action;
+    return token;
+  }
+
+  function endBusy(token: number) {
+    if (busyOwner === token) {
+      busyOwner = null;
+      busy.value = null;
+    }
+  }
+
+  function beginRestoring(): number {
+    const token = ++restoringSerial;
+    restoringOwner = token;
+    restoring.value = true;
+    return token;
+  }
+
+  function endRestoring(token: number) {
+    if (restoringOwner === token) {
+      restoringOwner = null;
+      restoring.value = false;
+    }
+  }
+
   function clearSession(noticeText?: string) {
     applySession(null);
     closeTaskStream();
@@ -118,6 +150,10 @@ export function createAdminState(
     task.value = null;
     plan.value = null;
     authorizationPrompt.value = false;
+    busyOwner = null;
+    busy.value = null;
+    restoringOwner = null;
+    restoring.value = false;
     configState.value = 'idle';
     taskState.value = 'idle';
     if (noticeText) notice.value = noticeText;
@@ -219,7 +255,7 @@ export function createAdminState(
 
   async function restoreSession(): Promise<boolean> {
     const epoch = sessionEpoch;
-    restoring.value = true;
+    const restoreToken = beginRestoring();
     try {
       const next = await api.session();
       if (!sessionStillCurrent(epoch)) return false;
@@ -234,14 +270,14 @@ export function createAdminState(
       }
       return false;
     } finally {
-      restoring.value = false;
+      endRestoring(restoreToken);
     }
   }
 
   async function login(username: string, password: string): Promise<boolean> {
     error.value = null;
     notice.value = null;
-    busy.value = 'login';
+    const busyToken = beginBusy('login');
     const epoch = sessionEpoch;
     try {
       const next = await api.login(username, password);
@@ -259,13 +295,13 @@ export function createAdminState(
       }
       return false;
     } finally {
-      busy.value = null;
+      endBusy(busyToken);
     }
   }
 
   async function changePassword(oldPassword: string, newPassword: string): Promise<boolean> {
     error.value = null;
-    busy.value = 'password';
+    const busyToken = beginBusy('password');
     const epoch = sessionEpoch;
     try {
       await api.changePassword(oldPassword, newPassword);
@@ -277,22 +313,26 @@ export function createAdminState(
       handleError(cause, '修改密码失败，请重试。');
       return false;
     } finally {
-      busy.value = null;
+      endBusy(busyToken);
     }
   }
 
   async function logout(): Promise<void> {
-    busy.value = 'logout';
+    const epoch = sessionEpoch;
+    const busyToken = beginBusy('logout');
     try {
       await api.logout();
     } catch (cause) {
-      if (!(cause instanceof AdminApiError && cause.isUnauthenticated)) {
+      if (
+        sessionStillCurrent(epoch) &&
+        !(cause instanceof AdminApiError && cause.isUnauthenticated)
+      ) {
         // Logout still clears local state; report rather than block exit.
         error.value = messageOf(cause);
       }
     } finally {
-      clearSession();
-      busy.value = null;
+      if (sessionStillCurrent(epoch)) clearSession();
+      endBusy(busyToken);
     }
   }
 
@@ -383,7 +423,7 @@ export function createAdminState(
     if (!value) return false;
     error.value = null;
     notice.value = null;
-    busy.value = 'save';
+    const busyToken = beginBusy('save');
     const epoch = sessionEpoch;
     try {
       const hadPlan = plan.value !== null;
@@ -410,7 +450,7 @@ export function createAdminState(
       handleError(cause, '保存域名草稿失败。');
       return false;
     } finally {
-      busy.value = null;
+      endBusy(busyToken);
     }
   }
 
@@ -422,7 +462,7 @@ export function createAdminState(
     }
     error.value = null;
     notice.value = null;
-    busy.value = 'probe';
+    const busyToken = beginBusy('probe');
     const ownerTaskId = task.value?.task_id ?? null;
     const epoch = sessionEpoch;
     probeKey ??= uuid();
@@ -450,7 +490,7 @@ export function createAdminState(
       handleError(cause, '启动探测失败。');
       return false;
     } finally {
-      busy.value = null;
+      endBusy(busyToken);
     }
   }
 
@@ -468,12 +508,13 @@ export function createAdminState(
     if (!task.value.allowed_actions.includes(action)) return false;
     error.value = null;
     notice.value = null;
-    busy.value = 'plan';
+    const busyToken = beginBusy('plan');
     const ownerTaskId = task.value.task_id;
     const epoch = sessionEpoch;
     try {
       const next = await api.createPlan(config.value.version, ownerTaskId, action);
-      if (!sessionStillCurrent(epoch) || !taskResponseStillOwned(ownerTaskId)) {
+      if (!sessionStillCurrent(epoch)) return false;
+      if (!taskResponseStillOwned(ownerTaskId)) {
         error.value = '任务已被更新，较早的计划响应未覆盖当前任务；请重新探测。';
         return false;
       }
@@ -488,7 +529,7 @@ export function createAdminState(
       handleError(cause, '创建执行计划失败。');
       return false;
     } finally {
-      busy.value = null;
+      endBusy(busyToken);
     }
   }
 
@@ -517,7 +558,7 @@ export function createAdminState(
       return false;
     }
     error.value = null;
-    busy.value = 'execute';
+    const busyToken = beginBusy('execute');
     // Contract PlanExecute.idempotency_key is a UUID. One UUID per plan is
     // cached for this page session so a failed/retried request and a double
     // click reuse the same key; a different plan gets a different UUID.
@@ -550,7 +591,7 @@ export function createAdminState(
       handleError(cause, '执行计划失败。');
       return false;
     } finally {
-      busy.value = null;
+      endBusy(busyToken);
     }
   }
 
@@ -567,7 +608,7 @@ export function createAdminState(
     const ownerTaskId = task.value.task_id;
     const epoch = sessionEpoch;
     error.value = null;
-    busy.value = 'authorize';
+    const busyToken = beginBusy('authorize');
     try {
       const next = await api.authorizeTask(ownerTaskId, managementToken);
       if (!sessionStillCurrent(epoch)) return false;
@@ -590,7 +631,7 @@ export function createAdminState(
       handleError(cause, '补充管理凭据失败。');
       return false;
     } finally {
-      busy.value = null;
+      endBusy(busyToken);
     }
   }
 

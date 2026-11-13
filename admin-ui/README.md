@@ -43,6 +43,8 @@ npm run test:e2e     # Playwright + 真实 bb-admin（见下）
   关闭其事件流；不按单个 task_id 特判。
 - 所有登录态异步响应绑定 session epoch：logout/会话失效后，迟到的 current、config、
   save 与 authorize/probe/execute 响应不能写状态、显示保存成功或创建 SSE。
+- 共享 `busy`/`restoring` 也有所有者 token；旧操作的成功/错误/`finally` 均不能清掉
+  新会话或新操作的 busy/restoring。logout 的迟到 `finally` 不清除新会话。
 - mutation 响应只在其目标 task 仍是当前任务时被采纳；旧 authorize/probe/execute
   响应不能重新夺取任务归属。配置快照按单调 `version` 接收，GET/PUT 落后版本不回滚
   草稿、保存提示或后续计划。
