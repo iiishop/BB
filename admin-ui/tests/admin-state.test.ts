@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { AdminApiError } from '../src/api/client';
 import { deferred, setup, readyState } from './helpers/state';
-import type { AdminTask, CurrentTask } from '../src/api/types';
-import { SESSION, makePlan, makeTask } from './helpers/fake-api';
+import type { AdminTask, CurrentTask, PublicConfig } from '../src/api/types';
+import { CONFIG, SESSION, makePlan, makeTask } from './helpers/fake-api';
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -406,6 +406,100 @@ describe('admin state — task read and stream ownership', () => {
   });
 });
 
+describe('admin state — mutation response ownership', () => {
+  it('late probe response cannot replace a newer task adopted by refresh', async () => {
+    const { api, state } = await readyState();
+    const probeGate = deferred<AdminTask>();
+    api.probeResult = () => probeGate.promise;
+    const pending = state.startProbe();
+
+    const newTask = makeTask({
+      task_id: NEW_TASK_ID,
+      seq: 1,
+      stage: 'creating_tunnel',
+      classification: 'running',
+      allowed_actions: [],
+    });
+    api.currentResult = async () => ({ task: newTask });
+    await state.loadCurrentTask();
+    const closesAfterNewTask = api.streamClose.mock.calls.length;
+
+    probeGate.resolve(
+      makeTask({
+        task_id: OLD_TASK_ID,
+        seq: 9,
+        stage: 'finished',
+        classification: 'passed',
+        allowed_actions: [],
+      }),
+    );
+    await pending;
+
+    expect(state.task.value?.task_id).toBe(NEW_TASK_ID);
+    expect(api.streamClose.mock.calls.length).toBe(closesAfterNewTask);
+    expect(api.lastStream?.taskId).toBe(NEW_TASK_ID);
+  });
+
+  it('late execute response cannot replace a newer task adopted by refresh', async () => {
+    const { api, state } = await readyState();
+    api.probeResult = async () =>
+      makeTask({ stage: 'finished', classification: 'passed', allowed_actions: ['create_and_connect'] });
+    await state.startProbe();
+    await state.requestPlan('create_and_connect');
+    const executeGate = deferred<AdminTask>();
+    api.executeResult = () => executeGate.promise;
+    const pending = state.confirmPlan();
+
+    const newTask = makeTask({
+      task_id: NEW_TASK_ID,
+      seq: 1,
+      stage: 'verifying',
+      classification: 'running',
+      allowed_actions: [],
+    });
+    api.currentResult = async () => ({ task: newTask });
+    await state.loadCurrentTask();
+    const closesAfterNewTask = api.streamClose.mock.calls.length;
+
+    executeGate.resolve(
+      makeTask({
+        task_id: OLD_TASK_ID,
+        seq: 10,
+        kind: 'execute',
+        stage: 'queued',
+        classification: 'pending',
+        allowed_actions: [],
+      }),
+    );
+    await pending;
+
+    expect(state.task.value?.task_id).toBe(NEW_TASK_ID);
+    expect(api.streamClose.mock.calls.length).toBe(closesAfterNewTask);
+    expect(api.lastStream?.taskId).toBe(NEW_TASK_ID);
+  });
+
+  it('a late save response cannot clear the draft or claim success after a newer config snapshot', async () => {
+    const { api, state } = await readyState();
+    const saveGate = deferred<PublicConfig>();
+    api.saveResult = () => saveGate.promise;
+    state.setDomainDraft('late.example.com');
+    const save = state.saveDomain();
+
+    const newer: PublicConfig = { version: 5, domain: 'newer.example.com', active: null };
+    api.configResult = async () => newer;
+    await state.loadConfig();
+    expect(state.config.value).toEqual(newer);
+
+    saveGate.resolve({ version: 4, domain: 'late.example.com', active: null });
+    await save;
+
+    expect(state.config.value).toEqual(newer);
+    expect(state.domainDraft.value).toBe('late.example.com');
+    expect(state.draftDirty.value).toBe(true);
+    expect(state.notice.value ?? '').not.toContain('已保存');
+  });
+});
+
 describe('admin state — session boundary', () => {
   it('keeps the login form on invalid credentials instead of treating it as an expired session', async () => {
     const { api, state } = setup();
@@ -466,5 +560,64 @@ describe('admin state — session boundary', () => {
     expect(state.streamState.value).toBe('error');
     expect(state.task.value?.seq).toBe(2);
     expect(api.calls.startProbe).toHaveLength(0);
+  });
+
+  it('logout invalidates in-flight task and config snapshots before they can write or subscribe', async () => {
+    const { api, state } = setup();
+    await state.restoreSession();
+    const taskGate = deferred<CurrentTask>();
+    const configGate = deferred<PublicConfig>();
+    api.currentResult = () => taskGate.promise;
+    api.configResult = () => configGate.promise;
+
+    const taskRead = state.loadCurrentTask();
+    const configRead = state.loadConfig();
+    await state.logout();
+    taskGate.resolve({ task: makeTask() });
+    configGate.resolve(CONFIG);
+    await Promise.all([taskRead, configRead]);
+
+    expect(state.session.value).toBeNull();
+    expect(state.task.value, 'logout must discard the in-flight task snapshot').toBeNull();
+    expect(state.config.value, 'logout must discard the in-flight config snapshot').toBeNull();
+    expect(api.calls.subscribeTask, 'logout must not create a stream').toHaveLength(0);
+  });
+
+  it('logout invalidates an in-flight domain save instead of showing a saved result', async () => {
+    const { api, state } = await readyState();
+    const saveGate = deferred<PublicConfig>();
+    api.saveResult = () => saveGate.promise;
+    state.setDomainDraft('after-logout.example.com');
+    const save = state.saveDomain();
+
+    await state.logout();
+    saveGate.resolve({ ...CONFIG, version: 4, domain: 'after-logout.example.com' });
+    await save;
+
+    expect(state.session.value).toBeNull();
+    expect(state.config.value, 'logout must discard the in-flight save response').toBeNull();
+    expect(state.notice.value ?? '', 'logout must not show a saved notice').not.toContain('已保存');
+  });
+
+  it('logout ignores in-flight task/config failures instead of writing a late error', async () => {
+    const { api, state } = setup();
+    await state.restoreSession();
+    let rejectTask!: (reason: unknown) => void;
+    let rejectConfig!: (reason: unknown) => void;
+    api.currentResult = () => new Promise<CurrentTask>((_, reject) => { rejectTask = reject; });
+    api.configResult = () => new Promise<PublicConfig>((_, reject) => { rejectConfig = reject; });
+
+    const taskRead = state.loadCurrentTask();
+    const configRead = state.loadConfig();
+    await state.logout();
+    const failure = new AdminApiError(503, 'storage_busy', '管理存储暂不可用');
+    rejectTask(failure);
+    rejectConfig(failure);
+    await Promise.allSettled([taskRead, configRead]);
+
+    expect(state.session.value).toBeNull();
+    expect(state.task.value, 'logout must discard the in-flight task failure').toBeNull();
+    expect(state.config.value, 'logout must discard the in-flight config failure').toBeNull();
+    expect(state.error.value, 'logout must suppress a late request error').toBeNull();
   });
 });
