@@ -27,6 +27,7 @@ jobs:
       flutter: ${{ steps.gate.outputs.flutter }}
       server: ${{ steps.gate.outputs.server }}
       plugin: ${{ steps.gate.outputs.plugin }}
+      admin_ui: ${{ steps.gate.outputs.admin_ui }}
       version: ${{ steps.gate.outputs.version }}
     steps:
       - uses: actions/checkout@v4
@@ -50,15 +51,16 @@ jobs:
             local dir="$1" prefix="$2"
             if [ ! -e "$dir" ]; then echo "false"; return; fi
             if [ -z "$diff_range" ]; then echo "true"; return; fi
-            if git diff --name-only "$diff_range" | grep -q "^${prefix}"; then
+            if git diff --name-only "$diff_range" | grep -Eq "^(${prefix})"; then
               echo "true"
             else
               echo "false"
             fi
           }
           echo "flutter=$(flag client client/)" >> "$GITHUB_OUTPUT"
-          echo "server=$(flag server server/)" >> "$GITHUB_OUTPUT"
+          echo "server=$(flag server 'server/|.github/workflows/ci.yml')" >> "$GITHUB_OUTPUT"
           echo "plugin=$(flag dsh-plugin dsh-plugin/)" >> "$GITHUB_OUTPUT"
+          echo "admin_ui=$(flag admin-ui 'admin-ui/|server/|.github/workflows/ci.yml')" >> "$GITHUB_OUTPUT"
           version="$(grep -m1 '^version:' client/pubspec.yaml 2>/dev/null | awk '{print $2}' | cut -d+ -f1 || true)"
           echo "version=${version:-0.0.0}" >> "$GITHUB_OUTPUT"
 
@@ -124,11 +126,75 @@ jobs:
         run: uv sync --frozen
       - name: pytest
         working-directory: server
-        run: uv run pytest -q
+        run: uv run --locked pytest -q --junitxml=.evidence/server-ci.xml
       - name: ruff
         working-directory: server
         # 只检查源码与测试：runtime-patch/ 与 qa-evidence/ 是 QA 过程产物，不是产品代码
-        run: uv run ruff check src tests
+        run: uv run --locked ruff check src tests contract/src/bb_auth_contract/admin.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: server-junit
+          path: server/.evidence/server-ci.xml
+
+  admin-ui:
+    name: Vue 与产品管理入口
+    needs: plan
+    if: needs.plan.outputs.admin_ui == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+          cache: npm
+          cache-dependency-path: admin-ui/package-lock.json
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: '3.13'
+          enable-cache: true
+      - name: 规范 DTO 与真实服务端锁定环境
+        run: uv sync --project server --locked
+      - name: Vue 构建、类型与含旧幂等键反例的测试
+        working-directory: admin-ui
+        run: |
+          npm ci --no-audit --no-fund
+          npm run typecheck
+          npm test -- --reporter=default --reporter=junit --outputFile=.evidence/unit.xml
+          npm run build
+          npx --no-install playwright install --with-deps chromium
+      - name: 产品静态挂载、真实 SSE 和外部替身编排（无云端副作用）
+        run: node server/probes/public_browser.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: admin-ui-evidence
+          path: |
+            admin-ui/.evidence/unit.xml
+            server/.evidence/browser-b-*/results.json
+            server/.evidence/browser-b-*/*/configuration.png
+            server/.evidence/browser-b-*/*/confirmation.png
+
+  windows-helper:
+    name: Windows 固定助手请求验证（不安装或注册服务）
+    needs: plan
+    if: needs.plan.outputs.server == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: '3.13'
+          enable-cache: true
+      - run: uv sync --project server --locked
+      - run: uv run --project server --locked pytest server/platform-tests/windows_helper.py -q --junitxml=server/.evidence/windows-helper.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-helper-junit
+          path: server/.evidence/windows-helper.xml
 
   plugin:
     name: DSH 插件 pytest
