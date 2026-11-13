@@ -43,6 +43,7 @@ from bb_server.avatars import (
     read_avatar,
     replace_avatar,
 )
+from bb_server.public_challenge import directory_for, install_challenge_route
 from bb_server.storage import (
     cleanup_sessions,
     delete_session,
@@ -103,6 +104,7 @@ def create_app(
             await worker
 
     app = FastAPI(title="BB Auth, Profile & Chat", version="3.0.0", lifespan=lifespan)
+    install_challenge_route(app, directory_for(path), clock)
     app.add_middleware(UploadLimit)
 
     @app.exception_handler(ContractError)
