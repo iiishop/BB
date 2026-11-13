@@ -213,6 +213,12 @@ class ChatService {
     final ConsumerBinding? binding = await ledger.bindingById(
       expected.consumerId,
     );
+    // The ledger lock is an await point: a concurrent login can replace the
+    // session while the request waits. Never return a captured identity that
+    // is no longer current; all upstream work must use this same snapshot.
+    if (!session.isCurrent(captured)) {
+      throw staleIdentity;
+    }
     if (binding == null || binding.account != captured.account) {
       throw staleBinding('消费者能力或归属不匹配');
     }
@@ -471,10 +477,20 @@ class ChatService {
 
   // --------------------------------------------------------------- account --
 
-  Future<UserPage> listUsers({String afterAccount = '', int limit = 50}) async {
-    final AuthIdentity? captured = session.identity;
-    if (captured == null) {
-      throw unauthenticated;
+  Future<UserPage> listUsers({
+    String afterAccount = '',
+    int limit = 50,
+    ExpectedIdentity? expectedIdentity,
+  }) async {
+    final AuthIdentity captured;
+    if (expectedIdentity != null) {
+      captured = (await requireIdentity(expectedIdentity)).identity;
+    } else {
+      final AuthIdentity? current = session.identity;
+      if (current == null) {
+        throw unauthenticated;
+      }
+      captured = current;
     }
     final UserPage page = await api.listUsers(
       token: captured.token,
@@ -482,7 +498,7 @@ class ChatService {
       limit: limit.clamp(1, 100),
     );
     if (!session.isCurrent(captured)) {
-      throw unauthenticated;
+      throw expectedIdentity == null ? unauthenticated : staleIdentity;
     }
     return page;
   }

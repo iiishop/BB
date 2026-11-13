@@ -52,7 +52,7 @@ class LocalAuthServer {
   /// Called when an authenticated local route receives a genuine 401
   /// (`unauthenticated`, never `invalid_credentials`), so the owner can clear
   /// both the in-memory session and the on-disk credential.
-  final Future<void> Function()? onUnauthorized;
+  final Future<void> Function(String token)? onUnauthorized;
 
   /// Small JSON routes keep the STEP-1 bound.
   static const int maxRequestBytes = 16 * 1024;
@@ -112,7 +112,7 @@ class LocalAuthServer {
     try {
       final String path = request.uri.path;
       if (path.startsWith('/v2/')) {
-        await _handleV2(request, path);
+        await _handleV2(request, path, requestToken);
         return;
       }
       if (path != '/auth/register' && path != '/auth/login') {
@@ -167,7 +167,7 @@ class LocalAuthServer {
           requestToken != null &&
           service.session.tokenForRequest == requestToken &&
           service.session.hasToken) {
-        await _notifyUnauthorized();
+        await _notifyUnauthorized(requestToken);
       }
     } catch (_) {
       await _writeEnvelope(request, 500, <String, dynamic>{
@@ -182,7 +182,11 @@ class LocalAuthServer {
 
   /// Strict v2 local protocol; errors keep the v2 `{error:{code,message,fields}}`
   /// envelope with field-name strings only.
-  Future<void> _handleV2(HttpRequest request, String path) async {
+  Future<void> _handleV2(
+    HttpRequest request,
+    String path,
+    String? requestToken,
+  ) async {
     if (request.method != 'POST') {
       await _writeEnvelope(request, 405, <String, dynamic>{
         'error': <String, dynamic>{
@@ -212,6 +216,21 @@ class LocalAuthServer {
       ownerKey: request.headers.value(v2OwnerHeader),
       body: body,
     );
+    // The v2 router converts AuthFailure into a DTO, so the outer handler's
+    // invalidation branch is otherwise unreachable. Only a genuine 401 for the
+    // credential captured at request start may clear the session; a request
+    // from an older login must never revoke a concurrent new login. Clear
+    // before responding so callers never observe an authenticated status after
+    // the invalidating 401.
+    final Object? error = result.body['error'];
+    if (result.status == 401 &&
+        error is Map<String, dynamic> &&
+        error['code'] == unauthenticated.code &&
+        requestToken != null &&
+        service.session.tokenForRequest == requestToken &&
+        service.session.hasToken) {
+      await _notifyUnauthorized(requestToken);
+    }
     await _writeEnvelope(request, result.status, result.body);
   }
 
@@ -219,13 +238,13 @@ class LocalAuthServer {
   ///
   /// These are loopback-only client endpoints. They are deliberately not
   /// exported as model-callable MCP tools by the plugin.
-  Future<void> _notifyUnauthorized() async {
-    final Future<void> Function()? callback = onUnauthorized;
+  Future<void> _notifyUnauthorized(String token) async {
+    final Future<void> Function(String token)? callback = onUnauthorized;
     if (callback == null) {
       return;
     }
     try {
-      await callback();
+      await callback(token);
     } catch (_) {
       // The owner reports its own storage faults; never leak them as response.
     }
