@@ -52,3 +52,26 @@ uv run --project server --locked python -m bb_server.export_openapi server/opena
 ```
 
 存储锁竞争的事务边界、503 分类、实测数据、方案比较与重跑/撤回步骤见 `server/docs/storage-locks.md`。本轮保持 DELETE journal，不启用 WAL。
+
+## 本机管理入口（DEA-469 阶段 A/B）
+
+业务进程仍用上述 `bb-server`。新增的 `bb-admin` 是独立本机监听入口，不能挂到业务服务或 Tunnel 上。以普通用户启动，先设置与业务进程相同的 `BB_DATABASE_PATH`、`BB_PORT`，再设置独立管理路径和端口：
+
+```bash
+BB_DATABASE_PATH=./local-data/auth.db BB_PORT=8000 \
+BB_ADMIN_DATABASE_PATH=./local-admin/admin.db BB_ADMIN_PORT=9001 \
+  uv run --project server --locked bb-admin
+```
+
+管理入口固定为 `http://127.0.0.1:9001`（端口可配置；不要用 localhost 别名），拒绝跨源和代理转发请求，不读取 `BB_HOST` 或代理信任环境变量。数据库路径/端口必须与业务服务分离。管理身份初始 `admin/admin`，首次登录只能改密/查看会话/退出；新密码至少 12 字符，改密后所有旧会话失效，需重新登录。只支持本机 HTTP，Cookie/CSRF/Host 校验规则详见 `docs/contracts/dea469-admin-v1.md`；管理员并非普通 BB 用户。
+
+先在 `admin-ui/` 运行 `npm ci --no-audit --no-fund` 和 `npm run build`，然后打开 `http://127.0.0.1:9001/admin/`。`bb-admin` 默认挂载 `admin-ui/dist`，可通过启动环境 `BB_ADMIN_UI_DIRECTORY` 指定绝对产物目录。业务服务没有管理路由；只增加短期随机实例挑战。公网草稿、只读探测、确认计划、持久任务、补交授权和 SSE 已实现；管理 API Token 只保留内存 15 分钟，刷新/重启通过当前任务恢复。
+
+运行模式、全部共享状态写入入口、Cloudflare 权限、Arch/Windows 固定操作助手与验证边界见 `docs/contracts/dea469-public-v1.md`。普通用户运行 BB，助手单独经本机系统授权。没有专用云端授权时可使用只读检测和开发替身测试；不能把替身、下载校验或 Windows 请求验证当成真实安装/云端验收。
+
+管理数据库创建为 POSIX 0600，独立新目录为 0700；已有父目录和 Windows 用户目录 ACL 由本机管理员保护。不要指向现有个人/生产数据库。管理员会话最长 8 小时；登录与改密共用每 60 秒 5 次的持久化预算。管理数据库和业务数据库分别备份，恢复旧管理备份会恢复旧密码及当时会话。
+
+```bash
+uv run --project server --locked pytest server/tests/test_admin.py server/tests/test_admin_http.py -q
+uv run --project server --locked python -m bb_server.export_admin_openapi server/contract/admin-openapi.json
+```
