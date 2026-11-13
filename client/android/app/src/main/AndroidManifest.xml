@@ -3,7 +3,12 @@
          release build needs INTERNET too; the Flutter template only declares it
          for debug/profile, which silently breaks installed release APKs. -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Self-hosted BB servers are usually a LAN address on plain HTTP, and
+         Android blocks cleartext by default from API 28 on. HTTPS stays the
+         recommended path for anything reachable from the internet; this only
+         stops a local server from being unreachable on a phone. -->
     <application
+        android:usesCleartextTraffic="true"
         android:label="BB"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">

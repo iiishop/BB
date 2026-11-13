@@ -27,8 +27,22 @@ client/
 
 ```bash
 flutter pub get
+flutter run -d linux
+```
+
+首次启动没有服务器地址时进入**服务器设置页**：填 `bb.example.com` 会自动用
+`https://bb.example.com`，填 `192.168.0.104:18980` 这类局域网地址保持 `http://`；
+手打协议时以手打的为准。地址写到会话文件同级的 `server.json`，登录页底部的
+「服务器设置」可以再改，**切换服务器会清除属于旧服务器的会话凭据和聊天账本**。
+
+开发时仍可用编译期地址跳过这一屏（保存过的地址优先级更高）：
+
+```bash
 flutter run -d linux --dart-define=BB_API_BASE_URL=http://127.0.0.1:8000
 ```
+
+Android release 已在主 manifest 声明 `INTERNET`，并允许明文流量——自托管服务端通常
+是局域网 HTTP，Android 从 API 28 起默认拒绝。对外可达的服务端请用 HTTPS 域名。
 
 登录成功后进入 STEP-3 首页：当前服务器全部注册用户的逐行列表（含未联系用户），点行进入
 一对一聊天；左下角头像仍打开 Profile。资料面板按视口分为三种形态：
