@@ -6,6 +6,8 @@ from pathlib import Path
 import uvicorn
 
 from bb_server.admin import create_admin_app
+from bb_server.public_challenge import directory_for
+from bb_server.public_runtime import PublicRuntime
 
 
 def is_elevated():
@@ -31,8 +33,18 @@ def main():
         raise ValueError("Management and business ports must be separate")
     if is_elevated():
         raise RuntimeError("Run BB management as an unprivileged user")
+    ui_directory = os.environ.get("BB_ADMIN_UI_DIRECTORY")
+    if ui_directory and not Path(ui_directory).is_absolute():
+        raise ValueError("BB_ADMIN_UI_DIRECTORY must be absolute")
+    runtime = PublicRuntime(
+        database,
+        business_port=business_port,
+        challenge_directory=directory_for(business_database),
+    )
     uvicorn.run(
-        create_admin_app(database, port=port),
+        create_admin_app(
+            database, port=port, public_runtime=runtime, ui_directory=ui_directory
+        ),
         host="127.0.0.1",
         port=port,
         proxy_headers=False,

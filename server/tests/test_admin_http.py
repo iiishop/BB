@@ -138,7 +138,7 @@ def test_real_cli_initialization_restart_and_tunnel_target(tmp_path):
             )
             assert login.status_code == 200
             assert login.json()["must_change_password"] is False
-            assert restarted.get(PREFIX + "/public-config").status_code == 501
+            assert restarted.get(PREFIX + "/public-config").status_code == 200
             headers["x-csrf-token"] = login.json()["csrf_token"]
             token = restarted.cookies.get(COOKIE)
             assert (

@@ -6,26 +6,17 @@ import sqlite3
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
-from uuid import UUID
 
 from bb_auth_contract import ContractError, ErrorResponse, structural_error
 from bb_auth_contract.admin import (
     COOKIE,
     PREFIX,
     SESSION_SECONDS,
-    ActionPlan,
     AdminLogin,
     AdminSession,
-    AdminTask,
-    CurrentTask,
-    DraftSave,
     PasswordChange,
-    PlanCreate,
-    PlanExecute,
-    ProbeStart,
-    PublicConfig,
 )
-from fastapi import FastAPI, Query, Request, Response
+from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import Headers
@@ -33,6 +24,8 @@ from starlette.requests import Request as StarletteRequest
 from starlette.responses import JSONResponse
 
 from bb_server.admin_storage import AdminStore, unauthenticated
+from bb_server.public_routes import register_public_routes
+from bb_server.public_store import PublicStore
 from bb_server.storage_errors import storage_failure
 
 
@@ -163,19 +156,40 @@ class LocalManagementBoundary:
         await self.app(scope, receive, secure_send)
 
 
-def create_admin_app(database_path: str | Path, *, port: int, clock=time.time):
+def create_admin_app(
+    database_path: str | Path,
+    *,
+    port: int,
+    clock=time.time,
+    public_runtime=None,
+    ui_directory=None,
+):
     if not 1 <= port <= 65535:
         raise ValueError("BB_ADMIN_PORT must be between 1 and 65535")
     store = AdminStore(Path(database_path), clock)
+    public_store = (
+        public_runtime.store
+        if public_runtime
+        else PublicStore(Path(database_path), clock)
+    )
+    if public_store.path.resolve() != Path(database_path).resolve():
+        raise ValueError("Management runtime database mismatch")
 
     @asynccontextmanager
     async def lifespan(app):
         await run_in_threadpool(store.migrate)
-        yield
+        await run_in_threadpool(public_store.migrate)
+        if public_runtime:
+            await run_in_threadpool(public_runtime.start)
+        try:
+            yield
+        finally:
+            if public_runtime:
+                await run_in_threadpool(public_runtime.close)
 
     app = FastAPI(
         title="BB Local Management",
-        version="1.0.0",
+        version="1.1.0",
         lifespan=lifespan,
         docs_url=None,
         redoc_url=None,
@@ -237,73 +251,13 @@ def create_admin_app(database_path: str | Path, *, port: int, clock=time.time):
         store.logout(request.state.admin_token, request.headers.get("x-csrf-token", ""))
         response.delete_cookie(COOKIE, path="/admin", httponly=True, samesite="strict")
 
-    # Fixed wire contract for B/C. These handlers have NO configuration/cloud side effects.
-    pending = {"x-implementation-stage": "B", "security": [{"AdminCookie": []}]}
-
-    def not_implemented():
-        raise ContractError(501, "stage_b_not_implemented", "公网编排将在阶段 B 实现")
-
-    @app.get(
-        PREFIX + "/public-config", response_model=PublicConfig, openapi_extra=pending
+    register_public_routes(
+        app,
+        store,
+        public_store,
+        public_runtime,
+        ui_directory or Path(__file__).resolve().parents[3] / "admin-ui/dist",
     )
-    def config_get():
-        not_implemented()
-
-    @app.put(
-        PREFIX + "/public-config", response_model=PublicConfig, openapi_extra=pending
-    )
-    def config_save(body: DraftSave):
-        not_implemented()
-
-    @app.post(
-        PREFIX + "/probes",
-        status_code=202,
-        response_model=AdminTask,
-        openapi_extra=pending,
-    )
-    def probe_start(body: ProbeStart):
-        not_implemented()
-
-    @app.post(
-        PREFIX + "/plans",
-        status_code=201,
-        response_model=ActionPlan,
-        openapi_extra=pending,
-    )
-    def plan_create(body: PlanCreate):
-        not_implemented()
-
-    @app.post(
-        PREFIX + "/executions",
-        status_code=202,
-        response_model=AdminTask,
-        openapi_extra=pending,
-    )
-    def execute(body: PlanExecute):
-        not_implemented()
-
-    @app.get(
-        PREFIX + "/tasks/current", response_model=CurrentTask, openapi_extra=pending
-    )
-    def task_current():
-        not_implemented()
-
-    @app.get(
-        PREFIX + "/tasks/{task_id}", response_model=AdminTask, openapi_extra=pending
-    )
-    def task_get(task_id: UUID):
-        not_implemented()
-
-    @app.get(
-        PREFIX + "/tasks/{task_id}/events",
-        response_class=Response,
-        responses={
-            200: {"content": {"text/event-stream": {"schema": {"type": "string"}}}}
-        },
-        openapi_extra=pending,
-    )
-    def task_events(task_id: UUID, after_seq: int = Query(default=0, ge=0)):
-        not_implemented()
 
     original_openapi = app.openapi
 
@@ -311,7 +265,7 @@ def create_admin_app(database_path: str | Path, *, port: int, clock=time.time):
         schema = original_openapi()
         if schema.get("x-bb-admin-contract"):
             return schema
-        schema["x-bb-admin-contract"] = "1.0.0"
+        schema["x-bb-admin-contract"] = "1.1.0"
         schema["components"]["securitySchemes"] = {
             "AdminCookie": {"type": "apiKey", "in": "cookie", "name": COOKIE}
         }
