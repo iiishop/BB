@@ -597,7 +597,7 @@ export class Bridge {
     await this.operations.reconcile();
     const unfinishedPlans = [...this.operations.rows.values()].filter(
       (row) =>
-        !["succeeded", "failed"].includes(row.state) &&
+        this.operations.unresolved(row) &&
         (row.session !== this.agent.session.id ||
           (row.sessionCreatedAt !== undefined &&
             row.sessionCreatedAt !== this.agent.session.header.createdAt)),
