@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import ConfigView from '../src/views/ConfigView.vue';
 import { createAdminState } from '../src/stores/admin-state';
 import { ADMIN_STATE } from '../src/stores/context';
-import type { ActionPlan, AdminTask } from '../src/api/types';
+import type { ActionPlan, AdminTask, PublicConfig } from '../src/api/types';
 import { FakeApi, makePlan, makeTask } from './helpers/fake-api';
 import { deferred, setup } from './helpers/state';
 
@@ -49,6 +49,47 @@ describe('ConfigView unsaved domain boundary', () => {
 
 
 describe('ConfigView specific timing reachability', () => {
+  it.each([false, true])('confirms a save already observed by refresh (new active: %s)', async (promoteActive) => {
+    const { api, state } = setup();
+    await state.restoreSession();
+    const wrapper = mount(ConfigView, {
+      global: { provide: { [ADMIN_STATE]: state }, stubs: { teleport: true, Teleport: true } },
+    });
+    try {
+      await flushPromises();
+      const response = deferred<PublicConfig>();
+      let committed = state.config.value!;
+      api.saveResult = async (version, domain) => {
+        committed = { ...committed, version: version + 1, domain };
+        return response.promise;
+      };
+      api.configResult = async () => committed;
+      await wrapper.find('input[placeholder="bb.example.com"]').setValue('new.example.com');
+      const button = (text: string) => wrapper.findAll('button').find(b => b.text() === text)!;
+      await button('保存域名草稿').trigger('click');
+      await flushPromises();
+      expect(state.busy.value).toBe('save');
+      const saved = committed;
+      if (promoteActive) {
+        committed = { ...saved, active: {
+          domain: saved.domain!, instance_id: '33333333-3333-4333-8333-333333333333',
+          tunnel_id: '44444444-4444-4444-8444-444444444444', verified_at: 1_800_000_000,
+        } };
+      }
+      expect(button('刷新当前状态').attributes('disabled')).toBeUndefined();
+      await button('刷新当前状态').trigger('click');
+      await flushPromises();
+      expect(state.config.value).toEqual(committed);
+      response.resolve(saved);
+      await flushPromises();
+      expect(state.config.value).toEqual(committed);
+      expect(state.draftDirty.value).toBe(false);
+      expect(state.busy.value).toBeNull();
+      expect(wrapper.find('[role="alert"]').exists()).toBe(false);
+      expect(state.notice.value).toContain('域名已保存为草稿');
+    } finally { wrapper.unmount(); }
+  });
+
   it('keeps the newer probe busy state after a stale plan response returns', async () => {
     const { api, state } = setup();
     const task = makeTask({

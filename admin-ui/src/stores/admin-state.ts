@@ -429,7 +429,9 @@ export function createAdminState(
       const hadPlan = plan.value !== null;
       const next = await api.savePublicConfig(config.value.version, value);
       if (!sessionStillCurrent(epoch)) return false;
-      if (applyConfig(next) !== 'newer') {
+      // A refresh may already have observed this successful write. Confirm
+      // the same snapshot without replacing newer active verification data.
+      if (applyConfig(next) === 'stale') {
         error.value =
           '另一个配置更新已生效，本次较早的保存响应未覆盖当前页面；请刷新核对。';
         return false;
