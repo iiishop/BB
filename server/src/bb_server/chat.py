@@ -23,6 +23,7 @@ from bb_auth_contract.chat import (
     SendMessage,
     UserPage,
 )
+from bb_auth_contract.chat_query import ConversationPage, MessageContext, MessageId
 from fastapi import (
     Depends,
     File,
@@ -37,6 +38,7 @@ from PIL import Image as PILImage
 from PIL import UnidentifiedImageError
 from starlette.concurrency import run_in_threadpool
 
+from . import chat_queries
 from .avatars import default_version
 from .storage import connection, find_session
 
@@ -245,22 +247,43 @@ def install(app, path, directory, current_session, clock):
     )
     def history(
         account: Account,
-        after_position: int = Query(0, ge=0),
+        after_position: int | None = Query(None, ge=0, le=9007199254740991),
+        before_position: int | None = Query(None, ge=1, le=9007199254740991),
         limit: int = Query(50, ge=1, le=100),
         identity=identity_dep,
     ):
-        with connection(path) as db:
-            peer_exists(db, identity["account"], account)
-            rows = db.execute(
-                "SELECT payload FROM messages WHERE pair_low=? AND pair_high=? AND position>? ORDER BY position LIMIT ?",
-                (*sorted([account, identity["account"]]), after_position, limit + 1),
-            ).fetchall()
-            items = [json.loads(r[0]) for r in rows[:limit]]
-            return {
-                "items": items,
-                "next_position": items[-1]["position"] if items else after_position,
-                "has_more": len(rows) > limit,
-            }
+        return chat_queries.history(
+            path, identity["account"], account, after_position, before_position, limit
+        )
+
+    @app.get("/conversations", response_model=ConversationPage, responses=errors)
+    def conversations(
+        after_account: str = Query("", pattern=r"^([1-9][0-9]{7})?$"),
+        limit: int = Query(50, ge=1, le=100),
+        identity=identity_dep,
+    ):
+        return chat_queries.conversations(
+            path, identity["account"], after_account, limit
+        )
+
+    @app.get("/messages/{message_id}", response_model=Message, responses=errors)
+    def get_message(message_id: MessageId, identity=identity_dep):
+        return chat_queries.message(path, identity["account"], message_id)
+
+    @app.get(
+        "/messages/{message_id}/context",
+        response_model=MessageContext,
+        responses=errors,
+    )
+    def get_context(
+        message_id: MessageId,
+        before_limit: int = Query(10, ge=0, le=49),
+        after_limit: int = Query(10, ge=0, le=49),
+        identity=identity_dep,
+    ):
+        return chat_queries.context(
+            path, identity["account"], message_id, before_limit, after_limit
+        )
 
     @app.get("/users", response_model=UserPage, responses=errors)
     def users(

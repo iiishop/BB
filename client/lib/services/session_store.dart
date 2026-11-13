@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -19,6 +20,8 @@ class PersistedSession {
     required this.account,
     required this.username,
     required this.token,
+    this.generation = 0,
+    this.assignGeneration = false,
   });
 
   factory PersistedSession.fromJson(Object? json) {
@@ -28,6 +31,7 @@ class PersistedSession {
     final Object? account = json['account'];
     final Object? username = json['username'];
     final Object? token = json['token'];
+    final Object? rawGeneration = json['generation'];
     if (account is! String ||
         username is! String ||
         token is! String ||
@@ -36,17 +40,35 @@ class PersistedSession {
         token.isEmpty) {
       throw const FormatException('session is missing fields');
     }
-    return PersistedSession(account: account, username: username, token: token);
+    if (rawGeneration != null &&
+        (rawGeneration is! int || rawGeneration < 0)) {
+      throw const FormatException('session generation is invalid');
+    }
+    return PersistedSession(
+      account: account,
+      username: username,
+      token: token,
+      generation: rawGeneration is int ? rawGeneration : 0,
+    );
   }
 
   final String account;
   final String username;
   final String token;
 
+  /// Monotonic commit generation used to reject stale credential writes.
+  /// Older files without the field read as zero.
+  final int generation;
+
+  /// A new login asks the store to allocate its generation inside the commit
+  /// queue, after any earlier queued clear. Repairs use a fixed generation.
+  final bool assignGeneration;
+
   Map<String, dynamic> toJson() => <String, dynamic>{
     'account': account,
     'username': username,
     'token': token,
+    if (generation > 0) 'generation': generation,
   };
 }
 
@@ -86,6 +108,35 @@ class SessionStore {
   final File file;
   final SessionReplace _replace;
 
+  /// Highest credential commit generation observed by this store instance.
+  /// A write from an older login/repair is ignored after a newer login or a
+  /// completed clear, so an in-flight stale write cannot resurrect or
+  /// overwrite the current credential.
+  int _generation = 0;
+
+  int nextGeneration() => ++_generation;
+
+  int get currentGeneration => _generation;
+
+  /// All credential file mutations are serialized. Generation checks,
+  /// temporary-file preparation, the injected replacement and deletion are one
+  /// commit order: a write that was already queued behind a newer login/logout
+  /// re-checks ownership before touching the file, and a new login that queues
+  /// behind an in-flight replacement commits after it, then returns success.
+  Future<void> _commitTail = Future<void>.value();
+
+  Future<T> _serialized<T>(Future<T> Function() action) async {
+    final Completer<void> release = Completer<void>();
+    final Future<void> previous = _commitTail;
+    _commitTail = release.future;
+    await previous;
+    try {
+      return await action();
+    } finally {
+      release.complete();
+    }
+  }
+
   /// Default POSIX permissions for a credential file (owner read/write only).
   static const int fileMode = 0x180; // 0600
 
@@ -101,7 +152,13 @@ class SessionStore {
         return null;
       }
       final String raw = await file.readAsString();
-      return PersistedSession.fromJson(jsonDecode(raw));
+      final PersistedSession session = PersistedSession.fromJson(
+        jsonDecode(raw),
+      );
+      if (session.generation > _generation) {
+        _generation = session.generation;
+      }
+      return session;
     } on FormatException {
       await _deleteQuietly(file);
       return null;
@@ -111,13 +168,39 @@ class SessionStore {
   }
 
   /// Writes the session without ever dropping the previous credential first.
-  Future<void> write(PersistedSession session) async {
+  Future<void> write(PersistedSession session) {
+    return _serialized(() => _writeLocked(session));
+  }
+
+  Future<void> _writeLocked(PersistedSession session) async {
+    // Generation is allocated inside the serialized commit for a new login:
+    // an earlier queued clear must not invalidate a login that was enqueued
+    // after it. Repairs use their fixed generation and are rejected when a
+    // newer login/logout already owns the file.
+    final PersistedSession effective;
+    if (session.assignGeneration) {
+      _generation += 1;
+      effective = PersistedSession(
+        account: session.account,
+        username: session.username,
+        token: session.token,
+        generation: _generation,
+      );
+    } else {
+      if (session.generation < _generation) {
+        return;
+      }
+      if (session.generation > _generation) {
+        _generation = session.generation;
+      }
+      effective = session;
+    }
     final Directory parent = file.parent;
     final File temporary = File('${file.path}.$pid.${_nonce()}.tmp');
     try {
       await parent.create(recursive: true);
       await _restrict(parent.path, '700');
-      await temporary.writeAsString(jsonEncode(session.toJson()), flush: true);
+      await temporary.writeAsString(jsonEncode(effective.toJson()), flush: true);
       await _restrict(temporary.path, '600');
       await _replace(temporary, file);
       await _restrict(file.path, '600');
@@ -137,7 +220,14 @@ class SessionStore {
   }
 
   /// Removes the stored credential and reports failures instead of pretending.
-  Future<void> clear() async {
+  Future<void> clear() {
+    return _serialized(_clearLocked);
+  }
+
+  Future<void> _clearLocked() async {
+    // A logout is a commit too: any older in-flight credential write must not
+    // recreate the file after this point.
+    _generation += 1;
     try {
       if (await file.exists()) {
         await file.delete();

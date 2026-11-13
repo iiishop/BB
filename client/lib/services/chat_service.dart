@@ -9,6 +9,8 @@ import '../models/chat_models.dart';
 import 'auth_session.dart';
 import 'chat_api_client.dart';
 import 'chat_ledger.dart';
+import 'chat_query.dart';
+import 'client_identity.dart';
 import 'download_manager.dart';
 import 'event_feed.dart';
 import 'media_source.dart';
@@ -110,6 +112,7 @@ class ChatService {
     DateTime Function()? clock,
     this.eventPollInterval = const Duration(seconds: 2),
     bool webSocketHints = true,
+    this.beforeCommit,
   }) : _resolver = resolver ?? MediaSourceResolver(),
        _coverExtractor = coverExtractor ?? FfmpegVideoCoverExtractor(),
        _clock = clock ?? (() => DateTime.now().toUtc()) {
@@ -138,9 +141,22 @@ class ChatService {
   final DateTime Function() _clock;
   final Duration eventPollInterval;
 
+  /// Fault-injection seam for the identity-check → durable-write window. It is
+  /// null in production; tests use it to switch the session at the exact
+  /// commit point and prove the watermark is not written.
+  final Future<void> Function()? beforeCommit;
+
   late final EventFeed eventFeed;
   late DownloadManager downloads;
   late MediaStreamProxy mediaStreams;
+
+  /// Unified conversation/message/context queries (shared v2 query routes will
+  /// delegate here once Forge's schema lands).
+  late final ChatQueryService query = ChatQueryService(
+    api: api,
+    session: session,
+    ledger: ledger,
+  );
 
   final Map<String, Uint8List> _mediaCache = <String, Uint8List>{};
   final List<String> _mediaCacheOrder = <String>[];
@@ -175,12 +191,306 @@ class ChatService {
     return user.account;
   }
 
-  // --------------------------------------------------------------- account --
+  /// Stable client consumer for human/UI-originated work on an account.
+  static String _humanSession(String account) => 'human:$account';
 
-  Future<UserPage> listUsers({String afterAccount = '', int limit = 50}) async {
+  /// Strict v2 identity check at the business linearization point.
+  ///
+  /// Order: logged in → account/auth generation → stored consumer binding.
+  /// The request identity must be exactly the stored binding snapshot; mixing
+  /// a current generation with an old revision is a binding conflict.
+  Future<({AuthIdentity identity, ConsumerBinding binding})> requireIdentity(
+    ExpectedIdentity expected,
+  ) async {
     final AuthIdentity? captured = session.identity;
     if (captured == null) {
       throw unauthenticated;
+    }
+    if (expected.account != captured.account ||
+        expected.authGeneration != captured.authGeneration) {
+      throw staleIdentity;
+    }
+    final ConsumerBinding? binding = await ledger.bindingById(
+      expected.consumerId,
+    );
+    // The ledger lock is an await point: a concurrent login can replace the
+    // session while the request waits. Never return a captured identity that
+    // is no longer current; all upstream work must use this same snapshot.
+    if (!session.isCurrent(captured)) {
+      throw staleIdentity;
+    }
+    if (binding == null || binding.account != captured.account) {
+      throw staleBinding('消费者能力或归属不匹配');
+    }
+    if (!expected.matches(binding.identity)) {
+      throw staleBinding('消费者绑定版本已变化');
+    }
+    return (identity: captured, binding: binding);
+  }
+
+  /// v2 owner enrollment. The owner key itself never reaches this layer; only
+  /// its hash is persisted before the consumer exists.
+  Future<ConsumerBinding> enrollConsumer({
+    required String ownerKeyHash,
+    required String sessionId,
+  }) async {
+    final AuthIdentity? captured = session.identity;
+    if (captured == null) {
+      throw unauthenticated;
+    }
+    return ledger.enrollConsumer(
+      account: captured.account,
+      authGeneration: captured.authGeneration,
+      ownerKeyHash: ownerKeyHash,
+      sessionId: sessionId,
+    );
+  }
+
+  Future<ConsumerBinding> consumerForOwner({
+    required String ownerKeyHash,
+    required String consumerId,
+  }) async {
+    final AuthIdentity? captured = session.identity;
+    if (captured == null) {
+      throw unauthenticated;
+    }
+    return ledger.consumerForOwner(
+      account: captured.account,
+      ownerKeyHash: ownerKeyHash,
+      consumerId: consumerId,
+    );
+  }
+
+  Future<ConsumerBinding> bindConsumerOwner({
+    required String ownerKeyHash,
+    required String consumerId,
+    required int expectedBindingRevision,
+    required String sessionId,
+  }) async {
+    final AuthIdentity? captured = session.identity;
+    if (captured == null) {
+      throw unauthenticated;
+    }
+    return ledger.bindConsumerOwner(
+      account: captured.account,
+      authGeneration: captured.authGeneration,
+      ownerKeyHash: ownerKeyHash,
+      consumerId: consumerId,
+      expectedBindingRevision: expectedBindingRevision,
+      sessionId: sessionId,
+    );
+  }
+
+  /// Consumer-scoped consumption watermark.
+  Future<int> consumptionFor({
+    required ExpectedIdentity expectedIdentity,
+    required String peerAccount,
+  }) async {
+    final ({AuthIdentity identity, ConsumerBinding binding}) context =
+        await requireIdentity(expectedIdentity);
+    return ledger.consumedThrough(
+      context.identity.account,
+      peerAccount,
+      consumerId: context.binding.consumerId,
+    );
+  }
+
+  /// v2 operation lookup scoped to the requesting consumer.
+  ///
+  /// A plan belongs to the consumer that accepted it: another consumer of the
+  /// same account gets `null` (404) and never reaches the server idempotency
+  /// record, so old results cannot leak sideways.
+  Future<OperationResult?> operationForIdentity(
+    ExpectedIdentity expectedIdentity,
+    String operationId,
+  ) async {
+    _validateOperationId(operationId);
+    final ({AuthIdentity identity, ConsumerBinding binding}) context =
+        await requireIdentity(expectedIdentity);
+    final String account = context.identity.account;
+    final ChatOperationRecord? record = await ledger.operation(
+      account,
+      operationId,
+    );
+    if (record == null) {
+      return null;
+    }
+    final ExpectedIdentity? owner = record.expectedIdentity;
+    if (owner == null || owner.consumerId != expectedIdentity.consumerId) {
+      return null;
+    }
+    if (record.state == 'succeeded' && record.message != null) {
+      return OperationResult(
+        operationId: operationId,
+        kind: record.kind,
+        status: OperationStatus.succeeded,
+        message: record.message,
+      );
+    }
+    final OperationResult? remote = await api.getOperation(
+      token: context.identity.token,
+      operationId: operationId,
+    );
+    if (remote != null) {
+      if (remote.status == OperationStatus.succeeded &&
+          remote.message != null) {
+        await _succeed(account, record, remote.message!);
+      }
+      return remote;
+    }
+    return OperationResult(
+      operationId: operationId,
+      kind: record.kind,
+      status: switch (record.state) {
+        'succeeded' => OperationStatus.succeeded,
+        'failed' => OperationStatus.failed,
+        'uncertain' => OperationStatus.uncertain,
+        _ => OperationStatus.pending,
+      },
+      message: record.message,
+      errorCode: record.errorCode,
+    );
+  }
+
+  Future<void> subscribeEventsFor({
+    required ExpectedIdentity expectedIdentity,
+    required String peerAccount,
+  }) async {
+    await requireIdentity(expectedIdentity);
+    await eventFeed.subscribe(
+      consumerSession: expectedIdentity.consumerId,
+      peerAccount: peerAccount,
+    );
+  }
+
+  Future<LocalEventPage> readEventsFor({
+    required ExpectedIdentity expectedIdentity,
+    required int afterCursor,
+    int limit = 50,
+  }) async {
+    await requireIdentity(expectedIdentity);
+    return eventFeed.read(
+      consumerSession: expectedIdentity.consumerId,
+      afterCursor: afterCursor,
+      limit: limit,
+    );
+  }
+
+  Future<LocalEventPage> waitEventsFor({
+    required ExpectedIdentity expectedIdentity,
+    required int afterCursor,
+    int limit = 50,
+    int timeoutSeconds = 60,
+  }) async {
+    if (!const <int>{30, 60, 120}.contains(timeoutSeconds)) {
+      throw _validation('timeout 只能是 30、60 或 120 秒');
+    }
+    await requireIdentity(expectedIdentity);
+    return eventFeed.wait(
+      consumerSession: expectedIdentity.consumerId,
+      afterCursor: afterCursor,
+      limit: limit,
+      timeout: Duration(seconds: timeoutSeconds),
+    );
+  }
+
+  /// Current client-issued identity metadata for one consumer alias.
+  ///
+  /// This is what a v2 caller echoes back as `expected_identity`; it contains
+  /// no token.
+  Future<ExpectedIdentity> identityFor(String consumerSession) async {
+    final AuthIdentity? captured = session.identity;
+    if (captured == null) {
+      throw unauthenticated;
+    }
+    final ({AuthIdentity identity, ConsumerBinding binding}) context =
+        consumerSession == _humanSession(captured.account)
+        ? await _captureLocalBinding(captured.account)
+        : await _captureBinding(consumerSession);
+    return context.binding.identity;
+  }
+
+  /// Captures the client-owned human consumer for UI/plain sends.
+  ///
+  /// This alias is the client's own session, so a new login legitimately
+  /// rotates it. Plugin `consumer_session` aliases are never rotated
+  /// implicitly.
+  Future<({AuthIdentity identity, ConsumerBinding binding})>
+  _captureLocalBinding(String account) async {
+    final AuthIdentity? captured = session.identity;
+    if (captured == null) {
+      throw unauthenticated;
+    }
+    final ConsumerBinding binding = await ledger.bindConsumer(
+      account: account,
+      authGeneration: captured.authGeneration,
+      consumerSession: _humanSession(account),
+      allowGenerationRotation: true,
+    );
+    return (identity: captured, binding: binding);
+  }
+
+  /// Captures the login identity and resolves the stable consumer binding in
+  /// one business-layer step.
+  ///
+  /// The returned pair is the only source of account/consumer for the rest of
+  /// the operation: later steps never re-read the mutable session to decide
+  /// which account's row to write or which token to use.
+  Future<({AuthIdentity identity, ConsumerBinding binding})> _captureBinding(
+    String consumerSession, {
+    bool create = true,
+  }) async {
+    final AuthIdentity? captured = session.identity;
+    if (captured == null) {
+      throw unauthenticated;
+    }
+    final ConsumerBinding binding = await ledger.bindConsumer(
+      account: captured.account,
+      authGeneration: captured.authGeneration,
+      consumerSession: consumerSession,
+      requireExisting: !create,
+    );
+    return (identity: captured, binding: binding);
+  }
+
+  /// Rejects a v2 call whose `expected_identity` is no longer current.
+  ///
+  /// A re-login (including A→B→A) changes `auth_generation` and a binding
+  /// change moves `binding_revision`, so an identity captured before either
+  /// event can never pass again.
+  void _expectCurrentIdentity(
+    ExpectedIdentity? expected,
+    ConsumerBinding binding,
+    AuthIdentity captured,
+  ) {
+    if (expected == null) {
+      return;
+    }
+    if (expected.account != captured.account ||
+        expected.authGeneration != captured.authGeneration) {
+      throw staleIdentity;
+    }
+    if (!expected.matches(binding.identity)) {
+      throw staleBinding('消费者绑定版本已变化，请重新绑定后再试');
+    }
+  }
+
+  // --------------------------------------------------------------- account --
+
+  Future<UserPage> listUsers({
+    String afterAccount = '',
+    int limit = 50,
+    ExpectedIdentity? expectedIdentity,
+  }) async {
+    final AuthIdentity captured;
+    if (expectedIdentity != null) {
+      captured = (await requireIdentity(expectedIdentity)).identity;
+    } else {
+      final AuthIdentity? current = session.identity;
+      if (current == null) {
+        throw unauthenticated;
+      }
+      captured = current;
     }
     final UserPage page = await api.listUsers(
       token: captured.token,
@@ -188,7 +498,7 @@ class ChatService {
       limit: limit.clamp(1, 100),
     );
     if (!session.isCurrent(captured)) {
-      throw unauthenticated;
+      throw expectedIdentity == null ? unauthenticated : staleIdentity;
     }
     return page;
   }
@@ -220,7 +530,27 @@ class ChatService {
     if (captured == null) {
       throw unauthenticated;
     }
+    final OperationResult? result = await _operationFor(captured, operationId);
+    if (!session.isCurrent(captured)) {
+      throw unauthenticated;
+    }
+    return result;
+  }
+
+  /// Account-scoped operation lookup under one captured identity.
+  ///
+  /// The operation fact belongs to the account that accepted the plan: a
+  /// switched account neither reads nor resumes it. The server idempotency
+  /// record is only consulted with the captured account's token.
+  Future<OperationResult?> _operationFor(
+    AuthIdentity captured,
+    String operationId,
+  ) async {
     final String account = captured.account;
+    final String? owner = await ledger.accountForOperation(operationId);
+    if (owner != null && owner != account) {
+      return null;
+    }
     final String? taskId = await ledger.downloadTaskForOperation(
       account,
       operationId,
@@ -247,23 +577,34 @@ class ChatService {
       operationId,
     );
     if (record == null) {
-      // Fall back to the server's own idempotency record (a previous process
-      // may have submitted without persisting the local result).
-      final OperationResult? remote = await api.getOperation(
-        token: captured.token,
+      // The server's own idempotency record may be the only evidence left
+      // after a process crashed before persisting a local result.
+      return api.getOperation(token: captured.token, operationId: operationId);
+    }
+    if (record.state == 'succeeded' && record.message != null) {
+      return OperationResult(
         operationId: operationId,
+        kind: 'message',
+        status: OperationStatus.succeeded,
+        message: record.message,
+        errorCode: record.errorCode,
       );
-      if (!session.isCurrent(captured)) {
-        throw unauthenticated;
-      }
+    }
+    // A local non-terminal record is not proof of failure. Ask the server
+    // before reporting anything, and never mint a new operation id.
+    final OperationResult? remote = await api.getOperation(
+      token: captured.token,
+      operationId: operationId,
+    );
+    if (remote != null) {
       return remote;
     }
     return OperationResult(
       operationId: operationId,
       kind: 'message',
       status: switch (record.state) {
-        'succeeded' => OperationStatus.succeeded,
         'failed' => OperationStatus.failed,
+        'succeeded' => OperationStatus.succeeded,
         _ => OperationStatus.pending,
       },
       message: record.message,
@@ -279,13 +620,21 @@ class ChatService {
     required String targetAccount,
     required List<OutgoingPart> content,
     String? operationId,
+    ExpectedIdentity? expectedIdentity,
   }) async {
-    final AuthIdentity? captured = session.identity;
-    if (captured == null) {
+    final AuthIdentity? maybeCurrent = session.identity;
+    if (maybeCurrent == null) {
       throw unauthenticated;
     }
+    final ({AuthIdentity identity, ConsumerBinding binding}) context =
+        expectedIdentity == null
+        ? await _captureLocalBinding(maybeCurrent.account)
+        : await requireIdentity(expectedIdentity);
+    final AuthIdentity captured = context.identity;
     final String account = captured.account;
     final String token = captured.token;
+    _expectCurrentIdentity(expectedIdentity, context.binding, captured);
+    final ExpectedIdentity currentIdentity = context.binding.identity;
     final String opId = operationId ?? newOperationId('b');
     _validateOperationId(opId);
     final List<OutgoingPart> cleaned = <OutgoingPart>[
@@ -297,6 +646,11 @@ class ChatService {
     }
     final String sourceDigest = _digestOfBody(targetAccount, cleaned);
     ChatOperationRecord? record = await ledger.operation(account, opId);
+    final String? owner = await ledger.accountForOperation(opId);
+    if (owner != null && owner != account) {
+      // The plan belongs to an account the caller is no longer logged in as.
+      throw staleIdentity;
+    }
     if (record != null) {
       _expectSameOperation(record, targetAccount, sourceDigest, 'message');
       if (record.state == 'succeeded' && record.message != null) {
@@ -309,6 +663,12 @@ class ChatService {
       if (record.state == 'failed' && record.errorStatus == 409) {
         // A conflicting operation must never be replayed under the same id.
         throw _storedFailure(record);
+      }
+      final bool identityMatches =
+          record.expectedIdentity != null &&
+          record.expectedIdentity!.matches(currentIdentity);
+      if (!identityMatches) {
+        return _reconcileStalePlan(captured, account, record, cleaned);
       }
       // Other failures are safe to retry with the same nonce: the server
       // either committed the identical request or rejected it.
@@ -342,7 +702,7 @@ class ChatService {
         );
         mediaIds[imageIndex] = uploaded.mediaId;
         if (!session.isCurrent(captured)) {
-          throw unauthenticated;
+          throw staleIdentity;
         }
         record = ChatOperationRecord(
           operationId: opId,
@@ -355,6 +715,7 @@ class ChatService {
           attempts: (record?.attempts ?? 0) + 1,
           createdAt: record?.createdAt ?? _clock(),
           updatedAt: _clock(),
+          expectedIdentity: record?.expectedIdentity ?? currentIdentity,
         );
         await ledger.saveOperation(account, record);
       }
@@ -372,10 +733,11 @@ class ChatService {
       message: record?.message,
       createdAt: record?.createdAt ?? _clock(),
       updatedAt: _clock(),
+      expectedIdentity: record?.expectedIdentity ?? currentIdentity,
     );
     await ledger.saveOperation(account, record);
     if (!session.isCurrent(captured)) {
-      throw unauthenticated;
+      throw staleIdentity;
     }
     return _submitBody(captured, account, record, cleaned, mediaIds);
   }
@@ -406,7 +768,7 @@ class ChatService {
             Duration(seconds: seconds < 0 ? 0 : seconds),
           );
           if (!session.isCurrent(captured)) {
-            throw unauthenticated;
+            throw staleIdentity;
           }
           continue;
         }
@@ -442,7 +804,7 @@ class ChatService {
             Duration(seconds: seconds < 0 ? 0 : seconds),
           );
           if (!session.isCurrent(captured)) {
-            throw unauthenticated;
+            throw staleIdentity;
           }
           continue;
         }
@@ -486,12 +848,18 @@ class ChatService {
             : content[i].toWirePart(null),
     ];
     if (!session.isCurrent(captured)) {
-      throw unauthenticated;
+      throw staleIdentity;
     }
     if (record.state == 'uncertain') {
-      final OperationResult? resolved = await getOperation(record.operationId);
+      final OperationResult? resolved = await _operationFor(
+        captured,
+        record.operationId,
+      );
       if (!session.isCurrent(captured)) {
-        throw unauthenticated;
+        // The identity changed while this accepted operation was in flight.
+        // A committed send stays under the original account; the stale caller
+        // gets the contract's stale error, never a fabricated 401/failure.
+        throw staleIdentity;
       }
       if (resolved?.message != null) {
         await _succeed(account, record, resolved!.message!);
@@ -509,10 +877,17 @@ class ChatService {
         clientNonce: record.operationId,
         content: parts,
       );
-      if (!session.isCurrent(captured)) {
-        throw unauthenticated;
-      }
+      // The remote commit already happened under the captured identity. Record
+      // it in the original account's ledger first; a later switch only turns
+      // this call's result into the contract's stale error, it must not turn a
+      // committed send into a lost local fact.
       await _succeed(account, record, message);
+      if (!session.isCurrent(captured)) {
+        // The identity changed while this accepted operation was in flight.
+        // A committed send stays under the original account; the stale caller
+        // gets the contract's stale error, never a fabricated 401/failure.
+        throw staleIdentity;
+      }
       return SendOutcome(
         operationId: record.operationId,
         message: message,
@@ -522,13 +897,14 @@ class ChatService {
       if (_isUncertain(failure)) {
         await _markUncertain(account, record);
         if (!session.isCurrent(captured)) {
-          throw unauthenticated;
+          throw staleIdentity;
         }
-        final OperationResult? resolved = await getOperation(
+        final OperationResult? resolved = await _operationFor(
+          captured,
           record.operationId,
         );
         if (!session.isCurrent(captured)) {
-          throw unauthenticated;
+          throw staleIdentity;
         }
         if (resolved?.message != null) {
           await _succeed(account, record, resolved!.message!);
@@ -546,10 +922,10 @@ class ChatService {
             clientNonce: record.operationId,
             content: parts,
           );
-          if (!session.isCurrent(captured)) {
-            throw unauthenticated;
-          }
           await _succeed(account, record, message);
+          if (!session.isCurrent(captured)) {
+            throw staleIdentity;
+          }
           return SendOutcome(
             operationId: record.operationId,
             message: message,
@@ -560,9 +936,18 @@ class ChatService {
             await _markUncertain(account, record);
             rethrow;
           }
+          if (!session.isCurrent(captured)) {
+            // The login changed under the request: this is not a failed send
+            // fact, and the server may even have committed under the original
+            // account. Leave reconciliation to the next recovery.
+            rethrow;
+          }
           await _markFailed(account, record, again);
           rethrow;
         }
+      }
+      if (!session.isCurrent(captured)) {
+        rethrow;
       }
       await _markFailed(account, record, failure);
       rethrow;
@@ -573,17 +958,29 @@ class ChatService {
     required String targetAccount,
     required OutgoingAttachment attachment,
     String? operationId,
+    ExpectedIdentity? expectedIdentity,
   }) async {
-    final AuthIdentity? captured = session.identity;
-    if (captured == null) {
+    final AuthIdentity? maybeCurrent = session.identity;
+    if (maybeCurrent == null) {
       throw unauthenticated;
     }
+    final ({AuthIdentity identity, ConsumerBinding binding}) context =
+        expectedIdentity == null
+        ? await _captureLocalBinding(maybeCurrent.account)
+        : await requireIdentity(expectedIdentity);
+    final AuthIdentity captured = context.identity;
     final String account = captured.account;
     final String token = captured.token;
+    _expectCurrentIdentity(expectedIdentity, context.binding, captured);
+    final ExpectedIdentity currentIdentity = context.binding.identity;
     final String opId = operationId ?? newOperationId('a');
     _validateOperationId(opId);
     final String sourceDigest = _digestOfAttachment(targetAccount, attachment);
     ChatOperationRecord? record = await ledger.operation(account, opId);
+    final String? owner = await ledger.accountForOperation(opId);
+    if (owner != null && owner != account) {
+      throw staleIdentity;
+    }
     if (record != null) {
       _expectSameOperation(record, targetAccount, sourceDigest, 'attachment');
       if (record.state == 'succeeded' && record.message != null) {
@@ -595,6 +992,12 @@ class ChatService {
       }
       if (record.state == 'failed' && record.errorStatus == 409) {
         throw _storedFailure(record);
+      }
+      final bool identityMatches =
+          record.expectedIdentity != null &&
+          record.expectedIdentity!.matches(currentIdentity);
+      if (!identityMatches) {
+        return _reconcileStaleAttachment(captured, account, record, attachment);
       }
     }
     ResolvedMedia media;
@@ -636,7 +1039,7 @@ class ChatService {
           );
           coverId = uploadedCover.mediaId;
           if (!session.isCurrent(captured)) {
-            throw unauthenticated;
+            throw staleIdentity;
           }
         }
       }
@@ -650,7 +1053,10 @@ class ChatService {
       );
       mediaId = uploaded.mediaId;
       if (!session.isCurrent(captured)) {
-        throw unauthenticated;
+        // The identity changed while this accepted operation was in flight.
+        // A committed send stays under the original account; the stale caller
+        // gets the contract's stale error, never a fabricated 401/failure.
+        throw staleIdentity;
       }
       record = ChatOperationRecord(
         operationId: opId,
@@ -668,6 +1074,7 @@ class ChatService {
         attempts: (record?.attempts ?? 0) + 1,
         createdAt: record?.createdAt ?? _clock(),
         updatedAt: _clock(),
+        expectedIdentity: record?.expectedIdentity ?? currentIdentity,
       );
       await ledger.saveOperation(account, record);
     }
@@ -687,10 +1094,11 @@ class ChatService {
       attempts: (record?.attempts ?? 0) + 1,
       createdAt: record?.createdAt ?? _clock(),
       updatedAt: _clock(),
+      expectedIdentity: record?.expectedIdentity ?? currentIdentity,
     );
     await ledger.saveOperation(account, record);
     if (!session.isCurrent(captured)) {
-      throw unauthenticated;
+      throw staleIdentity;
     }
     return _submitAttachment(captured, account, record, attachment);
   }
@@ -702,12 +1110,18 @@ class ChatService {
     OutgoingAttachment attachment,
   ) async {
     if (!session.isCurrent(captured)) {
-      throw unauthenticated;
+      throw staleIdentity;
     }
     if (record.state == 'uncertain') {
-      final OperationResult? resolved = await getOperation(record.operationId);
+      final OperationResult? resolved = await _operationFor(
+        captured,
+        record.operationId,
+      );
       if (!session.isCurrent(captured)) {
-        throw unauthenticated;
+        // The identity changed while this accepted operation was in flight.
+        // A committed send stays under the original account; the stale caller
+        // gets the contract's stale error, never a fabricated 401/failure.
+        throw staleIdentity;
       }
       if (resolved?.message != null) {
         await _succeed(account, record, resolved!.message!);
@@ -725,10 +1139,13 @@ class ChatService {
         clientNonce: record.operationId,
         mediaId: record.resolvedMediaId!,
       );
-      if (!session.isCurrent(captured)) {
-        throw unauthenticated;
-      }
       await _succeed(account, record, message);
+      if (!session.isCurrent(captured)) {
+        // The identity changed while this accepted operation was in flight.
+        // A committed send stays under the original account; the stale caller
+        // gets the contract's stale error, never a fabricated 401/failure.
+        throw staleIdentity;
+      }
       return SendOutcome(
         operationId: record.operationId,
         message: message,
@@ -738,13 +1155,14 @@ class ChatService {
       if (_isUncertain(failure)) {
         await _markUncertain(account, record);
         if (!session.isCurrent(captured)) {
-          throw unauthenticated;
+          throw staleIdentity;
         }
-        final OperationResult? resolved = await getOperation(
+        final OperationResult? resolved = await _operationFor(
+          captured,
           record.operationId,
         );
         if (!session.isCurrent(captured)) {
-          throw unauthenticated;
+          throw staleIdentity;
         }
         if (resolved?.message != null) {
           await _succeed(account, record, resolved!.message!);
@@ -761,10 +1179,10 @@ class ChatService {
             clientNonce: record.operationId,
             mediaId: record.resolvedMediaId!,
           );
-          if (!session.isCurrent(captured)) {
-            throw unauthenticated;
-          }
           await _succeed(account, record, message);
+          if (!session.isCurrent(captured)) {
+            throw staleIdentity;
+          }
           return SendOutcome(
             operationId: record.operationId,
             message: message,
@@ -775,9 +1193,18 @@ class ChatService {
             await _markUncertain(account, record);
             rethrow;
           }
+          if (!session.isCurrent(captured)) {
+            // The login changed under the request: this is not a failed send
+            // fact, and the server may even have committed under the original
+            // account. Leave reconciliation to the next recovery.
+            rethrow;
+          }
           await _markFailed(account, record, again);
           rethrow;
         }
+      }
+      if (!session.isCurrent(captured)) {
+        rethrow;
       }
       await _markFailed(account, record, failure);
       rethrow;
@@ -861,6 +1288,63 @@ class ChatService {
     );
   }
 
+  /// Handles a persisted plan whose captured identity is no longer current.
+  ///
+  /// The plan is never replayed under the new identity. A server idempotency
+  /// record proves what actually committed (recorded under the original
+  /// account only); otherwise the plan stays uncertain and the caller gets an
+  /// explicit stale error. An already-succeeded plan is returned above this
+  /// point without any network send, so recovery resends nothing.
+  Future<SendOutcome> _reconcileStalePlan(
+    AuthIdentity captured,
+    String account,
+    ChatOperationRecord record,
+    List<OutgoingPart> content,
+  ) async {
+    final OperationResult? resolved = await _operationFor(
+      captured,
+      record.operationId,
+    );
+    if (!session.isCurrent(captured)) {
+      throw unauthenticated;
+    }
+    if (resolved?.message != null) {
+      await _succeed(account, record, resolved!.message!);
+      return SendOutcome(
+        operationId: record.operationId,
+        message: resolved.message,
+        part: content,
+      );
+    }
+    await _markUncertain(account, record);
+    throw staleIdentity;
+  }
+
+  Future<SendOutcome> _reconcileStaleAttachment(
+    AuthIdentity captured,
+    String account,
+    ChatOperationRecord record,
+    OutgoingAttachment attachment,
+  ) async {
+    final OperationResult? resolved = await _operationFor(
+      captured,
+      record.operationId,
+    );
+    if (!session.isCurrent(captured)) {
+      throw unauthenticated;
+    }
+    if (resolved?.message != null) {
+      await _succeed(account, record, resolved!.message!);
+      return SendOutcome(
+        operationId: record.operationId,
+        message: resolved.message,
+        attachment: attachment,
+      );
+    }
+    await _markUncertain(account, record);
+    throw staleIdentity;
+  }
+
   Future<void> _succeed(
     String account,
     ChatOperationRecord record,
@@ -915,12 +1399,13 @@ class ChatService {
     required String consumerSession,
     int afterPosition = 0,
     int limit = 50,
+    ExpectedIdentity? expectedIdentity,
   }) async {
     _validateConsumer(consumerSession);
-    final AuthIdentity? captured = session.identity;
-    if (captured == null) {
-      throw unauthenticated;
-    }
+    final ({AuthIdentity identity, ConsumerBinding binding}) context =
+        await _captureBinding(consumerSession);
+    final AuthIdentity captured = context.identity;
+    _expectCurrentIdentity(expectedIdentity, context.binding, captured);
     final MessagePage page = await api.conversation(
       token: captured.token,
       account: peerAccount,
@@ -933,7 +1418,13 @@ class ChatService {
     final List<VisibleMessage> visible = <VisibleMessage>[];
     for (final ChatMessage message in page.items) {
       visible.add(
-        await _visible(captured, peerAccount, consumerSession, message),
+        await _visible(
+          captured,
+          context.binding,
+          consumerSession,
+          peerAccount,
+          message,
+        ),
       );
       if (!session.isCurrent(captured)) {
         throw unauthenticated;
@@ -952,6 +1443,7 @@ class ChatService {
     required int seenPosition,
     int timeoutSeconds = 60,
     CancelToken? cancel,
+    ExpectedIdentity? expectedIdentity,
   }) async {
     _validateConsumer(consumerSession);
     if (seenPosition < 0) {
@@ -960,10 +1452,15 @@ class ChatService {
     if (!const <int>{30, 60, 120}.contains(timeoutSeconds)) {
       throw _validation('timeout 只能是 30、60 或 120 秒');
     }
-    final AuthIdentity? captured = session.identity;
-    if (captured == null) {
-      throw unauthenticated;
-    }
+    final ({AuthIdentity identity, ConsumerBinding binding}) context =
+        await _captureBinding(consumerSession);
+    final AuthIdentity captured = context.identity;
+    _expectCurrentIdentity(expectedIdentity, context.binding, captured);
+    final ConsumerBinding binding = context.binding;
+    bool bindingStillCurrent(ConsumerBinding current) =>
+        current.bindingRevision == binding.bindingRevision &&
+        current.consumerId == binding.consumerId &&
+        current.account == binding.account;
     final DateTime deadline = DateTime.now().add(
       Duration(seconds: timeoutSeconds),
     );
@@ -1009,10 +1506,30 @@ class ChatService {
         );
       }
       if (page.items.isNotEmpty) {
+        final ConsumerBinding? rebound = await ledger.consumerBinding(
+          binding.consumerId,
+        );
+        if (rebound == null || !bindingStillCurrent(rebound)) {
+          // The consumer was rebound while this wait was in flight: the
+          // result belongs to the previous identity and must not be handed to
+          // the new binding.
+          return VisibleMessagePage(
+            items: const <VisibleMessage>[],
+            nextPosition: seenPosition,
+            hasMore: false,
+            reason: 'cancelled',
+          );
+        }
         final List<VisibleMessage> visible = <VisibleMessage>[];
         for (final ChatMessage message in page.items) {
           visible.add(
-            await _visible(captured, peerAccount, consumerSession, message),
+            await _visible(
+              captured,
+              binding,
+              consumerSession,
+              peerAccount,
+              message,
+            ),
           );
           if (!session.isCurrent(captured)) {
             final bool loggedOut = session.identity == null;
@@ -1047,27 +1564,82 @@ class ChatService {
 
   Future<VisibleMessage> _visible(
     AuthIdentity captured,
-    String peerAccount,
+    ConsumerBinding binding,
     String consumerSession,
+    String peerAccount,
     ChatMessage message,
   ) async {
-    final String account = captured.account;
+    final QueryVisibleMessage result = await _buildVisible(
+      captured,
+      binding,
+      consumerSession,
+      peerAccount,
+      message,
+      tolerateMissingMedia: false,
+    );
+    return result.item;
+  }
+
+  /// Builds a query-time visible message.
+  ///
+  /// Unlike the v1 read path, a missing image/cover is reported in
+  /// [QueryVisibleMessage.missingMediaIds] and the item gets no presentation
+  /// receipt. Network failures and unsupported upstream answers are not turned
+  /// into "missing media".
+  Future<QueryVisibleMessage> visibleMessageForQuery({
+    required AuthIdentity captured,
+    required ConsumerBinding binding,
+    required String peerAccount,
+    required ChatMessage message,
+    Set<String>? createdReceiptIds,
+  }) {
+    return _buildVisible(
+      captured,
+      binding,
+      binding.sessionId,
+      peerAccount,
+      message,
+      tolerateMissingMedia: true,
+      createdReceiptIds: createdReceiptIds,
+    );
+  }
+
+  Future<QueryVisibleMessage> _buildVisible(
+    AuthIdentity captured,
+    ConsumerBinding binding,
+    String consumerSession,
+    String peerAccount,
+    ChatMessage message, {
+    required bool tolerateMissingMedia,
+    Set<String>? createdReceiptIds,
+  }) async {
+    if (!captured.sameAs(session.identity)) {
+      throw unauthenticated;
+    }
     final List<VisibleBlock> blocks = <VisibleBlock>[];
+    final List<String> missing = <String>[];
     if (message.kind == ChatMessageKind.body) {
       for (final MessagePart part in message.parts) {
         if (part is TextPart) {
           blocks.add(VisibleTextBlock(part.text));
         } else if (part is ImagePart) {
-          final MediaResponse media = await api.fetchMedia(
-            token: captured.token,
-            mediaId: part.mediaId,
-          );
-          blocks.add(
-            VisibleImageBlock(
-              data: base64Encode(media.bytes),
-              mimeType: _imageMime(media.mimeType),
-            ),
-          );
+          try {
+            final MediaResponse media = await api.fetchMedia(
+              token: captured.token,
+              mediaId: part.mediaId,
+            );
+            blocks.add(
+              VisibleImageBlock(
+                data: base64Encode(media.bytes),
+                mimeType: _imageMime(media.mimeType),
+              ),
+            );
+          } on AuthFailure catch (failure) {
+            if (!tolerateMissingMedia || !_isMissingMedia(failure)) {
+              rethrow;
+            }
+            missing.add(part.mediaId);
+          }
         }
       }
     } else {
@@ -1078,32 +1650,57 @@ class ChatService {
       blocks.add(VisibleTextBlock(_attachmentSummary(attachment)));
       if (attachment.kind == AttachmentKind.video &&
           attachment.coverMediaId != null) {
-        final MediaResponse cover = await api.fetchMedia(
-          token: captured.token,
-          mediaId: attachment.coverMediaId!,
-        );
-        blocks.add(
-          VisibleImageBlock(
-            data: base64Encode(cover.bytes),
-            mimeType: _imageMime(cover.mimeType),
-          ),
-        );
+        try {
+          final MediaResponse cover = await api.fetchMedia(
+            token: captured.token,
+            mediaId: attachment.coverMediaId!,
+          );
+          blocks.add(
+            VisibleImageBlock(
+              data: base64Encode(cover.bytes),
+              mimeType: _imageMime(cover.mimeType),
+            ),
+          );
+        } on AuthFailure catch (failure) {
+          if (!tolerateMissingMedia || !_isMissingMedia(failure)) {
+            rethrow;
+          }
+          missing.add(attachment.coverMediaId!);
+        }
       }
+    }
+    if (missing.isNotEmpty) {
+      return QueryVisibleMessage(
+        item: VisibleMessage(
+          message: message,
+          blocks: List<VisibleBlock>.unmodifiable(blocks),
+        ),
+        missingMediaIds: List<String>.unmodifiable(missing),
+      );
     }
     final String digest = _messageDigest(message);
     final PresentationReceipt receipt = await ledger.prepareReceipt(
-      account: account,
+      account: captured.account,
+      consumerId: binding.consumerId,
       consumerSession: consumerSession,
       peerAccount: peerAccount,
       messageId: message.id,
       position: message.position,
       contentDigest: digest,
+      createdReceiptIds: createdReceiptIds,
     );
-    return VisibleMessage(
-      message: message,
-      blocks: List<VisibleBlock>.unmodifiable(blocks),
-      presentation: receipt,
+    return QueryVisibleMessage(
+      item: VisibleMessage(
+        message: message,
+        blocks: List<VisibleBlock>.unmodifiable(blocks),
+        presentation: receipt,
+      ),
+      missingMediaIds: const <String>[],
     );
+  }
+
+  static bool _isMissingMedia(AuthFailure failure) {
+    return failure.status == 404 || failure.status == 415;
   }
 
   // ------------------------------------------------------------- receipts ----
@@ -1113,6 +1710,7 @@ class ChatService {
     required String attemptId,
     required String requestDigest,
     required List<String> receiptIds,
+    ExpectedIdentity? expectedIdentity,
   }) async {
     _validateConsumer(consumerSession);
     if (attemptId.trim().isEmpty) {
@@ -1121,19 +1719,26 @@ class ChatService {
     if (requestDigest.trim().isEmpty) {
       throw _validation('request_digest 不能为空');
     }
-    final String account = selfAccount;
+    final ({AuthIdentity identity, ConsumerBinding binding}) context =
+        await _captureBinding(consumerSession, create: false);
+    final AuthIdentity captured = context.identity;
+    _expectCurrentIdentity(expectedIdentity, context.binding, captured);
     final List<String> confirmed = await ledger.confirmPresentationAttempt(
-      account: account,
+      account: captured.account,
+      consumerId: context.binding.consumerId,
       consumerSession: consumerSession,
       attemptId: attemptId,
       requestDigest: requestDigest,
       receiptIds: receiptIds,
+      expectedIdentity: expectedIdentity ?? context.binding.identity,
+      stillCurrent: () => session.isCurrent(captured),
+      beforeCommit: beforeCommit,
     );
-    // An in-flight request must never be applied to a different account after
-    // a login switch. The write above is already scoped to the captured
-    // account; this check makes such a switch observable to the caller.
-    if (session.user?.account != account || !session.hasToken) {
-      throw unauthenticated;
+    // The confirmation was only written while the captured identity was
+    // current. A switch during the flush keeps the original account's fact but
+    // must not report success to the new context.
+    if (!session.isCurrent(captured)) {
+      throw staleIdentity;
     }
     return confirmed;
   }
@@ -1144,45 +1749,35 @@ class ChatService {
     required String peerAccount,
     required String consumerSession,
     required int throughPosition,
+    ExpectedIdentity? expectedIdentity,
   }) async {
     _validateConsumer(consumerSession);
     if (throughPosition < 0) {
       throw _validation('through_position 不能为负');
     }
-    final String account = selfAccount;
-    final int consumed = await ledger.consumedThrough(account, peerAccount);
-    if (throughPosition <= consumed) {
-      return consumed;
-    }
-    final List<PresentationReceipt> receipts = await ledger.receiptsForPeer(
-      account: account,
+    final ({AuthIdentity identity, ConsumerBinding binding}) context =
+        await _captureBinding(consumerSession, create: false);
+    final AuthIdentity captured = context.identity;
+    _expectCurrentIdentity(expectedIdentity, context.binding, captured);
+    // Everything below happens inside one ledger lock: identity and binding are
+    // re-verified, the gap is recomputed and only then is the watermark
+    // written. A switch at the commit pause cannot advance any cursor.
+    final int committed = await ledger.commitAck(
+      account: captured.account,
       consumerSession: consumerSession,
+      consumerId: context.binding.consumerId,
       peerAccount: peerAccount,
+      throughPosition: throughPosition,
+      expectedIdentity: expectedIdentity ?? context.binding.identity,
+      stillCurrent: () => session.isCurrent(captured),
+      beforeCommit: beforeCommit,
     );
-    final Map<int, bool> confirmedByPosition = <int, bool>{
-      for (final PresentationReceipt receipt in receipts)
-        receipt.position: receipt.confirmed,
-    };
-    final List<int> gaps = <int>[
-      for (int position = consumed + 1; position <= throughPosition; position++)
-        if (confirmedByPosition[position] != true) position,
-    ];
-    if (gaps.isNotEmpty) {
-      throw AuthFailure(
-        status: 409,
-        code: 'consumption_gap',
-        message: '消费水位存在未确认展示的位置',
-        fields: <AuthFieldError>[
-          AuthFieldError(
-            field: 'through_position',
-            code: 'gap',
-            message: '缺少展示确认的位置：${_summarize(gaps)}',
-          ),
-        ],
-      );
+    // The fact is scoped to the captured account. Reporting success to a
+    // different login would leak it into the new context.
+    if (!session.isCurrent(captured)) {
+      throw staleIdentity;
     }
-    await ledger.setConsumedThrough(account, peerAccount, throughPosition);
-    return throughPosition;
+    return committed;
   }
 
   // ----------------------------------------------------------------- media --
@@ -1230,8 +1825,12 @@ class ChatService {
   Future<void> subscribeEvents({
     required String consumerSession,
     required String peerAccount,
-  }) {
-    return eventFeed.subscribe(
+    ExpectedIdentity? expectedIdentity,
+  }) async {
+    final ({AuthIdentity identity, ConsumerBinding binding}) context =
+        await _captureBinding(consumerSession);
+    _expectCurrentIdentity(expectedIdentity, context.binding, context.identity);
+    await eventFeed.subscribe(
       consumerSession: consumerSession,
       peerAccount: peerAccount,
     );
@@ -1431,13 +2030,6 @@ class ChatService {
       code: 'unsupported_media_type',
       message: '图片格式不受支持',
     );
-  }
-
-  static String _summarize(List<int> positions) {
-    if (positions.length <= 5) {
-      return positions.join(', ');
-    }
-    return '${positions.take(4).join(', ')}… (${positions.length})';
   }
 
   static bool _isUncertain(AuthFailure failure) {

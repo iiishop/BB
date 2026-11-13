@@ -1,0 +1,4 @@
+- insert:
+    - id: bb-bridge
+      name: '@bb/dsh-bridge'
+      config: {}

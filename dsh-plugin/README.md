@@ -1,3 +1,5 @@
+当前 DEA-467 原版宿主产品入口是 `bundle/`，构建命令为 `python3 dsh-plugin/build_bundle.py <新目录>`。安装、Settings、身份绑定及恢复规则见 `docs/contracts/dea467-bundle.md`；以下为保留的独立 stdio/旧版接入说明。
+
 DSH 的 stdio MCP 插件，保留 `register_account(username,password)`、`login_account(account,password)`，新增 `view_avatar`、`update_avatar`、`view_nickname`、`update_nickname`、`view_signature`、`update_signature`，共八个工具。所有调用经过独立逻辑客户端的本地 HTTP 接口，插件不调用远程服务端。Python 依赖由 uv 管理；保留相邻 `server/contract/` 以复用纯校验模块，不依赖或加载 FastAPI 服务端。
 
 Profile 参数、六个本地路由和响应见 `docs/contracts/profile-step2.md`；机器可读 schema/样例在 `server/contract/profile-*.json`。头像读取返回真实 MCP image content，并附 account/版本元数据；每次调用都访问客户端，不做缓存。头像更新只转发唯一 path/url/base64 来源，文件读取、URL 下载、base64 解码和上传由客户端完成。更新工具不接受 account，不接收会话 token。
@@ -37,3 +39,12 @@ BB_CLIENT_BASE_URL=http://127.0.0.1:9187 uv run --project dsh-plugin --locked py
 该检查覆盖 MCP 列表、同名注册、登录、业务错误及输出字段；客户端重启恢复、401 清除凭据、网络失败保留凭据需在集成版本的客户端测试中验证。端口配置必须指向逻辑客户端；仅凭相同路由无法自动识别操作者误填的本机服务端端口。
 
 未接入真实产品 DSH Runtime；标准 MCP stdio 已测试，不宣称 DSH 安装验收完成。实现采用[官方 MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk)，版本固定在 `uv.lock`。
+
+DEA-467 受保护查询模式
+---------------------
+
+`BB_CONSUMER_STATE_FILE` 可指向宿主管理的私有 `{owner_key,identity}` JSON。
+该模式增加 list_conversations/get_message/get_context，read_messages 支持
+前后定位；身份由宿主注入，查询不消费，内部 ACK/confirm 不向模型开放。
+绑定变化后由宿主重启 MCP，旧实例不自动重绑或重试。未配置绑定文件时只有注册/登录可执行；业务明确返回 stale_binding，禁止回退旧接口。完整路由、分页和退役策略见 `docs/contracts/dea467-local-v2.md`。
+此 Python 接线不等同独立 DSH bundle 安装或真实 Dart 查询链路验收。

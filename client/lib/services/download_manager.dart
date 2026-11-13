@@ -10,6 +10,7 @@ import '../models/chat_models.dart';
 import 'auth_session.dart';
 import 'chat_api_client.dart';
 import 'chat_ledger.dart';
+import 'client_identity.dart';
 import 'media_source.dart';
 
 class _Recovery {
@@ -65,6 +66,7 @@ class DownloadManager {
     required String consumerSession,
     required String mediaId,
     String? directory,
+    ExpectedIdentity? expectedIdentity,
   }) {
     return _locked(() async {
       if (!_operationIdPattern.hasMatch(operationId)) {
@@ -130,6 +132,7 @@ class DownloadManager {
         mediaId: mediaId,
         kind: kind,
         filename: filename,
+        originIdentity: expectedIdentity?.toJson(),
       );
       await ledger.saveDownload(account, task);
       await ledger.saveDownloadOperation(account, operationId, task.taskId);
@@ -937,6 +940,7 @@ class DownloadManager {
       operationId: task.operationId,
       actualPath: succeeded ? task.actualPath : null,
       errorCode: succeeded ? null : task.errorCode ?? 'download_failed',
+      originIdentity: task.originIdentity,
     );
   }
 

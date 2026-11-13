@@ -6,6 +6,7 @@ import '../models/chat_models.dart';
 import 'auth_session.dart';
 import 'chat_api_client.dart';
 import 'chat_ledger.dart';
+import 'client_identity.dart';
 
 /// Durable local event feed for DSH consumers.
 ///
@@ -142,6 +143,12 @@ class EventFeed {
       captured.account,
       consumerSession,
     );
+    // Snapshot the binding that admits this feed's events. v2 callbacks must
+    // carry the origin identity; a later rebind never rewrites it.
+    final ExpectedIdentity? originIdentity = await ledger.originIdentityForFeed(
+      captured.account,
+      consumerSession,
+    );
     bool advanced = true;
     while (advanced && !_disposed) {
       advanced = false;
@@ -173,6 +180,7 @@ class EventFeed {
                 peerAccount: event.peerAccount,
                 position: event.position,
                 messageId: event.messageId,
+                originIdentity: originIdentity?.toJson(),
               ),
             );
           }

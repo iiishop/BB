@@ -63,13 +63,20 @@ class AuthService implements AuthGateway {
       password: password,
     );
     session.establish(token: result.token, user: result.user);
+    final AuthIdentity established = session.identity!;
     try {
-      await _persist(result.user, result.token);
+      await _persist(result.user, result.token, assignGeneration: true);
+      final SessionStore? store = this.store;
+      if (store != null) {
+        session.adoptCredentialGeneration(store.currentGeneration);
+      }
     } on SessionStorageException {
       // Login succeeded at the server, but the restart capability did not. Do
-      // not report success: drop the half-established session so the caller
-      // cannot mistake it for a durable login.
-      session.clear();
+      // not report success. Only drop this login; a newer login that committed
+      // while the failed write was queued owns the session now.
+      if (session.isCurrent(established)) {
+        session.clear();
+      }
       throw sessionStorageUnavailable;
     }
     return result.user;
@@ -93,43 +100,118 @@ class AuthService implements AuthGateway {
     }
     try {
       final AuthUser user = await api.fetchSession(stored.token);
-      session.establish(token: stored.token, user: user);
+      final int generation = stored.generation > 0
+          ? stored.generation
+          : (store.nextGeneration());
+      session.establish(
+        token: stored.token,
+        user: user,
+        generation: generation,
+      );
       if (user.account != stored.account || user.username != stored.username) {
-        await _persist(user, stored.token);
+        await _persist(user, stored.token, generation: session.generation);
       }
       return user;
     } on AuthFailure catch (failure) {
       if (failure.status == 401) {
+        // Only invalidate the token this restore was validating. A login that
+        // completed while the request/file operation was in flight wins.
         try {
-          await store.clear();
-        } on SessionStorageException {
-          session.clear();
-          // The credential is invalid but the stale file could not be removed;
-          // report the storage fault instead of claiming a clean logout.
-          throw sessionStorageUnavailable;
+          await signOut(expectedToken: stored.token);
+        } on AuthFailure catch (clearFailure) {
+          if (clearFailure.code == sessionStorageUnavailable.code) {
+            rethrow;
+          }
+          if (session.tokenForRequest == stored.token) {
+            session.clear();
+          }
         }
-        session.clear();
       }
       rethrow;
     } on SessionStorageException {
-      session.clear();
+      if (session.tokenForRequest == stored.token) {
+        session.clear();
+      }
       throw sessionStorageUnavailable;
     }
   }
 
   @override
-  Future<void> signOut() async {
+  Future<void> signOut({String? expectedToken}) async {
+    final String? currentToken = session.tokenForRequest;
+    // A token-aware invalidation may target a stored credential that was never
+    // established in memory (restoreSession's 401 path).
+    final String? oldToken = expectedToken ?? currentToken;
+    if (oldToken == null) {
+      return;
+    }
+    // The token-aware caller must not clear a login that replaced this one
+    // before sign-out began.
+    if (expectedToken != null &&
+        currentToken != null &&
+        currentToken != expectedToken) {
+      return;
+    }
     final SessionStore? store = this.store;
-    if (store != null) {
-      try {
+    try {
+      if (store != null) {
         await store.clear();
+      }
+      // A new login may have completed while the deletion was in flight. Its
+      // file can have been removed by that deletion; restore it before the
+      // conditional memory commit below.
+      await _repersistNewLogin(oldToken);
+    } on SessionStorageException {
+      await _repersistNewLogin(oldToken);
+      throw sessionStorageUnavailable;
+    }
+    // Clear only the credential this sign-out owned. A new login that
+    // committed during the await must survive in memory too.
+    if (session.tokenForRequest == oldToken) {
+      session.clear();
+    }
+  }
+
+  /// A login completed while the old credential's deletion was awaited. Its
+  /// file may have been removed by that deletion; rewrite the current session
+  /// so memory and disk agree. Never touches a newer/absent session.
+  Future<void> _repersistNewLogin(String oldToken) async {
+    // The repair write itself is asynchronous. A later login may complete
+    // while it is in flight; after every write, verify that the token on disk
+    // is still the current one and rewrite the latest login if not. Bounded
+    // so a continuous login stream cannot spin forever; the final best-effort
+    // write still gives the current credential the last word.
+    for (int attempt = 0; attempt < 4; attempt++) {
+      final String? token = session.tokenForRequest;
+      final AuthUser? user = session.user;
+      if (token == null || token == oldToken || user == null) {
+        return;
+      }
+      try {
+        await _persist(user, token, generation: session.generation);
       } on SessionStorageException {
-        // Keep the in-memory session: reporting a logout that a restart would
-        // undo is worse than surfacing the storage fault.
-        throw sessionStorageUnavailable;
+        // The in-memory login is valid; a later persist/restart retries the
+        // disk copy rather than clearing it.
+        return;
+      }
+      if (session.tokenForRequest == token) {
+        return;
       }
     }
-    session.clear();
+    final String? latestToken = session.tokenForRequest;
+    final AuthUser? latestUser = session.user;
+    if (latestToken == null || latestToken == oldToken || latestUser == null) {
+      return;
+    }
+    try {
+      await _persist(
+        latestUser,
+        latestToken,
+        generation: session.generation,
+      );
+    } on SessionStorageException {
+      // Keep the in-memory login; disk can be repaired by the next login.
+    }
   }
 
   /// Updates the cached identity after a successful profile edit.
@@ -143,7 +225,7 @@ class AuthService implements AuthGateway {
       return;
     }
     try {
-      await _persist(user, token);
+      await _persist(user, token, generation: session.generation);
     } on SessionStorageException {
       // The in-memory identity is correct; a restart re-reads the server.
     }
@@ -172,7 +254,12 @@ class AuthService implements AuthGateway {
     return LogoutResult(serverNotified: serverNotified, warning: warning);
   }
 
-  Future<void> _persist(AuthUser user, String token) async {
+  Future<void> _persist(
+    AuthUser user,
+    String token, {
+    int? generation,
+    bool assignGeneration = false,
+  }) async {
     final SessionStore? store = this.store;
     if (store == null) {
       return;
@@ -182,6 +269,8 @@ class AuthService implements AuthGateway {
         account: user.account,
         username: user.username,
         token: token,
+        generation: generation ?? session.generation,
+        assignGeneration: assignGeneration,
       ),
     );
   }

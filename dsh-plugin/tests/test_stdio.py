@@ -6,9 +6,10 @@ import threading
 from datetime import timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from bb_auth_contract.chat import LOCAL
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+
+from bb_dsh_plugin.guarded import TOOL_MODELS
 
 
 async def test_stdio_eight_tools_and_stateless_http(tmp_path):
@@ -57,7 +58,7 @@ async def test_stdio_eight_tools_and_stateless_http(tmp_path):
         ):
             await session.initialize()
             tools = await session.list_tools()
-            assert {tool.name for tool in tools.tools} == set(LOCAL) | {
+            assert {tool.name for tool in tools.tools} == set(TOOL_MODELS) | {
                 "register_account",
                 "login_account",
                 "view_avatar",
@@ -67,6 +68,12 @@ async def test_stdio_eight_tools_and_stateless_http(tmp_path):
                 "view_signature",
                 "update_signature",
             }
+            denied = await session.call_tool("view_nickname", {})
+            assert (
+                denied.isError
+                and denied.structuredContent["error"]["code"] == "stale_binding"
+            )
+            assert not calls
             for name, payload in [
                 ("register_account", {"username": "Alice", "password": "Abc123"}),
                 ("login_account", {"account": "12345678", "password": "Abc123"}),

@@ -41,6 +41,13 @@ class FakeChatBackend {
 
   /// One-shot injected failure for retry tests.
   int failNextSendStatus = 0;
+
+  /// Send requests that reached the transport, including idempotent replays.
+  /// A stale plan must not increase this counter.
+  int sendRequests = 0;
+
+  /// Account that authenticated each send request, in order.
+  final List<String> sendRequestAccounts = <String>[];
   int _messageSeq = 0;
   int _mediaSeq = 0;
   String? lastMediaRange;
@@ -74,6 +81,26 @@ class FakeChatBackend {
         if (mediaId != null)
           <String, dynamic>{'type': 'image', 'media_id': mediaId},
       ],
+    );
+    _appendEvent(message);
+    return message.id;
+  }
+
+  /// Seeds a message with an explicit stream position (gap fixtures).
+  Future<String> seedMessageAtPosition({
+    required String sender,
+    required String target,
+    required String text,
+    required int position,
+  }) async {
+    final _FakeMessage message = _appendMessage(
+      sender: sender,
+      target: target,
+      kind: 'body',
+      content: <Map<String, dynamic>>[
+        <String, dynamic>{'type': 'text', 'text': text},
+      ],
+      explicitPosition: position,
     );
     _appendEvent(message);
     return message.id;
@@ -148,6 +175,22 @@ class FakeChatBackend {
       }
       if (request.method == 'GET' && path == '/events') {
         await _eventsPage(request, account);
+        return;
+      }
+      if (request.method == 'GET' && path == '/conversations') {
+        await _conversations(request, account);
+        return;
+      }
+      final RegExp contextPath = RegExp(r'^/messages/([^/]+)/context$');
+      final Match? contextMatch = contextPath.firstMatch(path);
+      if (request.method == 'GET' && contextMatch != null) {
+        await _messageContext(request, account, contextMatch.group(1)!);
+        return;
+      }
+      final RegExp messagePath = RegExp(r'^/messages/([^/]+)$');
+      final Match? messageMatch = messagePath.firstMatch(path);
+      if (request.method == 'GET' && messageMatch != null) {
+        await _messageById(request, account, messageMatch.group(1)!);
         return;
       }
       final RegExp conversation = RegExp(r'^/conversations/([^/]+)/messages$');
@@ -297,6 +340,8 @@ class FakeChatBackend {
   }
 
   Future<void> _sendMessage(HttpRequest request, String account) async {
+    sendRequests += 1;
+    sendRequestAccounts.add(account);
     final Map<String, dynamic> body = await _json(request);
     final Object? target = body['target_account'];
     final Object? nonce = body['client_nonce'];
@@ -348,6 +393,8 @@ class FakeChatBackend {
   }
 
   Future<void> _sendAttachment(HttpRequest request, String account) async {
+    sendRequests += 1;
+    sendRequestAccounts.add(account);
     final Map<String, dynamic> body = await _json(request);
     final Object? target = body['target_account'];
     final Object? nonce = body['client_nonce'];
@@ -400,11 +447,12 @@ class FakeChatBackend {
     required String kind,
     List<Map<String, dynamic>> content = const <Map<String, dynamic>>[],
     Map<String, dynamic>? attachment,
+    int? explicitPosition,
   }) {
     final List<_FakeMessage> pair = _pair(sender, target);
     final _FakeMessage message = _FakeMessage(
       id: 'm${++_messageSeq}',
-      position: pair.length + 1,
+      position: explicitPosition ?? pair.length + 1,
       sender: sender,
       target: target,
       createdAt: DateTime.now().toUtc(),
@@ -413,6 +461,7 @@ class FakeChatBackend {
       attachment: attachment,
     );
     pair.add(message);
+    pair.sort((_FakeMessage a, _FakeMessage b) => a.position.compareTo(b.position));
     return message;
   }
 
@@ -466,17 +515,156 @@ class FakeChatBackend {
     }
     final int after =
         int.tryParse(request.uri.queryParameters['after_position'] ?? '') ?? 0;
+    final int? before = int.tryParse(
+      request.uri.queryParameters['before_position'] ?? '',
+    );
     final int limit =
         int.tryParse(request.uri.queryParameters['limit'] ?? '') ?? 50;
-    final List<_FakeMessage> list = _pair(
-      account,
-      peer,
-    ).where((_FakeMessage message) => message.position > after).toList();
+    final List<_FakeMessage> pair = _pair(account, peer);
+    if (before != null) {
+      final List<_FakeMessage> eligible = pair
+          .where((_FakeMessage message) => message.position < before)
+          .toList();
+      final List<_FakeMessage> page = eligible.length > limit
+          ? eligible.sublist(eligible.length - limit)
+          : eligible;
+      await _write(request, 200, <String, dynamic>{
+        'items': page.map(_messageJson).toList(),
+        'next_position': page.isEmpty ? before : page.first.position,
+        'has_more': eligible.length > page.length,
+      });
+      return;
+    }
+    final List<_FakeMessage> list = pair
+        .where((_FakeMessage message) => message.position > after)
+        .toList();
     final List<_FakeMessage> page = list.take(limit).toList();
     await _write(request, 200, <String, dynamic>{
       'items': page.map(_messageJson).toList(),
       'next_position': page.isEmpty ? after : page.last.position,
       'has_more': list.length > page.length,
+    });
+  }
+
+  Future<void> _conversations(HttpRequest request, String account) async {
+    final String after = request.uri.queryParameters['after_account'] ?? '';
+    final int limit =
+        int.tryParse(request.uri.queryParameters['limit'] ?? '') ?? 50;
+    final Set<String> peers = <String>{};
+    for (final MapEntry<String, List<_FakeMessage>> entry in _pairs.entries) {
+      if (entry.value.isEmpty) {
+        continue;
+      }
+      final List<String> keys = entry.key.split('|');
+      if (keys.contains(account)) {
+        peers.add(keys.first == account ? keys.last : keys.first);
+      }
+    }
+    final List<String> ordered = peers
+        .where((String peer) => after.isEmpty || peer.compareTo(after) > 0)
+        .toList()
+      ..sort();
+    final List<String> page = ordered.take(limit).toList();
+    final List<Map<String, dynamic>> items = <Map<String, dynamic>>[];
+    for (final String peer in page) {
+      final _FakeMessage? last = _lastMessage(account, peer);
+      if (last == null) {
+        continue;
+      }
+      items.add(<String, dynamic>{
+        'peer_account': peer,
+        'last_message': _messageJson(last),
+        'last_activity_at': last.createdAt.toIso8601String(),
+        'latest_position': last.position,
+      });
+    }
+    await _write(request, 200, <String, dynamic>{
+      'items': items,
+      'next_cursor': ordered.length > page.length ? page.last : null,
+    });
+  }
+
+  _FakeMessage? _messageFor(HttpRequest request, String account, String id) {
+    for (final List<_FakeMessage> pair in _pairs.values) {
+      for (final _FakeMessage message in pair) {
+        if (message.id == id &&
+            (message.sender == account || message.target == account)) {
+          return message;
+        }
+      }
+    }
+    return null;
+  }
+
+  Future<void> _messageById(
+    HttpRequest request,
+    String account,
+    String id,
+  ) async {
+    final _FakeMessage? message = _messageFor(request, account, id);
+    if (message == null) {
+      await _error(request, 404, 'not_found');
+      return;
+    }
+    await _write(request, 200, _messageJson(message));
+  }
+
+  Future<void> _messageContext(
+    HttpRequest request,
+    String account,
+    String id,
+  ) async {
+    final _FakeMessage? anchor = _messageFor(request, account, id);
+    if (anchor == null) {
+      await _error(request, 404, 'not_found');
+      return;
+    }
+    final int beforeLimit =
+        int.tryParse(request.uri.queryParameters['before_limit'] ?? '') ?? 10;
+    final int afterLimit =
+        int.tryParse(request.uri.queryParameters['after_limit'] ?? '') ?? 10;
+    final String peer = anchor.sender == account
+        ? anchor.target
+        : anchor.sender;
+    final List<_FakeMessage> pair = _pair(account, peer);
+    final List<_FakeMessage> allBefore = pair
+        .where((_FakeMessage message) => message.position < anchor.position)
+        .toList();
+    final List<_FakeMessage> before = allBefore.length > beforeLimit
+        ? allBefore.sublist(allBefore.length - beforeLimit)
+        : allBefore;
+    final List<_FakeMessage> allAfter = pair
+        .where((_FakeMessage message) => message.position > anchor.position)
+        .toList();
+    final List<_FakeMessage> after = allAfter.take(afterLimit).toList();
+    final List<_FakeMessage> items = <_FakeMessage>[
+      ...before,
+      anchor,
+      ...after,
+    ];
+    final List<int> gaps = <int>[];
+    int gapCount = 0;
+    for (int i = 1; i < items.length; i++) {
+      final int start = items[i - 1].position + 1;
+      final int end = items[i].position;
+      gapCount += end > start ? end - start : 0;
+      for (int position = start; position < end && gaps.length < 100; position++) {
+        gaps.add(position);
+      }
+    }
+    await _write(request, 200, <String, dynamic>{
+      'items': items.map(_messageJson).toList(),
+      'anchor_message_id': anchor.id,
+      'peer_account': peer,
+      'range': <String, dynamic>{
+        'start_position': items.first.position,
+        'end_position': items.last.position,
+      },
+      'before_has_more': allBefore.length > before.length,
+      'after_has_more': allAfter.length > after.length,
+      'missing_positions': gaps,
+      'missing_truncated': gapCount > gaps.length,
+      'reply_relations': 'unsupported',
     });
   }
 

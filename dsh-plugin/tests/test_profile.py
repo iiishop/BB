@@ -3,8 +3,9 @@ import json
 
 import httpx
 import pytest
+from guarded_fixture import IDENTITY, guarded_client
 
-from bb_dsh_plugin.plugin import LocalClient, invoke
+from bb_dsh_plugin.guarded import invoke_guarded as invoke
 
 PNG = base64.b64encode(b"\x89PNG\r\n\x1a\nimage-test-double").decode()
 
@@ -25,7 +26,9 @@ async def test_view_avatar_returns_mcp_image_and_revalidates_each_time():
             },
         )
 
-    local = LocalClient("http://127.0.0.1:9187", transport=httpx.MockTransport(handler))
+    local = guarded_client(
+        "http://127.0.0.1:9187", transport=httpx.MockTransport(handler)
+    )
     for version in (1, 2):
         response = await invoke(local, "view_avatar", {"account": "12345678"})
         assert not response.isError
@@ -34,7 +37,7 @@ async def test_view_avatar_returns_mcp_image_and_revalidates_each_time():
         assert response.structuredContent["avatar_version"] == f"version-{version}"
         assert "never-forward" not in response.model_dump_json()
     assert len(calls) == 2
-    assert all(r.url.path == "/profile/view_avatar" for r in calls)
+    assert all(r.url.path == "/v2/profile/view_avatar" for r in calls)
     assert all(
         "authorization" not in r.headers and "cookie" not in r.headers for r in calls
     )
@@ -58,11 +61,13 @@ async def test_avatar_sources_are_forwarded_to_client_only(payload):
             200, json={"avatar_url": "/avatars/12345678.png", "avatar_version": "new"}
         )
 
-    local = LocalClient("http://127.0.0.1:9187", transport=httpx.MockTransport(handler))
+    local = guarded_client(
+        "http://127.0.0.1:9187", transport=httpx.MockTransport(handler)
+    )
     response = await invoke(local, "update_avatar", payload)
     assert not response.isError
-    assert len(calls) == 1 and calls[0].url.path == "/profile/update_avatar"
-    assert json.loads(calls[0].content) == payload
+    assert len(calls) == 1 and calls[0].url.path == "/v2/profile/update_avatar"
+    assert json.loads(calls[0].content) == {**payload, "expected_identity": IDENTITY}
 
 
 @pytest.mark.parametrize(
@@ -79,14 +84,16 @@ async def test_ambiguous_or_unsafe_avatar_arguments_never_call_client(payload):
     def handler(_):
         pytest.fail("invalid tool arguments reached HTTP")
 
-    local = LocalClient("http://127.0.0.1:9187", transport=httpx.MockTransport(handler))
+    local = guarded_client(
+        "http://127.0.0.1:9187", transport=httpx.MockTransport(handler)
+    )
     response = await invoke(local, "update_avatar", payload)
     assert response.isError and response.structuredContent["status"] == 422
 
 
 @pytest.mark.parametrize("data", ["invalid-base64!", "YWJj", ""])
 async def test_malformed_avatar_response_does_not_emit_an_image(data):
-    local = LocalClient(
+    local = guarded_client(
         "http://127.0.0.1:9187",
         transport=httpx.MockTransport(
             lambda _: httpx.Response(
@@ -123,10 +130,12 @@ async def test_profile_error_envelope_is_preserved_without_retry(status, code):
         calls.append(request)
         return httpx.Response(status, json={"error": error})
 
-    local = LocalClient("http://127.0.0.1:9187", transport=httpx.MockTransport(handler))
+    local = guarded_client(
+        "http://127.0.0.1:9187", transport=httpx.MockTransport(handler)
+    )
     response = await invoke(local, "view_avatar", {})
     assert response.isError and response.structuredContent == {
         "status": status,
-        "error": error,
+        "error": {**error, "message": code},
     }
     assert len(calls) == 1

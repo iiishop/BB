@@ -25,7 +25,8 @@ class _DelayedChatApi extends ChatApiClient {
   Future<MessagePage> conversation({
     required String token,
     required String account,
-    int afterPosition = 0,
+    int? afterPosition = 0,
+    int? beforePosition,
     int limit = 50,
   }) async {
     await gate.future;

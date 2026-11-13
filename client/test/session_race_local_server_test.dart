@@ -8,6 +8,10 @@ import 'package:bb_client/services/auth_api_client.dart';
 import 'package:bb_client/services/auth_service.dart';
 import 'package:bb_client/services/auth_session.dart';
 import 'package:bb_client/services/avatar_cache.dart';
+import 'package:bb_client/services/chat_api_client.dart';
+import 'package:bb_client/services/chat_ledger.dart';
+import 'package:bb_client/services/chat_service.dart';
+import 'package:bb_client/services/client_identity.dart';
 import 'package:bb_client/services/local_auth_server.dart';
 import 'package:bb_client/services/profile_api_client.dart';
 import 'package:bb_client/services/profile_service.dart';
@@ -67,21 +71,49 @@ void main() {
         auth: auth,
         cache: AvatarCache(),
       );
+      final ChatService chat = ChatService(
+        api: ChatApiClient(baseUri: backend.baseUri),
+        session: session,
+        ledger: ChatLedger.atPath('${directory.path}/ledger.json'),
+        cacheRoot: Directory('${directory.path}/cache'),
+        webSocketHints: false,
+      );
       int unauthorizedCalls = 0;
       final LocalAuthServer server = LocalAuthServer(
         service: auth,
         profile: profile,
+        chat: chat,
         port: 0,
-        onUnauthorized: () async {
+        onUnauthorized: (String token) async {
           unauthorizedCalls += 1;
-          await auth.signOut();
+          if (session.tokenForRequest == token) {
+            await auth.signOut();
+          }
         },
       );
       final Uri address = await server.start();
       try {
-        final Future<_Response> oldRequest = _post(
-          address.resolve('/profile/view_nickname'),
+        final String owner = List<String>.filled(43, 'A').join();
+        final _Response status = await _post(
+          address.resolve('/v2/status'),
           <String, dynamic>{},
+        );
+        final Map<String, dynamic> expectedAuth =
+            status.body['auth'] as Map<String, dynamic>;
+        final _Response created = await _post(
+          address.resolve('/v2/consumers/create'),
+          <String, dynamic>{
+            'expected_auth': expectedAuth,
+            'session_id': 'race-session',
+          },
+          owner: owner,
+        );
+        final Map<String, dynamic> identity =
+            created.body['identity'] as Map<String, dynamic>;
+        final Future<_Response> oldRequest = _post(
+          address.resolve('/v2/profile/view_nickname'),
+          <String, dynamic>{'expected_identity': identity},
+          owner: owner,
         );
         await delayed.started.future.timeout(const Duration(seconds: 5));
 
@@ -102,7 +134,13 @@ void main() {
         final _Response oldResponse = await oldRequest.timeout(
           const Duration(seconds: 5),
         );
-        expect(oldResponse.status, 401);
+        // The old request is classified as a stale identity of the captured
+        // session; it never becomes a success in the new session context.
+        expect(oldResponse.status, 409);
+        expect(
+          (oldResponse.body['error'] as Map<String, dynamic>)['code'],
+          staleIdentityCode,
+        );
         // Let a (buggy) async unauthorized callback run if it was scheduled.
         await Future<void>.delayed(const Duration(milliseconds: 100));
         expect(unauthorizedCalls, 0);
@@ -113,6 +151,7 @@ void main() {
         );
       } finally {
         await server.close();
+        await chat.dispose();
         await backend.close();
         if (await directory.exists()) {
           await directory.delete(recursive: true);
@@ -130,11 +169,16 @@ class _Response {
   final String raw;
 }
 
-Future<_Response> _post(Uri uri, Map<String, dynamic> payload) async {
+Future<_Response> _post(
+  Uri uri,
+  Map<String, dynamic> payload, {
+  String? owner,
+}) async {
   final HttpClient client = HttpClient();
   try {
     final HttpClientRequest request = await client.postUrl(uri);
     request.headers.contentType = ContentType.json;
+    if (owner != null) request.headers.set(v2OwnerHeader, owner);
     final List<int> bytes = utf8.encode(jsonEncode(payload));
     request.contentLength = bytes.length;
     request.add(bytes);

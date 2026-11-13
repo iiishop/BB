@@ -76,26 +76,33 @@ Future<void> main(List<String> args) async {
 
   /// A genuine 401 is a revoked/expired session: clear both copies of the
   /// credential and stop the timer. Network failures never reach this path.
-  Future<void> expireSession() async {
+  Future<void> expireSession(String token) async {
+    if (service.session.tokenForRequest != token) {
+      return;
+    }
     if (expiring) {
       return;
     }
     expiring = true;
     heartbeat.stop();
     try {
-      await service.signOut();
+      await service.signOut(expectedToken: token);
       stdout.writeln('本地会话已失效，已清除凭据');
     } on AuthFailure catch (failure) {
-      // signOut keeps the in-memory session when the file cannot be removed;
-      // clear it anyway so the revoked token is never used again.
-      service.session.clear();
+      // Only clear the credential this callback owns. A concurrent new login
+      // must survive a failed deletion of the old file.
+      if (service.session.tokenForRequest == token) {
+        service.session.clear();
+      }
       if (failure.code == sessionStorageUnavailable.code) {
         stderr.writeln('本地会话已失效，但凭据文件删除失败，请手动检查会话目录');
       } else {
         stderr.writeln('本地会话已失效，清除凭据失败（${failure.code}）');
       }
     } catch (_) {
-      service.session.clear();
+      if (service.session.tokenForRequest == token) {
+        service.session.clear();
+      }
       stderr.writeln('本地会话已失效，清除凭据失败');
     } finally {
       expiring = false;
@@ -104,7 +111,10 @@ Future<void> main(List<String> args) async {
 
   heartbeat.addListener(() {
     if (heartbeat.phase == HeartbeatPhase.unauthorized) {
-      unawaited(expireSession());
+      final String? token = service.session.tokenForRequest;
+      if (token != null) {
+        unawaited(expireSession(token));
+      }
     }
   });
 

@@ -1,0 +1,38 @@
+{
+  "name": "@bb/dsh-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Client-owned BB authentication, chat context and recoverable delivery for stock DSH",
+  "peerDependencies": {
+    "@deepseek-ai/schemastery": "~3.18.5",
+    "@deepseek-ai/dsh-mcp-client": "0.2.1-rc.5"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client-ui.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "*.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "python"
+  ],
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-plugin-manager"
+      ]
+    },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

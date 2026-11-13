@@ -5,13 +5,11 @@ import 'dart:io';
 
 import '../config/client_config.dart';
 import '../models/auth_models.dart';
-import '../models/chat_models.dart';
-import '../models/profile_models.dart';
 import '../services/auth_service.dart';
 import '../services/chat_service.dart';
-import '../services/media_source.dart';
+import '../services/chat_v2.dart';
+import '../services/client_identity.dart';
 import '../services/profile_service.dart';
-import '../validation/profile_rules.dart';
 
 /// Loopback-only local control API used by the DSH MCP plugin.
 ///
@@ -21,8 +19,8 @@ import '../validation/profile_rules.dart';
 /// * `POST /auth/register` -> 201 `{account, username}`
 /// * `POST /auth/login`    -> 200 `{account, username}` (token never leaves the
 ///   client process)
-/// * `POST /profile/view_avatar|update_avatar|view_nickname|update_nickname|`
-///   `view_signature|update_signature`
+/// * protected `/v2/profile/*` routes are implemented by [ChatV2Router];
+///   the old unguarded `/profile/*` routes are gone and answer 404.
 ///
 /// Errors keep the server contract: 422 `validation_error` with `fields`,
 /// 401 `invalid_credentials`/`unauthenticated`, 413/415 for media, and
@@ -54,13 +52,10 @@ class LocalAuthServer {
   /// Called when an authenticated local route receives a genuine 401
   /// (`unauthenticated`, never `invalid_credentials`), so the owner can clear
   /// both the in-memory session and the on-disk credential.
-  final Future<void> Function()? onUnauthorized;
+  final Future<void> Function(String token)? onUnauthorized;
 
   /// Small JSON routes keep the STEP-1 bound.
   static const int maxRequestBytes = 16 * 1024;
-
-  /// `update_avatar` carries a base64 image; the contract recommends 8 MiB.
-  static const int maxAvatarRequestBytes = 8 * 1024 * 1024;
 
   /// Chat sends may carry a 32 MiB image as base64 (plus multipart-free JSON
   /// overhead), so this bound is intentionally larger than the avatar bound.
@@ -82,6 +77,11 @@ class LocalAuthServer {
 
   HttpServer? _httpServer;
   final CancelToken _cancel = CancelToken();
+  late final ChatV2Router _v2 = ChatV2Router(
+    session: service.session,
+    chat: chat,
+    profile: profile,
+  );
 
   /// Binds the listener and returns its `http://127.0.0.1:<port>` address.
   Future<Uri> start() async {
@@ -111,15 +111,8 @@ class LocalAuthServer {
     final String? requestToken = service.session.tokenForRequest;
     try {
       final String path = request.uri.path;
-      if (path.startsWith('/profile/')) {
-        await _handleProfile(request, path);
-        return;
-      }
-      if (path.startsWith('/chat/') ||
-          path.startsWith('/downloads/') ||
-          path.startsWith('/operations/') ||
-          path.startsWith('/events/')) {
-        await _handleChat(request, path);
+      if (path.startsWith('/v2/')) {
+        await _handleV2(request, path, requestToken);
         return;
       }
       if (path != '/auth/register' && path != '/auth/login') {
@@ -174,7 +167,7 @@ class LocalAuthServer {
           requestToken != null &&
           service.session.tokenForRequest == requestToken &&
           service.session.hasToken) {
-        await _notifyUnauthorized();
+        await _notifyUnauthorized(requestToken);
       }
     } catch (_) {
       await _writeEnvelope(request, 500, <String, dynamic>{
@@ -187,449 +180,71 @@ class LocalAuthServer {
     }
   }
 
-  Future<void> _handleProfile(HttpRequest request, String path) async {
+  /// Strict v2 local protocol; errors keep the v2 `{error:{code,message,fields}}`
+  /// envelope with field-name strings only.
+  Future<void> _handleV2(
+    HttpRequest request,
+    String path,
+    String? requestToken,
+  ) async {
     if (request.method != 'POST') {
-      await _methodNotAllowed(request);
-      return;
-    }
-    final ProfileGateway? gateway = profile;
-    if (gateway == null) {
-      await _writeEnvelope(request, 503, <String, dynamic>{
+      await _writeEnvelope(request, 405, <String, dynamic>{
         'error': <String, dynamic>{
-          'code': 'storage_unavailable',
-          'message': '资料功能不可用',
+          'code': 'validation_error',
+          'message': '只支持 POST',
           'fields': <Object>[],
         },
       });
       return;
     }
-    if (!service.session.hasToken || service.session.user == null) {
-      throw unauthenticated;
+    Map<String, dynamic> body;
+    try {
+      body = await _readJsonObject(request, maxBytes: maxChatRequestBytes);
+    } on AuthFailure catch (failure) {
+      final bool tooLarge = failure.status == 413;
+      await _writeEnvelope(request, tooLarge ? 413 : 422, <String, dynamic>{
+        'error': <String, dynamic>{
+          'code': tooLarge ? 'payload_too_large' : 'validation_error',
+          'message': tooLarge ? '请求体过大' : '输入有误',
+          'fields': <String>['body'],
+        },
+      });
+      return;
     }
-    final String selfAccount = service.session.user!.account;
-    final bool avatarUpload = path == '/profile/update_avatar';
-    final Map<String, dynamic> body = await _readJsonObject(
-      request,
-      maxBytes: avatarUpload ? maxAvatarRequestBytes : maxRequestBytes,
+    final ({int status, Map<String, dynamic> body}) result = await _v2.handle(
+      path: path,
+      ownerKey: request.headers.value(v2OwnerHeader),
+      body: body,
     );
-
-    switch (path) {
-      case '/profile/view_avatar':
-        _rejectUnknownFields(body, const <String>{'account'});
-        final String account =
-            normalizeAccount(_optionalString(body, 'account')) ?? selfAccount;
-        final AvatarImage image = await gateway.loadAvatar(account: account);
-        await _writeJson(request, 200, <String, dynamic>{
-          'account': image.account,
-          'mime_type': image.mimeType,
-          'data': base64Encode(image.bytes),
-          'avatar_version': image.version,
-        });
-        return;
-      case '/profile/update_avatar':
-        _rejectUnknownFields(body, const <String>{'path', 'url', 'base64'});
-        final ({String source, String value}) source = resolveAvatarSource(
-          body,
-        );
-        final AvatarInfo info;
-        switch (source.source) {
-          case 'path':
-            info = await gateway.updateAvatarFromPath(source.value);
-          case 'url':
-            info = await gateway.updateAvatarFromUrl(source.value);
-          default:
-            info = await gateway.updateAvatarFromBase64(source.value);
-        }
-        await _writeJson(request, 200, info.toJson());
-        return;
-      case '/profile/view_nickname':
-        _rejectUnknownFields(body, const <String>{'account'});
-        final String account =
-            normalizeAccount(_optionalString(body, 'account')) ?? selfAccount;
-        final String username = await gateway.viewNickname(account: account);
-        await _writeJson(request, 200, <String, dynamic>{
-          'account': account,
-          'username': username,
-        });
-        return;
-      case '/profile/update_nickname':
-        _rejectUnknownFields(body, const <String>{'value'});
-        final String value = _requireString(body, 'value');
-        // Validate here so the local contract is enforced even if a gateway
-        // implementation forgets; trim is idempotent.
-        normalizeUsername(value);
-        final String username = await gateway.updateNickname(value);
-        await _writeJson(request, 200, <String, dynamic>{
-          'account': selfAccount,
-          'username': username,
-        });
-        return;
-      case '/profile/view_signature':
-        _rejectUnknownFields(body, const <String>{'account'});
-        final String account =
-            normalizeAccount(_optionalString(body, 'account')) ?? selfAccount;
-        final String? signature = await gateway.viewSignature(account: account);
-        await _writeJson(request, 200, <String, dynamic>{
-          'account': account,
-          'signature': signature,
-        });
-        return;
-      case '/profile/update_signature':
-        _rejectUnknownFields(body, const <String>{'value'});
-        final Object? raw = body['value'];
-        if (raw != null && raw is! String) {
-          throw _fieldFailure('value', 'type', '字段类型错误');
-        }
-        final String? signature = normalizeSignature(raw as String?);
-        final String? updated = await gateway.updateSignature(signature);
-        await _writeJson(request, 200, <String, dynamic>{
-          'account': selfAccount,
-          'signature': updated,
-        });
-        return;
-      default:
-        await _writeEnvelope(request, 404, <String, dynamic>{
-          'error': <String, dynamic>{
-            'code': 'not_found',
-            'message': '未知接口',
-            'fields': <Object>[],
-          },
-        });
-        return;
+    // The v2 router converts AuthFailure into a DTO, so the outer handler's
+    // invalidation branch is otherwise unreachable. Only a genuine 401 for the
+    // credential captured at request start may clear the session; a request
+    // from an older login must never revoke a concurrent new login. Clear
+    // before responding so callers never observe an authenticated status after
+    // the invalidating 401.
+    final Object? error = result.body['error'];
+    if (result.status == 401 &&
+        error is Map<String, dynamic> &&
+        error['code'] == unauthenticated.code &&
+        requestToken != null &&
+        service.session.tokenForRequest == requestToken &&
+        service.session.hasToken) {
+      await _notifyUnauthorized(requestToken);
     }
+    await _writeEnvelope(request, result.status, result.body);
   }
 
   /// STEP-3 local tool surface plus the R3 presentation/event additions.
   ///
   /// These are loopback-only client endpoints. They are deliberately not
   /// exported as model-callable MCP tools by the plugin.
-  Future<void> _handleChat(HttpRequest request, String path) async {
-    if (request.method != 'POST') {
-      await _methodNotAllowed(request);
-      return;
-    }
-    final ChatService? service = chat;
-    if (service == null) {
-      await _writeEnvelope(request, 503, <String, dynamic>{
-        'error': <String, dynamic>{
-          'code': 'storage_unavailable',
-          'message': '聊天功能不可用',
-          'fields': <Object>[],
-        },
-      });
-      return;
-    }
-    final Map<String, dynamic> body = await _readJsonObject(
-      request,
-      maxBytes: maxChatRequestBytes,
-    );
-    switch (path) {
-      case '/chat/list_users':
-        _rejectUnknownFields(body, const <String>{'after_account', 'limit'});
-        final UserPage page = await service.listUsers(
-          afterAccount: _optionalString(body, 'after_account') ?? '',
-          limit: _optionalInt(body, 'limit') ?? 50,
-        );
-        await _writeJson(request, 200, page.toJson());
-        return;
-      case '/chat/send_message':
-        _rejectUnknownFields(body, const <String>{
-          'target_account',
-          'operation_id',
-          'content',
-        });
-        final String target = _requireString(body, 'target_account');
-        final String operationId = _requireString(body, 'operation_id');
-        final List<OutgoingPart> content = _parseOutgoingContent(
-          body['content'],
-        );
-        final SendOutcome outcome = await service.sendBody(
-          targetAccount: target,
-          content: content,
-          operationId: operationId,
-        );
-        await _writeJson(
-          request,
-          200,
-          messageToJson(outcome.message ?? (throw upstreamMalformed)),
-        );
-        return;
-      case '/chat/send_attachment':
-        _rejectUnknownFields(body, const <String>{
-          'target_account',
-          'operation_id',
-          'source',
-          'cover',
-        });
-        final String target = _requireString(body, 'target_account');
-        final String operationId = _requireString(body, 'operation_id');
-        final Object? rawSource = body['source'];
-        if (rawSource is! Map<String, dynamic>) {
-          throw _fieldFailure('source', 'required', '此字段必填');
-        }
-        final Object? rawCover = body['cover'];
-        final SendOutcome outcome = await service.sendAttachment(
-          targetAccount: target,
-          operationId: operationId,
-          attachment: OutgoingAttachment(
-            source: MediaSource.fromJson(rawSource),
-            cover: rawCover == null ? null : MediaSource.fromJson(rawCover),
-          ),
-        );
-        await _writeJson(
-          request,
-          200,
-          messageToJson(outcome.message ?? (throw upstreamMalformed)),
-        );
-        return;
-      case '/chat/read_messages':
-        _rejectUnknownFields(body, const <String>{
-          'account',
-          'consumer_session',
-          'after_position',
-          'limit',
-        });
-        final VisibleMessagePage page = await service.readMessages(
-          peerAccount: _requireString(body, 'account'),
-          consumerSession: _requireString(body, 'consumer_session'),
-          afterPosition: _optionalInt(body, 'after_position') ?? 0,
-          limit: _optionalInt(body, 'limit') ?? 50,
-        );
-        await _writeJson(request, 200, page.toJson());
-        return;
-      case '/chat/wait_messages':
-        _rejectUnknownFields(body, const <String>{
-          'account',
-          'consumer_session',
-          'seen_position',
-          'timeout',
-        });
-        final VisibleMessagePage page = await service.waitMessages(
-          peerAccount: _requireString(body, 'account'),
-          consumerSession: _requireString(body, 'consumer_session'),
-          seenPosition: _requireInt(body, 'seen_position'),
-          timeoutSeconds: _optionalInt(body, 'timeout') ?? 60,
-          cancel: _cancel,
-        );
-        await _writeJson(request, 200, page.toJson());
-        return;
-      case '/chat/ack_messages':
-        _rejectUnknownFields(body, const <String>{
-          'account',
-          'consumer_session',
-          'through_position',
-        });
-        final int consumed = await service.ackMessages(
-          peerAccount: _requireString(body, 'account'),
-          consumerSession: _requireString(body, 'consumer_session'),
-          throughPosition: _requireInt(body, 'through_position'),
-        );
-        await _writeJson(request, 200, <String, dynamic>{
-          'consumed_through': consumed,
-        });
-        return;
-      case '/downloads/start':
-        _rejectUnknownFields(body, const <String>{
-          'operation_id',
-          'consumer_session',
-          'media_id',
-          'directory',
-        });
-        final DownloadTask task = await service.downloads.start(
-          operationId: _requireString(body, 'operation_id'),
-          consumerSession: _requireString(body, 'consumer_session'),
-          mediaId: _requireString(body, 'media_id'),
-          directory: _optionalString(body, 'directory'),
-        );
-        await _writeJson(request, 202, task.toWire());
-        return;
-      case '/downloads/get':
-        _rejectUnknownFields(body, const <String>{
-          'task_id',
-          'consumer_session',
-        });
-        final DownloadTask? task = await service.downloads.get(
-          taskId: _requireString(body, 'task_id'),
-          consumerSession: _requireString(body, 'consumer_session'),
-        );
-        if (task == null) {
-          await _writeEnvelope(request, 404, <String, dynamic>{
-            'error': <String, dynamic>{
-              'code': 'not_found',
-              'message': '下载任务不存在',
-              'fields': <Object>[],
-            },
-          });
-          return;
-        }
-        await _writeJson(request, 200, task.toWire());
-        return;
-      case '/operations/get':
-        _rejectUnknownFields(body, const <String>{'operation_id'});
-        final OperationResult? operation = await service.getOperation(
-          _requireString(body, 'operation_id'),
-        );
-        if (operation == null) {
-          await _writeEnvelope(request, 404, <String, dynamic>{
-            'error': <String, dynamic>{
-              'code': 'not_found',
-              'message': '操作不存在',
-              'fields': <Object>[],
-            },
-          });
-          return;
-        }
-        await _writeJson(request, 200, operation.toJson());
-        return;
-      case '/chat/confirm_presentation':
-        _rejectUnknownFields(body, const <String>{
-          'consumer_session',
-          'attempt_id',
-          'request_digest',
-          'receipt_ids',
-        });
-        final List<String> confirmed = await service.confirmPresentation(
-          consumerSession: _requireString(body, 'consumer_session'),
-          attemptId: _requireString(body, 'attempt_id'),
-          requestDigest: _requireString(body, 'request_digest'),
-          receiptIds: _requireStringList(body, 'receipt_ids'),
-        );
-        await _writeJson(request, 200, <String, dynamic>{
-          'confirmed_receipt_ids': confirmed,
-        });
-        return;
-      case '/events/subscribe':
-        _rejectUnknownFields(body, const <String>{
-          'consumer_session',
-          'peer_account',
-        });
-        final String consumer = _requireString(body, 'consumer_session');
-        final String peer = _requireString(body, 'peer_account');
-        await service.subscribeEvents(
-          consumerSession: consumer,
-          peerAccount: peer,
-        );
-        await _writeJson(request, 200, <String, dynamic>{
-          'consumer_session': consumer,
-          'peer_account': peer,
-        });
-        return;
-      case '/events/read':
-        _rejectUnknownFields(body, const <String>{
-          'consumer_session',
-          'after_cursor',
-          'limit',
-        });
-        final LocalEventPage page = await service.readEvents(
-          consumerSession: _requireString(body, 'consumer_session'),
-          afterCursor: _requireInt(body, 'after_cursor'),
-          limit: _optionalInt(body, 'limit') ?? 50,
-        );
-        await _writeJson(request, 200, page.toWire());
-        return;
-      case '/events/wait':
-        _rejectUnknownFields(body, const <String>{
-          'consumer_session',
-          'after_cursor',
-          'limit',
-          'timeout',
-        });
-        final LocalEventPage page = await service.waitEvents(
-          consumerSession: _requireString(body, 'consumer_session'),
-          afterCursor: _requireInt(body, 'after_cursor'),
-          limit: _optionalInt(body, 'limit') ?? 50,
-          timeoutSeconds: _optionalInt(body, 'timeout') ?? 60,
-        );
-        await _writeJson(request, 200, page.toWire());
-        return;
-      default:
-        await _writeEnvelope(request, 404, <String, dynamic>{
-          'error': <String, dynamic>{
-            'code': 'not_found',
-            'message': '未知接口',
-            'fields': <Object>[],
-          },
-        });
-        return;
-    }
-  }
-
-  List<OutgoingPart> _parseOutgoingContent(Object? raw) {
-    if (raw is! List || raw.isEmpty) {
-      throw _fieldFailure('content', 'required', '正文不能为空');
-    }
-    final List<OutgoingPart> parts = <OutgoingPart>[];
-    for (final Object? entry in raw) {
-      if (entry is! Map<String, dynamic>) {
-        throw _fieldFailure('content', 'type', '内容片段必须是对象');
-      }
-      final Object? type = entry['type'];
-      if (type == 'text') {
-        final Object? text = entry['text'];
-        if (text is! String || text.isEmpty) {
-          throw _fieldFailure('content', 'type', '文字片段不能为空');
-        }
-        parts.add(OutgoingText(text));
-      } else if (type == 'image') {
-        final Object? source = entry['source'];
-        if (source is! Map<String, dynamic>) {
-          throw _fieldFailure('content', 'type', '图片片段缺少 source');
-        }
-        parts.add(OutgoingImage(MediaSource.fromJson(source)));
-      } else {
-        throw _fieldFailure('content', 'type', '不支持的内容片段');
-      }
-    }
-    return parts;
-  }
-
-  int _requireInt(Map<String, dynamic> body, String field) {
-    if (!body.containsKey(field)) {
-      throw _fieldFailure(field, 'required', '此字段必填');
-    }
-    final Object? value = body[field];
-    if (value is! int) {
-      throw _fieldFailure(field, 'type', '字段类型错误');
-    }
-    return value;
-  }
-
-  int? _optionalInt(Map<String, dynamic> body, String field) {
-    if (!body.containsKey(field) || body[field] == null) {
-      return null;
-    }
-    final Object? value = body[field];
-    if (value is! int) {
-      throw _fieldFailure(field, 'type', '字段类型错误');
-    }
-    return value;
-  }
-
-  List<String> _requireStringList(Map<String, dynamic> body, String field) {
-    if (!body.containsKey(field)) {
-      throw _fieldFailure(field, 'required', '此字段必填');
-    }
-    final Object? value = body[field];
-    if (value is! List) {
-      throw _fieldFailure(field, 'type', '字段类型错误');
-    }
-    final List<String> result = <String>[];
-    for (final Object? entry in value) {
-      if (entry is! String || entry.isEmpty) {
-        throw _fieldFailure(field, 'type', '列表元素必须是非空字符串');
-      }
-      result.add(entry);
-    }
-    return result;
-  }
-
-  Future<void> _notifyUnauthorized() async {
-    final Future<void> Function()? callback = onUnauthorized;
+  Future<void> _notifyUnauthorized(String token) async {
+    final Future<void> Function(String token)? callback = onUnauthorized;
     if (callback == null) {
       return;
     }
     try {
-      await callback();
+      await callback(token);
     } catch (_) {
       // The owner reports its own storage faults; never leak them as response.
     }
@@ -707,20 +322,6 @@ class LocalAuthServer {
         ),
       ],
     );
-  }
-
-  String? _optionalString(Map<String, dynamic> body, String field) {
-    if (!body.containsKey(field)) {
-      return null;
-    }
-    final Object? value = body[field];
-    if (value == null) {
-      return null;
-    }
-    if (value is! String) {
-      throw _fieldFailure(field, 'type', '字段类型错误');
-    }
-    return value;
   }
 
   String _requireString(Map<String, dynamic> body, String field) {

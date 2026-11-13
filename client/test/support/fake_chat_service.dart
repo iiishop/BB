@@ -9,6 +9,7 @@ import 'package:bb_client/services/auth_session.dart';
 import 'package:bb_client/services/chat_api_client.dart';
 import 'package:bb_client/services/chat_ledger.dart';
 import 'package:bb_client/services/chat_service.dart';
+import 'package:bb_client/services/client_identity.dart';
 import 'package:bb_client/services/download_manager.dart';
 import 'package:bb_client/services/media_stream_proxy.dart';
 
@@ -71,7 +72,11 @@ class FakeChatService extends ChatService {
   String get selfAccount => self.account;
 
   @override
-  Future<UserPage> listUsers({String afterAccount = '', int limit = 50}) async {
+  Future<UserPage> listUsers({
+    String afterAccount = '',
+    int limit = 50,
+    ExpectedIdentity? expectedIdentity,
+  }) async {
     return UserPage(
       items: users
           .where((ChatUser user) => user.account != self.account)
@@ -275,6 +280,7 @@ class FakeDownloads extends DownloadManager {
     required String consumerSession,
     required String mediaId,
     String? directory,
+    ExpectedIdentity? expectedIdentity,
   }) async {
     starts.add(mediaId);
     for (final DownloadTask prior in tasks.values) {

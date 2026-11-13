@@ -160,13 +160,53 @@ void main() {
     expect(tail.items.single.event.eventId, 'server:2');
   });
 
-  test('consumption is per account and peer', () async {
+  test('consumption is per account, consumer and peer', () async {
     final ChatLedger ledger = ChatLedger.atPath('${root.path}/ledger.json');
-    await ledger.setConsumedThrough('10000001', '10000002', 3);
-    await ledger.setConsumedThrough('10000001', '10000002', 2);
-    expect(await ledger.consumedThrough('10000001', '10000002'), 3);
-    expect(await ledger.consumedThrough('10000001', '10000003'), 0);
-    expect(await ledger.consumedThrough('10000009', '10000002'), 0);
+    await ledger.setConsumedThrough(
+      '10000001',
+      '10000002',
+      3,
+      consumerId: 'c-a',
+    );
+    await ledger.setConsumedThrough(
+      '10000001',
+      '10000002',
+      2,
+      consumerId: 'c-a',
+    );
+    expect(
+      await ledger.consumedThrough(
+        '10000001',
+        '10000002',
+        consumerId: 'c-a',
+      ),
+      3,
+    );
+    expect(
+      await ledger.consumedThrough(
+        '10000001',
+        '10000002',
+        consumerId: 'c-b',
+      ),
+      0,
+      reason: 'a second consumer never inherits another consumer watermark',
+    );
+    expect(
+      await ledger.consumedThrough(
+        '10000001',
+        '10000003',
+        consumerId: 'c-a',
+      ),
+      0,
+    );
+    expect(
+      await ledger.consumedThrough(
+        '10000009',
+        '10000002',
+        consumerId: 'c-a',
+      ),
+      0,
+    );
   });
 
   test('media source resolves bytes/base64/path and sanitizes names', () async {
