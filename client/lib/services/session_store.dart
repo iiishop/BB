@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -112,6 +113,25 @@ class SessionStore {
 
   int get currentGeneration => _generation;
 
+  /// All credential file mutations are serialized. Generation checks,
+  /// temporary-file preparation, the injected replacement and deletion are one
+  /// commit order: a write that was already queued behind a newer login/logout
+  /// re-checks ownership before touching the file, and a new login that queues
+  /// behind an in-flight replacement commits after it, then returns success.
+  Future<void> _commitTail = Future<void>.value();
+
+  Future<T> _serialized<T>(Future<T> Function() action) async {
+    final Completer<void> release = Completer<void>();
+    final Future<void> previous = _commitTail;
+    _commitTail = release.future;
+    await previous;
+    try {
+      return await action();
+    } finally {
+      release.complete();
+    }
+  }
+
   /// Default POSIX permissions for a credential file (owner read/write only).
   static const int fileMode = 0x180; // 0600
 
@@ -143,7 +163,11 @@ class SessionStore {
   }
 
   /// Writes the session without ever dropping the previous credential first.
-  Future<void> write(PersistedSession session) async {
+  Future<void> write(PersistedSession session) {
+    return _serialized(() => _writeLocked(session));
+  }
+
+  Future<void> _writeLocked(PersistedSession session) async {
     // A stale repair/login may reach this point after a newer login or a
     // completed logout. The generation is the commit ownership token: ignore
     // the older write instead of overwriting the current credential.
@@ -178,7 +202,11 @@ class SessionStore {
   }
 
   /// Removes the stored credential and reports failures instead of pretending.
-  Future<void> clear() async {
+  Future<void> clear() {
+    return _serialized(_clearLocked);
+  }
+
+  Future<void> _clearLocked() async {
     // A logout is a commit too: any older in-flight credential write must not
     // recreate the file after this point.
     _generation += 1;
