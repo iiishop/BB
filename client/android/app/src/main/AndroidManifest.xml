@@ -1,4 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- The client talks to a user-configured BB server over HTTP(S), so the
+         release build needs INTERNET too; the Flutter template only declares it
+         for debug/profile, which silently breaks installed release APKs. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
         android:label="BB"
         android:name="${applicationName}"

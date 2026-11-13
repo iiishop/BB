@@ -100,3 +100,61 @@ void assertLoopbackHost(String host) {
     );
   }
 }
+
+/// The server address baked into the build, or null when the build supplied
+/// none.
+///
+/// `String.fromEnvironment` cannot distinguish an explicit value from its
+/// default, so the sentinel here is an empty string: only
+/// `--dart-define=BB_API_BASE_URL=...` yields a non-empty value. A null result
+/// means "ask the user", not "use the built-in default".
+Uri? compiledServerAddress() {
+  const String raw = String.fromEnvironment('BB_API_BASE_URL');
+  final String trimmed = raw.trim();
+  return trimmed.isEmpty ? null : parseServerBaseUrl(trimmed);
+}
+
+final RegExp _schemePrefix = RegExp(r'^[a-zA-Z][a-zA-Z0-9+.\-]*://');
+
+/// Accepts what a person actually types and returns a full base URL.
+///
+/// `bb.example.com` becomes `https://bb.example.com`; a LAN or loopback address
+/// such as `192.168.0.104:18980` stays on plain HTTP, because that is how a
+/// self-hosted server is served locally. A scheme is always honoured when
+/// given. IPv6 literals without a scheme resolve to HTTPS — type the scheme
+/// explicitly to reach a LAN host over HTTP.
+Uri normalizeServerAddress(String raw) {
+  final String trimmed = raw.trim();
+  if (trimmed.isEmpty) {
+    throw ArgumentError.value(raw, 'BB_API_BASE_URL', '服务端地址不能为空');
+  }
+  if (_schemePrefix.hasMatch(trimmed)) {
+    return parseServerBaseUrl(trimmed);
+  }
+  final Uri probe = Uri.parse('https://$trimmed');
+  return parseServerBaseUrl(
+    '${_isLanHost(probe.host) ? 'http' : 'https'}://$trimmed',
+  );
+}
+
+/// True for loopback and RFC 1918 addresses, which a self-hosted server serves
+/// over plain HTTP.
+bool _isLanHost(String host) {
+  if (host == 'localhost') {
+    return true;
+  }
+  final List<String> parts = host.split('.');
+  if (parts.length != 4) {
+    return false;
+  }
+  final List<int?> octets = parts.map(int.tryParse).toList(growable: false);
+  if (octets.any((int? value) => value == null || value < 0 || value > 255)) {
+    return false;
+  }
+  final int first = octets[0]!;
+  final int second = octets[1]!;
+  return first == 127 ||
+      first == 10 ||
+      (first == 192 && second == 168) ||
+      (first == 172 && second >= 16 && second <= 31);
+}

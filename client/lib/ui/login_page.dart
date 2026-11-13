@@ -6,6 +6,7 @@ import '../models/auth_models.dart';
 import '../services/auth_service.dart';
 import '../validation/auth_rules.dart';
 import 'auth_shell.dart';
+import 'server_settings_scope.dart';
 import 'widgets/auth_widgets.dart';
 
 /// Login step: account + password only (username is never accepted here).
@@ -39,6 +40,7 @@ class LoginPage extends StatefulWidget {
   static const Key errorBannerKey = Key('login-error');
   static const Key noticeKey = Key('login-notice');
   static const Key registerLinkKey = Key('login-register-link');
+  static const Key serverLinkKey = Key('login-server-link');
 
   @override
   State<LoginPage> createState() => _LoginPageState();
@@ -143,6 +145,7 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     final TextTheme text = Theme.of(context).textTheme;
+    final VoidCallback? onChangeServer = ServerSettingsScope.maybeOf(context);
     final Widget form = Form(
       key: _formKey,
       autovalidateMode: _submitted
@@ -225,16 +228,27 @@ class _LoginPageState extends State<LoginPage> {
       subtitle: '用注册时分配的 8 位账号登录。',
       card: form,
       footer: Center(
-        child: Wrap(
-          alignment: WrapAlignment.center,
-          crossAxisAlignment: WrapCrossAlignment.center,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            Text('还没有账号？', style: text.bodySmall),
-            TextButton(
-              key: LoginPage.registerLinkKey,
-              onPressed: widget.onRequestRegister,
-              child: const Text('注册'),
+            Wrap(
+              alignment: WrapAlignment.center,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: <Widget>[
+                Text('还没有账号？', style: text.bodySmall),
+                TextButton(
+                  key: LoginPage.registerLinkKey,
+                  onPressed: widget.onRequestRegister,
+                  child: const Text('注册'),
+                ),
+              ],
             ),
+            if (onChangeServer != null)
+              TextButton(
+                key: LoginPage.serverLinkKey,
+                onPressed: onChangeServer,
+                child: const Text('服务器设置'),
+              ),
           ],
         ),
       ),
