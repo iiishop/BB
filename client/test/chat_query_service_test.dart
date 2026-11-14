@@ -170,6 +170,44 @@ void main() {
     }
   });
 
+  test('notification settings preserve unread, cutoff unsynced off interval, and cold restart', () async {
+    final identity = await service.identityFor('notices');
+    Future<Map<String, dynamic>> toggle(bool enabled) => service.ledger.setNotificationSettings(
+      identity: identity, enabled: enabled, stillCurrent: () => true,
+      sourceHead: () => service.api.eventHead(token: session.identity!.token));
+    expect((await service.ledger.notificationSettings(_a))['enabled'], true);
+    await toggle(false);
+    await backend.seedMessage(sender: _b, target: _a, text: 'while off, not yet synced');
+    final on = await toggle(true);
+    await service.subscribeEventsFor(expectedIdentity: identity, discover: true);
+    final skipped = await service.notificationChanges(expectedIdentity: identity, afterCursor: 0);
+    expect(skipped['items'], isEmpty, reason: 'off interval source IDs skipped even after late sync');
+    await backend.seedMessage(sender: _c, target: _a, text: 'new after enabling');
+    await service.subscribeEventsFor(expectedIdentity: identity, discover: true);
+    final notices = await service.notificationChanges(expectedIdentity: identity, afterCursor: skipped['next_cursor'] as int);
+    final rows = notices['items'] as List;
+    expect(rows.length, 1);
+    expect(rows.single['peer_account'], _c);
+    expect(rows.single['new_count'], 1);
+    expect(rows.single['incoming_unread'], 2);
+    expect(await service.ledger.displayedMessageIds(_a), isEmpty);
+    expect(await toggle(true), on, reason: 'idempotent on never resets offline cutoff');
+    expect(await ChatLedger.atPath('${root.path}/ledger.json').notificationSettings(_a), on);
+    expect((await service.ledger.notificationSettings(_b))['revision'], 1);
+    await expectLater(service.notificationChanges(expectedIdentity: identity, afterCursor: 9999), throwsA(failure(422, 'validation_error')));
+  });
+
+  test('notification enabling failures and stale identity leave disabled state intact', () async {
+    final identity = await service.identityFor('toggle-failure');
+    await service.ledger.setNotificationSettings(identity: identity, enabled: false, stillCurrent: () => true, sourceHead: () async => 0);
+    final before = await service.ledger.notificationSettings(_a);
+    await expectLater(service.ledger.setNotificationSettings(identity: identity, enabled: true, stillCurrent: () => true, sourceHead: () async => throw StateError('offline')), throwsStateError);
+    bool current = true;
+    await expectLater(service.ledger.setNotificationSettings(identity: identity, enabled: true, stillCurrent: () => current, sourceHead: () async { current = false; return 100; }), throwsA(failure(409, 'stale_identity')));
+    expect(await service.ledger.notificationSettings(_a), before);
+    expect(await ChatLedger.atPath('${root.path}/ledger.json').notificationSettings(_a), before);
+  });
+
   test('conversations are existing private chats with consumer enrichment',
       () async {
     final String consumer = (await service.identityFor('q-reader')).consumerId;

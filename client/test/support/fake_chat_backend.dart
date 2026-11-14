@@ -196,6 +196,11 @@ class FakeChatBackend {
         await _uploadMedia(request, account);
         return;
       }
+      if (request.method == 'GET' && path == '/events/head') {
+        final events = _events.where((e) => e.account == account).toList();
+        await _write(request, 200, <String, dynamic>{'event_id': events.isEmpty ? 0 : events.last.id});
+        return;
+      }
       if (request.method == 'GET' && path == '/events') {
         await _eventsPage(request, account);
         return;

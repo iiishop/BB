@@ -382,7 +382,11 @@ class ChatService {
     final context = await requireIdentity(expectedIdentity);
     final account = context.identity.account;
     final settings = await ledger.notificationSettings(account);
-    final int head = throughCursor ?? await ledger.localEventHead(account, expectedIdentity.consumerId);
+    final int available = await ledger.localEventHead(account, expectedIdentity.consumerId);
+    final int head = throughCursor ?? available;
+    if (afterCursor < 0 || head < afterCursor || head > available) {
+      throw const AuthFailure(status: 422, code: 'validation_error', message: 'Invalid notification cursor range.');
+    }
     final displayed = await ledger.displayedMessageIds(account);
     final page = await ledger.readLocalEvents(account: account,
       consumerSession: expectedIdentity.consumerId, afterCursor: afterCursor, limit: limit);
@@ -391,12 +395,18 @@ class ChatService {
     if (settings['enabled'] == true) {
       for (final entry in entries) {
         final event = entry.event;
-        if (event.type != LocalEventType.messageAvailable || event.messageId == null) continue;
+        if (event.type != LocalEventType.messageAvailable || event.peerAccount == null || event.position == null) continue;
         final source = int.tryParse(event.eventId.replaceFirst('server:', ''));
         if (source == null) throw const FormatException('invalid notification source');
-        if (source <= (settings['skip_source_through'] as int) || displayed.contains(event.messageId)) continue;
-        final message = await api.messageById(token: context.identity.token, messageId: event.messageId!);
-        if (message == null) continue;
+        if (source <= (settings['skip_source_through'] as int)) continue;
+        // Durable v1 local events deliberately store peer/position, not bodies or
+        // message IDs. Resolve exactly that authoritative position (also works
+        // for migrated feeds); never turn this lookup into a display receipt.
+        final history = await api.conversation(token: context.identity.token,
+          account: event.peerAccount!, afterPosition: event.position! - 1, limit: 1);
+        if (history.items.isEmpty || history.items.first.position != event.position) continue;
+        final message = history.items.first;
+        if (displayed.contains(message.id)) continue;
         if (message.targetAccount != account) continue;
         final peer = message.senderAccount;
         final row = changes.putIfAbsent(peer, () => <String, dynamic>{

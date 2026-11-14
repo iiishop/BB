@@ -77,6 +77,7 @@ export class Journal {
         row.account !== this.identity.account ||
         row.consumer !== this.identity.consumer_id ||
         ![
+          "awaiting_read",
           "claimed",
           "prepared",
           "dispatching",

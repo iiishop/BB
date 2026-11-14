@@ -98,6 +98,7 @@ async function close(witness) {
 const client = JSON.parse(await readFile(clientConfig));
 let handle, unregister;
 const modelRequests = [];
+const plannedQueries = [];
 let lastBridgeError;
 let callNumber = 0,
   lastTool;
@@ -113,6 +114,12 @@ async function tool(name, args = {}, agent = handle?.agent) {
   assert.equal(r.isError, false, JSON.stringify(r.content));
   assert.ok(!r.value?.isError, JSON.stringify(r.content));
   return r.value?.structuredContent ?? r.value;
+}
+async function explicitRead(name, args) {
+  await handle.agent.whenIdle();
+  plannedQueries.push({name,args});
+  handle.agent.followup({id: "explicit-" + ++callNumber, role:"user", source:{kind:"user"}, content:[{type:"text",text:"Explicitly query the requested BB messages."}]});
+  await handle.agent.whenIdle();
 }
 async function until(fn) {
   const end = Date.now() + 15000;
@@ -156,7 +163,12 @@ try {
           content: m.content,
         })),
       );
-      yield { type: "finish", reason: { kind: "stop" } };
+      const query = plannedQueries.shift();
+      if (query) {
+        yield { type: "block-start", index: 0, blockType: "tool-call" };
+        yield { type: "block-end", index: 0, block: { type: "tool-call", id: "explicit-query-" + modelRequests.length, name: "mcp__bb__" + query.name, arguments: JSON.stringify(query.args) } };
+      }
+      yield { type: "finish", reason: { kind: query ? "tool-calls" : "stop" } };
     }
   }
   unregister = ctx.llm.registerAdapter(["product-double"], new Model());
@@ -243,6 +255,7 @@ try {
     after_position: 0,
     limit: 10,
   });
+  await explicitRead("get_message", {message_id: id});
   await until(async () =>
     (await tool("bb_bridge_status")).recovery.items.some(
       (r) => r.messageId === id && r.state === "completed",
@@ -302,6 +315,7 @@ try {
     ["text", "text", "image", "text", "image"],
     "actual MCP order",
   );
+  await explicitRead("get_message", {message_id: mixed.id});
   await until(async () =>
     (await tool("bb_bridge_status")).recovery.items.some(
       (r) => r.messageId === mixed.id && r.state === "completed",
@@ -320,11 +334,13 @@ try {
   );
   assert.deepEqual(
     presented.content.map((b) => b.type),
-    ["text", "text", "image", "text", "image"],
+    ["text", "image", "text", "image"],
   );
+  assert.ok(presented.content[0].text.includes("text-A") && presented.content[0].text.includes(mixed.id));
+  assert.ok(presented.content[2].text.includes("text-B"));
   assert.notDeepEqual(
-    presented.content[2].attachment,
-    presented.content[4].attachment,
+    presented.content[1].attachment,
+    presented.content[3].attachment,
   );
   for (const block of presented.content.filter((b) => b.type === "image"))
     assert.ok(
@@ -352,6 +368,7 @@ try {
       (r) => r.kind === "download" && r.state === "completed",
     ),
   );
+  await explicitRead("get_message", {message_id: attachment.id});
   await until(async () =>
     (await tool("bb_bridge_status")).recovery.items.some(
       (r) => r.messageId === attachment.id && r.state === "completed",
@@ -373,6 +390,7 @@ try {
     target_account: client.peer,
     content: [{ type: "text", text: "new session increment" }],
   });
+  await explicitRead("get_message", {message_id: increment.id});
   await until(async () =>
     (await tool("bb_bridge_status")).recovery.items.some(
       (r) => r.messageId === increment.id && r.state === "completed",
@@ -383,39 +401,14 @@ try {
     .find((m) =>
       m.content.some((b) => b.type === "text" && b.text.includes(increment.id)),
     );
-  const bootstrap = current.content
-    .filter((b) => b.type === "text")
-    .map((b) => {
-      try {
-        return JSON.parse(b.text);
-      } catch {
-        return {};
-      }
-    })
-    .find((m) => m.kind === "history_context");
-  assert.ok(bootstrap);
-  assert.equal(bootstrap.consumed_through, 3);
-  assert.deepEqual(
-    bootstrap.included.map((m) => m.message_id),
-    [id, mixed.id, attachment.id],
-  );
-  assert.equal(
-    (await tool("bb_bridge_status")).recovery.items.length,
-    previousJobs + 1,
-  );
-  const historicalImages = current.content.filter((b) => b.type === "image");
-  assert.equal(historicalImages.length, 2);
+  assert.ok(current, "explicit new-session query reaches provider");
+  assert.ok(!current.content.some(b => b.type === "text" && b.text.includes('"kind":"history_context"')), "no unsolicited history bootstrap");
+  assert.equal((await tool("bb_bridge_status")).recovery.items.length, previousJobs + 1);
+  await explicitRead("read_messages", {account:client.peer,after_position:0,limit:10});
+  const historicalImages = modelRequests.at(-1).flatMap(m=>m.content).filter(b=>b.type === "image");
+  assert.equal(historicalImages.length, 2, "explicit history still returns ordered images");
   for (const [i, block] of historicalImages.entries())
-    assert.deepEqual(
-      Buffer.from((await ctx.attachments.readImage(block.attachment)).data),
-      Buffer.from(client.images[i], "base64"),
-    );
-  assert.equal(
-    handle.agent.session
-      .snapshotEvents()
-      .filter((e) => e.type === "user/message").length,
-    1,
-  );
+    assert.deepEqual(Buffer.from((await ctx.attachments.readImage(block.attachment)).data), Buffer.from(client.images[i], "base64"));
   await settings({ enabled: false });
   await until(async () =>
     ctx.tools.schemas().every((t) => !t.name.startsWith("mcp__bb__")),
@@ -432,9 +425,10 @@ try {
     installed_product: "PASS",
     register_login: "real MCP/real client",
     queries: "real MCP/real client",
-    automatic_consumption: true,
+    automatic_consumption: false,
+    explicit_model_display_confirmed: true,
     explicit_sends: 4,
-    settled_new_session_context: true,
+    explicit_new_session_history: true,
     historical_image_bytes_order: "red,blue",
     historical_jobs: 0,
     two_ordered_images: true,

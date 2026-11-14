@@ -124,7 +124,12 @@ def create_server(client: LocalClient, guarded=None) -> Server:
         ] + [
             Tool(
                 name=name,
-                description="BB guarded client: query never consumes; send only on explicit tool call.",
+                description={
+                    "get_notifications": "Query this account’s persistent notification setting. Does not mark messages read.",
+                    "set_notifications": "Enable/disable account notifications. Off leaves queries, waits and sends available. Manually enabling skips notifications from the disabled interval.",
+                    "list_conversations": "List authorized chats; incoming_unread counts received unread messages. Use unread_only/order=recent with the returned snapshot cursor, or list all for proactive chat.",
+                    "read_messages": "Read a history page (optional unread_only). Empty filtered pages may have more; follow has_more/next_position. Full successful model presentation is confirmed by the host, previews are not.",
+                }.get(name, "BB guarded client: only explicit send tools send. Full successful model presentation, not query invocation, permits read confirmation."),
                 inputSchema=model.model_json_schema(),
             )
             for name, model in TOOL_MODELS.items()

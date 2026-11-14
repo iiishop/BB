@@ -84,25 +84,19 @@ async function fixture(t) {
   return { bridge, plan, hooks, facts, delivered, calls, cursors, agent };
 }
 
-test("subscription conflict on A does not starve B or download events", async (t) => {
-  const f = await fixture(t);
-  const polled = [], warnings = [];
-  t.mock.method(console, "warn", (...args) => warnings.push(args));
-  f.bridge.poll = async (peer) => polled.push(peer);
+test("one discovery subscription feeds summaries and preserves download scan", async (t) => {
+  const f = await fixture(t), ticks = [];
+  f.bridge.notifications.tick = async (peer) => ticks.push(peer);
   f.bridge.client.call = async (path, args) => {
     f.calls.push({ path, args });
-    if (path === "chat/list_conversations")
-      return { items: [{ peer_account: a }, { peer_account: b }] };
-    if (path === "events/subscribe" && args.peer_account === a)
-      throw { status: 409, code: "idempotency_conflict" };
     if (path === "events/read") return { items: [], has_more: false };
     return {};
   };
   await f.bridge.tick();
-  assert.deepEqual(polled, [b]);
-  assert.equal(warnings.length, 1);
-  assert.ok(warnings[0].includes(a));
-  assert.ok(f.calls.some((c) => c.path === "events/read"));
+  assert.deepEqual(ticks, [undefined]);
+  assert.deepEqual(f.calls.find(c => c.path === "events/subscribe").args, { discover: true });
+  assert.ok(f.calls.some(c => c.path === "events/read"));
+  assert.ok(!f.calls.some(c => c.path === "chat/read_messages"));
   assert.equal(f.bridge.journal.list().length, 0);
   assert.equal(f.cursors.size, 0);
 });
@@ -123,22 +117,22 @@ for (const failure of [
 test("poll errors remain visible instead of being swallowed", async (t) => {
   const f = await fixture(t);
   const failure = new Error("Session flush failed");
-  f.bridge.poll = async () => { throw failure; };
+  f.bridge.notifications.tick = async () => { throw failure; };
   await assert.rejects(f.bridge.tick(a), (error) => error === failure);
 });
 
-test("pending A does not suppress B; A cannot claim via passive or query", async (t) => {
+test("legacy claim guard: pending A does not suppress B; A cannot claim via passive or query", async (t) => {
   const f = await fixture(t);
   await f.plan();
-  await f.bridge.poll(b);
+  await f.bridge.claim(item(b));
   assert.equal(f.delivered.length, 1);
-  await f.bridge.poll(b);
+  await f.bridge.claim(item(b));
   assert.equal(
     f.delivered.length,
     1,
     "pending native delivery is not duplicated",
   );
-  await f.bridge.poll(a);
+  await f.bridge.claim(item(a));
   await f.bridge.claim(item(a));
   await f.bridge.claim(item(a), { callId: "query" });
   assert.equal(f.bridge.journal.list().filter((r) => r.peer === a).length, 0);
@@ -157,10 +151,10 @@ test("wait ownership is peer scoped and post-query uses the same claim guard", a
     f.hooks["tools/pre-execute"](exec(a, "a"), async () => {}),
   );
   await f.hooks["tools/pre-execute"](exec(b, "b"), async () => {});
-  await f.bridge.poll(b);
+  await f.bridge.claim(item(b));
   assert.equal(f.delivered.length, 0);
   const c = "10000004";
-  await f.bridge.poll(c);
+  await f.bridge.claim(item(c));
   assert.equal(f.delivered.length, 1);
   await f.hooks["tools/post-execute"](
     exec(b, "b"),
@@ -176,7 +170,7 @@ test("uncertain incoming A cannot block B, including recovery of reserved input"
   await f.bridge.claim(item(a));
   const row = f.bridge.journal.list()[0];
   await f.bridge.journal.put({ ...row, state: "uncertain" });
-  await f.bridge.poll(b);
+  await f.bridge.claim(item(b));
   assert.equal(f.delivered.length, 2);
   await f.bridge.claim(item(a, 2), { callId: "query" });
   assert.equal(f.bridge.journal.list().length, 2);
@@ -194,7 +188,7 @@ test("uncertain incoming A cannot block B, including recovery of reserved input"
 test("unknown legacy scope permits input but withholds confirmation/ACK; terminal recovery releases it", async (t) => {
   const f = await fixture(t);
   await f.plan(undefined, { peer: undefined });
-  await f.bridge.poll(b);
+  await f.bridge.claim(item(b));
   assert.equal(f.delivered.length, 1);
   let row = f.bridge.journal.list()[0];
   row = await f.bridge.journal.put({
@@ -255,7 +249,7 @@ test("recovery of an absent old-session operation does not demand that session",
   };
   await f.bridge.recover();
   assert.equal(f.bridge.operations.status()[0].state, "failed_absent");
-  await f.bridge.poll(a);
+  await f.bridge.claim(item(a));
   assert.equal(f.delivered.length, 1);
 });
 

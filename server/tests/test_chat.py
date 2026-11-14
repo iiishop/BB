@@ -3,10 +3,9 @@ import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
+from bb_server.app import create_app
 from fastapi.testclient import TestClient
 from PIL import Image
-
-from bb_server.app import create_app
 
 
 @pytest.fixture
@@ -222,3 +221,14 @@ def test_corrupt_image_is_a_safe_415_and_bounded_upload(chat):
         ).status_code
         == 413
     )
+
+
+def test_event_head_is_authenticated_and_account_scoped(chat):
+    api, _, (a, b, c) = chat
+    assert api.get("/events/head").status_code == 401
+    assert api.get("/events/head", headers=a[1]).json() == {"event_id": 0}
+    assert send(api, a, b).status_code == 200
+    for who in (a, b):
+        events = api.get("/events", headers=who[1]).json()["items"]
+        assert api.get("/events/head", headers=who[1]).json()["event_id"] == events[-1]["event_id"]
+    assert api.get("/events/head", headers=c[1]).json() == {"event_id": 0}

@@ -249,14 +249,14 @@ try {
       }),
     });
     assert.equal(sent.status, 200);
-    const message = await sent.json();
+    await sent.json();
     await until(
       (r) =>
         r.calls === 1 + r.titleRequests &&
         r.turns === 1 &&
-        r.bridge?.recovery.items.some(
-          (x) => x.messageId === message.id && x.state === "completed",
-        ),
+        r.bridge?.recovery.notifications.cursor > 0 &&
+        r.bridge?.recovery.notifications.pending === null &&
+        r.bridge?.recovery.items.length === 0,
     );
     const completed = await probe();
     assert.equal(completed.nativeInputs, 1);

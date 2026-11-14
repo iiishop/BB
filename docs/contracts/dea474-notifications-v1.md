@@ -52,3 +52,25 @@ read_messages 新增 unread_only=false：true 只展示本页实际入站且未�
 
 等待 A 时 B 通知的实时性以原版 DSH 实测为准；BB 不改宿主内核或强制每个会话一个 session。
 未绑定的 session 不可通过通知工具取得权限。真实模型凭据、Android/Windows 环境不在本次授权中。
+
+写入入口与共同规则（revision 1 实现）
+-----------------------------------
+
+| 状态 | 所有入口 / 唯一规则 | 定向验证 |
+| --- | --- | --- |
+| account.notification_settings | v2 set → ChatLedger.setNotificationSettings；MCP set 复用该入口；无设置 UI 副本 | query service：关闭→未同步来信→开启、失败回滚、冷读；v2 routes：owner/身份/严格 bool |
+| source/local feed | discover / explicit peer subscribe / background EventFeed 共用逐 peer cursor + source event dedup | 第一阶段 event_consumer_backfill；真实 standalone probe |
+| notification window/cursor | Notifications.advance，固定窗口、分页保存、revision 废弃、disabled 跳过 | notifications.test.mjs；真实 --product notifications |
+| native reminder acceptance | advance 最终设置/owner 校验、followup、flush；resumePending 只重唤同 consumer 的已持久未认领 inbox | prepared/dispatching/pending/committed 四个真实进程切点 |
+| exact account read facts | explicit get/read/context/wait → tool/result → llm stream 完整投影 → successful turn → confirmPresentationAttempt；摘要不进入该路径 | wait A/B、installed 有序图片、gap 三进程恢复 |
+| consumer ACK | Bridge.settle → 原客户端连续凭证校验；稀疏失败仍保留成功展示事实 | gap 后显式补读，无后台补正文 |
+| send/download operations | scoped tool wrapper → Operations durable intent → 客户端 stable ID → 对账 → 原结果 | 原 operation-result/download-result 进程崩溃用例；final 文本不发送 |
+| old body reservations | recover：无 dispatch intent 的 claimed/prepared 转 awaiting_read；显式 claim 更新 session/receipt；未知投递不自动重放 | claimed、wait-claimed、pending 迁移切点 |
+| binding/reconnect | Client.check + index refresh；已建立连接传输错误保留绑定，同账号再登录更新 generation，owner conflict 停止 | offline 三条聚合+客户端崩溃/重新登录；原 owner/CAS 回归 |
+
+原版宿主实测：真实 wait_messages(A) 未返回时，B 摘要已入 nextTurn，provider 尚未处理；
+A 收到来信结束 wait 后才处理 B。没有即时打断保证，最长受所选 wait timeout（30/60/120 秒）约束。
+stock resume 恢复 inbox 不主动唤醒；resumePending 在公开 idle maintenance 中用原 ID/内容重新唤起
+已证明仍未认领的 native inbox。已投影的不重放；无证据的 dispatch intent 保持 uncertain。
+该 uncertain 会阻止本 consumer 后续提醒自动推进，查询/读取/发送仍可用；必须保留原宿主记录对账，
+不能通过删除 journal 伪造成功。此边界与真实模型/设备未测项单独报告给 QA。

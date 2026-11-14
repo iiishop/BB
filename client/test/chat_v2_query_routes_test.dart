@@ -147,6 +147,30 @@ void main() {
     }
   });
 
+  test('notification tools use owner identity and strict shared inputs; query never displays', () async {
+    for (final path in ['/v2/notifications/get', '/v2/notifications/set', '/v2/notifications/changes']) {
+      final args = path.endsWith('/set') ? <String, dynamic>{'enabled': false} : <String, dynamic>{};
+      await call(path, withIdentity(args), ownerKey: otherOwner, status: 409);
+      await call(path, withIdentity({...args, 'extra': 1}), status: 422);
+      await call(path, {...withIdentity(args), 'expected_identity': {...identity, 'binding_revision': 999}}, status: 409);
+    }
+    for (final value in [1, 'false', null]) {
+      await call('/v2/notifications/set', withIdentity({'enabled': value}), status: 422);
+    }
+    final defaults = await ok('/v2/notifications/get', withIdentity({}));
+    expect(defaults['body']['result']['enabled'], true);
+    await ok('/v2/events/subscribe', withIdentity({'discover': true}));
+    final changes = await ok('/v2/notifications/changes', withIdentity({}));
+    expect(changes['body']['result']['items'], isNotEmpty);
+    expect(await chat.ledger.displayedMessageIds(_account), isEmpty);
+    await ok('/v2/notifications/set', withIdentity({'enabled': false}));
+    final page = await ok('/v2/chat/read_messages', withIdentity({'account': _peer, 'unread_only': true}));
+    expect((page['body']['result']['items'] as List).map((i) => i['message']['id']), [b1Id, b3Id]);
+    expect(await chat.ledger.displayedMessageIds(_account), isEmpty, reason: 'HTTP query prepares but does not confirm');
+    final disabled = await ok('/v2/notifications/changes', withIdentity({}));
+    expect(disabled['body']['result']['items'], isEmpty);
+  });
+
   test('query routes are strict, owner checked and identity checked', () async {
     await call(
       '/v2/chat/list_conversations',
