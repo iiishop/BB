@@ -1830,10 +1830,10 @@
         ]
       }
     },
-    "/media/{media_id}": {
+    "/media/{media_id}/metadata": {
       "get": {
-        "summary": "Download",
-        "operationId": "download_media__media_id__get",
+        "summary": "Metadata",
+        "operationId": "metadata_media__media_id__metadata_get",
         "security": [
           {
             "HTTPBearer": []
@@ -1855,7 +1855,9 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/Media"
+                }
               }
             }
           },
@@ -1928,6 +1930,157 @@
               }
             },
             "description": "Service Unavailable"
+          }
+        }
+      }
+    },
+    "/media/{media_id}": {
+      "get": {
+        "summary": "Download",
+        "operationId": "download_media__media_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "media_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Media Id"
+            }
+          },
+          {
+            "name": "variant",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "original",
+                "thumb"
+              ],
+              "type": "string",
+              "default": "original",
+              "title": "Variant"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Original or thumbnail bytes",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "206": {
+            "description": "Partial file bytes",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Authenticated thumbnail ETag matched"
+          },
+          "400": {
+            "description": "Malformed Range (plain text)"
+          },
+          "416": {
+            "description": "Unsatisfiable Range (plain text)"
           }
         }
       }

@@ -119,7 +119,7 @@ void main() {
             chat: chat,
             peerAccount: '10000002',
             clipboard: clipboard,
-            onSent: (List<ChatMessage> _) {},
+            onSent: (List<ChatMessage> _, Map<String, Uint8List> _) {},
           ),
         ),
       ),
@@ -168,7 +168,7 @@ void main() {
                   seenPath = path;
                   return realCover;
                 },
-            onSent: (List<ChatMessage> _) {},
+            onSent: (List<ChatMessage> _, Map<String, Uint8List> _) {},
           ),
         ),
       ),

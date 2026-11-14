@@ -22,6 +22,8 @@ class MessageBubble extends StatelessWidget {
     this.onSaveAs,
     this.onDownload,
     this.onPlay,
+    this.onOpenMedia,
+    this.localMediaPreview,
     this.busy = false,
   });
 
@@ -35,6 +37,12 @@ class MessageBubble extends StatelessWidget {
   final VoidCallback? onSaveAs;
   final VoidCallback? onDownload;
   final VoidCallback? onPlay;
+
+  /// Opens the full-screen viewer at this media slot; null disables the tap.
+  final void Function(ChatMessage message, int? partIndex)? onOpenMedia;
+
+  /// Already-held bytes for a just-sent image of the current account.
+  final Uint8List? Function(String mediaId)? localMediaPreview;
   final bool busy;
 
   bool get mine => message.senderAccount == selfAccount;
@@ -72,6 +80,7 @@ class MessageBubble extends StatelessWidget {
               onSaveAs: onSaveAs,
               onDownload: onDownload,
               onPlay: onPlay,
+              onOpenMedia: onOpenMedia,
             )
           else
             ..._bodyContent(context),
@@ -131,7 +140,8 @@ class MessageBubble extends StatelessWidget {
 
   List<Widget> _bodyContent(BuildContext context) {
     final List<Widget> children = <Widget>[];
-    for (final MessagePart part in message.parts) {
+    for (int index = 0; index < message.parts.length; index += 1) {
+      final MessagePart part = message.parts[index];
       if (part is TextPart) {
         children.add(
           Padding(
@@ -150,13 +160,21 @@ class MessageBubble extends StatelessWidget {
         children.add(
           Padding(
             padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(AppRadius.brand),
-              child: _MediaImage(
-                chat: chat,
-                mediaId: part.mediaId,
-                width: 160,
-                height: 160,
+            child: GestureDetector(
+              key: ValueKey<String>('chat-media-${part.mediaId}'),
+              behavior: HitTestBehavior.opaque,
+              onTap: onOpenMedia == null
+                  ? null
+                  : () => onOpenMedia!(message, index),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(AppRadius.brand),
+                child: _MediaImage(
+                  chat: chat,
+                  mediaId: part.mediaId,
+                  localBytes: localMediaPreview?.call(part.mediaId),
+                  width: 160,
+                  height: 160,
+                ),
               ),
             ),
           ),
@@ -212,6 +230,7 @@ class _AttachmentCard extends StatelessWidget {
     this.onSaveAs,
     this.onDownload,
     this.onPlay,
+    this.onOpenMedia,
   });
 
   final ChatMessage message;
@@ -221,6 +240,7 @@ class _AttachmentCard extends StatelessWidget {
   final VoidCallback? onSaveAs;
   final VoidCallback? onDownload;
   final VoidCallback? onPlay;
+  final void Function(ChatMessage message, int? partIndex)? onOpenMedia;
 
   @override
   Widget build(BuildContext context) {
@@ -238,7 +258,11 @@ class _AttachmentCard extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(bottom: AppSpacing.sm),
             child: GestureDetector(
-              onTap: busy ? null : onPlay,
+              key: ValueKey<String>('chat-media-${attachment.mediaId}'),
+              behavior: HitTestBehavior.opaque,
+              onTap: onOpenMedia == null
+                  ? null
+                  : () => onOpenMedia!(message, null),
               child: Stack(
                 alignment: Alignment.center,
                 children: <Widget>[
@@ -398,19 +422,38 @@ class _MediaImage extends StatelessWidget {
   const _MediaImage({
     required this.chat,
     required this.mediaId,
+    this.localBytes,
     this.width,
     this.height,
   });
 
   final ChatService chat;
   final String mediaId;
+  final Uint8List? localBytes;
   final double? width;
   final double? height;
 
   @override
   Widget build(BuildContext context) {
+    final Uint8List? local = localBytes;
+    if (local != null && local.isNotEmpty) {
+      return Image.memory(
+        local,
+        width: width,
+        height: height,
+        fit: height == null ? BoxFit.contain : BoxFit.cover,
+        gaplessPlayback: true,
+        errorBuilder:
+            (BuildContext context, Object error, StackTrace? stackTrace) =>
+                _placeholder(
+                  width ?? 220,
+                  height ?? 120,
+                  Icons.broken_image_outlined,
+                ),
+      );
+    }
     return FutureBuilder<Uint8List>(
-      future: chat.mediaBytes(mediaId),
+      future: chat.loadListPreview(mediaId),
       builder: (BuildContext context, AsyncSnapshot<Uint8List> snapshot) {
         final double w = width ?? 220;
         final double h = height ?? (width == null ? 120 : height ?? 120);

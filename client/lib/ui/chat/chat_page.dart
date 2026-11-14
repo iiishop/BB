@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../app.dart';
 import '../../models/auth_models.dart';
+import '../../models/chat_media.dart';
 import '../../models/chat_models.dart';
 import '../../services/chat_service.dart';
 import '../../services/media_stream_proxy.dart';
@@ -15,6 +17,8 @@ import 'chat_avatars.dart';
 import 'chat_composer.dart';
 import 'chat_format.dart';
 import 'media_actions.dart';
+import 'media_save.dart';
+import 'media_viewer.dart';
 import 'message_bubble.dart';
 
 /// One-to-one chat with ordered text/image content and independent attachments.
@@ -26,6 +30,9 @@ class ChatPage extends StatefulWidget {
     required this.profile,
     this.openExternalStream,
     this.onMessagesChanged,
+    this.saveService,
+    this.clipboard = const PlatformClipboardMediaReader(),
+    this.viewerInlineVideoSupported,
   });
 
   final ChatUser peer;
@@ -34,6 +41,15 @@ class ChatPage extends StatefulWidget {
   /// Avatar source shared with the Profile surfaces; the chat page never draws
   /// its own initials.
   final ProfileGateway profile;
+
+  /// Injected by tests; production builds the platform save service lazily.
+  final MediaSaveService? saveService;
+
+  /// Clipboard/images seam for tests that exercise the real composer.
+  final ClipboardMediaReader clipboard;
+
+  /// Test seam: force the viewer's external-player path on unsupported hosts.
+  final bool? viewerInlineVideoSupported;
 
   /// Test seam for the desktop streaming hand-off. Production uses the
   /// platform opener on the authenticated loopback stream URL.
@@ -56,6 +72,11 @@ class _ChatPageState extends State<ChatPage> {
   final List<ChatMessage> _messages = <ChatMessage>[];
   final Set<String> _busyMedia = <String>{};
   final List<MediaStreamHandle> _streamHandles = <MediaStreamHandle>[];
+  final Map<String, Uint8List> _localPreviews = <String, Uint8List>{};
+  final List<String> _localPreviewOrder = <String>[];
+  String? _localPreviewAccount;
+  static const int _maxLocalPreviewEntries = 8;
+  static const int _maxLocalPreviewBytes = 24 * 1024 * 1024;
   bool _loading = true;
   String? _error;
   Timer? _pollTimer;
@@ -71,6 +92,9 @@ class _ChatPageState extends State<ChatPage> {
 
   String get _consumerSession =>
       'ui:${widget.chat.selfAccount}:${widget.peer.account}';
+
+  late final MediaSaveService _saveService =
+      widget.saveService ?? MediaSaveService(chat: widget.chat);
 
   @override
   void initState() {
@@ -243,7 +267,11 @@ class _ChatPageState extends State<ChatPage> {
     _displayedMax = _messages.isEmpty ? 0 : _messages.last.position;
   }
 
-  void _onSent(List<ChatMessage> messages) {
+  void _onSent(
+    List<ChatMessage> messages,
+    Map<String, Uint8List> localPreviews,
+  ) {
+    _rememberLocalPreviews(localPreviews);
     final Set<String> known = _messages
         .map((ChatMessage message) => message.identity)
         .toSet();
@@ -331,6 +359,109 @@ class _ChatPageState extends State<ChatPage> {
     } finally {
       _setBusy(attachment.mediaId, false);
     }
+  }
+
+  /// Local bytes are bound to the account that sent them. A different login
+  /// cannot reuse them, and the short LRU keeps a burst of large sends bounded.
+  void _rememberLocalPreviews(Map<String, Uint8List> previews) {
+    if (previews.isEmpty) {
+      return;
+    }
+    final String account;
+    try {
+      account = widget.chat.selfAccount;
+    } on AuthFailure {
+      return;
+    }
+    if (_localPreviewAccount != account) {
+      _localPreviews.clear();
+      _localPreviewOrder.clear();
+      _localPreviewAccount = account;
+    }
+    previews.forEach((String mediaId, Uint8List bytes) {
+      _localPreviews[mediaId] = bytes;
+      _localPreviewOrder
+        ..remove(mediaId)
+        ..add(mediaId);
+    });
+    int totalBytes = _localPreviews.values.fold<int>(
+      0,
+      (int sum, Uint8List bytes) => sum + bytes.length,
+    );
+    while (_localPreviewOrder.length > _maxLocalPreviewEntries ||
+        (totalBytes > _maxLocalPreviewBytes && _localPreviewOrder.isNotEmpty)) {
+      final String evicted = _localPreviewOrder.removeAt(0);
+      final Uint8List? bytes = _localPreviews.remove(evicted);
+      if (bytes != null) {
+        totalBytes -= bytes.length;
+      }
+    }
+  }
+
+  Uint8List? _localPreviewFor(String mediaId) {
+    final String? account = _localPreviewAccount;
+    if (account == null) {
+      return null;
+    }
+    try {
+      if (widget.chat.selfAccount != account) {
+        return null;
+      }
+    } on AuthFailure {
+      return null;
+    }
+    return _localPreviews[mediaId];
+  }
+
+  List<ChatMediaItem> _buildMediaItems() {
+    return buildConversationMedia(
+      messages: _messages,
+      selfAccount: widget.chat.selfAccount,
+      selfName: '我',
+      peerName: widget.peer.username,
+    );
+  }
+
+  Future<void> _openMedia(ChatMessage message, int? partIndex) async {
+    final List<ChatMediaItem> items = _buildMediaItems();
+    final int index = findConversationMediaIndex(
+      items,
+      messageId: message.id,
+      partIndex: partIndex,
+    );
+    if (index < 0 || !mounted) {
+      return;
+    }
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (BuildContext context) => MediaViewer(
+          items: items,
+          initialIndex: index,
+          chat: widget.chat,
+          saveService: _saveService,
+          sequenceComplete: _error == null,
+          onPlayVideo: _playViewerVideo,
+          onReload: _reloadMediaSequence,
+          localPreviewFor: _localPreviewFor,
+          inlineVideoSupported: widget.viewerInlineVideoSupported,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _playViewerVideo(ChatMediaItem item) async {
+    final Attachment? attachment = item.message.attachment;
+    if (attachment == null) {
+      return;
+    }
+    await _play(attachment);
+  }
+
+  Future<({List<ChatMediaItem> items, bool complete})>
+  _reloadMediaSequence() async {
+    await _loadInitial();
+    return (items: _buildMediaItems(), complete: _error == null);
   }
 
   Future<DownloadTask> _waitForDownload(DownloadTask initial) async {
@@ -486,6 +617,7 @@ class _ChatPageState extends State<ChatPage> {
           ChatComposer(
             chat: widget.chat,
             peerAccount: widget.peer.account,
+            clipboard: widget.clipboard,
             onSent: _onSent,
           ),
         ],
@@ -580,6 +712,8 @@ class _ChatPageState extends State<ChatPage> {
           onPlay: attachment == null || attachment.kind == AttachmentKind.other
               ? null
               : () => _play(attachment),
+          onOpenMedia: _openMedia,
+          localMediaPreview: _localPreviewFor,
         ),
       );
       previous = message.createdAt;

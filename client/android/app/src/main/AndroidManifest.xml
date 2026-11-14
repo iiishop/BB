@@ -3,6 +3,12 @@
          release build needs INTERNET too; the Flutter template only declares it
          for debug/profile, which silently breaks installed release APKs. -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Saving a chat image/video into the system gallery (DEA-471). Android
+         10+ writes through MediaStore without a storage permission; 9 and
+         below still need the legacy write grant, requested at runtime. -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28"/>
     <!-- Self-hosted BB servers are usually a LAN address on plain HTTP, and
          Android blocks cleartext by default from API 28 on. HTTPS stays the
          recommended path for anything reachable from the internet; this only

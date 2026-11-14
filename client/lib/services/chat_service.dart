@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data' show Uint8List;
 
+import '../config/media_policy.dart';
 import '../models/auth_models.dart';
 import '../models/chat_models.dart';
 import 'auth_session.dart';
@@ -96,6 +97,14 @@ class ComposedSendResult {
       attachments.any((SendOutcome item) => item.succeeded);
 }
 
+/// Preview bytes plus whether they are the bounded derivative or the original.
+class MediaPreview {
+  const MediaPreview({required this.bytes, required this.isDerivative});
+
+  final Uint8List bytes;
+  final bool isDerivative;
+}
+
 /// Pure-Dart STEP-3 client service shared by the Flutter UI and the local
 /// control API.
 ///
@@ -162,6 +171,18 @@ class ChatService {
   final List<String> _mediaCacheOrder = <String>[];
   static const int _maxCachedMediaEntries = 48;
   static const int _maxCachedMediaBytes = 6 * 1024 * 1024;
+
+  /// Thumbnail bytes are cached separately from originals (DEA-471): a cache
+  /// key always carries server/account/media and never mixes with avatars.
+  final Map<String, Uint8List> _thumbnailCache = <String, Uint8List>{};
+  final List<String> _thumbnailCacheOrder = <String>[];
+  static const int _maxCachedThumbnailEntries = 96;
+  static const int _maxCachedThumbnailBytes = 4 * 1024 * 1024;
+
+  /// Immutable media metadata (byte_size, mime, filename) by server/account.
+  final Map<String, Attachment> _mediaMetadata = <String, Attachment>{};
+  final List<String> _mediaMetadataOrder = <String>[];
+  static const int _maxCachedMetadataEntries = 256;
 
   /// Starts the durable event poller. Safe to call repeatedly.
   void start() => eventFeed.start();
@@ -1782,12 +1803,24 @@ class ChatService {
 
   // ----------------------------------------------------------------- media --
 
+  String get _cacheServer => api.baseUri.toString();
+
+  /// Cache identity is server + account + media + variant, so switching any
+  /// of them can never reuse another context's bytes.
+  String _mediaCacheKey(String account, String mediaId, String variant) {
+    return '$_cacheServer\u0001$account\u0001$mediaId\u0001$variant';
+  }
+
   Future<Uint8List> mediaBytes(String mediaId) async {
     final AuthIdentity? captured = session.identity;
     if (captured == null) {
       throw unauthenticated;
     }
-    final String cacheKey = '${captured.account}\u0001$mediaId';
+    final String cacheKey = _mediaCacheKey(
+      captured.account,
+      mediaId,
+      'original',
+    );
     final Uint8List? cached = _mediaCache[cacheKey];
     if (cached != null) {
       return cached;
@@ -1810,8 +1843,119 @@ class ChatService {
     return media.bytes;
   }
 
+  /// Bytes the list should show for [mediaId].
+  ///
+  /// Metadata decides between the original (at or below the configured
+  /// boundary) and the server's bounded thumbnail. Metadata failure is
+  /// surfaced as an error, never as an implicit original download.
+  Future<Uint8List> loadListPreview(String mediaId) async {
+    final Attachment metadata = await loadMediaMetadata(mediaId);
+    if (mediaNeedsExplicitOriginal(metadata.byteSize)) {
+      return loadThumbnail(mediaId);
+    }
+    return mediaBytes(mediaId);
+  }
+
+  /// Original media metadata from `GET /media/{id}/metadata`.
+  ///
+  /// Historical body images only carry a media id, so this is how the client
+  /// learns the original size before deciding to request a thumbnail.
+  Future<Attachment> loadMediaMetadata(String mediaId) async {
+    final AuthIdentity? captured = session.identity;
+    if (captured == null) {
+      throw unauthenticated;
+    }
+    final String key = _mediaCacheKey(captured.account, mediaId, 'metadata');
+    final Attachment? cached = _mediaMetadata[key];
+    if (cached != null) {
+      return cached;
+    }
+    final Attachment metadata = await api.fetchMediaMetadata(
+      token: captured.token,
+      mediaId: mediaId,
+    );
+    if (!session.isCurrent(captured)) {
+      throw unauthenticated;
+    }
+    _mediaMetadata[key] = metadata;
+    _mediaMetadataOrder.add(key);
+    while (_mediaMetadataOrder.length > _maxCachedMetadataEntries) {
+      final String evicted = _mediaMetadataOrder.removeAt(0);
+      _mediaMetadata.remove(evicted);
+    }
+    return metadata;
+  }
+
+  /// Bounded `?variant=thumb` bytes. Kept apart from the original cache.
+  Future<Uint8List> loadThumbnail(String mediaId) async {
+    final AuthIdentity? captured = session.identity;
+    if (captured == null) {
+      throw unauthenticated;
+    }
+    final String cacheKey = _mediaCacheKey(captured.account, mediaId, 'thumb');
+    final Uint8List? cached = _thumbnailCache[cacheKey];
+    if (cached != null) {
+      return cached;
+    }
+    final MediaResponse media = await api.fetchMedia(
+      token: captured.token,
+      mediaId: mediaId,
+      variant: 'thumb',
+    );
+    if (!session.isCurrent(captured)) {
+      throw unauthenticated;
+    }
+    if (media.bytes.length <= _maxCachedThumbnailBytes) {
+      _thumbnailCache[cacheKey] = media.bytes;
+      _thumbnailCacheOrder.add(cacheKey);
+      while (_thumbnailCacheOrder.length > _maxCachedThumbnailEntries) {
+        final String evicted = _thumbnailCacheOrder.removeAt(0);
+        _thumbnailCache.remove(evicted);
+      }
+    }
+    return media.bytes;
+  }
+
+  /// Best bytes for one viewer slot.
+  ///
+  /// [thumbnail] true requests the bounded derivative; false returns the
+  /// original bytes (small images, or an explicit original action).
+  Future<MediaPreview> loadMediaPreview(
+    String mediaId, {
+    bool thumbnail = false,
+  }) async {
+    if (thumbnail) {
+      final Uint8List bytes = await loadThumbnail(mediaId);
+      return MediaPreview(bytes: bytes, isDerivative: true);
+    }
+    final Uint8List bytes = await mediaBytes(mediaId);
+    return MediaPreview(bytes: bytes, isDerivative: false);
+  }
+
   Future<String> saveAs({required String mediaId, required String targetPath}) {
     return downloads.saveAsCopy(mediaId: mediaId, targetPath: targetPath);
+  }
+
+  /// Explicit original fetch used only after a human action (viewer "原图" /
+  /// save). Deliberately not cached in memory: the point of the lazy path is
+  /// to keep large originals out of the shared preview cache.
+  Future<MediaResponse> fetchOriginalMedia(
+    String mediaId, {
+    void Function(int received, int? total)? onProgress,
+  }) async {
+    final AuthIdentity? captured = session.identity;
+    if (captured == null) {
+      throw unauthenticated;
+    }
+    final MediaResponse media = await api.fetchMedia(
+      token: captured.token,
+      mediaId: mediaId,
+      onProgress: onProgress,
+    );
+    if (!session.isCurrent(captured)) {
+      throw unauthenticated;
+    }
+    return media;
   }
 
   /// Called only from the human play action. The returned loopback URL streams

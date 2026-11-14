@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -69,6 +70,84 @@ void main() {
         client.close(force: true);
         await handle.close();
       }
+    },
+  );
+
+  test(
+    'playback stream reports real received bytes and request total',
+    () async {
+      final FakeChatBackend backend = await FakeChatBackend.start(
+        users: <String, String>{'10000001': 'alice', '10000002': 'bob'},
+      );
+      final Uint8List video = Uint8List.fromList(
+        utf8.encode('0123456789abcdef'),
+      );
+      final String mediaId = await backend.addMedia(
+        owner: '10000002',
+        peer: '10000001',
+        bytes: video,
+        mime: 'video/mp4',
+        kind: 'video',
+        filename: 'clip.mp4',
+        coverId: 'cover-1',
+      );
+      final AuthSession session = AuthSession()
+        ..establish(
+          token: backend.tokenFor('10000001'),
+          user: const AuthUser(account: '10000001', username: 'alice'),
+        );
+      final ChatService chat = ChatService(
+        api: ChatApiClient(baseUri: backend.baseUri),
+        session: session,
+        ledger: ChatLedger.inMemory(),
+        cacheRoot: Directory.systemTemp,
+        webSocketHints: false,
+      );
+      addTearDown(chat.dispose);
+      addTearDown(backend.close);
+
+      final MediaStreamHandle handle = await chat.openMediaStream(mediaId);
+      final List<MediaStreamProgress> events = <MediaStreamProgress>[];
+      final Completer<void> done = Completer<void>();
+      final StreamSubscription<MediaStreamProgress> subscription = handle
+          .progress
+          .listen(events.add, onDone: done.complete);
+
+      final HttpClient client = HttpClient();
+      try {
+        final HttpClientRequest request = await client.getUrl(handle.uri);
+        request.headers.set(HttpHeaders.rangeHeader, 'bytes=4-11');
+        final HttpClientResponse response = await request.close();
+        final Uint8List body = await response
+            .fold<List<int>>(<int>[], (List<int> acc, List<int> chunk) {
+              acc.addAll(chunk);
+              return acc;
+            })
+            .then(Uint8List.fromList);
+        expect(response.statusCode, 206);
+        expect(body, video.sublist(4, 12));
+      } finally {
+        client.close(force: true);
+        await handle.close();
+      }
+      await done.future.timeout(const Duration(seconds: 5));
+
+      expect(events.first.receivedBytes, 0);
+      expect(events.last.receivedBytes, 8);
+      // A short Range is 8 bytes of a 16-byte video: the two totals stay apart.
+      expect(events.last.requestBytes, 8);
+      expect(events.last.mediaBytes, 16);
+      expect(events.last.rangeStart, 4);
+      expect(events.last.rangeEnd, 11);
+      expect(
+        events.map((MediaStreamProgress event) => event.requestBytes).toSet(),
+        <int?>{8},
+      );
+      expect(
+        events.map((MediaStreamProgress event) => event.mediaBytes).toSet(),
+        <int?>{16},
+      );
+      await subscription.cancel();
     },
   );
 }

@@ -36,6 +36,11 @@ client/lib/ui/chat/users_view.dart         注册用户列表、预览、在线�
 client/lib/ui/chat/chat_page.dart          消息时间分组、附件卡、下载/播放/另存为
 client/lib/ui/chat/chat_composer.dart      有序草稿、图片/文件、粘贴、失败重试
 client/lib/ui/chat/message_bubble.dart     正文按序 text/image、附件卡、上下文菜单
+client/lib/ui/chat/media_viewer.dart       DEA-471 全屏查看器、跨消息媒体序列、原图进度/重试
+client/lib/ui/chat/media_save.dart         相册（MediaStore/Photos 预留）与桌面另存为分流
+client/lib/ui/chat/viewer_video.dart       查看器内嵌视频会话、流字节进度与失败重试
+client/lib/config/media_policy.dart        100 KiB 直出原图/缩略图边界（集中定义）
+client/lib/models/chat_media.dart          会话媒体序列、稳定排序与索引查找
 client/lib/ui/chat/media_actions.dart      file_selector、剪贴板图片、视频封面、系统打开
 client/lib/ui/home_view.dart               主页切换为用户列表（chat 非空时）
 client/lib/main.dart / bin/bb_client_api.dart  共用同一 ChatService 与本地接口
@@ -53,7 +58,8 @@ client/lib/main.dart / bin/bb_client_api.dart  共用同一 ChatService 与本�
 | 一对一历史 | `GET /conversations/{account}/messages?after_position&limit` |
 | 操作查询 | `GET /operations/{operation_id}` |
 | 媒体上传 | `POST /media` multipart `target_account,file,cover_media_id?` |
-| 媒体读取 | `GET /media/{id}`（Bearer；Range 用于 probe，原文件不预下载） |
+| 媒体读取 | `GET /media/{id}`（Bearer；原文件/Range；`?variant=thumb` 有界缩略图） |
+| 媒体元信息 | `GET /media/{id}/metadata`（byte_size/mime/filename，不下载原文件） |
 | 事件补取 | `GET /events?after_event_id&limit` |
 | 事件提示 | `WS /events`（仅提示；持久事实仍来自 GET） |
 
@@ -110,6 +116,70 @@ R3 新增内部路由（不导出为 MCP 工具）：
   Android 通过 `bb/media_clipboard` 平台通道读取 ClipData 的 `content://` URI、MIME、
   文件名与字节，校验大小后进入同一草稿逻辑。图片进入正文，视频进入独立附件并真实抽封面。
   iOS 无本轮 runner，未接入；Android 真机仍需单独验证。
+
+### 5.1 全屏查看器与大图懒加载（DEA-471）
+
+契约来源：Forge 的 `docs/contracts/dea471-media.md` 与
+`server/contract/src/bb_auth_contract/media.py`（`variant=thumb`、512 边上限、≤64 KiB JPEG、
+ETag/304、415/503 错误）。客户端只消费契约，不改 `server/contract`。
+
+- 序列：`buildConversationMedia` 按消息 `position`、再按消息内 `ImagePart` 顺序展开正文图片与
+  图片/视频附件；点击项精确打开，左右滑动跨消息，顶部显示「第 N / 共 M」、发送者与时间，
+  下滑或关闭/返回键退出。历史未完整加载时显示「仅显示已加载的 N 项」与重试，不虚报总数。
+- 尺寸判定：正文图片只有 media_id，先取 `GET /media/{id}/metadata`；`<= 100 KiB`（含边界）
+  直接取原图，`> 100 KiB` 取 `?variant=thumb` 作为列表与查看器首屏。阈值集中在
+  `media_policy.dart`；元信息失败可重试，不当作小图直接拉原图。
+- 原图：查看器左下角显示「原图 3.0 MB」，点击才 `GET /media/{id}`，按收到的字节/总长度显示
+  百分比；失败回到「重试 原图 …」，不展示半张图。原图只在当前查看页面持有，不进入共享预览
+  缓存；原图/缩略图/元信息缓存键均含 server/account/media/variant，和头像缓存分开，
+  缩略图失败不会回退成远端原图。
+- 保存：Android 通过 `bb/media_gallery` 通道写 MediaStore（`Pictures/BB`、`Movies/BB`，
+  `bb_<timestamp>_<原名>`；API ≤ 28 运行时申请写权限），iOS 预留 `saveToPhotos` 接口；
+  Linux/Windows 继续 `getSaveLocation`。成功提示带相册位置或完整路径，取消不提示。
+- 视频：到达与打开查看器只取封面；中央播放才创建查看器内的 `StreamingViewerVideoSession`，
+  经既有 loopback Range 流由 `video_player` 播放；失败可在查看器内重试，关闭或切页会释放
+  播放器与流。会话按“播放轮次”持有 handle/controller/progress subscription，`_round` 是唯一
+  当前指针：start 只登记新轮并在后台初始化，stop/retry/dispose 退役当前轮并递增 generation，
+  原生 create 回调、controller listener、progress 和 toggle continuation 都先校验轮次归属，
+  旧 finally/迟到回调不会写新轮状态；失败清理在 `await release()` **之后**再次核对
+  `_round == null` 与 generation，旧错误收尾不能把已 ready 的新轮改回 failed。释放顺序是先
+  关闭已建立的 loopback 句柄，再异步 dispose 播放器：原生 `createWithOptions` 尚未返回时关闭
+  不会阻塞流释放，旧创建迟到也只能释放自己的资源。
+  Android/iOS/macOS 使用官方 `video_player`；Linux/Windows 通过新增的 `fvp: 0.40.0` 提供
+  同一 `video_player` 平台实现（随包 MDK 预编译库，不依赖系统 libmpv，不升级既有
+  `video_player` 版本；`pubspec.lock` 只新增 `fvp`）。测试仅把锁文件已有的
+  `video_player_platform_interface: 6.9.0` 提升为 dev 依赖，不改变版本。
+- 进度语义：`MediaStreamProxy` 同时上报本次 Range 的 `requestBytes`/`receivedBytes` 与
+  `Content-Range` 的整媒体 `mediaBytes`；生产会话收到第一块字节后进入 buffering，查看器
+  显示「缓冲中…」+「本次 Range 接收 X / Y」，整段缓冲单独显示播放器 `buffered/duration`
+  的「已缓冲 N%」。短 Range 完成绝不会被显示成整段视频 100%；1 字节 `probeMedia` 只用于
+  大小/MIME 探测，不作为播放进度。
+- 发送端本地预览：ChatComposer 把成功提交的正文图片 media id 映射回当前仍持有的本地 bytes，
+  ChatPage 按当前账号绑定并做 8 条/24 MiB LRU；列表与查看器优先使用这些 bytes，不因衍生图
+  未就绪而重新请求远端大图。接收端元信息/缩略图失败仍只显示占位与重试，不请求原图。
+- 验证（固定基线 `452e88e`，契约 `agent/forge/9e751f104948` @ `fa876b9`）：
+  - `flutter analyze`：0 issue。
+  - `flutter test`：398 passed / 7 skipped。7 个 skip 的适用范围：
+    1 个 DEA-471 live 契约用例（`BB_LIVE_SERVER_URL` 未设置）、3 个既有 live chat 用例、
+    1 个既有 live auth 用例、1 个聊天截图用例（`QA_CHAT_SCREENSHOT_DIR` 未设置）、
+    1 个 Profile 截图用例（`QA_SCREENSHOT_DIR` 未设置）；都不是本机代码失败。
+  - 定向 25 tests：媒体序列/阈值、查看器导航与下载进度/重试/跨页隔离、聊天页接入、
+    相册/桌面保存分流、server/account/media/variant 缓存隔离与缩略图失败不回退原图、
+    发送端本地预览、查看器内嵌视频进度/重试/切页释放、真实 loopback Range 的请求/整媒体双计数，
+    以及 production session 的「4/8 字节进入 buffering + Range 文案」「原生 create 挂起时关闭
+    先释放流」「挂起 stop 后重新 start 立即开新流」「旧失败 release 收尾不覆盖新轮 ready」
+    与组件「拖出/拖回重播」「重试按钮后旧错误不重现」「缓冲标签不与索引相交」回归。
+  - `BB_LIVE_SERVER_URL=http://127.0.0.1:8171 flutter test test/live_media_contract_test.dart`：
+    1 passed；真实 Forge 服务端验证 metadata byte_size、512 边/≤64 KiB JPEG 缩略图、
+    小图直取原图、原图字节一致、`Range bytes=0-0` 206 且总长正确、第三账号 404。
+  - `flutter test integration_test -d linux`：14 passed；除查看器打开/关闭外，新增真实 FVP
+    用例：点击播放后出现 `VideoPlayer` 画面、position 从 00:00 前进、服务端收到非
+    `bytes=0-0` 的真实 Range；切到下一张后视频请求停止，返回视频页播放会重新打开流；
+    关闭后退出查看器。
+  - `flutter build linux --debug`：FVP/MDK 预编译库随包构建通过，Linux 包内有 libmdk/libffmpeg。
+  - `flutter build apk --debug`：编译通过（Kotlin 通道与 fvp Android 插件打包）；真机仍 NOT RUN。
+  - 截图：`.qa-artifacts/screenshots/dea471-media-viewer.png`，420×900 widget 渲染，
+    不是 Android/Windows 运行截图。
 
 ## 6. 展示凭据与消费 ACK
 
@@ -265,11 +335,19 @@ Owner/独立 QA 执行。
 - **真实 MCP 插件链**：Nine-tool 本地契约由 Dart 测试覆盖；真实 dsh-plugin MCP 进程
   端到端仍 NOT RUN（属于 Forge/集成 QA）。
 - **Android 真机**：`bb/media_clipboard` 通道与 `video_player` 在线播放已实现，但无设备，
-  NOT RUN；不以 Linux 结果代替。`flutter build apk --debug` 在本环境因 Gradle wrapper 缓存
-  只读/守护进程启动失败而未完成编译，Kotlin 通道仍需在可构建的 Android 环境复验。
+  NOT RUN；不以 Linux 结果代替。DEA-471 的 `flutter build apk --debug` 已在本环境编译通过
+  （含 `bb/media_gallery` 与查看器内嵌播放代码），但安装、相册权限、真机播放/缓冲进度仍需
+  真机复验。
+- **桌面内嵌视频**：Linux 已用 `fvp 0.40.0`（随包 MDK）实跑真实播放；Windows 同一实现已接
+  入但没有 MSVC/Windows 环境，NOT RUN，不能把 Linux 结果当作 Windows 通过。
 - **桌面在线播放 GUI**：loopback Range 代理、点击触发、权限/取消与系统播放器交接已自动
   验证；实际播放窗口/解码未在无交互环境人工验收，NOT RUN，不记作已通过。
-- **iOS**：无本轮 runner，剪贴板与播放路径未接入。
+- **iOS**：无本轮 runner，剪贴板、在线播放与 Photos 保存路径均未接入；`saveToPhotos`
+  通道接口已在 Dart 侧预留，本机调用会返回 unsupported。
+- **Android 相册落盘（DEA-471 U6）**：MediaStore 插入、命名、API ≤ 28 权限分支已写入
+  `MainActivity.kt`，但本环境 `adb devices -l` 无设备，真机「系统相册可见」NOT RUN；
+  不以 widget/APK 结果代替。当前 Linux 主机也无法验证 Android 权限弹窗与拒绝分支。
+
 - **事件日志不设丢弃窗口**：按契约保留，避免有限内存缓存丢旧事件；长期运行的清理策略
   未在本步实现。
 - 服务器/共享 schema 未改；若 R3 正式 schema 字段名有差异，以 Forge 的共享 schema 为准，
