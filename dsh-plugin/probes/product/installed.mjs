@@ -194,7 +194,7 @@ try {
   await settings({
     clientUrl: client.origin,
     targetSession: "installed-product",
-    pollMs: 30000,
+    pollMs: 250,
     peerAccount: client.peer,
   });
   await until(async () => {
@@ -207,10 +207,6 @@ try {
   });
   await until(async()=> (await tool("bb_bridge_status")).recovery.notifications.pending?.state === "collecting");
   await settings({peerAccount:scopePeer.account,pollMs:250});
-  // An already scheduled 30s timer keeps its deadline; a public volatile
-  // update after the fixed aggregation window explicitly requests a refresh.
-  await new Promise(r=>setTimeout(r,1100));
-  await settings({pollMs:500});
   const notices=()=>modelRequests.flat().filter(m=>m.id?.startsWith("bb-notice-"));
   await until(async()=> notices().length>0);
   const summary=JSON.parse(notices()[0].content[0].text);
