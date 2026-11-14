@@ -176,10 +176,26 @@ try {
     sessionId: "installed-product",
     agentOptions: { provider: "product-double", model: "fixed" },
   });
+  // Exercise the installed index.js live configuration getter, not a copied
+  // filter or a settings-service substitute for rendered UI evidence.
+  const scopePeer = await fetch(client.api + "/auth/register", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({username: "ScopeB", password: "Abc123"}),
+  }).then(async r=>{assert.equal(r.status,201);return r.json();});
+  const scopeAuth = await fetch(client.api + "/auth/login", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({account:scopePeer.account, password:"Abc123"}),
+  }).then(async r=>{assert.equal(r.status,200);return r.json();});
+  const scopeMessage = await fetch(client.api + "/messages", {
+    method: "POST", headers: {"Content-Type": "application/json", Authorization: "Bearer " + scopeAuth.token},
+    body: JSON.stringify({target_account:client.account, client_nonce:crypto.randomUUID(), content:[{type:"text",text:"scope B"}]}),
+  });
+  assert.equal(scopeMessage.status,200);
   await settings({
     clientUrl: client.origin,
     targetSession: "installed-product",
-    pollMs: 250,
+    pollMs: 30000,
+    peerAccount: client.peer,
   });
   await until(async () => {
     try {
@@ -189,6 +205,17 @@ try {
       return false;
     }
   });
+  await until(async()=> (await tool("bb_bridge_status")).recovery.notifications.pending?.state === "collecting");
+  await settings({peerAccount:scopePeer.account,pollMs:250});
+  // An already scheduled 30s timer keeps its deadline; a public volatile
+  // update after the fixed aggregation window explicitly requests a refresh.
+  await new Promise(r=>setTimeout(r,1100));
+  await settings({pollMs:500});
+  const notices=()=>modelRequests.flat().filter(m=>m.id?.startsWith("bb-notice-"));
+  await until(async()=> notices().length>0);
+  const summary=JSON.parse(notices()[0].content[0].text);
+  assert.deepEqual(summary.conversations.map(c=>c.peer_account),[scopePeer.account]);
+  await settings({peerAccount:""});
   await tool("mcp__bb__update_nickname", { value: "Installed Profile" });
   assert.equal(
     (await tool("mcp__bb__view_nickname")).username,
@@ -426,6 +453,7 @@ try {
     register_login: "real MCP/real client",
     queries: "real MCP/real client",
     automatic_consumption: false,
+    installed_peer_change: "A to B during collecting; B only",
     explicit_model_display_confirmed: true,
     explicit_sends: 4,
     explicit_new_session_history: true,

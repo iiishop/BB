@@ -21,7 +21,7 @@ def run(*, origin, account, peer, switched, api, runtime, root, private, launch,
         return count
 
     script = Path(__file__).parent.parent / "product/notifications.mjs"
-    cuts = ["wait", "notification-prepared", "notification-dispatching", "notification-pending", "notification-committed"]
+    cuts = ["wait", "scope", "admission", "notification-prepared", "notification-dispatching", "notification-enqueued", "notification-visible", "notification-pending", "notification-committed"]
     # Separate consumer and peer per crash, so assertions don't inherit earlier unread.
     import httpx
     for cut in cuts:
@@ -32,7 +32,8 @@ def run(*, origin, account, peer, switched, api, runtime, root, private, launch,
             assert fresh.status_code == 201
             config.write_text(json.dumps({"origin": origin, "api": api, "account": account, "peer": fresh.json()["account"], "other": switched}))
         command = ["node", str(script), runtime, str(case), str(config), cut]
-        if cut != "wait":
+        crash_case = cut.startswith("notification-")
+        if crash_case:
             child = launch([*command, "crash"], cut + "-crash", pipe=True)
             try:
                 assert select.select([child.stdout], [], [], 25)[0], "barrier deadline"
@@ -43,7 +44,7 @@ def run(*, origin, account, peer, switched, api, runtime, root, private, launch,
                 assert child.returncode == -signal.SIGKILL
             finally:
                 stop(child)
-        child = launch([*command, "recover" if cut != "wait" else "run"], cut, pipe=True)
+        child = launch([*command, "recover" if crash_case else "run"], cut, pipe=True)
         stdout, stderr = child.communicate(timeout=45)
         assert child.returncode == 0, stderr[-4000:]
         record("notifications-" + cut, wire_contract_checks=validate_wire(case), **json.loads(stdout))

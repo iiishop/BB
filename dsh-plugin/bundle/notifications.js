@@ -41,26 +41,52 @@ export class Notifications {
       e.type === "user/message" && e.data.id === batch.nativeId) ||
       [...agent.inbox.nextTurn, ...agent.inbox.nextStep].some(m => m.id === batch.nativeId);
   }
+  currentPeer(peer) {
+    return (this.scope ? this.scope() : peer) || null;
+  }
+  filterBatch(batch, peer) {
+    const scope = this.currentPeer(peer);
+    batch.items = Object.fromEntries(Object.entries(batch.items).filter(([, item]) =>
+      !scope || item.peer_account === scope));
+    batch.peerScope = scope;
+  }
+  owned(message) {
+    if (!message.id?.startsWith("bb-notice-")) return null;
+    try {
+      const value = JSON.parse(message.content[0].text);
+      return value.type === "conversation_notification" &&
+        value.account === this.state.account && value.consumer_id === this.state.consumer
+        ? value : null;
+    } catch { return null; }
+  }
+  async beforeModel(options) {
+    if (!options.messages.some(m => this.owned(m))) return;
+    // Protocol 2 invariant: no provider/tool side effect can precede durable
+    // native input evidence. Absence after restoring the same incarnation is
+    // then proof of no model exposure, not a guessed unsuccessful dispatch.
+    await this.bridge.check();
+    await this.bridge.flush();
+    await this.bridge.checkpoint("notification-visible");
+    await this.bridge.check();
+  }
   async resumePending() {
     const b = this.bridge, agent = b.agent;
     if (agent.status !== "idle") return;
-    const owned = agent.inbox.nextTurn.filter(m => {
-      if (!m.id.startsWith("bb-notice-")) return false;
-      try {
-        const value = JSON.parse(m.content[0].text);
-        return value.type === "conversation_notification" && value.account === this.state.account && value.consumer_id === this.state.consumer;
-      } catch { return false; }
-    });
+    const owned = agent.inbox.nextTurn.filter(m => this.owned(m));
     if (!owned.length) return;
     // Stock resume restores durable inbox entries without starting a driver.
     // Re-arm only proven, unclaimed native entries, in the public idle lock.
-    // Same IDs/content; no replay of a projected or unknown dispatch.
+    // Same IDs, current peer scope; no replay of a projected or unknown dispatch.
     await agent.runMaintenance(async () => {
       await b.check();
       for (const message of owned) {
         if (!agent.inbox.nextTurn.some(m => m.id === message.id)) continue;
         agent.inbox.remove(message.id);
-        agent.followup(message);
+        const value = this.owned(message), peer = this.currentPeer();
+        if (peer)
+          value.conversations = value.conversations.filter(c => c.peer_account === peer);
+        if (value.conversations.length)
+          agent.followup({...message, content: [{type: "text", text: JSON.stringify(value)}]});
       }
       await b.flush();
     });
@@ -84,20 +110,53 @@ export class Notifications {
     const b = this.bridge;
     await b.check();
     let batch = this.state.batch;
+    const settings = await b.client.call("notifications/get");
     if (batch && ["dispatching", "uncertain"].includes(batch.state)) {
       if (this.evidence(batch)) {
         await b.flush();
         await this.save({ ...this.state, cursor: batch.through, batch: null });
         return;
       }
-      // No durable native evidence cannot authorize an unknown side effect again.
-      await this.save({ ...this.state, batch: { ...batch, state: "uncertain" } });
-      return;
+      if (!settings.enabled || batch.revision !== settings.revision) {
+        // Explicit settings change abandons an old unknown reminder, not its
+        // possible business side effects. Keep the record; never resend it.
+        await this.save({
+          ...this.state, cursor: batch.through, batch: null,
+          abandoned: [
+            ...(this.state.abandoned ?? []), {...batch, state: "abandoned_by_settings"},
+          ],
+        });
+        batch = null;
+      } else if (batch.deliveryProtocol === 2 && batch.session === b.agent.session.id &&
+          batch.incarnation === b.agent.session.header.createdAt) {
+        // A live driver could be between inbox claim and native projection.
+        // Only the public idle lock can prove absence outside a cold restore.
+        if (b.agent.status !== "idle") return;
+        let accepted = false;
+        await b.agent.runMaintenance(async () => {
+          await b.check();
+          if (this.evidence(batch)) {
+            await b.flush();
+            await this.save({...this.state, cursor: batch.through, batch: null});
+            accepted = true;
+          } else {
+            batch = {...batch, state: "collecting"};
+            await this.save({...this.state, batch});
+          }
+        });
+        if (accepted) return;
+      } else {
+        await this.save({ ...this.state, batch: { ...batch, state: "uncertain" } });
+        return;
+      }
     }
-    const settings = await b.client.call("notifications/get");
     if (batch && batch.revision !== settings.revision) {
       await this.save({ ...this.state, batch: null });
       batch = null; // rescan from committed cursor, honoring the new source cutoff
+    }
+    if (batch) {
+      batch = structuredClone(batch);
+      this.filterBatch(batch, peer);
     }
     const start = batch?.scanned ?? this.state.cursor;
     let {page, deferred} = await this.readPage(start, batch && !batch.complete ? batch.through : undefined);
@@ -112,7 +171,7 @@ export class Notifications {
       revision: settings.revision, from: this.state.cursor, scanned: this.state.cursor,
       through: page.through_cursor, items: {}, readyAt: this.now() + this.windowMs,
       session: b.agent.session.id, incarnation: b.agent.session.header.createdAt,
-      state: "collecting", complete: false,
+      state: "collecting", complete: false, deliveryProtocol: 2,
     };
     batch = structuredClone(batch);
     batch.session = b.agent.session.id;
@@ -121,7 +180,8 @@ export class Notifications {
     for (let pages = 0; pages < 10; pages++) {
       if (page.settings.revision !== batch.revision) return;
       for (const item of page.items) {
-        if (peer && item.peer_account !== peer) continue;
+        const scope = this.currentPeer(peer);
+        if (scope && item.peer_account !== scope) continue;
         const old = batch.items[item.conversation.id];
         batch.items[item.conversation.id] = {
           ...item, new_count: (old?.new_count ?? 0) + item.new_count,
@@ -129,6 +189,8 @@ export class Notifications {
             ? old.last_message : item.last_message,
         };
       }
+      this.filterBatch(batch, peer);
+      deferred = deferred.filter(d => !batch.peerScope || d.peer_account === batch.peerScope);
       batch.scanned = page.next_cursor;
       batch.complete = !page.has_more;
       await this.save({ ...this.state, batch, deferred });
@@ -143,15 +205,23 @@ export class Notifications {
     if (this.now() < batch.readyAt) return;
     await b.checkpoint("notification-prepared");
     batch.state = "dispatching";
+    batch.deliveryProtocol = 2;
     await this.save({ ...this.state, batch });
     await b.checkpoint("notification-dispatching");
+    let invoked = false;
     const enqueue = async () => {
       await b.check();
       const current = await b.client.call("notifications/get");
+      this.filterBatch(batch, peer);
       if (!current.enabled || current.revision !== batch.revision) {
         await this.save({ ...this.state, batch: null });
         return;
       }
+      if (!Object.keys(batch.items).length) {
+        await this.save({...this.state, cursor: batch.through, batch: null});
+        return;
+      }
+      invoked = true; // even a throwing followup may already have inserted
       // No await between the final admission read and the synchronous followup.
       b.agent.followup({ id: batch.nativeId, role: "user", source: { kind: "user" }, content: [{
         type: "text", text: JSON.stringify({
@@ -161,18 +231,33 @@ export class Notifications {
           conversations: Object.values(batch.items),
         }),
       }] });
+      await b.checkpoint("notification-enqueued");
       await b.flush();
       await b.checkpoint("notification-pending");
       await this.save({ ...this.state, cursor: batch.through, batch: null });
       await b.checkpoint("notification-committed");
     };
-    if (b.agent.status === "idle") await b.agent.runMaintenance(enqueue);
-    else await enqueue();
+    try {
+      if (b.agent.status === "idle") await b.agent.runMaintenance(enqueue);
+      else await enqueue();
+    } catch (error) {
+      // A caught pre-call failure is definitely retryable even without the
+      // model barrier. Failed rollback leaves protocol-2 intent for recovery.
+      if (!invoked && this.state.batch?.id === batch.id)
+        await this.save({...this.state, batch: {...batch, state: "collecting"}});
+      throw error;
+    }
   }
   status() {
     const batch = this.state?.batch;
-    return { cursor: this.state?.cursor ?? 0, deferred: this.state?.deferred ?? [], pending: batch ? {
-      id: batch.id, state: batch.state, from: batch.from, through: batch.through,
-    } : null };
+    return {
+      cursor: this.state?.cursor ?? 0, deferred: this.state?.deferred ?? [],
+      abandoned: (this.state?.abandoned ?? []).map(b => ({
+        id: b.id, state: b.state, through: b.through,
+      })),
+      pending: batch ? {
+        id: batch.id, state: batch.state, from: batch.from, through: batch.through,
+      } : null,
+    };
   }
 }

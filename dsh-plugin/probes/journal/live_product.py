@@ -130,6 +130,8 @@ def run(
         json.dumps(
             {
                 "origin": origin,
+                "api": api,
+                "account": account,
                 "peer": peer,
                 "images": [png((255, 0, 0)), png((0, 0, 255))],
             }

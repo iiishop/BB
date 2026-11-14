@@ -43,8 +43,7 @@ test('page cap preserves backlog snapshot across cold open and sends one batch',
 });
 for(const cut of ['notification-prepared','notification-dispatching','notification-pending','notification-committed'])test(`restart at ${cut} reconciles native evidence without blind replay`,async t=>{
  const f=await fixture(t);f.add();await f.n.tick();f.now=1000;f.fail=cut;await assert.rejects(f.n.tick(),new RegExp(cut));f.fail=null;await f.open();await f.n.tick();
- if(cut==='notification-dispatching'){assert.equal(f.sent.length,0);assert.equal(f.n.state.batch.state,'uncertain');await f.n.tick();assert.equal(f.sent.length,0);}
- else {assert.equal(f.sent.length,1);assert.equal(f.n.state.cursor,1);await f.n.tick();assert.equal(f.sent.length,1);}
+ {assert.equal(f.sent.length,1);assert.equal(f.n.state.cursor,1);await f.n.tick();assert.equal(f.sent.length,1);}
 });
 test('final admission rejects owner/settings changes',async t=>{
  const f=await fixture(t);f.add();await f.n.tick();f.now=1000;
@@ -70,4 +69,61 @@ test('deferred peer survives cold open and resolves once while other peers advan
  await f.open();assert.equal(f.n.state.deferred.length,1);failing=false;await f.n.tick();f.now+=1000;await f.n.tick();
  assert.equal(f.sent.length,2);assert.equal(JSON.parse(f.sent[1].content[0].text).conversations[0].peer_account,"10000002");
  assert.deepEqual(f.n.state.deferred,[]);await f.n.tick();assert.equal(f.sent.length,2);
+});
+
+for (const initial of [undefined, '10000002']) for (const cold of [false, true]) test(`scope change filters entire collecting batch: ${initial ?? 'discovery'}, cold=${cold}`, async t=>{
+ const f=await fixture(t);f.add();f.add('10000003');await f.n.tick(initial);
+ if(cold)await f.open();f.now=1000;await f.n.tick('10000003');
+ if(initial) { f.add('10000003');await f.n.tick('10000003');f.now+=1000;await f.n.tick('10000003'); }
+ assert.equal(f.sent.length,1);assert.deepEqual(JSON.parse(f.sent[0].content[0].text).conversations.map(c=>c.peer_account),['10000003']);
+});
+test('scope changes during final admission are rechecked for the existing batch', async t=>{
+ const f=await fixture(t);let scope=null;f.n.scope=()=>scope;
+ f.add();f.add('10000003');await f.n.tick();f.now=1000;
+ f.bridge.checkpoint=async name=>{if(name==='notification-dispatching')scope='10000003';};
+ await f.n.tick();assert.deepEqual(JSON.parse(f.sent[0].content[0].text).conversations.map(c=>c.peer_account),['10000003']);
+});
+test('legacy unknown remains protected, explicit disable abandons it and new changes can progress',async t=>{
+ const f=await fixture(t);f.add();await f.n.tick();
+ await f.n.save({...f.n.state,batch:{...f.n.state.batch,deliveryProtocol:undefined,state:'dispatching'}});
+ f.now=1000;await f.open();await f.n.tick();assert.equal(f.sent.length,0);assert.equal(f.n.state.batch.state,'uncertain');
+ f.settings={enabled:false,revision:2};await f.n.tick();assert.equal(f.n.state.abandoned.length,1);
+ f.settings={enabled:true,revision:3};f.add('10000003');await f.n.tick();f.now=2000;await f.n.tick();
+ assert.equal(f.sent.length,1);assert.equal(JSON.parse(f.sent[0].content[0].text).conversations[0].peer_account,'10000003');
+ assert.equal(f.n.state.abandoned[0].state,'abandoned_by_settings');
+});
+test('protocol-2 unknown in live driver claim/projection gap is not replayed',async t=>{
+ const f=await fixture(t);f.add();await f.n.tick();await f.n.save({...f.n.state,batch:{...f.n.state.batch,state:'dispatching'}});
+ f.bridge.agent.status='running';f.now=1000;await f.n.tick();assert.equal(f.sent.length,0);
+ f.bridge.agent.status='idle';await f.n.tick();assert.equal(f.sent.length,1);
+});
+test('provider barrier rejects failed persistence before exposing any summary',async t=>{
+ const f=await fixture(t);f.add();await f.n.tick();f.now=1000;await f.n.tick();
+ let providerCalls=0;const stream=async()=>{await f.n.beforeModel({messages:f.sent});providerCalls++;};
+ f.bridge.flush=async()=>{throw Error('disk unavailable');};await assert.rejects(stream(),/disk unavailable/);assert.equal(providerCalls,0);
+ f.bridge.flush=async()=>{};await stream();assert.equal(providerCalls,1);
+});
+test('prepared scope survives cold open and is filtered before admission',async t=>{
+ const f=await fixture(t);f.add();f.add('10000003');await f.n.tick();f.now=1000;
+ f.fail='notification-prepared';await assert.rejects(f.n.tick(),/notification-prepared/);
+ f.fail=null;await f.open();await f.n.tick('10000003');
+ assert.deepEqual(JSON.parse(f.sent[0].content[0].text).conversations.map(c=>c.peer_account),['10000003']);
+});
+test('restored unclaimed inbox uses current scope and keeps its original native ID',async t=>{
+ const f=await fixture(t);f.add();f.add('10000003');await f.n.tick();f.now=1000;await f.n.tick();
+ const original=f.sent[0].id;await f.open();f.n.scope=()=> '10000003';
+ const inbox=f.bridge.agent.inbox;inbox.remove=id=>{inbox.nextTurn=inbox.nextTurn.filter(m=>m.id!==id);};
+ await f.n.resumePending();assert.equal(inbox.nextTurn.length,1);assert.equal(inbox.nextTurn[0].id,original);
+ assert.deepEqual(JSON.parse(inbox.nextTurn[0].content[0].text).conversations.map(c=>c.peer_account),['10000003']);
+});
+test('new session incarnation cannot use protocol-2 absence as replay evidence',async t=>{
+ const f=await fixture(t);f.add();await f.n.tick();await f.n.save({...f.n.state,batch:{...f.n.state.batch,state:'dispatching'}});
+ f.bridge.agent.session.header.createdAt=2;await f.open();f.now=1000;await f.n.tick();
+ assert.equal(f.sent.length,0);assert.equal(f.n.state.batch.state,'uncertain');
+});
+test('followup throwing after insertion reconciles evidence without a second call',async t=>{
+ const f=await fixture(t);f.add();await f.n.tick();f.now=1000;
+ const followup=f.bridge.agent.followup;f.bridge.agent.followup=m=>{followup(m);throw Error('after insertion');};
+ await assert.rejects(f.n.tick(),/after insertion/);await f.open();await f.n.tick();
+ assert.equal(f.sent.length,1);assert.equal(f.n.state.batch,null);
 });

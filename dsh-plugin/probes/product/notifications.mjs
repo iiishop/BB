@@ -5,11 +5,14 @@ import {resolve} from 'node:path';
 import {boot} from '../journal/host.mjs';
 import {Client} from '../../bundle/client.js';
 import {Bridge} from '../../bundle/bridge.js';
+import {Notifications} from '../../bundle/notifications.js';
 const [pkg,root,configPath,cut,phase] = process.argv.slice(2);
 const c=JSON.parse(await readFile(configPath));
 const client=new Client(c.origin,resolve(root,'state'));
 const raw=client.raw.bind(client);
+let failAdmission=false, armAdmission=false;
 client.raw=async(path,body,owner)=>{
+ if(failAdmission && path==='/v2/notifications/get'){failAdmission=false;throw Error('injected admission network_error');}
  const reply=await raw(path,body,owner);
  if(path.startsWith('/v2/notifications/'))await appendFile(resolve(root,'wire.jsonl'),JSON.stringify({path,body,reply})+'\n');
  return reply;
@@ -19,6 +22,7 @@ let count=0;
 async function* provider(options) {
  count++; requests.push(options.messages);
  const notice=options.messages.some(m=>m.content.some(b=>b.type==='text'&&b.text.includes('conversation_notification')));
+ if(notice)assert.ok(timeline.some(e=>e.event==='notification-visible'),'provider requires durable notification barrier');
  timeline.push({event:'provider',at:Date.now(),notice});
  const q=queries.shift();
  if(q){yield {type:'block-start',index:0,blockType:'tool-call'};yield {type:'block-end',index:0,block:{type:'tool-call',id:'call-'+count,name:'mcp__bb__'+q.name,arguments:JSON.stringify(q.args)}};}
@@ -30,6 +34,8 @@ await client.bind(agent.session.id);
 const mcp=await rt.load('dsh-mcp-client');
 const fiber=await rt.ctx.plugin(mcp,{serverName:'bb',transport:'stdio',command:'uv',args:['run','--project',resolve('dsh-plugin'),'--locked','bb-dsh-plugin'],env:{BB_CLIENT_BASE_URL:c.origin,BB_CONSUMER_STATE_FILE:client.stateFile},failOnStartupError:true});
 const bridge=await new Bridge(rt.ctx,agent,client,resolve(root,'state'),async name=>{
+ if(name==='notification-visible')timeline.push({event:name,at:Date.now()});
+ if(armAdmission&&name==='notification-dispatching'){armAdmission=false;failAdmission=true;}
  if(phase==='crash'&&name===cut){console.log(JSON.stringify({checkpoint:name}));await new Promise(()=>setInterval(()=>{},1000));}
 }).mount();bridge.installOperations();bridge.notifications.windowMs=0;
 const post=async(path,body,token)=>{const r=await fetch(c.api+path,{method:'POST',headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{})},body:JSON.stringify(body)});assert.ok(r.ok,String(r.status));return r.json();};
@@ -53,18 +59,37 @@ try {
      await bridge.tick(c.peer);await bridge.drain();assert.equal(count,1);
      console.log(JSON.stringify({status:'PASS',phase,offline_aggregate:3,notifications:1,unread:3,settings_preserved:true,model:'deterministic double'}));
    }
+ } else if(cut==='scope') {
+   let scope=null;bridge.notifications.scope=()=>scope;bridge.notifications.windowMs=1000;
+   await send(c.peer,'scope-A');await send(c.other,'scope-B');await bridge.tick();assert.equal(count,0);
+   scope=c.other;await new Promise(r=>setTimeout(r,1100));await bridge.tick();await bridge.drain();
+   assert.equal(count,1);
+   const summary=requests[0].flatMap(m=>m.content).map(b=>{try{return JSON.parse(b.text);}catch{return {};}}).find(v=>v.type==='conversation_notification');
+   assert.deepEqual(summary.conversations.map(x=>x.peer_account),[c.other]);
+   await bridge.tick();await bridge.drain();assert.equal(count,1);
+   console.log(JSON.stringify({status:'PASS',scope:'discovery to explicit B during aggregation',notifications:1,model:'deterministic double'}));
+ } else if(cut==='admission') {
+   armAdmission=true;await send(c.peer,'admission-A');
+   await assert.rejects(bridge.tick(c.peer),/injected admission network_error/);assert.equal(count,0);
+   bridge.notifications=new Notifications(bridge,{windowMs:0});await bridge.notifications.open();
+   await bridge.tick(c.peer);await bridge.drain();assert.equal(count,1);
+   await send(c.peer,'admission-new');await bridge.tick(c.peer);await bridge.drain();assert.equal(count,2);
+   await bridge.tick(c.peer);await bridge.drain();assert.equal(count,2);
+   console.log(JSON.stringify({status:'PASS',pre_call_failure:true,cold_open:true,recovered_and_new_notifications:2,model:'deterministic double'}));
  } else if(cut!=='wait') {
-   if(phase==='crash'){await send(c.peer,'crash summary');await bridge.tick();}
+   if(phase==='crash'){await send(c.peer,'crash summary');await bridge.tick();await bridge.drain();}
    else {
      await bridge.tick();await bridge.drain();
      // native IDs are the durable acceptance evidence independent of projection shape.
      const noticeIds=agent.session.snapshotEvents().filter(e=>e.type==='user/message'&&e.data.id?.startsWith('bb-notice-'));
      const pending=bridge.notifications.status().pending;
-     if(cut==='notification-dispatching'){assert.equal(pending.state,'uncertain');assert.equal(noticeIds.length,0);}
-     else {assert.equal(pending,null);assert.equal(noticeIds.length,1);}
+     assert.equal(pending,null);assert.equal(noticeIds.length,1, 'every crash boundary recovers one native input');
      const before=count;await bridge.tick();await bridge.drain();assert.equal(count,before);
      assert.equal(await unread(c.peer),1);
-     console.log(JSON.stringify({status:'PASS',cut,native_notices:noticeIds.length,pending,unread:1,model:'deterministic double'}));
+     await send(c.peer,'new notification after recovery');await bridge.tick();await bridge.drain();
+     assert.equal(count,before+1,'recovery must also permit future notifications');
+     assert.equal(await unread(c.peer),2);
+     console.log(JSON.stringify({status:'PASS',cut,native_notices:noticeIds.length,pending,new_notification_after_recovery:true,unread:2,model:'deterministic double'}));
    }
  } else {
    queries.push({name:'wait_messages',args:{account:c.peer,seen_position:0,timeout:30}});

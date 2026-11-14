@@ -177,6 +177,7 @@ export async function apply(ctx, config) {
         }
         client = candidate;
         bridge = await new Bridge(ctx, agent, client, root).mount();
+        bridge.notifications.scope = () => get("peerAccount");
         await connectMcp();
         bridge.installOperations();
         await bridge.recover();

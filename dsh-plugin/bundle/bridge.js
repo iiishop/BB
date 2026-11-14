@@ -66,6 +66,7 @@ export class Bridge {
             yield* next();
             return;
           }
+          await self.notifications.beforeModel(options);
           const candidates = self.journal
             .list()
             .map((row) => {

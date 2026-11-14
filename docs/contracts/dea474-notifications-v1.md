@@ -1,4 +1,4 @@
-DEA-474 通知与自主读取契约，revision 2
+DEA-474 通知与自主读取契约，revision 3
 ===================================
 
 基线 `3fd908fa`，沿用执行规格 v1；Forge 单独维护以下跨语言状态。
@@ -31,12 +31,32 @@ bridge 通知 journal 与原正文/操作 journal 分开，保存账号+consumer
 首次变化起固定聚合 1 秒（不按每条消息重置计时），一次离线窗口汇总成一个输入。
 扫描分片持久化；同一条来源变化不会在崩溃恢复后重复计数。无新变化时绝不因未读仍存在再通知。
 
-投递顺序：持久摘要 prepared → 持久 dispatch intent → 最后一次 owner/设置校验 → 原生 followup →
-原生 session flush → 持久通知游标。最终设置校验是投递接纳点；此前关闭/切换 revision 取消未接纳摘要，
-此后已经接纳的原生输入归宿主队列，不能撤销已经开始的模型回合。
-重启先查同 native ID 的持久 session 事件/原生 inbox：有证据则完成本地游标提交，不重复 followup；
-尚未写 dispatch intent 可恢复准备；已有 intent 却无法证明是否投递保持 uncertain，不猜测重放。
-这是未知结果时的明确停止边界，不把 uncertain 伪装为已送达。身份/owner/存储错误不可吞掉。
+投递顺序：持久摘要 collecting（prepared 切点）→ 持久 dispatch intent → 最后一次 owner/设置/会话范围校验 →
+原生 followup → 原生 session flush → 持久通知游标。最终校验是接纳点；此前关闭/切换 revision
+取消未接纳摘要。`index.js` 为 Notifications 提供实时 peerAccount getter；新页、已有整个批次、
+最终接纳及冷启动未认领 inbox 统一按当前范围过滤，不能仅过滤新页。已开始的模型回合不可撤销。
+
+revision 3 的 `deliveryProtocol: 2` 增加模型前屏障：同 session 的 `llm/stream` 在任何通知进入 provider 前
+先 owner check → session flush → owner check。flush 失败即拒绝模型调用。因此，同一 incarnation
+的原生事件/inbox 在公开 idle maintenance 锁内均无该 native ID 时，才能证明没有模型/工具副作用，
+把该 intent 恢复成 collecting，再用原 native ID 接纳。活动 driver 的 claim/projection 间隙不作缺席证明。
+实际捕获到的 followup 之前异常（最终 GET、owner check 或 maintenance 未开始）直接回退 collecting；
+followup 已调用后即使抛错也必须先对账，不能按异常类型猜测未入队。
+
+重启先查同 native ID 的持久 session 事件/原生 inbox：有证据则完成本地游标提交，不重复 followup。
+prepared、dispatching、enqueued、visible（模型前 flush 后）、pending、committed 六个进程崩溃切点
+均要求恢复后只有一个 native input、pending 清空；不能再把 dispatching 永久停滞记为恢复通过。
+已投影输入不重唤模型，模型成功与否不改变摘要仅为通知这一语义，也不确认正文或重试发送。
+
+旧版本无 deliveryProtocol 标记的 dispatching/uncertain，或原 session incarnation 丢失，仍不能以
+缺席证明未投递。保留 unknown 记录，继续读取通知设置；用户显式关闭或改变设置 revision 时，
+把原批次留存在 `abandoned`（state=abandoned_by_settings），推进摘要扫描位置，但不伪造 delivered，
+不删除业务/正文 journal，不重发旧摘要。手动开启沿用来源 head cutoff，后续新来信可以继续通知。
+这是旧未知结果的明确跳过/恢复路径，不要求删除日志。查询/显式读取/发送仍受原权限和恢复守卫保护。
+
+无需改变客户端 ledger 版本；新增字段随原子通知 journal 写入。旧 collecting 批次在首次接纳前可升级；
+旧 dispatching 不自动升级。活动 protocol-2 记录不得交给没有模型前屏障的旧 bundle 继续运行后再恢复，
+否则缺席证明的前提不成立；回退应停用插件并保留原宿主及 journal 做对账。身份/owner/存储错误仍抛出。
 
 自动 tick/poll 不再 read_messages、claim 正文或附加历史。通知输入本身永远不进入正文确认队列。
 模型显式 read_messages/get_message/get_context/wait_messages 的完整结果，在真实模型投影与成功 turn/end
@@ -53,15 +73,17 @@ read_messages 新增 unread_only=false：true 只展示本页实际入站且未�
 等待 A 时 B 通知的实时性以原版 DSH 实测为准；BB 不改宿主内核或强制每个会话一个 session。
 未绑定的 session 不可通过通知工具取得权限。真实模型凭据、Android/Windows 环境不在本次授权中。
 
-写入入口与共同规则（revision 2 实现）
+写入入口与共同规则（revision 3 实现）
 -----------------------------------
 
 | 状态 | 所有入口 / 唯一规则 | 定向验证 |
 | --- | --- | --- |
 | account.notification_settings | v2 set → ChatLedger.setNotificationSettings；MCP set 复用该入口；无设置 UI 副本 | query service：关闭→未同步来信→开启、失败回滚、冷读；v2 routes：owner/身份/严格 bool |
 | source/local feed | discover / explicit peer subscribe / background EventFeed 共用逐 peer cursor + source event dedup | 第一阶段 event_consumer_backfill；真实 standalone probe |
-| notification window/cursor | Notifications.advance，固定窗口、分页/失败重试队列共同保存、revision 废弃、disabled 跳过 | notifications.test.mjs；真实 --product notifications |
-| native reminder acceptance | advance 最终设置/owner 校验、followup、flush；resumePending 只重唤同 consumer 的已持久未认领 inbox | prepared/dispatching/pending/committed 四个真实进程切点 |
+| notification window/cursor | Notifications.advance，固定窗口、分页/失败重试队列共同保存；整批 scope 过滤、revision 废弃、disabled 跳过 | QA R1/R2 原断言 + notifications.test.mjs；真实 notifications admission/scope；installed 原生 settings A→B |
+| native reminder acceptance | advance 最终设置/owner/scope 校验、followup、flush；resumePending 同 consumer 未认领 inbox 按当前 scope 用原 ID 重唤 | prepared/dispatching/enqueued/visible/pending/committed 六个真实切点；cold pending scope 回归 |
+| provider exposure | Bridge 的同 session llm/stream → Notifications.beforeModel，通知曝光前原生证据必须 flush 成功 | flush 失败 provider=0；真实 provider 校验 notification-visible 先发生 |
+| uncertain recovery | advance：同 incarnation + protocol2 + idle lock 缺席证明才重试；legacy/丢失 session 仅在显式设置变化时留档跳过 | live driver 间隙拒绝、incarnation 变化拒绝、followup 入队后抛错不重复、legacy off/on 后新消息 |
 | exact account read facts | explicit get/read/context/wait → tool/result → llm stream 完整投影 → successful turn → confirmPresentationAttempt；摘要不进入该路径 | wait A/B、installed 有序图片、gap 三进程恢复 |
 | consumer ACK | Bridge.settle → 原客户端连续凭证校验；稀疏失败仍保留成功展示事实 | gap 后显式补读，无后台补正文 |
 | send/download operations | scoped tool wrapper → Operations durable intent → 客户端 stable ID → 对账 → 原结果 | 原 operation-result/download-result 进程崩溃用例；final 文本不发送 |
@@ -70,10 +92,9 @@ read_messages 新增 unread_only=false：true 只展示本页实际入站且未�
 
 原版宿主实测：真实 wait_messages(A) 未返回时，B 摘要已入 nextTurn，provider 尚未处理；
 A 收到来信结束 wait 后才处理 B。没有即时打断保证，最长受所选 wait timeout（30/60/120 秒）约束。
-stock resume 恢复 inbox 不主动唤醒；resumePending 在公开 idle maintenance 中用原 ID/内容重新唤起
-已证明仍未认领的 native inbox。已投影的不重放；无证据的 dispatch intent 保持 uncertain。
-该 uncertain 会阻止本 consumer 后续提醒自动推进，查询/读取/发送仍可用；必须保留原宿主记录对账，
-不能通过删除 journal 伪造成功。此边界与真实模型/设备未测项单独报告给 QA。
+stock resume 恢复 inbox 不主动唤醒；resumePending 在公开 idle maintenance 中用原 ID、按当前
+scope 过滤后的内容重新唤起已证明仍未认领的 native inbox。已投影的不重放；未知结果按上文
+protocol-2 缺席证明或显式设置跳过路径处理。真实模型/设备未测项不能替代这些恢复断言。
 
 revision 2 补充：摘要生成遇到明确 peer-local not_found/upstream_unavailable/upstream_timeout/network_error 时，
 返回 deferred(cursor, peer_account, error_code)。共享身份/owner/CAS/存储错误仍抛出，不按会话吞掉。
