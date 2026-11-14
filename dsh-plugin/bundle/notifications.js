@@ -27,9 +27,22 @@ export class Notifications {
         this.state.consumer !== identity.consumer_id ||
         !Number.isSafeInteger(this.state.cursor) || this.state.cursor < 0)
       throw new Error("Unsupported notification journal");
+    // Older writers could leave forward retries after discarding a batch.
+    // Persist the repair before the first request; ordinary scanning still
+    // owns every event beyond the restored scan position.
+    if (this.retriesWithinScan(this.state).length !== (this.state.deferred ?? []).length)
+      await this.save(this.state);
+  }
+  retriesWithinScan(value) {
+    const scanned = value.batch?.scanned ?? value.cursor;
+    return (value.deferred ?? []).filter(d => d.cursor <= scanned);
   }
   async save(value) {
     const copy = structuredClone(value);
+    // cursor, batch.scanned and retries are one atomic state. Every writer
+    // (including both revision rollbacks) preserves old failures and returns
+    // not-yet-scanned events to the forward scan instead of retry_cursors.
+    copy.deferred = this.retriesWithinScan(copy);
     await writeJson(this.path, copy);
     this.state = copy;
   }

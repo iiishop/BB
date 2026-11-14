@@ -1,13 +1,15 @@
 """DEA-474 actual wait A/B and process crash boundaries; no model credentials."""
 import json
+import os
 import select
 import signal
 from pathlib import Path
 
 
 def run(*, origin, account, peer, switched, api, runtime, root, private, launch, stop, restart, record, **unused):
+    control = unused.get("control")
     config = private / "notifications.json"
-    config.write_text(json.dumps({"origin": origin, "api": api, "account": account, "peer": peer, "other": switched}))
+    config.write_text(json.dumps({"origin": origin, "api": api, "account": account, "peer": peer, "other": switched, "control": control}))
     from bb_auth_contract import chat_v2 as v2
     def validate_wire(case):
         count = 0
@@ -22,15 +24,24 @@ def run(*, origin, account, peer, switched, api, runtime, root, private, launch,
 
     script = Path(__file__).parent.parent / "product/notifications.mjs"
     cuts = ["wait", "scope", "admission", "notification-prepared", "notification-dispatching", "notification-enqueued", "notification-visible", "notification-pending", "notification-committed"]
+    deferred_only = os.environ.get("BB_NOTIFICATION_CASES") == "deferred"
+    if deferred_only:
+        cuts = ["deferred-collecting", "deferred-admission", "deferred-legacy-zero", "deferred-legacy-old"]
     # Separate consumer and peer per crash, so assertions don't inherit earlier unread.
     import httpx
     for cut in cuts:
         case = root / cut
         case.mkdir()
+        recipient = account
+        if deferred_only:
+            response = httpx.post(api + "/auth/register", json={"username": "recipient-" + cut.removeprefix("deferred-"), "password": "Abc123"}, trust_env=False)
+            assert response.status_code == 201
+            recipient = response.json()["account"]
+            assert httpx.post(origin + "/auth/login", json={"account": recipient, "password": "Abc123"}, trust_env=False).status_code == 200
         if cut != "wait":
             fresh = httpx.post(api + "/auth/register", json={"username": cut, "password": "Abc123"}, trust_env=False)
             assert fresh.status_code == 201
-            config.write_text(json.dumps({"origin": origin, "api": api, "account": account, "peer": fresh.json()["account"], "other": switched}))
+            config.write_text(json.dumps({"origin": origin, "api": api, "account": recipient, "peer": fresh.json()["account"], "other": switched, "control": control}))
         command = ["node", str(script), runtime, str(case), str(config), cut]
         crash_case = cut.startswith("notification-")
         if crash_case:
@@ -49,10 +60,13 @@ def run(*, origin, account, peer, switched, api, runtime, root, private, launch,
         assert child.returncode == 0, stderr[-4000:]
         record("notifications-" + cut, wire_contract_checks=validate_wire(case), **json.loads(stdout))
 
+    if deferred_only:
+        return
+
     case = root / "offline"
     case.mkdir()
     fresh = httpx.post(api + "/auth/register", json={"username": "offline-peer", "password": "Abc123"}, trust_env=False).json()["account"]
-    config.write_text(json.dumps({"origin": origin, "api": api, "account": account, "peer": fresh, "other": switched}))
+    config.write_text(json.dumps({"origin": origin, "api": api, "account": account, "peer": fresh, "other": switched, "control": control}))
     command = ["node", str(script), runtime, str(case), str(config), "offline"]
     child = launch([*command, "seed"], "offline-seed", pipe=True)
     stdout, stderr = child.communicate(timeout=30)

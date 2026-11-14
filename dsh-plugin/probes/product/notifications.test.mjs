@@ -1,7 +1,7 @@
 // Deterministic state-machine tests; stock-host evidence is a separate live probe.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Notifications } from '../../bundle/notifications.js';
@@ -9,7 +9,7 @@ import { Notifications } from '../../bundle/notifications.js';
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'bb-notices-'));
   t.after(() => rm(root, { recursive: true, force: true }));
-  const f = { now: 0, settings: {enabled:true,revision:1}, events: [], sent: [], calls: [], fail: null };
+  const f = { now: 0, settings: {enabled:true,revision:1}, events: [], sent: [], calls: [], requests: [], failedPeers: new Set(), fail: null };
   const agent = { status:'idle', session:{id:'s',header:{createdAt:1},snapshotEvents:()=>[]},
     inbox:{nextTurn:[],nextStep:[]}, runMaintenance:async fn=>fn(), followup:m=>{ f.sent.push(m); agent.inbox.nextTurn.push(m); } };
   const bridge = {root, agent, check:async()=>{}, flush:async()=>{}, checkpoint:async name=>{if(f.fail===name)throw Error(name);},
@@ -17,9 +17,17 @@ async function fixture(t) {
       f.calls.push(path);
       if(path==='notifications/get')return {...f.settings};
       assert.equal(path,'notifications/changes');
+      f.requests.push(structuredClone(args));
       const head=args.through_cursor??f.events.length;
-      const entries=f.events.slice(args.after_cursor,Math.min(head,args.after_cursor+args.limit));
-      return { settings:{...f.settings},items:f.settings.enabled?entries:[], next_cursor:Math.min(head,args.after_cursor+args.limit), through_cursor:head,has_more:args.after_cursor+args.limit<head };
+      // Match the real Dart range contract even while notifications are off.
+      assert.ok(args.after_cursor>=0 && head>=args.after_cursor && head<=f.events.length);
+      const retries=args.retry_cursors??[];
+      assert.ok(retries.length<=100 && retries.every(c=>Number.isInteger(c)&&c>=1&&c<=args.after_cursor), 'retry cursor must be within scanned history');
+      const next=Math.min(head,args.after_cursor+args.limit);
+      const cursors=[...Array.from({length:next-args.after_cursor},(_,i)=>args.after_cursor+i+1),...new Set(retries)];
+      const visible=f.settings.enabled?cursors.filter(c=>c>(f.settings.skip_source_through??0)):[];
+      const deferred=visible.filter(c=>f.failedPeers.has(f.events[c-1].peer_account)).map(c=>({cursor:c,peer_account:f.events[c-1].peer_account,error_code:'upstream_unavailable'}));
+      return { settings:{...f.settings},items:visible.filter(c=>!f.failedPeers.has(f.events[c-1].peer_account)).map(c=>f.events[c-1]), deferred, next_cursor:next, through_cursor:head,has_more:next<head };
     }} };
   f.add = (peer='10000002') => f.events.push({conversation:{type:'direct',id:peer},peer_account:peer,display_name:peer,new_count:1,incoming_unread:5,last_message:{position:f.events.length+1,preview:'untrusted'}});
   f.open=async()=>{f.n=new Notifications(bridge,{now:()=>f.now});await f.n.open();return f.n;};
@@ -52,21 +60,10 @@ test('final admission rejects owner/settings changes',async t=>{
 });
 
 test('deferred peer survives cold open and resolves once while other peers advance',async t=>{
- const f=await fixture(t);let failing=true;
- const original=f.bridge.client.call;
- f.bridge.client.call=async(path,args)=>{
-   const page=await original(path,args);
-   if(path!=="notifications/changes")return page;
-   const retries=args.retry_cursors??[];
-   if(failing){
-     page.items=page.items.filter(i=>i.peer_account!=="10000002");
-     page.deferred=(args.after_cursor===0||retries.includes(1))?[{cursor:1,peer_account:"10000002",error_code:"upstream_unavailable"}]:[];
-   } else if(retries.includes(1))page.items.push(f.events[0]);
-   return page;
- };
+ const f=await fixture(t);f.failedPeers.add('10000002');
  f.add();f.add("10000003");await f.n.tick();f.now=1000;await f.n.tick();
  assert.equal(f.sent.length,1);assert.equal(JSON.parse(f.sent[0].content[0].text).conversations[0].peer_account,"10000003");
- await f.open();assert.equal(f.n.state.deferred.length,1);failing=false;await f.n.tick();f.now+=1000;await f.n.tick();
+ await f.open();assert.equal(f.n.state.deferred.length,1);f.failedPeers.clear();await f.n.tick();f.now+=1000;await f.n.tick();
  assert.equal(f.sent.length,2);assert.equal(JSON.parse(f.sent[1].content[0].text).conversations[0].peer_account,"10000002");
  assert.deepEqual(f.n.state.deferred,[]);await f.n.tick();assert.equal(f.sent.length,2);
 });
@@ -126,4 +123,66 @@ test('followup throwing after insertion reconciles evidence without a second cal
  const followup=f.bridge.agent.followup;f.bridge.agent.followup=m=>{followup(m);throw Error('after insertion');};
  await assert.rejects(f.n.tick(),/after insertion/);await f.open();await f.n.tick();
  assert.equal(f.sent.length,1);assert.equal(f.n.state.batch,null);
+});
+
+for(const cut of ['collecting','admission']) for(const cold of [false,true])
+test(`deferred rollback at ${cut}, cold=${cold}: preserves old retries and respects off/on cutoff`,async t=>{
+ const f=await fixture(t);f.failedPeers.add('10000002');
+ f.add();f.add('10000003');await f.n.tick();f.now=1000;await f.n.tick();
+ assert.equal(f.sent.length,1,'healthy B advances despite A');
+ assert.equal(f.n.state.cursor,2);assert.deepEqual(f.n.state.deferred.map(d=>d.cursor),[1]);
+ f.add();f.add('10000003');await f.n.tick();
+ assert.equal(f.n.state.cursor,2);assert.equal(f.n.state.batch.scanned,4);
+ assert.deepEqual(f.n.state.deferred.map(d=>d.cursor).sort(),[1,3]);
+ if(cold)await f.open(); // A valid batch's deferred may exceed committed cursor.
+ assert.deepEqual(f.n.state.deferred.map(d=>d.cursor).sort(),[1,3]);
+ if(cut==='collecting')f.settings={enabled:false,revision:2};
+ else {
+   f.now=2000;
+   f.bridge.checkpoint=async n=>{if(n==='notification-dispatching')f.settings={enabled:false,revision:2};};
+   await f.n.tick();f.bridge.checkpoint=async()=>{};
+ }
+ if(cold)await f.open();
+ await f.n.tick();
+ const rescan=f.requests.findLast(r=>r.after_cursor===2);
+ assert.deepEqual(rescan.retry_cursors,[1],'keep truly old retry; cursor 3 is rediscovered by forward scan');
+ assert.equal(f.sent.length,1,'revoked B batch not delivered');
+ f.add();f.add('10000003'); // Arrive while disabled, not yet synchronized.
+ f.settings={enabled:true,revision:3,skip_source_through:6};
+ await f.open();await f.n.tick();f.now+=1000;await f.n.tick();assert.equal(f.sent.length,1);
+ f.add();f.add('10000003');await f.n.tick();f.now+=1000;await f.n.tick();
+ assert.equal(f.sent.length,2);assert.equal(JSON.parse(f.sent[1].content[0].text).conversations[0].new_count,1);
+ await f.open();f.failedPeers.clear();await f.n.tick();f.now+=1000;await f.n.tick();
+ assert.equal(f.sent.length,3);const recovered=JSON.parse(f.sent[2].content[0].text).conversations;
+ assert.equal(recovered[0].peer_account,'10000002');assert.equal(recovered[0].new_count,1);
+ await f.n.tick();assert.equal(f.sent.length,3,'no replay of disabled-period or already delivered events');
+});
+
+for(const committed of [0,2]) for(const enabled of [true,false]) test(`existing bad journal repairs forward deferred but retains scanned history: cursor=${committed}, enabled=${enabled}`,async t=>{
+ const f=await fixture(t);f.failedPeers.add('10000002');
+ for(let i=0;i<committed;i++)f.add(i===0?'10000002':'10000003');
+ f.add();f.add('10000003');
+ f.settings={enabled,revision:enabled?1:2};
+ const cursor=committed+1;
+ const d=c=>({cursor:c,peer_account:'10000002',error_code:'upstream_unavailable'});
+ // Bypass the new writer to recreate the owner's already persisted bad state.
+ await writeFile(f.n.path,JSON.stringify({...f.n.state,cursor:committed,batch:null,deferred:committed?[d(1),d(cursor)]:[d(cursor)]}));
+ await f.open();assert.equal(f.n.state.cursor,committed);
+ assert.deepEqual(f.n.state.deferred.map(d=>d.cursor),committed?[1]:[]);
+ assert.deepEqual(JSON.parse(await readFile(f.n.path)).deferred,f.n.state.deferred,'repair is durable before first HTTP call');
+ if(!enabled){
+   await f.n.tick();assert.equal(f.sent.length,0);assert.equal(f.n.state.cursor,f.events.length);
+   f.settings={enabled:true,revision:3,skip_source_through:f.events.length};
+   f.add();f.add('10000003');await f.open();await f.n.tick();f.now=1000;await f.n.tick();
+   assert.equal(f.sent.length,1);assert.equal(JSON.parse(f.sent[0].content[0].text).conversations[0].new_count,1);
+   f.failedPeers.clear();await f.n.tick();f.now+=1000;await f.n.tick();assert.equal(f.sent.length,2);
+   assert.equal(JSON.parse(f.sent[1].content[0].text).conversations[0].new_count,1,'disabled old failures are skipped, not replayed');
+   await f.n.tick();assert.equal(f.sent.length,2);return;
+ }
+ await f.n.tick();f.now=1000;await f.n.tick();assert.equal(f.sent.length,1);
+ assert.deepEqual(f.n.state.deferred.map(d=>d.cursor).sort(),committed?[1,cursor]:[cursor]);
+ await f.open();f.failedPeers.clear();await f.n.tick();f.now+=1000;await f.n.tick();
+ assert.equal(f.sent.length,2);
+ assert.equal(JSON.parse(f.sent[1].content[0].text).conversations[0].new_count,committed?2:1,'both old failure and forward event survive repair');
+ await f.n.tick();assert.equal(f.sent.length,2);
 });

@@ -1,4 +1,4 @@
-DEA-474 通知与自主读取契约，revision 3
+DEA-474 通知与自主读取契约，revision 4
 ===================================
 
 基线 `3fd908fa`，沿用执行规格 v1；Forge 单独维护以下跨语言状态。
@@ -73,7 +73,7 @@ read_messages 新增 unread_only=false：true 只展示本页实际入站且未�
 等待 A 时 B 通知的实时性以原版 DSH 实测为准；BB 不改宿主内核或强制每个会话一个 session。
 未绑定的 session 不可通过通知工具取得权限。真实模型凭据、Android/Windows 环境不在本次授权中。
 
-写入入口与共同规则（revision 3 实现）
+写入入口与共同规则（revision 4 实现）
 -----------------------------------
 
 | 状态 | 所有入口 / 唯一规则 | 定向验证 |
@@ -103,3 +103,39 @@ bridge 将失败事件游标与当前聚合批次同次原子写入，每次最�
 list 和 notification 共用 ChatQueryService.summarizeConversation 的账号未读计算，避免第二份未读事实。
 回归先复现“同步后 A 摘要查询 503 阻塞 B”，修后 B 先投递、冷启动保留 A、A 恢复仅补一次，
 stale_identity/stale_binding/storage_unavailable 仍拒绝。消息扫描与摘要重试是不同入口，均保留测试。
+
+
+revision 4：扫描位置、批次与 deferred 的原子一致性
+------------------------------------------------
+
+`scan = batch?.scanned ?? cursor` 是下一次 notification_changes 的 after_cursor。
+唯一持久入口 Notifications.save 在同次原子写入中只保留 `deferred.cursor <= scan`。
+超过该位置的失败事件不算“已扫描历史重试”，由保留的来源事件普通扫描重新发现；不提前推进
+cursor、不删除来源事件、不清空真正旧的失败项。readPage 仍最多带 100 个合法旧游标并轮转队列。
+客户端的 `retry_cursor <= after_cursor`、身份与 owner 校验完全不变，不捕获或吞掉 422。
+
+| 写入入口 | 扫描与重试的共同规则 | 覆盖 |
+| --- | --- | --- |
+| 分页扫描/聚合、peer 过滤、空页 deferred 更新 | 保存 batch.scanned 后裁剪，保留 cursor 与 scanned 之间已经扫描的失败事件 | 分页/聚合与冷开既有测试；新增带旧失败队列的聚合 |
+| collecting 时发现 revision 变化 | 清 batch 后 scan 回退到 committed cursor；仅保留更早的失败，领先事件重扫 | collecting 热/冷两条永久回归；真实 Dart HTTP+stock DSH |
+| 最终 admission 关闭或 revision 改变 | 同一个 save 规则处理 batch=null；禁止独立清批次留下领先 retry | admission 热/冷两条永久回归；真实 Dart HTTP+stock DSH |
+| native 证据确认/接纳成功、空摘要/disabled/scope 跳过、显式留档 unknown | 同次提交 cursor 和 batch；失败队列只保留当前已扫描历史 | 原六个进程切点、off/on、scope、unknown 回归；真实通知入口 |
+| intent 写入、pre-call 失败回退 collecting、protocol-2 恢复、legacy uncertain 保留 | batch.scanned 不回退，保留其合法失败队列 | R1/R2 及六个切点回归，共用 save |
+| open 载入旧坏 journal | 验证原身份/版本后使用相同裁剪规则；若有领先项，先原子修复落盘，再发首个请求 | cursor=0 与 cursor>0/已有旧 deferred × enabled/disabled 四条永久回归及真实客户端 HTTP |
+
+无需 ledger/schema 升级。兼容原通知 journal version 1：已存在的 `cursor=0, batch=null,
+deferred=[1]` 恢复后仍 cursor=0，仅将 1 交回普通扫描；cursor=2、deferred=[1,3] 则保留旧 1，
+重新扫描 3。有效 batch.scanned 以内的 deferred 即使大于 committed cursor 也不能误删。
+修复失败时仍抛出存储错误；未写成功的 journal 可在下一次 open 重做幂等修复，不依赖删除文件。
+
+新增八条正确行为断言在 a7ed910 修前失败，修后原断言通过。notifications.test.mjs 的 double
+现在与 Dart 一样在 enabled 判断之前拒绝非法 retry 范围，并模拟 disabled/head cutoff 和真实重试。
+同一默认 pytest → Node 入口收集，无新增 CI job。
+
+真实组合验证入口：`BB_PRODUCT_CASES=notifications BB_NOTIFICATION_CASES=deferred uv run --project server
+--locked python dsh-plugin/probes/journal/live.py --product --faults --runtime <原版DSH> --dart <Dart>
+--crypto <crypto目录> --output <隔离目录>`。该入口运行真实 FastAPI、独立 Dart LocalAuthServer/ChatService、
+官方 MCP 和原版 DSH；仅由仓库 probe 的公开 DI 注入 A 元数据 503，模型为确定性替身。
+四个 case 覆盖 collecting/admission 设置切换、cursor=0/含旧失败的坏 journal，真实 HTTP 先确认
+非法范围 422，再确认正确恢复、关闭期间不补、新 B 先投递、A 恢复一次且旧失败不丢。
+默认 `BB_PRODUCT_CASES=notifications ... --product` 保留真实 bin 和原六个进程切点回归。

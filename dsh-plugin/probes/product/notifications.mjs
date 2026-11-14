@@ -18,6 +18,7 @@ client.raw=async(path,body,owner)=>{
  return reply;
 };
 const requests=[], timeline=[], queries=[];
+let changeSettingsAtAdmission=false;
 let count=0;
 async function* provider(options) {
  count++; requests.push(options.messages);
@@ -36,6 +37,9 @@ const fiber=await rt.ctx.plugin(mcp,{serverName:'bb',transport:'stdio',command:'
 const bridge=await new Bridge(rt.ctx,agent,client,resolve(root,'state'),async name=>{
  if(name==='notification-visible')timeline.push({event:name,at:Date.now()});
  if(armAdmission&&name==='notification-dispatching'){armAdmission=false;failAdmission=true;}
+ if(changeSettingsAtAdmission&&name==='notification-dispatching'){
+   changeSettingsAtAdmission=false;await client.call('notifications/set',{enabled:false});
+ }
  if(phase==='crash'&&name===cut){console.log(JSON.stringify({checkpoint:name}));await new Promise(()=>setInterval(()=>{},1000));}
 }).mount();bridge.installOperations();bridge.notifications.windowMs=0;
 const post=async(path,body,token)=>{const r=await fetch(c.api+path,{method:'POST',headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{})},body:JSON.stringify(body)});assert.ok(r.ok,String(r.status));return r.json();};
@@ -45,7 +49,69 @@ async function until(fn){const deadline=Date.now()+10000;while(Date.now()<deadli
 const prompt=(text)=>agent.followup({id:crypto.randomUUID(),role:'user',source:{kind:'user'},content:[{type:'text',text}]});
 try {
  await bridge.recover();
- if(cut==='offline') {
+ if(cut.startsWith('deferred-')) {
+   let now=0;
+   const reopen=async()=>{bridge.notifications=new Notifications(bridge,{now:()=>now});await bridge.notifications.open();};
+   const fault=async peer=>{
+     const reply=await fetch(c.control+'/metadata-failure',{method:'POST',body:JSON.stringify({peer})});
+     assert.equal(reply.status,200);
+   };
+   const tick=async()=>{await bridge.tick();await bridge.drain();};
+   const latest=()=>requests.at(-1).flatMap(m=>m.content).map(b=>{try{return JSON.parse(b.text);}catch{return {};}}).filter(v=>v.type==='conversation_notification').at(-1);
+   const pair=async(a,b)=>{
+     await fault(null);await send(c.peer,a);await send(c.other,b);
+     // Feed readability uses the same API. Finish real synchronization before
+     // arming the metadata fault so this case exercises deferred, not backfill.
+     await client.call('events/subscribe',{discover:true});await fault(c.peer);
+   };
+   await reopen();await fault(null);
+   const hasOld=cut!=='deferred-legacy-zero';
+   if(hasOld){
+     await pair('old A failure','old healthy B');
+     await tick();now+=1000;await tick();assert.equal(count,1);
+   }
+   const committed=bridge.notifications.state.cursor;
+   const old=(bridge.notifications.state.deferred??[]).map(d=>d.cursor);
+   assert.equal(old.length,hasOld?1:0);
+   await pair('pending A failure','pending healthy B');await tick();
+   const pending=structuredClone(bridge.notifications.state);
+   assert.equal(pending.cursor,committed);
+   assert.ok(pending.deferred.some(d=>d.cursor>committed));
+   assert.ok(pending.deferred.every(d=>d.cursor<=pending.batch.scanned));
+   if(cut.startsWith('deferred-legacy')){
+     // Recreate the already-persisted bad journal, bypassing the new writer.
+     await writeFile(bridge.notifications.path,JSON.stringify({...pending,batch:null}));
+     // Prove the unmodified production HTTP endpoint rejects that exact range.
+     await assert.rejects(client.call('notifications/changes',{
+       after_cursor:committed,retry_cursors:pending.deferred.map(d=>d.cursor),limit:100,
+     }),e=>e.status===422&&e.code==='validation_error');
+     await reopen();assert.deepEqual(bridge.notifications.state.deferred.map(d=>d.cursor),old);
+     const disk=JSON.parse(await readFile(bridge.notifications.path));
+     assert.deepEqual(disk.deferred.map(d=>d.cursor),old);
+     await tick();now+=1000;await tick();assert.equal(count,hasOld?2:1);
+     assert.equal(latest().conversations[0].peer_account,c.other);
+     await reopen();await fault(null);await tick();now+=1000;await tick();
+     assert.equal(count,hasOld?3:2);assert.equal(latest().conversations[0].peer_account,c.peer);
+     assert.equal(latest().conversations[0].new_count,hasOld?2:1,'old and rediscovered failures both delivered');
+     const before=count;await tick();assert.equal(count,before);
+   } else {
+     if(cut==='deferred-admission'){
+       now+=1000;changeSettingsAtAdmission=true;await tick();
+       assert.deepEqual(bridge.notifications.state.deferred.map(d=>d.cursor),old,'atomic rollback retains only scanned historical failures');
+     } else await client.call('notifications/set',{enabled:false});
+     await reopen();await tick();assert.equal(count,1);
+     // Source cutoff skips disabled-period messages even if not yet synced.
+     await send(c.peer,'disabled A');await send(c.other,'disabled B');
+     await client.call('notifications/set',{enabled:true});await reopen();await tick();now+=1000;await tick();assert.equal(count,1);
+     await pair('enabled A','enabled B');await tick();now+=1000;await tick();
+     assert.equal(count,2);assert.equal(latest().conversations[0].peer_account,c.other);assert.equal(latest().conversations[0].new_count,1);
+     await reopen();await fault(null);await tick();now+=1000;await tick();
+     assert.equal(count,3);assert.equal(latest().conversations[0].peer_account,c.peer);assert.equal(latest().conversations[0].new_count,1);
+     await tick();assert.equal(count,3);
+   }
+   await fault(null);
+   console.log(JSON.stringify({status:'PASS',cut,real_client_range_validation:true,invalid_range_rejected:cut.startsWith('deferred-legacy'),cold_journal:true,retained_old_retry:hasOld,model_calls:count,model:'deterministic double',fault:'public DI metadata 503 only; actual Dart HTTP and FastAPI'}));
+ } else if(cut==='offline') {
    if(phase==='seed') {
      await bridge.tick(c.peer);await bridge.flush();
      await writeFile(resolve(root,'before-settings.json'),JSON.stringify(await client.call('notifications/get')));
