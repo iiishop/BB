@@ -788,7 +788,17 @@ export class Bridge {
       }
     }
     for (const target of peers) {
-      await this.client.call("events/subscribe", { peer_account: target });
+      try {
+        await this.client.call("events/subscribe", { peer_account: target });
+      } catch (error) {
+        // The current client binds a subscription to one peer. A conflicting
+        // peer must not starve the existing subscription. Identity, ownership
+        // and storage failures still stop this tick; no receipt is advanced.
+        if (error.status !== 409 || error.code !== "idempotency_conflict")
+          throw error;
+        console.warn("[bb-bridge] subscription conflict", target, error.code);
+        continue;
+      }
       await this.poll(target);
     }
     let after_cursor = 0;
