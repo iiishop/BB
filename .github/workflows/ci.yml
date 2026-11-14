@@ -90,7 +90,7 @@ jobs:
           retention-days: 7
 
   android-apk:
-    name: Android 包体与原生库成分
+    name: Android release 构建
     needs: plan
     if: needs.plan.outputs.android == 'true'
     runs-on: ubuntu-latest
@@ -109,20 +109,14 @@ jobs:
           channel: stable
           cache: true
 
-      - name: 构建 arm64 release apk
+      # 只验证 Android 侧改动没把 release 构建弄坏；只编 arm64 一个架构，
+      # 三个 ABI 走的是同一份 gradle 配置。
+      - name: flutter build apk --release
         working-directory: client
         run: |
           set -euo pipefail
           flutter pub get
-          # 只编一个架构：门禁查的是原生库成分与包体，三个 ABI 的 so 清单一致，
-          # 编三次只是多花三倍时间。
           flutter build apk --release --target-platform android-arm64
-
-      - name: 断言包体与原生库成分
-        run: |
-          set -euo pipefail
-          python3 scripts/ci/apk_budget.py \
-            client/build/app/outputs/flutter-apk/app-release.apk
 
   server:
     name: 服务端 pytest

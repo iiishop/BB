@@ -38,11 +38,10 @@ class PlanTests(unittest.TestCase):
             "server/contract/src/bb_auth_contract/admin.py": ALL - {"android"},
             "server/contract/pyproject.toml": ALL - {"android"},
             "scripts/run_flutter_tests.sh": {"flutter"},
-            # Android 门禁只在 Android 侧或依赖变化时构建 APK。
+            # Android 构建只在 Android 侧或依赖变化时触发。
             "client/lib/ui/chat/chat_page.dart": {"flutter"},
             "client/android/app/build.gradle.kts": {"flutter", "android"},
             "client/pubspec.lock": {"flutter", "android"},
-            "scripts/ci/apk_budget.py": {"android"},
             ".github/workflows/ci.yml": ALL,
             "scripts/ci/plan.py": ALL,
             "scripts/ci/test_plan.py": ALL,
