@@ -4771,6 +4771,16 @@
           "expected_identity": {
             "$ref": "#/components/schemas/ExpectedIdentity"
           },
+          "retry_cursors": {
+            "items": {
+              "maximum": 9007199254740991,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "maxItems": 100,
+            "title": "Retry Cursors",
+            "type": "array"
+          },
           "after_cursor": {
             "default": 0,
             "maximum": 9007199254740991,
@@ -4827,6 +4837,39 @@
         "title": "ConversationRef",
         "type": "object"
       },
+      "DeferredNotification": {
+        "additionalProperties": false,
+        "properties": {
+          "cursor": {
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "title": "Cursor",
+            "type": "integer"
+          },
+          "peer_account": {
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Peer Account",
+            "type": "string"
+          },
+          "error_code": {
+            "enum": [
+              "not_found",
+              "upstream_unavailable",
+              "upstream_timeout",
+              "network_error"
+            ],
+            "title": "Error Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cursor",
+          "peer_account",
+          "error_code"
+        ],
+        "title": "DeferredNotification",
+        "type": "object"
+      },
       "MessagePreview": {
         "additionalProperties": false,
         "properties": {
@@ -4876,6 +4919,13 @@
       "NotificationPage": {
         "additionalProperties": false,
         "properties": {
+          "deferred": {
+            "items": {
+              "$ref": "#/components/schemas/DeferredNotification"
+            },
+            "title": "Deferred",
+            "type": "array"
+          },
           "settings": {
             "$ref": "#/components/schemas/NotificationSettings"
           },
@@ -4904,6 +4954,7 @@
           }
         },
         "required": [
+          "deferred",
           "settings",
           "items",
           "next_cursor",

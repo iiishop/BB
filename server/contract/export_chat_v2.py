@@ -211,7 +211,7 @@ def fixtures():
     results = {
         "get_notifications": {"enabled": True, "revision": 1, "skip_source_through": 0},
         "set_notifications": {"enabled": False, "revision": 2, "skip_source_through": 0},
-        "notification_changes": {"settings": {"enabled": True, "revision": 1, "skip_source_through": 0}, "items": [], "next_cursor": 0, "through_cursor": 0, "has_more": False},
+        "notification_changes": {"deferred": [], "settings": {"enabled": True, "revision": 1, "skip_source_through": 0}, "items": [], "next_cursor": 0, "through_cursor": 0, "has_more": False},
         "view_avatar": {
             "account": AUTH["account"],
             "mime_type": "image/png",

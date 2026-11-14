@@ -247,6 +247,7 @@
         "consumer_id": "consumer-A",
         "binding_revision": 1
       },
+      "retry_cursors": [],
       "after_cursor": 0,
       "through_cursor": null,
       "limit": 100
@@ -524,6 +525,7 @@
         "binding_revision": 1
       },
       "result": {
+        "deferred": [],
         "settings": {
           "enabled": true,
           "revision": 1,

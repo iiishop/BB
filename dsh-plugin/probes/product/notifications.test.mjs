@@ -51,3 +51,23 @@ test('final admission rejects owner/settings changes',async t=>{
  f.bridge.checkpoint=async n=>{if(n==='notification-dispatching')f.settings={enabled:false,revision:2};};
  await f.n.tick();assert.equal(f.sent.length,0);await f.n.tick();assert.equal(f.n.state.cursor,1);
 });
+
+test('deferred peer survives cold open and resolves once while other peers advance',async t=>{
+ const f=await fixture(t);let failing=true;
+ const original=f.bridge.client.call;
+ f.bridge.client.call=async(path,args)=>{
+   const page=await original(path,args);
+   if(path!=="notifications/changes")return page;
+   const retries=args.retry_cursors??[];
+   if(failing){
+     page.items=page.items.filter(i=>i.peer_account!=="10000002");
+     page.deferred=(args.after_cursor===0||retries.includes(1))?[{cursor:1,peer_account:"10000002",error_code:"upstream_unavailable"}]:[];
+   } else if(retries.includes(1))page.items.push(f.events[0]);
+   return page;
+ };
+ f.add();f.add("10000003");await f.n.tick();f.now=1000;await f.n.tick();
+ assert.equal(f.sent.length,1);assert.equal(JSON.parse(f.sent[0].content[0].text).conversations[0].peer_account,"10000003");
+ await f.open();assert.equal(f.n.state.deferred.length,1);failing=false;await f.n.tick();f.now+=1000;await f.n.tick();
+ assert.equal(f.sent.length,2);assert.equal(JSON.parse(f.sent[1].content[0].text).conversations[0].peer_account,"10000002");
+ assert.deepEqual(f.n.state.deferred,[]);await f.n.tick();assert.equal(f.sent.length,2);
+});

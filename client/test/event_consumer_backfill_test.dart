@@ -61,6 +61,31 @@ void main() {
     }
   });
 
+  test('notification metadata failure is deferred without starving another peer', () async {
+    final api = _FaultApi(baseUri: backend.baseUri);
+    final session = AuthSession()..establish(token: backend.tokenFor(_accountA), user: const AuthUser(account: _accountA, username: 'a'));
+    final alice = ChatService(api: api, session: session, ledger: ChatLedger.atPath('${root.path}/retry.json'), cacheRoot: Directory('${root.path}/cache'), webSocketHints: false);
+    addTearDown(alice.dispose);
+    await backend.seedMessage(sender: _accountB, target: _accountA, text: 'b');
+    await backend.seedMessage(sender: _accountC, target: _accountA, text: 'c');
+    final identity = await alice.identityFor('notification-fault');
+    await alice.subscribeEventsFor(expectedIdentity: identity, discover: true);
+    api.failure = const AuthFailure(status: 503, code: 'upstream_unavailable', message: 'peer B');
+    final page = await alice.notificationChanges(expectedIdentity: identity, afterCursor: 0);
+    expect((page['items'] as List).map((i) => i['peer_account']), [_accountC]);
+    expect((page['deferred'] as List).single['peer_account'], _accountB);
+    expect(await alice.ledger.displayedMessageIds(_accountA), isEmpty);
+    final retry = [(page['deferred'] as List).single['cursor'] as int];
+    api.failure = null;
+    final resumed = await alice.notificationChanges(expectedIdentity: identity, afterCursor: page['next_cursor'] as int, retryCursors: retry);
+    expect((resumed['items'] as List).map((i) => i['peer_account']), [_accountB]);
+    expect(resumed['deferred'], isEmpty);
+    for (final code in ['stale_identity', 'stale_binding', 'storage_unavailable']) {
+      api.failure = AuthFailure(status: 409, code: code, message: 'shared');
+      await expectLater(alice.notificationChanges(expectedIdentity: identity, afterCursor: page['next_cursor'] as int, retryCursors: retry), throwsA(isA<AuthFailure>().having((e) => e.code, 'code', code)));
+    }
+  });
+
   test('one consumer backfills a second peer after the first advanced', () async {
     await backend.seedMessage(sender: _accountC, target: _accountA, text: 'c-old');
     await backend.seedMessage(sender: _accountB, target: _accountA, text: 'b-new');

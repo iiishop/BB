@@ -271,6 +271,7 @@ class SetNotifications(Protected):
 
 
 class NotificationChanges(Protected):
+    retry_cursors: list[Annotated[int, Field(ge=1, le=9007199254740991)]] = Field(default_factory=list, max_length=100)
     after_cursor: Position = 0
     through_cursor: Position | None = None
     limit: int = Field(default=100, ge=1, le=100)
@@ -285,7 +286,14 @@ class NotificationSummary(v1.Wire):
     last_message: query.MessagePreview
 
 
+class DeferredNotification(v1.Wire):
+    cursor: int = Field(ge=1, le=9007199254740991)
+    peer_account: v1.Account
+    error_code: Literal["not_found", "upstream_unavailable", "upstream_timeout", "network_error"]
+
+
 class NotificationPage(v1.Wire):
+    deferred: list[DeferredNotification]
     settings: NotificationSettings
     items: list[NotificationSummary]
     next_cursor: Position

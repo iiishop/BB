@@ -65,6 +65,16 @@ export class Notifications {
       await b.flush();
     });
   }
+  async readPage(after, through) {
+    const queue = this.state.deferred ?? [];
+    const page = await this.bridge.client.call("notifications/changes", {
+      after_cursor: after, ...(through === undefined ? {} : {through_cursor: through}),
+      retry_cursors: queue.slice(0, 100).map(d => d.cursor), limit: 100,
+    });
+    // Rotate unresolved entries so a failed peer cannot starve later retries.
+    const deferred = [...queue.slice(100), ...(page.deferred ?? [])];
+    return {page, deferred: [...new Map(deferred.map(d => [d.cursor, d])).values()]};
+  }
   tick(peer) {
     const run = this.tail.then(() => this.advance(peer));
     this.tail = run.catch(() => {});
@@ -89,17 +99,13 @@ export class Notifications {
       await this.save({ ...this.state, batch: null });
       batch = null; // rescan from committed cursor, honoring the new source cutoff
     }
-    let page;
     const start = batch?.scanned ?? this.state.cursor;
-    // A completed initial sample can absorb the remainder of the fixed window.
-    // An incomplete backlog keeps its original head, never chasing live traffic.
-    page = await b.client.call("notifications/changes", {
-      after_cursor: start,
-      ...(batch && !batch.complete ? { through_cursor: batch.through } : {}),
-      limit: 100,
-    });
+    let {page, deferred} = await this.readPage(start, batch && !batch.complete ? batch.through : undefined);
     if (page.settings.revision !== settings.revision) return;
-    if (!batch && page.next_cursor === this.state.cursor && !page.items.length) return;
+    if (!batch && page.next_cursor === this.state.cursor && !page.items.length) {
+      if (JSON.stringify(deferred) !== JSON.stringify(this.state.deferred ?? [])) await this.save({...this.state, deferred});
+      return;
+    }
     if (!batch) await b.flush(); // persist the native session incarnation before a recoverable reservation
     if (!batch) batch = {
       id: randomUUID(), nativeId: "bb-notice-" + randomUUID(),
@@ -125,11 +131,9 @@ export class Notifications {
       }
       batch.scanned = page.next_cursor;
       batch.complete = !page.has_more;
-      await this.save({ ...this.state, batch });
+      await this.save({ ...this.state, batch, deferred });
       if (batch.complete || pages === 9) break;
-      page = await b.client.call("notifications/changes", {
-        after_cursor: batch.scanned, through_cursor: batch.through, limit: 100,
-      });
+      ({page, deferred} = await this.readPage(batch.scanned, batch.through));
     }
     if (!batch.complete) return;
     if (!Object.keys(batch.items).length || !settings.enabled) {
@@ -167,7 +171,7 @@ export class Notifications {
   }
   status() {
     const batch = this.state?.batch;
-    return { cursor: this.state?.cursor ?? 0, pending: batch ? {
+    return { cursor: this.state?.cursor ?? 0, deferred: this.state?.deferred ?? [], pending: batch ? {
       id: batch.id, state: batch.state, from: batch.from, through: batch.through,
     } : null };
   }

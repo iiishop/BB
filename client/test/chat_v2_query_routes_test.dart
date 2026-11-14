@@ -157,6 +157,9 @@ void main() {
     for (final value in [1, 'false', null]) {
       await call('/v2/notifications/set', withIdentity({'enabled': value}), status: 422);
     }
+    for (final retry in [null, [0], [1.5], ['1']]) {
+      await call('/v2/notifications/changes', withIdentity({'retry_cursors': retry}), status: 422);
+    }
     final defaults = await ok('/v2/notifications/get', withIdentity({}));
     expect(defaults['body']['result']['enabled'], true);
     await ok('/v2/events/subscribe', withIdentity({'discover': true}));

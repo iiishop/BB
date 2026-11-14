@@ -83,12 +83,20 @@ try {
    const before=count;await bridge.tick();await bridge.drain();assert.equal(count,before,'displayed wait A not re-notified');
    queries.push({name:'read_messages',args:{account:c.other,after_position:0,limit:50,unread_only:true}});
    prompt('Explicitly read B.');await bridge.drain();assert.equal(await unread(c.other),0);
+   assert.equal(await unread(c.peer),0);
+   for(const [target,text] of [[c.peer,'explicit-A'],[c.other,'explicit-B']]) {
+     queries.push({name:'send_message',args:{target_account:target,content:[{type:'text',text}]}});
+     prompt('Explicitly send to the specified account with no unread prerequisite.');await bridge.drain();
+     const history=await client.call('chat/read_messages',{account:target,after_position:0,limit:50});
+     const outgoing=history.items.filter(i=>i.message.sender_account===c.account);
+     assert.equal(outgoing.length,1);assert.equal(outgoing[0].message.target_account,target);assert.equal(outgoing[0].message.content[0].text,text);
+   }
    await client.call('notifications/set',{enabled:false});await send(c.other,'off interval');
    await client.call('notifications/set',{enabled:true});await bridge.tick();await bridge.drain();assert.equal(await unread(c.other),1,'skipped notification does not clear unread');
    const after=count;await send(c.other,'on interval');await bridge.tick();await bridge.drain();assert.equal(count,after+1);
    const summaries=requests.at(-1).flatMap(m=>m.content).filter(b=>b.type==='text').map(b=>{try{return JSON.parse(b.text);}catch{return {};}}).filter(v=>v.type==='conversation_notification');
    assert.equal(summaries.at(-1).conversations[0].new_count,1);assert.equal(await unread(c.other),2);
-   assert.equal((await client.call('chat/read_messages',{account:c.other,after_position:0,limit:50})).items.length,4,'final text never sends');
-   console.log(JSON.stringify({status:'PASS',timeline,wait_behavior:'queued nextTurn; no interruption; delivered after wait completes',notifications_do_not_read:true,explicit_read_confirmed:true,manual_enable_skips_unsynced:true,final_text_sends:0,model_calls:count,model:'deterministic double'}));
+   assert.equal((await client.call('chat/read_messages',{account:c.other,after_position:0,limit:50})).items.length,5,'only the one explicit B send appears');
+   console.log(JSON.stringify({status:'PASS',timeline,wait_behavior:'queued nextTurn; no interruption; delivered after wait completes',notifications_do_not_read:true,explicit_read_confirmed:true,manual_enable_skips_unsynced:true,final_text_sends:0,explicit_target_sends:2,proactive_without_unread:true,model_calls:count,model:'deterministic double'}));
  }
 }finally{await bridge.close();await fiber.dispose();await rt.close();client.close();}

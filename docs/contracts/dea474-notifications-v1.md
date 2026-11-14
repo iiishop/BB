@@ -1,4 +1,4 @@
-DEA-474 通知与自主读取契约，revision 1
+DEA-474 通知与自主读取契约，revision 2
 ===================================
 
 基线 `3fd908fa`，沿用执行规格 v1；Forge 单独维护以下跨语言状态。
@@ -10,7 +10,7 @@ DEA-474 通知与自主读取契约，revision 1
 | --- | --- | --- |
 | get_notifications | 无额外参数 | enabled、revision、skip_source_through；MCP 可见 |
 | set_notifications | enabled: boolean | 相同值幂等，返回同一设置；MCP 可见 |
-| notification_changes | after_cursor、可选 through_cursor、limit≤100 | settings、按会话新增数/当前入站未读/名称/最后预览、next_cursor、through_cursor、has_more；仅 bridge 内部 |
+| notification_changes | after_cursor、可选 through_cursor、retry_cursors≤100、limit≤100 | settings、按会话新增数/当前入站未读/名称/最后预览、next_cursor、through_cursor、has_more、deferred；仅 bridge 内部 |
 
 通知设置放在客户端 ledger 的 account.notification_settings；没有设置的账号默认开启。
 订阅集合、来源扫描、消费确认与发送/下载记录不因此改变。设置关闭不禁用查询、wait 或发送。
@@ -53,14 +53,14 @@ read_messages 新增 unread_only=false：true 只展示本页实际入站且未�
 等待 A 时 B 通知的实时性以原版 DSH 实测为准；BB 不改宿主内核或强制每个会话一个 session。
 未绑定的 session 不可通过通知工具取得权限。真实模型凭据、Android/Windows 环境不在本次授权中。
 
-写入入口与共同规则（revision 1 实现）
+写入入口与共同规则（revision 2 实现）
 -----------------------------------
 
 | 状态 | 所有入口 / 唯一规则 | 定向验证 |
 | --- | --- | --- |
 | account.notification_settings | v2 set → ChatLedger.setNotificationSettings；MCP set 复用该入口；无设置 UI 副本 | query service：关闭→未同步来信→开启、失败回滚、冷读；v2 routes：owner/身份/严格 bool |
 | source/local feed | discover / explicit peer subscribe / background EventFeed 共用逐 peer cursor + source event dedup | 第一阶段 event_consumer_backfill；真实 standalone probe |
-| notification window/cursor | Notifications.advance，固定窗口、分页保存、revision 废弃、disabled 跳过 | notifications.test.mjs；真实 --product notifications |
+| notification window/cursor | Notifications.advance，固定窗口、分页/失败重试队列共同保存、revision 废弃、disabled 跳过 | notifications.test.mjs；真实 --product notifications |
 | native reminder acceptance | advance 最终设置/owner 校验、followup、flush；resumePending 只重唤同 consumer 的已持久未认领 inbox | prepared/dispatching/pending/committed 四个真实进程切点 |
 | exact account read facts | explicit get/read/context/wait → tool/result → llm stream 完整投影 → successful turn → confirmPresentationAttempt；摘要不进入该路径 | wait A/B、installed 有序图片、gap 三进程恢复 |
 | consumer ACK | Bridge.settle → 原客户端连续凭证校验；稀疏失败仍保留成功展示事实 | gap 后显式补读，无后台补正文 |
@@ -74,3 +74,11 @@ stock resume 恢复 inbox 不主动唤醒；resumePending 在公开 idle mainten
 已证明仍未认领的 native inbox。已投影的不重放；无证据的 dispatch intent 保持 uncertain。
 该 uncertain 会阻止本 consumer 后续提醒自动推进，查询/读取/发送仍可用；必须保留原宿主记录对账，
 不能通过删除 journal 伪造成功。此边界与真实模型/设备未测项单独报告给 QA。
+
+revision 2 补充：摘要生成遇到明确 peer-local not_found/upstream_unavailable/upstream_timeout/network_error 时，
+返回 deferred(cursor, peer_account, error_code)。共享身份/owner/CAS/存储错误仍抛出，不按会话吞掉。
+bridge 将失败事件游标与当前聚合批次同次原子写入，每次最多重试 100 个，未恢复项轮转到队尾；
+其他会话可先投递。成功后只把该事件加回一次摘要，关闭/重开 cutoff 对重试同样有效。
+list 和 notification 共用 ChatQueryService.summarizeConversation 的账号未读计算，避免第二份未读事实。
+回归先复现“同步后 A 摘要查询 503 阻塞 B”，修后 B 先投递、冷启动保留 A、A 恢复仅补一次，
+stale_identity/stale_binding/storage_unavailable 仍拒绝。消息扫描与摘要重试是不同入口，均保留测试。

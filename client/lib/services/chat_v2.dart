@@ -119,7 +119,7 @@ class ChatV2Router {
     '/v2/downloads/get': <String>{'expected_identity', 'task_id'},
     '/v2/notifications/get': <String>{'expected_identity'},
     '/v2/notifications/set': <String>{'expected_identity', 'enabled'},
-    '/v2/notifications/changes': <String>{'expected_identity', 'after_cursor', 'through_cursor', 'limit'},
+    '/v2/notifications/changes': <String>{'expected_identity', 'after_cursor', 'through_cursor', 'limit', 'retry_cursors'},
     '/v2/events/subscribe': <String>{'expected_identity', 'peer_account', 'conversation', 'discover'},
     '/v2/events/read': <String>{
       'expected_identity',
@@ -620,6 +620,7 @@ class ChatV2Router {
         final result = await service.notificationChanges(expectedIdentity: expected,
           afterCursor: (args.values['after_cursor'] as int?) ?? 0,
           throughCursor: args.values['through_cursor'] as int?,
+          retryCursors: (args.values['retry_cursors'] as List<int>?) ?? const [],
           limit: (args.values['limit'] as int?) ?? 100);
         return _reply(expected, result);
       case '/v2/events/subscribe':
@@ -813,6 +814,9 @@ class ChatV2Router {
         if (!request.contains('enabled')) throw _validation('enabled');
         args.values['enabled'] = request.boolean('enabled', true);
       case '/v2/notifications/changes':
+        final rawRetry = request.contains('retry_cursors') ? request.raw['retry_cursors'] : <dynamic>[];
+        if (rawRetry is! List || rawRetry.length > 100 || rawRetry.any((v) => v is! int || v < 1 || v > maxBindingRevision)) throw _validation('retry_cursors');
+        args.values['retry_cursors'] = rawRetry.cast<int>();
         args.values['after_cursor'] = request.optionalInteger('after_cursor', 0, maxBindingRevision);
         args.values['through_cursor'] = request.nullableInteger('through_cursor', 0, maxBindingRevision);
         args.values['limit'] = request.optionalInteger('limit', 1, 100);

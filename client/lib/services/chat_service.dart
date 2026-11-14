@@ -377,6 +377,7 @@ class ChatService {
     required ExpectedIdentity expectedIdentity,
     required int afterCursor,
     int? throughCursor,
+    List<int> retryCursors = const [],
     int limit = 100,
   }) async {
     final context = await requireIdentity(expectedIdentity);
@@ -390,7 +391,18 @@ class ChatService {
     final displayed = await ledger.displayedMessageIds(account);
     final page = await ledger.readLocalEvents(account: account,
       consumerSession: expectedIdentity.consumerId, afterCursor: afterCursor, limit: limit);
-    final entries = page.items.where((e) => e.cursor <= head).toList();
+    final fresh = page.items.where((e) => e.cursor <= head).toList();
+    final entries = [...fresh];
+    if (retryCursors.length > 100 || retryCursors.any((c) => c < 1 || c > afterCursor)) {
+      throw const AuthFailure(status: 422, code: 'validation_error', message: 'Invalid retry cursor.');
+    }
+    for (final cursor in retryCursors.toSet()) {
+      final retry = await ledger.readLocalEvents(account: account, consumerSession: expectedIdentity.consumerId, afterCursor: cursor - 1, limit: 1);
+      if (retry.items.isNotEmpty && retry.items.first.cursor == cursor) entries.add(retry.items.first);
+    }
+    final List<Map<String, dynamic>> deferred = [];
+    bool localFailure(AuthFailure f) => const {'not_found', 'upstream_unavailable', 'upstream_timeout', 'network_error'}.contains(f.code);
+    final Map<String, String> failedPeers = {};
     final Map<String, Map<String, dynamic>> changes = {};
     if (settings['enabled'] == true) {
       for (final entry in entries) {
@@ -402,8 +414,16 @@ class ChatService {
         // Durable v1 local events deliberately store peer/position, not bodies or
         // message IDs. Resolve exactly that authoritative position (also works
         // for migrated feeds); never turn this lookup into a display receipt.
-        final history = await api.conversation(token: context.identity.token,
-          account: event.peerAccount!, afterPosition: event.position! - 1, limit: 1);
+        if (failedPeers.containsKey(event.peerAccount)) continue;
+        MessagePage history;
+        try {
+          history = await api.conversation(token: context.identity.token,
+            account: event.peerAccount!, afterPosition: event.position! - 1, limit: 1);
+        } on AuthFailure catch (failure) {
+          if (!localFailure(failure)) rethrow;
+          failedPeers[event.peerAccount!] = failure.code;
+          continue;
+        }
         if (history.items.isEmpty || history.items.first.position != event.position) continue;
         final message = history.items.first;
         if (displayed.contains(message.id)) continue;
@@ -422,25 +442,38 @@ class ChatService {
       if (changes.isNotEmpty) {
         String after = '';
         do {
-          final summaries = await query.listConversations(consumerId: expectedIdentity.consumerId, afterAccount: after, limit: 100);
+          final summaries = await api.conversations(token: context.identity.token, afterAccount: after, limit: 100);
           for (final row in summaries.items) {
-            changes[row.peerAccount]?['incoming_unread'] = row.incomingUnread;
-            changes[row.peerAccount]?['display_name'] = row.displayName;
+            if (!changes.containsKey(row.peerAccount) || failedPeers.containsKey(row.peerAccount)) continue;
+            try {
+              final summary = await query.summarizeConversation(captured: context.identity, row: row,
+                consumerId: expectedIdentity.consumerId, displayed: displayed);
+              changes[row.peerAccount]?['incoming_unread'] = summary.incomingUnread;
+              changes[row.peerAccount]?['display_name'] = summary.displayName;
+            } on AuthFailure catch (failure) {
+              if (!localFailure(failure)) rethrow;
+              failedPeers[row.peerAccount] = failure.code;
+            }
           }
           if (summaries.nextCursor == null) break;
           after = summaries.nextCursor!;
         } while (true);
       }
     }
+    for (final peer in failedPeers.keys) { changes.remove(peer); }
+    for (final entry in entries) {
+      final code = failedPeers[entry.event.peerAccount];
+      if (code != null) deferred.add({'cursor': entry.cursor, 'peer_account': entry.event.peerAccount, 'error_code': code});
+    }
     await requireIdentity(expectedIdentity);
     final current = await ledger.notificationSettings(account);
     if (current['revision'] != settings['revision']) {
       // Discard the sampled metadata; the caller retries from its old cursor.
-      return <String, dynamic>{'settings': current, 'items': <dynamic>[],
+      return <String, dynamic>{'settings': current, 'items': <dynamic>[], 'deferred': <dynamic>[],
         'next_cursor': afterCursor, 'through_cursor': head, 'has_more': afterCursor < head};
     }
-    final int next = settings['enabled'] == false ? head : entries.isEmpty ? head : entries.last.cursor;
-    return <String, dynamic>{'settings': settings, 'items': changes.values.toList(),
+    final int next = settings['enabled'] == false ? head : fresh.isEmpty ? head : fresh.last.cursor;
+    return <String, dynamic>{'settings': settings, 'items': changes.values.toList(), 'deferred': deferred,
       'next_cursor': next, 'through_cursor': head, 'has_more': next < head};
   }
 
