@@ -118,6 +118,9 @@ def fixtures():
                     "view_signature": {},
                     "update_signature": {"value": "synthetic signature"},
                     "get_consumption": {"account": "10000002"},
+                    "get_notifications": {},
+                    "set_notifications": {"enabled": False},
+                    "notification_changes": {},
                     "list_conversations": {"after_account": "", "limit": 50},
                     "get_message": {"message_id": "m1"},
                     "get_context": {
@@ -206,6 +209,9 @@ def fixtures():
     for name in ["get_message", "get_context"]:
         inputs[name]["message_id"] = message["id"]
     results = {
+        "get_notifications": {"enabled": True, "revision": 1, "skip_source_through": 0},
+        "set_notifications": {"enabled": False, "revision": 2, "skip_source_through": 0},
+        "notification_changes": {"settings": {"enabled": True, "revision": 1, "skip_source_through": 0}, "items": [], "next_cursor": 0, "through_cursor": 0, "has_more": False},
         "view_avatar": {
             "account": AUTH["account"],
             "mime_type": "image/png",

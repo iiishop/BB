@@ -29,6 +29,14 @@ class ChatApiClient {
 
   // ---------------------------------------------------------------- REST ----
 
+  Future<int> eventHead({required String token}) async {
+    final _RawResponse response = await _send('GET', _query('/events/head'), token: token);
+    _requireSuccess(response, const <int>{200});
+    final Object? value = _decode(response.body)['event_id'];
+    if (value is! int || value < 0) throw upstreamMalformed;
+    return value;
+  }
+
   Future<UserPage> listUsers({
     required String token,
     String afterAccount = '',

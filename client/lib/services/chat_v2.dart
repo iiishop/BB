@@ -85,6 +85,7 @@ class ChatV2Router {
     },
     '/v2/chat/read_messages': <String>{
       'expected_identity',
+      'unread_only',
       'account',
       'after_position',
       'before_position',
@@ -116,6 +117,9 @@ class ChatV2Router {
       'directory',
     },
     '/v2/downloads/get': <String>{'expected_identity', 'task_id'},
+    '/v2/notifications/get': <String>{'expected_identity'},
+    '/v2/notifications/set': <String>{'expected_identity', 'enabled'},
+    '/v2/notifications/changes': <String>{'expected_identity', 'after_cursor', 'through_cursor', 'limit'},
     '/v2/events/subscribe': <String>{'expected_identity', 'peer_account', 'conversation', 'discover'},
     '/v2/events/read': <String>{
       'expected_identity',
@@ -516,7 +520,10 @@ class ChatV2Router {
             limit: (args.values['limit'] as int?) ?? 50,
           );
           final List<Map<String, dynamic>> items = <Map<String, dynamic>>[];
+          final displayed = args.values['unread_only'] == true
+              ? await service.ledger.displayedMessageIds(expected.account) : null;
           for (final ChatMessage message in history.items) {
+            if (displayed != null && (message.targetAccount != expected.account || displayed.contains(message.id))) continue;
             final QueryVisibleMessage visible =
                 await service.visibleMessageForQuery(
                   captured: context.identity,
@@ -598,6 +605,23 @@ class ChatV2Router {
           throw _V2Error(404, 'not_found', _messageByCode['not_found']!);
         }
         return _reply(expected, _download(task));
+      case '/v2/notifications/get':
+        final settings = await service.ledger.notificationSettings(expected.account);
+        await service.requireIdentity(expected);
+        return _reply(expected, settings);
+      case '/v2/notifications/set':
+        final settings = await service.ledger.setNotificationSettings(
+          identity: expected, enabled: args.values['enabled'] as bool,
+          stillCurrent: () => session.isCurrent(context.identity),
+          sourceHead: () => service.api.eventHead(token: context.identity.token));
+        await service.requireIdentity(expected);
+        return _reply(expected, settings);
+      case '/v2/notifications/changes':
+        final result = await service.notificationChanges(expectedIdentity: expected,
+          afterCursor: (args.values['after_cursor'] as int?) ?? 0,
+          throughCursor: args.values['through_cursor'] as int?,
+          limit: (args.values['limit'] as int?) ?? 100);
+        return _reply(expected, result);
       case '/v2/events/subscribe':
         final String? peer = args.values['peer_account'] as String?;
         await service.subscribeEventsFor(
@@ -726,6 +750,7 @@ class ChatV2Router {
         args.values['operation_id'] = request.operationId('operation_id');
         args.attachment = _attachment(request);
       case '/v2/chat/read_messages':
+        args.values['unread_only'] = request.boolean('unread_only', false);
         args.values['account'] = request.account('account');
         final int? after = request.nullableInteger(
           'after_position',
@@ -782,6 +807,15 @@ class ChatV2Router {
         );
       case '/v2/downloads/get':
         args.values['task_id'] = request.opaque('task_id');
+      case '/v2/notifications/get':
+        break;
+      case '/v2/notifications/set':
+        if (!request.contains('enabled')) throw _validation('enabled');
+        args.values['enabled'] = request.boolean('enabled', true);
+      case '/v2/notifications/changes':
+        args.values['after_cursor'] = request.optionalInteger('after_cursor', 0, maxBindingRevision);
+        args.values['through_cursor'] = request.nullableInteger('through_cursor', 0, maxBindingRevision);
+        args.values['limit'] = request.optionalInteger('limit', 1, 100);
       case '/v2/events/subscribe':
         String? peer = request.raw['peer_account'] == null ? null : request.account('peer_account');
         final bool discover = request.boolean('discover', false);

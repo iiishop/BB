@@ -558,6 +558,39 @@ class ChatLedger {
     };
   });
 
+  Map<String, dynamic> _notificationSettings(String account) =>
+      Map<String, dynamic>.from((_account(account)['notification_settings'] as Map<String, dynamic>?) ??
+        <String, dynamic>{'enabled': true, 'revision': 1, 'skip_source_through': 0});
+
+  Future<Map<String, dynamic>> notificationSettings(String account) =>
+      _locked(() async => _notificationSettings(account));
+
+  Future<Map<String, dynamic>> setNotificationSettings({
+    required ExpectedIdentity identity,
+    required bool enabled,
+    required bool Function() stillCurrent,
+    required Future<int> Function() sourceHead,
+  }) => _mutate(() async {
+    void check() {
+      if (!stillCurrent()) throw staleIdentity;
+      final ConsumerBinding? binding = _bindingLocked(identity.consumerId);
+      if (binding == null || !identity.matches(binding.identity)) throw staleBinding('消费者绑定版本已变化');
+    }
+    check();
+    final settings = _notificationSettings(identity.account);
+    if (settings['enabled'] == enabled) return settings;
+    // The server head is the linearization boundary for off->on. The ledger
+    // mutex excludes ingestion and competing toggles until commit. Repeating
+    // on while already on MUST NOT skip offline backlog.
+    final int cutoff = enabled ? await sourceHead() : settings['skip_source_through'] as int;
+    check();
+    final next = <String, dynamic>{'enabled': enabled,
+      'revision': (settings['revision'] as int) + 1, 'skip_source_through': cutoff};
+    _account(identity.account)['notification_settings'] = next;
+    await _flush();
+    return next;
+  });
+
   // -------------------------------------------------------------- operations --
 
   Future<ChatOperationRecord?> operation(String account, String operationId) {

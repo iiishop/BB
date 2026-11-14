@@ -1,0 +1,54 @@
+DEA-474 通知与自主读取契约，revision 1
+===================================
+
+基线 `3fd908fa`，沿用执行规格 v1；Forge 单独维护以下跨语言状态。
+本文冻结第二阶段接口及恢复顺序，实跑结果随最终候选另附。
+
+本地 v2 新增三个严格、owner/expected_identity 保护的操作：
+
+| 操作 | 输入 | 输出/权限 |
+| --- | --- | --- |
+| get_notifications | 无额外参数 | enabled、revision、skip_source_through；MCP 可见 |
+| set_notifications | enabled: boolean | 相同值幂等，返回同一设置；MCP 可见 |
+| notification_changes | after_cursor、可选 through_cursor、limit≤100 | settings、按会话新增数/当前入站未读/名称/最后预览、next_cursor、through_cursor、has_more；仅 bridge 内部 |
+
+通知设置放在客户端 ledger 的 account.notification_settings；没有设置的账号默认开启。
+订阅集合、来源扫描、消费确认与发送/下载记录不因此改变。设置关闭不禁用查询、wait 或发送。
+false→true 在 ledger 提交锁内取服务端已认证账号的 `/events/head`，以该来源 event ID 为手动开启边界，
+之后回补的旧来源事件同样跳过；已经 true 的重试不重取边界，因而不会丢失离线消息。
+关闭无需联网；手动开启若无法取得服务端边界，原关闭状态保留并返回错误，不伪造成功。
+同一锁内复验当前身份和绑定，开关并发次序由持久提交决定；新消息相对于服务端 head 快照决定归属。
+设置按账号共享，consumer 重绑/程序重启不重置；没有向对端公开已读。
+
+notification_changes 只从现有 local events 和权威消息/展示凭证求摘要，不建立第二消息库。
+每个摘要包含 conversation、peer_account、display_name、new_count、incoming_unread、last_message 预览。
+预览沿用 160 Unicode code points 上限，不取媒体、不造 receipt、不确认/ACK；聊天内容不可信。
+读取窗口固定在 through_cursor，新来信归下一窗口，扫描不因持续流量无限延后。
+更改设置期间取到的旧摘要全部丢弃，调用方从原游标重新按新设置计算。
+
+bridge 通知 journal 与原正文/操作 journal 分开，保存账号+consumer、来源事件窗口、设置 revision、
+按会话汇总的预览、固定 native ID、session/incarnation 和收集/投递状态。原正文凭证仍由客户端所有。
+首次变化起固定聚合 1 秒（不按每条消息重置计时），一次离线窗口汇总成一个输入。
+扫描分片持久化；同一条来源变化不会在崩溃恢复后重复计数。无新变化时绝不因未读仍存在再通知。
+
+投递顺序：持久摘要 prepared → 持久 dispatch intent → 最后一次 owner/设置校验 → 原生 followup →
+原生 session flush → 持久通知游标。最终设置校验是投递接纳点；此前关闭/切换 revision 取消未接纳摘要，
+此后已经接纳的原生输入归宿主队列，不能撤销已经开始的模型回合。
+重启先查同 native ID 的持久 session 事件/原生 inbox：有证据则完成本地游标提交，不重复 followup；
+尚未写 dispatch intent 可恢复准备；已有 intent 却无法证明是否投递保持 uncertain，不猜测重放。
+这是未知结果时的明确停止边界，不把 uncertain 伪装为已送达。身份/owner/存储错误不可吞掉。
+
+自动 tick/poll 不再 read_messages、claim 正文或附加历史。通知输入本身永远不进入正文确认队列。
+模型显式 read_messages/get_message/get_context/wait_messages 的完整结果，在真实模型投影与成功 turn/end
+证据齐全后才沿用 confirm_presentation；稀疏 ACK 缺口不扩大已读范围。
+read_messages 新增 unread_only=false：true 只展示本页实际入站且未成功展示的项；位置分页仍按原始页推进，
+空过滤页不表示没有后续页，应按 has_more/next_position 继续。最近上下文用已有 before_position/get_context。
+发送工具和稳定 operation_id 对账保持；最终模型文本不自动发送。
+
+旧正文 journal 及 receipts/operations 不删除。未投影的旧自动全文输入恢复为等待自主读取，
+不再用新版本自动重新投递；已有投影/成功回合仍按原证据对账。未知发送/展示继续保留原守卫。
+通知 journal 新文件不存在时从事件 0 扫描，已成功展示的消息不生成旧通知。
+账号设置是兼容 ledger v3 的新增可选字段；旧程序可能保留该字段但不执行通知规则，回退不得继续旧自动全文桥接。
+
+等待 A 时 B 通知的实时性以原版 DSH 实测为准；BB 不改宿主内核或强制每个会话一个 session。
+未绑定的 session 不可通过通知工具取得权限。真实模型凭据、Android/Windows 环境不在本次授权中。

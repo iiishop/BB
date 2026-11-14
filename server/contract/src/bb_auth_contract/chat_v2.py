@@ -135,7 +135,7 @@ class Peer(Protected):
 
 
 class Read(Peer, query.HistoryQuery):
-    pass
+    unread_only: bool = False
 
 
 class Conversations(Protected, query.ConsumerConversationQuery):
@@ -258,6 +258,39 @@ class Subscription(v1.Wire):
     peer_account: v1.Account | None
     conversation: query.ConversationRef | None
     discover: bool
+
+
+class NotificationSettings(v1.Wire):
+    enabled: bool
+    revision: Revision
+    skip_source_through: Position
+
+
+class SetNotifications(Protected):
+    enabled: bool
+
+
+class NotificationChanges(Protected):
+    after_cursor: Position = 0
+    through_cursor: Position | None = None
+    limit: int = Field(default=100, ge=1, le=100)
+
+
+class NotificationSummary(v1.Wire):
+    conversation: query.ConversationRef
+    peer_account: v1.Account
+    display_name: str
+    new_count: int = Field(ge=1)
+    incoming_unread: Position
+    last_message: query.MessagePreview
+
+
+class NotificationPage(v1.Wire):
+    settings: NotificationSettings
+    items: list[NotificationSummary]
+    next_cursor: Position
+    through_cursor: Position
+    has_more: bool
 
 
 class EventsRead(Protected):
@@ -389,6 +422,9 @@ BUSINESS = {
         200,
         True,
     ),
+    "get_notifications": ("/v2/notifications/get", Protected, Reply[NotificationSettings], 200, True),
+    "set_notifications": ("/v2/notifications/set", SetNotifications, Reply[NotificationSettings], 200, True),
+    "notification_changes": ("/v2/notifications/changes", NotificationChanges, Reply[NotificationPage], 200, True),
     "list_conversations": (
         "/v2/chat/list_conversations",
         Conversations,

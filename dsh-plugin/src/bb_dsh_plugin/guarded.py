@@ -14,6 +14,7 @@ from mcp.types import CallToolResult, ImageContent, TextContent
 from pydantic import TypeAdapter, ValidationError, create_model
 
 INTERNAL = {
+    "notification_changes",
     "ack_messages",
     "confirm_presentation",
     "get_consumption",

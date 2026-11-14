@@ -373,6 +373,67 @@ class ChatService {
     );
   }
 
+  Future<Map<String, dynamic>> notificationChanges({
+    required ExpectedIdentity expectedIdentity,
+    required int afterCursor,
+    int? throughCursor,
+    int limit = 100,
+  }) async {
+    final context = await requireIdentity(expectedIdentity);
+    final account = context.identity.account;
+    final settings = await ledger.notificationSettings(account);
+    final int head = throughCursor ?? await ledger.localEventHead(account, expectedIdentity.consumerId);
+    final displayed = await ledger.displayedMessageIds(account);
+    final page = await ledger.readLocalEvents(account: account,
+      consumerSession: expectedIdentity.consumerId, afterCursor: afterCursor, limit: limit);
+    final entries = page.items.where((e) => e.cursor <= head).toList();
+    final Map<String, Map<String, dynamic>> changes = {};
+    if (settings['enabled'] == true) {
+      for (final entry in entries) {
+        final event = entry.event;
+        if (event.type != LocalEventType.messageAvailable || event.messageId == null) continue;
+        final source = int.tryParse(event.eventId.replaceFirst('server:', ''));
+        if (source == null) throw const FormatException('invalid notification source');
+        if (source <= (settings['skip_source_through'] as int) || displayed.contains(event.messageId)) continue;
+        final message = await api.messageById(token: context.identity.token, messageId: event.messageId!);
+        if (message == null) continue;
+        if (message.targetAccount != account) continue;
+        final peer = message.senderAccount;
+        final row = changes.putIfAbsent(peer, () => <String, dynamic>{
+          'conversation': directConversation(account, peer), 'peer_account': peer,
+          'display_name': peer, 'new_count': 0, 'incoming_unread': 0,
+          'last_message': messagePreview(message),
+        });
+        row['new_count'] = (row['new_count'] as int) + 1;
+        if (message.position > ((row['last_message'] as Map<String, dynamic>)['position'] as int)) row['last_message'] = messagePreview(message);
+      }
+      // Reuse the sole account-unread implementation; no notification-specific
+      // read database. No change means no history query on an idle heartbeat.
+      if (changes.isNotEmpty) {
+        String after = '';
+        do {
+          final summaries = await query.listConversations(consumerId: expectedIdentity.consumerId, afterAccount: after, limit: 100);
+          for (final row in summaries.items) {
+            changes[row.peerAccount]?['incoming_unread'] = row.incomingUnread;
+            changes[row.peerAccount]?['display_name'] = row.displayName;
+          }
+          if (summaries.nextCursor == null) break;
+          after = summaries.nextCursor!;
+        } while (true);
+      }
+    }
+    await requireIdentity(expectedIdentity);
+    final current = await ledger.notificationSettings(account);
+    if (current['revision'] != settings['revision']) {
+      // Discard the sampled metadata; the caller retries from its old cursor.
+      return <String, dynamic>{'settings': current, 'items': <dynamic>[],
+        'next_cursor': afterCursor, 'through_cursor': head, 'has_more': afterCursor < head};
+    }
+    final int next = settings['enabled'] == false ? head : entries.isEmpty ? head : entries.last.cursor;
+    return <String, dynamic>{'settings': settings, 'items': changes.values.toList(),
+      'next_cursor': next, 'through_cursor': head, 'has_more': next < head};
+  }
+
   Future<void> subscribeEventsFor({
     required ExpectedIdentity expectedIdentity,
     String? peerAccount,

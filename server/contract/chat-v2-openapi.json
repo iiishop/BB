@@ -1454,6 +1454,402 @@
         }
       }
     },
+    "/v2/notifications/get": {
+      "post": {
+        "operationId": "get_notifications",
+        "security": [
+          {
+            "consumerOwner": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Protected"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Reply_NotificationSettings"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v2/notifications/set": {
+      "post": {
+        "operationId": "set_notifications",
+        "security": [
+          {
+            "consumerOwner": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetNotifications"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Reply_NotificationSettings"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v2/notifications/changes": {
+      "post": {
+        "operationId": "notification_changes",
+        "security": [
+          {
+            "consumerOwner": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationChanges"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Reply_NotificationPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v2/chat/list_conversations": {
       "post": {
         "operationId": "list_conversations",
@@ -4293,6 +4689,288 @@
         "title": "ProfileSignature",
         "type": "object"
       },
+      "Protected": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_identity": {
+            "$ref": "#/components/schemas/ExpectedIdentity"
+          }
+        },
+        "required": [
+          "expected_identity"
+        ],
+        "title": "Protected",
+        "type": "object"
+      },
+      "NotificationSettings": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "revision": {
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "title": "Revision",
+            "type": "integer"
+          },
+          "skip_source_through": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Skip Source Through",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "enabled",
+          "revision",
+          "skip_source_through"
+        ],
+        "title": "NotificationSettings",
+        "type": "object"
+      },
+      "Reply_NotificationSettings": {
+        "additionalProperties": false,
+        "properties": {
+          "identity": {
+            "$ref": "#/components/schemas/ExpectedIdentity"
+          },
+          "result": {
+            "$ref": "#/components/schemas/NotificationSettings"
+          }
+        },
+        "required": [
+          "identity",
+          "result"
+        ],
+        "title": "Reply[NotificationSettings]",
+        "type": "object"
+      },
+      "SetNotifications": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_identity": {
+            "$ref": "#/components/schemas/ExpectedIdentity"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "expected_identity",
+          "enabled"
+        ],
+        "title": "SetNotifications",
+        "type": "object"
+      },
+      "NotificationChanges": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_identity": {
+            "$ref": "#/components/schemas/ExpectedIdentity"
+          },
+          "after_cursor": {
+            "default": 0,
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "After Cursor",
+            "type": "integer"
+          },
+          "through_cursor": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Through Cursor"
+          },
+          "limit": {
+            "default": 100,
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_identity"
+        ],
+        "title": "NotificationChanges",
+        "type": "object"
+      },
+      "ConversationRef": {
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "const": "direct",
+            "default": "direct",
+            "title": "Type",
+            "type": "string"
+          },
+          "id": {
+            "pattern": "^dm:[1-9][0-9]{7}:[1-9][0-9]{7}$",
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "ConversationRef",
+        "type": "object"
+      },
+      "MessagePreview": {
+        "additionalProperties": false,
+        "properties": {
+          "message_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Message Id",
+            "type": "string"
+          },
+          "sender_account": {
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Sender Account",
+            "type": "string"
+          },
+          "position": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Position",
+            "type": "integer"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "text": {
+            "maxLength": 160,
+            "title": "Text",
+            "type": "string"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "message_id",
+          "sender_account",
+          "position",
+          "created_at",
+          "text",
+          "truncated"
+        ],
+        "title": "MessagePreview",
+        "type": "object"
+      },
+      "NotificationPage": {
+        "additionalProperties": false,
+        "properties": {
+          "settings": {
+            "$ref": "#/components/schemas/NotificationSettings"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/NotificationSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Next Cursor",
+            "type": "integer"
+          },
+          "through_cursor": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Through Cursor",
+            "type": "integer"
+          },
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "settings",
+          "items",
+          "next_cursor",
+          "through_cursor",
+          "has_more"
+        ],
+        "title": "NotificationPage",
+        "type": "object"
+      },
+      "NotificationSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "conversation": {
+            "$ref": "#/components/schemas/ConversationRef"
+          },
+          "peer_account": {
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Peer Account",
+            "type": "string"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "new_count": {
+            "minimum": 1,
+            "title": "New Count",
+            "type": "integer"
+          },
+          "incoming_unread": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Incoming Unread",
+            "type": "integer"
+          },
+          "last_message": {
+            "$ref": "#/components/schemas/MessagePreview"
+          }
+        },
+        "required": [
+          "conversation",
+          "peer_account",
+          "display_name",
+          "new_count",
+          "incoming_unread",
+          "last_message"
+        ],
+        "title": "NotificationSummary",
+        "type": "object"
+      },
+      "Reply_NotificationPage": {
+        "additionalProperties": false,
+        "properties": {
+          "identity": {
+            "$ref": "#/components/schemas/ExpectedIdentity"
+          },
+          "result": {
+            "$ref": "#/components/schemas/NotificationPage"
+          }
+        },
+        "required": [
+          "identity",
+          "result"
+        ],
+        "title": "Reply[NotificationPage]",
+        "type": "object"
+      },
       "Conversations": {
         "additionalProperties": false,
         "properties": {
@@ -4447,27 +5125,6 @@
           "next_cursor"
         ],
         "title": "ConsumerConversationPage",
-        "type": "object"
-      },
-      "ConversationRef": {
-        "additionalProperties": false,
-        "properties": {
-          "type": {
-            "const": "direct",
-            "default": "direct",
-            "title": "Type",
-            "type": "string"
-          },
-          "id": {
-            "pattern": "^dm:[1-9][0-9]{7}:[1-9][0-9]{7}$",
-            "title": "Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id"
-        ],
-        "title": "ConversationRef",
         "type": "object"
       },
       "Image": {
@@ -4626,52 +5283,6 @@
           "kind"
         ],
         "title": "Message",
-        "type": "object"
-      },
-      "MessagePreview": {
-        "additionalProperties": false,
-        "properties": {
-          "message_id": {
-            "maxLength": 200,
-            "minLength": 1,
-            "pattern": "^[A-Za-z0-9_-]+$",
-            "title": "Message Id",
-            "type": "string"
-          },
-          "sender_account": {
-            "pattern": "^[1-9][0-9]{7}$",
-            "title": "Sender Account",
-            "type": "string"
-          },
-          "position": {
-            "maximum": 9007199254740991,
-            "minimum": 0,
-            "title": "Position",
-            "type": "integer"
-          },
-          "created_at": {
-            "title": "Created At",
-            "type": "string"
-          },
-          "text": {
-            "maxLength": 160,
-            "title": "Text",
-            "type": "string"
-          },
-          "truncated": {
-            "title": "Truncated",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "message_id",
-          "sender_account",
-          "position",
-          "created_at",
-          "text",
-          "truncated"
-        ],
-        "title": "MessagePreview",
         "type": "object"
       },
       "Text": {
@@ -5411,6 +6022,11 @@
             "pattern": "^[1-9][0-9]{7}$",
             "title": "Account",
             "type": "string"
+          },
+          "unread_only": {
+            "default": false,
+            "title": "Unread Only",
+            "type": "boolean"
           }
         },
         "required": [
