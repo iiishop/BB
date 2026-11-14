@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:bb_client/config/media_policy.dart';
 import 'package:bb_client/models/auth_models.dart';
 import 'package:bb_client/models/chat_models.dart';
 import 'package:bb_client/services/auth_session.dart';
@@ -59,6 +60,25 @@ class FakeChatService extends ChatService {
   final List<String> sentTexts = <String>[];
   final List<int> conversationCalls = <int>[];
   final List<String> mediaBytesCalls = <String>[];
+  final List<String> previewCalls = <String>[];
+  final List<bool> previewThumbnailFlags = <bool>[];
+  final List<String> listPreviewCalls = <String>[];
+  final List<String> metadataCalls = <String>[];
+  final List<String> originalCalls = <String>[];
+  final List<int> originalProgress = <int>[];
+
+  bool previewFails = false;
+  Object? originalFailure;
+  Completer<void>? originalGate;
+  Uint8List? originalBytes;
+  Attachment metadata = const Attachment(
+    mediaId: 'metadata',
+    kind: AttachmentKind.image,
+    filename: 'probe.jpg',
+    mimeType: 'image/jpeg',
+    byteSize: 40 * 1024,
+  );
+
   final List<String> openMediaStreamCalls = <String>[];
   FakeMediaStreamHandle? lastStreamHandle;
   final List<OutgoingPart> lastSentBody = <OutgoingPart>[];
@@ -227,6 +247,66 @@ class FakeChatService extends ChatService {
   Future<Uint8List> mediaBytes(String mediaId) async {
     mediaBytesCalls.add(mediaId);
     return mediaId.contains('2') ? greenBytes : pngBytes;
+  }
+
+  @override
+  Future<MediaPreview> loadMediaPreview(
+    String mediaId, {
+    bool thumbnail = false,
+  }) async {
+    previewCalls.add(mediaId);
+    previewThumbnailFlags.add(thumbnail);
+    if (previewFails) {
+      throw StateError('preview failed');
+    }
+    return MediaPreview(
+      bytes: mediaId.contains('2') ? greenBytes : pngBytes,
+      isDerivative: thumbnail,
+    );
+  }
+
+  @override
+  Future<Attachment> loadMediaMetadata(String mediaId) async {
+    metadataCalls.add(mediaId);
+    return metadata;
+  }
+
+  @override
+  Future<Uint8List> loadListPreview(String mediaId) async {
+    listPreviewCalls.add(mediaId);
+    final Attachment info = await loadMediaMetadata(mediaId);
+    if (mediaNeedsExplicitOriginal(info.byteSize)) {
+      return (await loadMediaPreview(mediaId, thumbnail: true)).bytes;
+    }
+    return mediaBytes(mediaId);
+  }
+
+  @override
+  Future<MediaResponse> fetchOriginalMedia(
+    String mediaId, {
+    void Function(int received, int? total)? onProgress,
+  }) async {
+    originalCalls.add(mediaId);
+    final Completer<void>? gate = originalGate;
+    if (gate != null) {
+      await gate.future;
+    }
+    final Object? failure = originalFailure;
+    if (failure != null) {
+      throw failure;
+    }
+    final Uint8List bytes = originalBytes ?? greenBytes;
+    onProgress?.call(bytes.length ~/ 2, bytes.length);
+    originalProgress.add(bytes.length ~/ 2);
+    onProgress?.call(bytes.length, bytes.length);
+    originalProgress.add(bytes.length);
+    return MediaResponse(
+      status: 200,
+      bytes: bytes,
+      mimeType: 'image/jpeg',
+      filename: 'original.jpg',
+      byteSize: bytes.length,
+    );
   }
 
   @override

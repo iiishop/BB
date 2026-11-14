@@ -6,12 +6,15 @@ import 'package:video_player/video_player.dart';
 
 import '../../app.dart';
 import '../../models/auth_models.dart';
+import '../../models/chat_media.dart';
 import '../../models/chat_models.dart';
 import '../../services/chat_service.dart';
 import '../../services/media_stream_proxy.dart';
 import 'chat_composer.dart';
 import 'chat_format.dart';
 import 'media_actions.dart';
+import 'media_save.dart';
+import 'media_viewer.dart';
 import 'message_bubble.dart';
 
 /// One-to-one chat with ordered text/image content and independent attachments.
@@ -22,10 +25,14 @@ class ChatPage extends StatefulWidget {
     required this.chat,
     this.openExternalStream,
     this.onMessagesChanged,
+    this.saveService,
   });
 
   final ChatUser peer;
   final ChatService chat;
+
+  /// Injected by tests; production builds the platform save service lazily.
+  final MediaSaveService? saveService;
 
   /// Test seam for the desktop streaming hand-off. Production uses the
   /// platform opener on the authenticated loopback stream URL.
@@ -62,6 +69,9 @@ class _ChatPageState extends State<ChatPage> {
 
   String get _consumerSession =>
       'ui:${widget.chat.selfAccount}:${widget.peer.account}';
+
+  late final MediaSaveService _saveService =
+      widget.saveService ?? MediaSaveService(chat: widget.chat);
 
   @override
   void initState() {
@@ -307,6 +317,55 @@ class _ChatPageState extends State<ChatPage> {
     } finally {
       _setBusy(attachment.mediaId, false);
     }
+  }
+
+  List<ChatMediaItem> _buildMediaItems() {
+    return buildConversationMedia(
+      messages: _messages,
+      selfAccount: widget.chat.selfAccount,
+      selfName: '我',
+      peerName: widget.peer.username,
+    );
+  }
+
+  Future<void> _openMedia(ChatMessage message, int? partIndex) async {
+    final List<ChatMediaItem> items = _buildMediaItems();
+    final int index = findConversationMediaIndex(
+      items,
+      messageId: message.id,
+      partIndex: partIndex,
+    );
+    if (index < 0 || !mounted) {
+      return;
+    }
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (BuildContext context) => MediaViewer(
+          items: items,
+          initialIndex: index,
+          chat: widget.chat,
+          saveService: _saveService,
+          sequenceComplete: _error == null,
+          onPlayVideo: _playViewerVideo,
+          onReload: _reloadMediaSequence,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _playViewerVideo(ChatMediaItem item) async {
+    final Attachment? attachment = item.message.attachment;
+    if (attachment == null) {
+      return;
+    }
+    await _play(attachment);
+  }
+
+  Future<({List<ChatMediaItem> items, bool complete})>
+  _reloadMediaSequence() async {
+    await _loadInitial();
+    return (items: _buildMediaItems(), complete: _error == null);
   }
 
   Future<DownloadTask> _waitForDownload(DownloadTask initial) async {
@@ -565,6 +624,7 @@ class _ChatPageState extends State<ChatPage> {
           onPlay: attachment == null || attachment.kind == AttachmentKind.other
               ? null
               : () => _play(attachment),
+          onOpenMedia: _openMedia,
         ),
       );
       previous = message.createdAt;

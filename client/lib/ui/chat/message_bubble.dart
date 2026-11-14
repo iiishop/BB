@@ -19,6 +19,7 @@ class MessageBubble extends StatelessWidget {
     this.onSaveAs,
     this.onDownload,
     this.onPlay,
+    this.onOpenMedia,
     this.busy = false,
   });
 
@@ -29,6 +30,9 @@ class MessageBubble extends StatelessWidget {
   final VoidCallback? onSaveAs;
   final VoidCallback? onDownload;
   final VoidCallback? onPlay;
+
+  /// Opens the full-screen viewer at this media slot; null disables the tap.
+  final void Function(ChatMessage message, int? partIndex)? onOpenMedia;
   final bool busy;
 
   bool get mine => message.senderAccount == selfAccount;
@@ -66,6 +70,7 @@ class MessageBubble extends StatelessWidget {
               onSaveAs: onSaveAs,
               onDownload: onDownload,
               onPlay: onPlay,
+              onOpenMedia: onOpenMedia,
             )
           else
             ..._bodyContent(context),
@@ -117,7 +122,8 @@ class MessageBubble extends StatelessWidget {
 
   List<Widget> _bodyContent(BuildContext context) {
     final List<Widget> children = <Widget>[];
-    for (final MessagePart part in message.parts) {
+    for (int index = 0; index < message.parts.length; index += 1) {
+      final MessagePart part = message.parts[index];
       if (part is TextPart) {
         children.add(
           Padding(
@@ -136,13 +142,20 @@ class MessageBubble extends StatelessWidget {
         children.add(
           Padding(
             padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(AppRadius.brand),
-              child: _MediaImage(
-                chat: chat,
-                mediaId: part.mediaId,
-                width: 160,
-                height: 160,
+            child: GestureDetector(
+              key: ValueKey<String>('chat-media-${part.mediaId}'),
+              behavior: HitTestBehavior.opaque,
+              onTap: onOpenMedia == null
+                  ? null
+                  : () => onOpenMedia!(message, index),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(AppRadius.brand),
+                child: _MediaImage(
+                  chat: chat,
+                  mediaId: part.mediaId,
+                  width: 160,
+                  height: 160,
+                ),
               ),
             ),
           ),
@@ -198,6 +211,7 @@ class _AttachmentCard extends StatelessWidget {
     this.onSaveAs,
     this.onDownload,
     this.onPlay,
+    this.onOpenMedia,
   });
 
   final ChatMessage message;
@@ -207,6 +221,7 @@ class _AttachmentCard extends StatelessWidget {
   final VoidCallback? onSaveAs;
   final VoidCallback? onDownload;
   final VoidCallback? onPlay;
+  final void Function(ChatMessage message, int? partIndex)? onOpenMedia;
 
   @override
   Widget build(BuildContext context) {
@@ -224,7 +239,11 @@ class _AttachmentCard extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(bottom: AppSpacing.sm),
             child: GestureDetector(
-              onTap: busy ? null : onPlay,
+              key: ValueKey<String>('chat-media-${attachment.mediaId}'),
+              behavior: HitTestBehavior.opaque,
+              onTap: onOpenMedia == null
+                  ? null
+                  : () => onOpenMedia!(message, null),
               child: Stack(
                 alignment: Alignment.center,
                 children: <Widget>[
@@ -396,7 +415,7 @@ class _MediaImage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<Uint8List>(
-      future: chat.mediaBytes(mediaId),
+      future: chat.loadListPreview(mediaId),
       builder: (BuildContext context, AsyncSnapshot<Uint8List> snapshot) {
         final double w = width ?? 220;
         final double h = height ?? (width == null ? 120 : height ?? 120);
