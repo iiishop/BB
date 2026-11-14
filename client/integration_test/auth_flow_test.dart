@@ -19,6 +19,7 @@ import 'package:bb_client/ui/auth_shell.dart';
 import 'package:bb_client/ui/chat/chat_composer.dart';
 import 'package:bb_client/ui/chat/media_actions.dart';
 import 'package:bb_client/ui/chat/chat_page.dart';
+import 'package:bb_client/ui/chat/media_viewer.dart';
 import 'package:bb_client/ui/chat/users_view.dart';
 import 'package:bb_client/ui/home_view.dart';
 import 'package:bb_client/ui/profile/profile_panel.dart';
@@ -630,6 +631,15 @@ void main() {
     expect(find.byType(ChatPage), findsOneWidget);
     expect(find.text('你好，图片在下面'), findsOneWidget);
     expect(find.byType(Image), findsWidgets);
+
+    // DEA-471: the rendered body image opens the full-screen viewer.
+    await tester.tap(find.byKey(ValueKey<String>('chat-media-$imageId')));
+    await tester.pumpAndSettle();
+    expect(find.byType(MediaViewer), findsOneWidget);
+    expect(find.text('第 1 / 共 1'), findsOneWidget);
+    await tester.tap(find.byKey(MediaViewer.closeKey));
+    await tester.pumpAndSettle();
+    expect(find.byType(MediaViewer), findsNothing);
 
     await tester.enterText(find.byKey(ChatComposer.inputKey), 'Linux 集成发送');
     await tester.tap(find.byKey(ChatComposer.sendKey));

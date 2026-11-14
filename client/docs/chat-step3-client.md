@@ -36,6 +36,10 @@ client/lib/ui/chat/users_view.dart         注册用户列表、预览、在线�
 client/lib/ui/chat/chat_page.dart          消息时间分组、附件卡、下载/播放/另存为
 client/lib/ui/chat/chat_composer.dart      有序草稿、图片/文件、粘贴、失败重试
 client/lib/ui/chat/message_bubble.dart     正文按序 text/image、附件卡、上下文菜单
+client/lib/ui/chat/media_viewer.dart       DEA-471 全屏查看器、跨消息媒体序列、原图进度/重试
+client/lib/ui/chat/media_save.dart         相册（MediaStore/Photos 预留）与桌面另存为分流
+client/lib/config/media_policy.dart        100 KiB 直出原图/缩略图边界（集中定义）
+client/lib/models/chat_media.dart          会话媒体序列、稳定排序与索引查找
 client/lib/ui/chat/media_actions.dart      file_selector、剪贴板图片、视频封面、系统打开
 client/lib/ui/home_view.dart               主页切换为用户列表（chat 非空时）
 client/lib/main.dart / bin/bb_client_api.dart  共用同一 ChatService 与本地接口
@@ -53,7 +57,8 @@ client/lib/main.dart / bin/bb_client_api.dart  共用同一 ChatService 与本�
 | 一对一历史 | `GET /conversations/{account}/messages?after_position&limit` |
 | 操作查询 | `GET /operations/{operation_id}` |
 | 媒体上传 | `POST /media` multipart `target_account,file,cover_media_id?` |
-| 媒体读取 | `GET /media/{id}`（Bearer；Range 用于 probe，原文件不预下载） |
+| 媒体读取 | `GET /media/{id}`（Bearer；原文件/Range；`?variant=thumb` 有界缩略图） |
+| 媒体元信息 | `GET /media/{id}/metadata`（byte_size/mime/filename，不下载原文件） |
 | 事件补取 | `GET /events?after_event_id&limit` |
 | 事件提示 | `WS /events`（仅提示；持久事实仍来自 GET） |
 
@@ -110,6 +115,40 @@ R3 新增内部路由（不导出为 MCP 工具）：
   Android 通过 `bb/media_clipboard` 平台通道读取 ClipData 的 `content://` URI、MIME、
   文件名与字节，校验大小后进入同一草稿逻辑。图片进入正文，视频进入独立附件并真实抽封面。
   iOS 无本轮 runner，未接入；Android 真机仍需单独验证。
+
+### 5.1 全屏查看器与大图懒加载（DEA-471）
+
+契约来源：Forge 的 `docs/contracts/dea471-media.md` 与
+`server/contract/src/bb_auth_contract/media.py`（`variant=thumb`、512 边上限、≤64 KiB JPEG、
+ETag/304、415/503 错误）。客户端只消费契约，不改 `server/contract`。
+
+- 序列：`buildConversationMedia` 按消息 `position`、再按消息内 `ImagePart` 顺序展开正文图片与
+  图片/视频附件；点击项精确打开，左右滑动跨消息，顶部显示「第 N / 共 M」、发送者与时间，
+  下滑或关闭/返回键退出。历史未完整加载时显示「仅显示已加载的 N 项」与重试，不虚报总数。
+- 尺寸判定：正文图片只有 media_id，先取 `GET /media/{id}/metadata`；`<= 100 KiB`（含边界）
+  直接取原图，`> 100 KiB` 取 `?variant=thumb` 作为列表与查看器首屏。阈值集中在
+  `media_policy.dart`；元信息失败可重试，不当作小图直接拉原图。
+- 原图：查看器左下角显示「原图 3.0 MB」，点击才 `GET /media/{id}`，按收到的字节/总长度显示
+  百分比；失败回到「重试 原图 …」，不展示半张图。原图只在当前查看页面持有，不进入共享预览
+  缓存；缩略图缓存与账号/媒体/服务端绑定，和原图、头像缓存分开。
+- 保存：Android 通过 `bb/media_gallery` 通道写 MediaStore（`Pictures/BB`、`Movies/BB`，
+  `bb_<timestamp>_<原名>`；API ≤ 28 运行时申请写权限），iOS 预留 `saveToPhotos` 接口；
+  Linux/Windows 继续 `getSaveLocation`。成功提示带相册位置或完整路径，取消不提示。
+- 视频：到达与打开查看器只取封面；中央播放才走既有 loopback 在线流；保存单独获取原视频。
+- 验证（固定基线 `452e88e`，契约 `agent/forge/9e751f104948` @ `fa876b9`）：
+  - `flutter analyze`：0 issue。
+  - `flutter test`：383 passed / 7 skipped（skip 为既有可选真实链路与 `BB_LIVE_SERVER_URL`
+    未设置的 DEA-471 live 用例）。
+  - 定向 19 tests：媒体序列/阈值、查看器导航与下载进度/重试/跨页隔离、聊天页接入、
+    相册/桌面保存分流。
+  - `BB_LIVE_SERVER_URL=http://127.0.0.1:8171 flutter test test/live_media_contract_test.dart`：
+    1 passed；真实 Forge 服务端验证 metadata byte_size、512 边/≤64 KiB JPEG 缩略图、
+    小图直取原图、原图字节一致、`Range bytes=0-0` 206 且总长正确、第三账号 404。
+  - `flutter test integration_test -d linux`：13 passed；真实 Linux 桌面构建中打开聊天图片
+    进入查看器并关闭。
+  - `flutter build apk --debug`：编译通过（Kotlin 通道语法/打包）；真机仍 NOT RUN。
+  - 截图：`.qa-artifacts/screenshots/dea471-media-viewer.png`，420×900 widget 渲染，
+    不是 Android/Windows 运行截图。
 
 ## 6. 展示凭据与消费 ACK
 
@@ -265,11 +304,16 @@ Owner/独立 QA 执行。
 - **真实 MCP 插件链**：Nine-tool 本地契约由 Dart 测试覆盖；真实 dsh-plugin MCP 进程
   端到端仍 NOT RUN（属于 Forge/集成 QA）。
 - **Android 真机**：`bb/media_clipboard` 通道与 `video_player` 在线播放已实现，但无设备，
-  NOT RUN；不以 Linux 结果代替。`flutter build apk --debug` 在本环境因 Gradle wrapper 缓存
-  只读/守护进程启动失败而未完成编译，Kotlin 通道仍需在可构建的 Android 环境复验。
+  NOT RUN；不以 Linux 结果代替。DEA-471 的 `flutter build apk --debug` 已在本环境编译通过
+  （含 `bb/media_gallery`），但安装、权限弹窗与相册可见性仍需真机复验。
 - **桌面在线播放 GUI**：loopback Range 代理、点击触发、权限/取消与系统播放器交接已自动
   验证；实际播放窗口/解码未在无交互环境人工验收，NOT RUN，不记作已通过。
-- **iOS**：无本轮 runner，剪贴板与播放路径未接入。
+- **iOS**：无本轮 runner，剪贴板、在线播放与 Photos 保存路径均未接入；`saveToPhotos`
+  通道接口已在 Dart 侧预留，本机调用会返回 unsupported。
+- **Android 相册落盘（DEA-471 U6）**：MediaStore 插入、命名、API ≤ 28 权限分支已写入
+  `MainActivity.kt`，但本环境 `adb devices -l` 无设备，真机「系统相册可见」NOT RUN；
+  不以 widget/APK 结果代替。当前 Linux 主机也无法验证 Android 权限弹窗与拒绝分支。
+
 - **事件日志不设丢弃窗口**：按契约保留，避免有限内存缓存丢旧事件；长期运行的清理策略
   未在本步实现。
 - 服务器/共享 schema 未改；若 R3 正式 schema 字段名有差异，以 Forge 的共享 schema 为准，

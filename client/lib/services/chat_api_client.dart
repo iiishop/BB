@@ -256,15 +256,27 @@ class ChatApiClient {
   }
 
   /// Byte range read used for message images, covers and downloads.
+  ///
+  /// [onProgress] reports received bytes and the declared total (null when the
+  /// server sent no length) while the body is still streaming, so the viewer
+  /// can show real progress instead of an unbounded spinner.
   Future<MediaResponse> fetchMedia({
     required String token,
     required String mediaId,
     String? range,
+    String? variant,
+    void Function(int received, int? total)? onProgress,
   }) async {
     final HttpClient client = HttpClient()..connectionTimeout = mediaTimeout;
     try {
+      final Uri url = _query(
+        '/media/${Uri.encodeComponent(mediaId)}',
+        variant == null || variant.isEmpty
+            ? null
+            : <String, String>{'variant': variant},
+      );
       final HttpClientRequest request = await client
-          .getUrl(_query('/media/${Uri.encodeComponent(mediaId)}'))
+          .getUrl(url)
           .timeout(mediaTimeout);
       request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
       if (range != null && range.isNotEmpty) {
@@ -273,7 +285,16 @@ class ChatApiClient {
       final HttpClientResponse response = await request.close().timeout(
         mediaTimeout,
       );
-      final Uint8List bytes = await _readBytes(response, maxMediaResponseBytes);
+      // A 206 carries the full size in Content-Range; Content-Length is only
+      // the size of this partial response.
+      final int? declaredTotal =
+          _contentRangeTotal(response) ?? _contentLength(response);
+      final Uint8List bytes = await _readBytes(
+        response,
+        maxMediaResponseBytes,
+        total: declaredTotal,
+        onProgress: onProgress,
+      );
       if (response.statusCode != 200 && response.statusCode != 206) {
         throw _decodeFailure(response.statusCode, utf8.decode(bytes));
       }
@@ -286,7 +307,7 @@ class ChatApiClient {
         filename: _filenameFromDisposition(
           response.headers.value(HttpHeaders.contentDisposition),
         ),
-        byteSize: _contentLength(response),
+        byteSize: declaredTotal,
       );
     } on SocketException {
       throw upstreamUnavailable;
@@ -299,6 +320,22 @@ class ChatApiClient {
     } finally {
       client.close(force: true);
     }
+  }
+
+  /// `GET /media/{id}/metadata` (DEA-471): the shared `Media` DTO including
+  /// the immutable original `byte_size`, without opening the original file or
+  /// generating a thumbnail.
+  Future<Attachment> fetchMediaMetadata({
+    required String token,
+    required String mediaId,
+  }) async {
+    final _RawResponse response = await _send(
+      'GET',
+      _query('/media/${Uri.encodeComponent(mediaId)}/metadata'),
+      token: token,
+    );
+    _requireSuccess(response, const <int>{200});
+    return Attachment.fromJson(_decode(response.body));
   }
 
   /// Header-only probe: requests a single byte to learn the type and filename
@@ -338,6 +375,7 @@ class ChatApiClient {
         filename: _filenameFromDisposition(
           response.headers.value(HttpHeaders.contentDisposition),
         ),
+        byteSize: _contentRangeTotal(response) ?? _contentLength(response),
       );
     } on SocketException {
       throw upstreamUnavailable;
@@ -471,14 +509,17 @@ class ChatApiClient {
 
   Future<Uint8List> _readBytes(
     HttpClientResponse response,
-    int maxBytes,
-  ) async {
+    int maxBytes, {
+    int? total,
+    void Function(int received, int? total)? onProgress,
+  }) async {
     final BytesBuilder builder = BytesBuilder(copy: false);
     await for (final List<int> chunk in response.timeout(mediaTimeout)) {
       builder.add(chunk);
       if (builder.length > maxBytes) {
         throw upstreamMalformed;
       }
+      onProgress?.call(builder.length, total);
     }
     return builder.takeBytes();
   }
@@ -486,6 +527,19 @@ class ChatApiClient {
   int? _contentLength(HttpClientResponse response) {
     final String? raw = response.headers.value(HttpHeaders.contentLengthHeader);
     return raw == null ? null : int.tryParse(raw);
+  }
+
+  /// Total size from `Content-Range: bytes 0-0/12345`.
+  int? _contentRangeTotal(HttpClientResponse response) {
+    final String? raw = response.headers.value(HttpHeaders.contentRangeHeader);
+    if (raw == null) {
+      return null;
+    }
+    final int slash = raw.lastIndexOf('/');
+    if (slash < 0 || slash + 1 >= raw.length) {
+      return null;
+    }
+    return int.tryParse(raw.substring(slash + 1).trim());
   }
 
   Map<String, dynamic> _decode(String raw) {
@@ -610,10 +664,14 @@ class MediaResponse {
 
 /// Metadata probe result (no attachment original kept).
 class MediaProbe {
-  const MediaProbe({required this.mimeType, this.filename});
+  const MediaProbe({required this.mimeType, this.filename, this.byteSize});
 
   final String mimeType;
   final String? filename;
+
+  /// Original size learned from `Content-Range`/`Content-Length` without
+  /// downloading the bytes.
+  final int? byteSize;
 }
 
 /// One durable server event. Only IDs/positions; never message bodies.

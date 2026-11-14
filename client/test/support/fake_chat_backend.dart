@@ -205,6 +205,12 @@ class FakeChatBackend {
         await _operation(request, account, operationMatch.group(1)!);
         return;
       }
+      final RegExp metadata = RegExp(r'^/media/([^/]+)/metadata$');
+      final Match? metadataMatch = metadata.firstMatch(path);
+      if (request.method == 'GET' && metadataMatch != null) {
+        await _mediaMetadata(request, account, metadataMatch.group(1)!);
+        return;
+      }
       final RegExp media = RegExp(r'^/media/([^/]+)$');
       final Match? mediaMatch = media.firstMatch(path);
       if (request.method == 'GET' && mediaMatch != null) {
@@ -461,7 +467,9 @@ class FakeChatBackend {
       attachment: attachment,
     );
     pair.add(message);
-    pair.sort((_FakeMessage a, _FakeMessage b) => a.position.compareTo(b.position));
+    pair.sort(
+      (_FakeMessage a, _FakeMessage b) => a.position.compareTo(b.position),
+    );
     return message;
   }
 
@@ -560,10 +568,11 @@ class FakeChatBackend {
         peers.add(keys.first == account ? keys.last : keys.first);
       }
     }
-    final List<String> ordered = peers
-        .where((String peer) => after.isEmpty || peer.compareTo(after) > 0)
-        .toList()
-      ..sort();
+    final List<String> ordered =
+        peers
+            .where((String peer) => after.isEmpty || peer.compareTo(after) > 0)
+            .toList()
+          ..sort();
     final List<String> page = ordered.take(limit).toList();
     final List<Map<String, dynamic>> items = <Map<String, dynamic>>[];
     for (final String peer in page) {
@@ -648,7 +657,11 @@ class FakeChatBackend {
       final int start = items[i - 1].position + 1;
       final int end = items[i].position;
       gapCount += end > start ? end - start : 0;
-      for (int position = start; position < end && gaps.length < 100; position++) {
+      for (
+        int position = start;
+        position < end && gaps.length < 100;
+        position++
+      ) {
         gaps.add(position);
       }
     }
@@ -778,6 +791,23 @@ class FakeChatBackend {
     await _write(request, 200, _mediaJson(created));
   }
 
+  Future<void> _mediaMetadata(
+    HttpRequest request,
+    String account,
+    String mediaId,
+  ) async {
+    final _FakeMedia? media = _media[mediaId];
+    if (media == null || (media.owner != account && media.peer != account)) {
+      await _error(request, 404, 'not_found');
+      return;
+    }
+    request.response.headers.set(
+      HttpHeaders.cacheControlHeader,
+      'private, no-store',
+    );
+    await _write(request, 200, _mediaJson(media));
+  }
+
   Future<void> _mediaGet(
     HttpRequest request,
     String account,
@@ -786,6 +816,23 @@ class FakeChatBackend {
     final _FakeMedia? media = _media[mediaId];
     if (media == null || (media.owner != account && media.peer != account)) {
       await _error(request, 404, 'not_found');
+      return;
+    }
+    if (request.uri.queryParameters['variant'] == 'thumb') {
+      if (media.kind != 'image') {
+        await _error(request, 415, 'unsupported_media_type');
+        return;
+      }
+      final HttpResponse thumbnail = request.response;
+      thumbnail.statusCode = 200;
+      thumbnail.headers.set(HttpHeaders.contentTypeHeader, media.mime);
+      thumbnail.headers.set(
+        HttpHeaders.cacheControlHeader,
+        'private, no-cache',
+      );
+      thumbnail.contentLength = media.bytes.length;
+      thumbnail.add(media.bytes);
+      await thumbnail.close();
       return;
     }
     final String? range = request.headers.value(HttpHeaders.rangeHeader);
