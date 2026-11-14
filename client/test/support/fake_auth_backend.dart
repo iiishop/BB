@@ -36,6 +36,12 @@ class FakeAuthBackend {
   Uint8List avatarBytes = _onePixelPng;
   bool avatarUploaded = false;
 
+  /// Optional per-account avatar state. Accounts absent here use the
+  /// single-account fields above, keeping existing tests unchanged.
+  final Map<String, Uint8List> avatarBytesByAccount = <String, Uint8List>{};
+  final Map<String, String> avatarVersionsByAccount = <String, String>{};
+  int _avatarRevision = 0;
+
   /// Every request body received, in order (multipart as `{file: length}`).
   final List<Map<String, dynamic>> requests = <Map<String, dynamic>>[];
 
@@ -45,6 +51,10 @@ class FakeAuthBackend {
 
   /// Every `If-None-Match` value seen on an avatar request.
   final List<String?> avatarIfNoneMatch = <String?>[];
+
+  /// `If-None-Match` values per avatar account, in request order.
+  final Map<String, List<String?>> avatarIfNoneMatchByAccount =
+      <String, List<String?>>{};
 
   /// Response code for heartbeat calls; set to 401/500 to script failures.
   int heartbeatStatus = 200;
@@ -73,6 +83,14 @@ class FakeAuthBackend {
     avatarUploaded = true;
     avatarVersion = 'sha256-fake-${DateTime.now().microsecondsSinceEpoch}';
     return avatarVersion;
+  }
+
+  /// Sets one account's avatar bytes and returns its new version.
+  String setAvatar(String account, Uint8List bytes) {
+    avatarBytesByAccount[account] = bytes;
+    avatarVersionsByAccount[account] =
+        'sha256-test-${++_avatarRevision}-${DateTime.now().microsecondsSinceEpoch}';
+    return avatarVersionsByAccount[account]!;
   }
 
   Future<void> _handle(HttpRequest request) async {
@@ -282,7 +300,12 @@ class FakeAuthBackend {
       HttpHeaders.ifNoneMatchHeader,
     );
     avatarIfNoneMatch.add(ifNoneMatch);
-    final String etag = '"$avatarVersion"';
+    avatarIfNoneMatchByAccount
+        .putIfAbsent(account, () => <String?>[])
+        .add(ifNoneMatch);
+    final String version = avatarVersionsByAccount[account] ?? avatarVersion;
+    final Uint8List bytes = avatarBytesByAccount[account] ?? avatarBytes;
+    final String etag = '"$version"';
     if (ifNoneMatch == etag) {
       request.response.statusCode = 304;
       request.response.headers.set(HttpHeaders.etagHeader, etag);
@@ -293,7 +316,7 @@ class FakeAuthBackend {
     response.statusCode = 200;
     response.headers.set(HttpHeaders.etagHeader, etag);
     response.headers.contentType = ContentType('image', 'png');
-    response.add(avatarBytes);
+    response.add(bytes);
     await response.close();
   }
 
@@ -389,7 +412,7 @@ class FakeAuthBackend {
     'username': username,
     'signature': signature,
     'avatar_url': '/avatars/$account.png',
-    'avatar_version': avatarVersion,
+    'avatar_version': avatarVersionsByAccount[account] ?? avatarVersion,
   };
 
   bool _authorized(HttpRequest request) {
