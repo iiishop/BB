@@ -107,6 +107,13 @@ wait 与被动事件可以通知相同事实，但通知不消费；bridge 按 e
 超时/查询 404 均不能授权不确定计划用新 ID 重试。服务端已有按账号幂等消息
 事实继续使用，不另存插件业务消息表。消费者之间应使用唯一 logical IDs。
 
+DEA-470 插件恢复解释：`operations/get` 的 404 可将插件发送 journal 落为
+`failed_absent`（客户端当前 scope 查无记录），并释放该操作的消费守卫；这不是
+新的客户端 operation status，也不证明远端未执行。原 logical key、operation_id
+及 payload digest 仍保留，禁止自动重发或换 ID 重试。网络/超时/5xx 不视为 absent；
+未完成的 native turn 仍保持 uncertain，不能因操作终态而确认或 ACK。
+现有 HTTP DTO、鉴权和客户端消费事实无需修改。
+
 错误与兼容
 ----------
 

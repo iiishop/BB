@@ -44,6 +44,7 @@ function settlement(failAt, error) {
     async (name) => checkpoints.push(name),
   );
   b.journal = {
+    list: () => [row],
     get: () => row,
     put: async (value) => {
       row = value;
