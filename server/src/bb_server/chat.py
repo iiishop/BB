@@ -24,22 +24,25 @@ from bb_auth_contract.chat import (
     UserPage,
 )
 from bb_auth_contract.chat_query import ConversationPage, MessageContext, MessageId
+from bb_auth_contract.media import THUMB_MIME, MediaVariant
 from fastapi import (
     Depends,
     File,
     Form,
     Query,
+    Request,
     UploadFile,
     WebSocket,
     WebSocketDisconnect,
 )
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from PIL import Image as PILImage
 from PIL import UnidentifiedImageError
 from starlette.concurrency import run_in_threadpool
 
 from . import chat_queries
-from .avatars import default_version
+from .avatars import default_version, etag_matches
+from .media_thumbnails import thumbnail
 from .storage import connection, find_session
 
 MAX_MEDIA = 32 * 1024 * 1024
@@ -468,16 +471,59 @@ def install(app, path, directory, current_session, clock):
                 db.execute("SELECT * FROM media WHERE id=?", (mid,)).fetchone()
             )
 
-    @app.get("/media/{media_id}", responses=errors)
-    def download(media_id: str, identity=identity_dep):
+    @app.get("/media/{media_id}/metadata", response_model=Media, responses=errors)
+    def metadata(media_id: str, response: Response, identity=identity_dep):
         with connection(path) as db:
             row = readable_media(db, media_id, identity["account"])
-            return FileResponse(
-                directory / row["id"],
-                media_type=row["mime"],
-                filename=row["filename"],
-                headers={
-                    "Cache-Control": "private, no-store",
-                    "X-Content-Type-Options": "nosniff",
-                },
-            )
+            response.headers["Cache-Control"] = "private, no-store"
+            return media_view(row)
+
+    binary_content = {
+        mime: {"schema": {"type": "string", "format": "binary"}}
+        for mime in ("application/octet-stream", THUMB_MIME)
+    }
+
+    @app.get(
+        "/media/{media_id}",
+        response_class=FileResponse,
+        responses={
+            **errors,
+            200: {
+                "description": "Original or thumbnail bytes",
+                "content": binary_content,
+            },
+            206: {"description": "Partial file bytes", "content": binary_content},
+            304: {"description": "Authenticated thumbnail ETag matched"},
+            400: {"description": "Malformed Range (plain text)"},
+            416: {"description": "Unsatisfiable Range (plain text)"},
+        },
+    )
+    def download(
+        media_id: str,
+        request: Request,
+        variant: Annotated[MediaVariant, Query()] = "original",
+        identity=identity_dep,
+    ):
+        with connection(path) as db:
+            row = readable_media(db, media_id, identity["account"])
+        if variant == "thumb":
+            if row["kind"] != "image":
+                fail(415, "unsupported_media_type")
+            derivative, etag = thumbnail(directory, row["id"])
+            headers = {
+                "Cache-Control": "private, no-cache",
+                "X-Content-Type-Options": "nosniff",
+                "ETag": etag,
+            }
+            if etag_matches(request.headers.get("if-none-match"), etag):
+                return Response(status_code=304, headers=headers)
+            return FileResponse(derivative, media_type=THUMB_MIME, headers=headers)
+        return FileResponse(
+            directory / row["id"],
+            media_type=row["mime"],
+            filename=row["filename"],
+            headers={
+                "Cache-Control": "private, no-store",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
