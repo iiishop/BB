@@ -820,6 +820,22 @@ void main() {
       filename: 'clip.mp4',
       mimeType: 'video/mp4',
     );
+    final ChatMessage imageMessage = ChatMessage(
+      id: 'live-image',
+      position: 2,
+      senderAccount: '10000002',
+      targetAccount: '10000001',
+      createdAt: DateTime.now().toUtc(),
+      kind: ChatMessageKind.body,
+      parts: <MessagePart>[ImagePart(coverId)],
+    );
+    final ChatMediaItem imageItem = ChatMediaItem(
+      message: imageMessage,
+      kind: ChatMediaKind.image,
+      mediaId: coverId,
+      senderLabel: 'bob',
+      partIndex: 0,
+    );
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -833,7 +849,7 @@ void main() {
               onPressed: () => Navigator.of(context).push<void>(
                 MaterialPageRoute<void>(
                   builder: (BuildContext context) => MediaViewer(
-                    items: <ChatMediaItem>[item],
+                    items: <ChatMediaItem>[item, imageItem],
                     initialIndex: 0,
                     chat: chat,
                     saveService: MediaSaveService(chat: chat),

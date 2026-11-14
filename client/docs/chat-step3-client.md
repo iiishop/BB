@@ -162,7 +162,8 @@ ETag/304、415/503 错误）。客户端只消费契约，不改 `server/contrac
     小图直取原图、原图字节一致、`Range bytes=0-0` 206 且总长正确、第三账号 404。
   - `flutter test integration_test -d linux`：14 passed；除查看器打开/关闭外，新增真实 FVP
     用例：点击播放后出现 `VideoPlayer` 画面、position 从 00:00 前进、服务端收到非
-    `bytes=0-0` 的真实 Range、关闭后退出查看器。
+    `bytes=0-0` 的真实 Range；切到下一张后视频请求停止，返回视频页播放会重新打开流；
+    关闭后退出查看器。
   - `flutter build linux --debug`：FVP/MDK 预编译库随包构建通过，Linux 包内有 libmdk/libffmpeg。
   - `flutter build apk --debug`：编译通过（Kotlin 通道与 fvp Android 插件打包）；真机仍 NOT RUN。
   - 截图：`.qa-artifacts/screenshots/dea471-media-viewer.png`，420×900 widget 渲染，
