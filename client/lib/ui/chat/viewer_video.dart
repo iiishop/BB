@@ -106,6 +106,7 @@ class StreamingViewerVideoSession implements ViewerVideoSession {
   StreamSubscription<MediaStreamProgress>? _progressSubscription;
   bool _disposed = false;
   bool _starting = false;
+  int _generation = 0;
 
   @override
   ValueListenable<ViewerVideoPhase> get phase => _phase;
@@ -150,11 +151,12 @@ class StreamingViewerVideoSession implements ViewerVideoSession {
       return;
     }
     _starting = true;
+    final int generation = ++_generation;
     _phase.value = ViewerVideoPhase.opening;
     _transfer.value = const ViewerVideoTransfer();
     try {
       final MediaStreamHandle handle = await chat.openMediaStream(item.mediaId);
-      if (_disposed) {
+      if (_disposed || generation != _generation) {
         await handle.close();
         return;
       }
@@ -162,7 +164,7 @@ class StreamingViewerVideoSession implements ViewerVideoSession {
       _progressSubscription = handle.progress.listen((
         MediaStreamProgress progress,
       ) {
-        if (_disposed) {
+        if (_disposed || generation != _generation) {
           return;
         }
         _transfer.value = ViewerVideoTransfer(
@@ -172,6 +174,10 @@ class StreamingViewerVideoSession implements ViewerVideoSession {
           rangeStart: progress.rangeStart,
           rangeEnd: progress.rangeEnd,
         );
+        if (_phase.value == ViewerVideoPhase.opening &&
+            progress.receivedBytes > 0) {
+          _phase.value = ViewerVideoPhase.buffering;
+        }
       }, onError: (Object _) {});
       final VideoPlayerController controller = VideoPlayerController.networkUrl(
         handle.uri,
@@ -179,7 +185,7 @@ class StreamingViewerVideoSession implements ViewerVideoSession {
       _controller = controller;
       controller.addListener(_onControllerChanged);
       await controller.initialize();
-      if (_disposed) {
+      if (_disposed || generation != _generation) {
         return;
       }
       _phase.value = ViewerVideoPhase.ready;
@@ -187,9 +193,11 @@ class StreamingViewerVideoSession implements ViewerVideoSession {
       await controller.play();
       _playing.value = controller.value.isPlaying;
     } catch (_) {
-      await _teardown();
-      if (!_disposed) {
-        _phase.value = ViewerVideoPhase.failed;
+      if (generation == _generation) {
+        await _teardown();
+        if (!_disposed) {
+          _phase.value = ViewerVideoPhase.failed;
+        }
       }
     } finally {
       _starting = false;
@@ -208,7 +216,7 @@ class StreamingViewerVideoSession implements ViewerVideoSession {
       return;
     }
     if (controller.value.isInitialized) {
-      if (_phase.value == ViewerVideoPhase.opening) {
+      if (_phase.value != ViewerVideoPhase.ready) {
         _phase.value = ViewerVideoPhase.ready;
       }
       _buffering.value = controller.value.isBuffering;
@@ -261,6 +269,7 @@ class StreamingViewerVideoSession implements ViewerVideoSession {
     if (_disposed) {
       return;
     }
+    _generation += 1;
     await _teardown();
     _phase.value = ViewerVideoPhase.idle;
   }
@@ -271,6 +280,7 @@ class StreamingViewerVideoSession implements ViewerVideoSession {
       return;
     }
     _disposed = true;
+    _generation += 1;
     await _teardown();
     _phase.dispose();
     _transfer.dispose();
@@ -283,15 +293,24 @@ class StreamingViewerVideoSession implements ViewerVideoSession {
   Future<void> _teardown() async {
     await _progressSubscription?.cancel();
     _progressSubscription = null;
-    final VideoPlayerController? controller = _controller;
-    _controller = null;
-    if (controller != null) {
-      await controller.dispose();
-    }
     final MediaStreamHandle? handle = _handle;
     _handle = null;
+    final VideoPlayerController? controller = _controller;
+    _controller = null;
+    // The authenticated stream must close even when native player creation is
+    // still pending. video_player's dispose waits for that native call, so it
+    // must not be sequenced before the handle close.
     if (handle != null) {
       await handle.close();
+    }
+    if (controller != null) {
+      unawaited(() async {
+        try {
+          await controller.dispose();
+        } catch (_) {
+          // A late native create may fail after the stream was released.
+        }
+      }());
     }
     _playing.value = false;
     _buffering.value = false;

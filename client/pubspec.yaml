@@ -21,6 +21,7 @@ dev_dependencies:
   integration_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  video_player_platform_interface: 6.9.0
 
 # Standalone Dart entry for the local control API used by the DSH MCP plugin.
 # Run: dart run bb_client_api  (or dart run bin/bb_client_api.dart)
