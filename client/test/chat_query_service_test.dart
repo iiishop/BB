@@ -197,6 +197,25 @@ void main() {
     await expectLater(service.notificationChanges(expectedIdentity: identity, afterCursor: 9999), throwsA(failure(422, 'validation_error')));
   });
 
+  test('manual enable has an exact head snapshot boundary during concurrent arrival', () async {
+    final identity = await service.identityFor('concurrent-toggle');
+    await service.ledger.setNotificationSettings(identity: identity, enabled: false, stillCurrent: () => true, sourceHead: () async => 0);
+    final entered = Completer<void>(), release = Completer<void>();
+    final enabling = service.ledger.setNotificationSettings(identity: identity, enabled: true, stillCurrent: () => true, sourceHead: () async {
+      final head = await service.api.eventHead(token: session.identity!.token);
+      entered.complete(); await release.future; return head;
+    });
+    await entered.future;
+    await backend.seedMessage(sender: _c, target: _a, text: 'after head snapshot, before settings commit');
+    release.complete(); await enabling;
+    await service.subscribeEventsFor(expectedIdentity: identity, discover: true);
+    final page = await service.notificationChanges(expectedIdentity: identity, afterCursor: 0);
+    expect((page['items'] as List).length, 1);
+    expect((page['items'] as List).single['peer_account'], _c);
+    expect((page['items'] as List).single['new_count'], 1);
+    expect((page['items'] as List).single['incoming_unread'], 2, reason: 'old C unread is retained but not re-notified');
+  });
+
   test('notification enabling failures and stale identity leave disabled state intact', () async {
     final identity = await service.identityFor('toggle-failure');
     await service.ledger.setNotificationSettings(identity: identity, enabled: false, stillCurrent: () => true, sourceHead: () async => 0);
