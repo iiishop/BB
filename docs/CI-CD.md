@@ -30,7 +30,11 @@
 | Arch | `archlinux:latest` 容器 | `bb-bin-<ver>-1-x86_64.pkg.tar.zst` |
 | Windows | windows-latest | `bb-<ver>-windows-x64.zip` |
 | macOS | macos-latest | `bb-<ver>-macos.zip` |
-| Android | ubuntu-latest + JDK 17 | `bb-<ver>-android-debugsigned.apk`、`bb-<ver>-android.aab` |
+| Android | ubuntu-latest + JDK 17 | `bb-<ver>-android-{arm64-v8a,armeabi-v7a,x86_64}.apk`、`bb-<ver>-android.aab` |
+
+APK 按 CPU 架构拆分（`--split-per-abi`）：整包会把三个架构的 `libflutter.so` +
+`libapp.so` 一起塞进去，54MB 里大约三分之二是目标设备用不到的那两个架构。单架构包
+16–21MB，64 位设备装 `arm64-v8a`，老 32 位设备装 `armeabi-v7a`。上架仍然用 `.aab`。
 
 打包脚本在 `scripts/ci/`，可以脱离 CI 单跑：
 

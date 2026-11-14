@@ -260,15 +260,25 @@ jobs:
         working-directory: client
         run: |
           flutter pub get
-          flutter build apk --release
+          # 按 CPU 架构拆分：整包会把三个架构的 libflutter.so + libapp.so 全塞进去，
+          # 54MB 里有大约 2/3 是用户设备根本用不到的那两个架构。
+          flutter build apk --release --split-per-abi
           flutter build appbundle --release
       - name: 收集产物
         run: |
           set -euo pipefail
           mkdir -p dist
-          cp client/build/app/outputs/flutter-apk/app-release.apk "dist/bb-$VERSION-android-debugsigned.apk"
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            src="client/build/app/outputs/flutter-apk/app-${abi}-release.apk"
+            [ -f "$src" ] || { echo "::error::缺少 ${abi} 的 apk"; exit 1; }
+            kb="$(du -sk "$src" | cut -f1)"
+            # 单架构包正常在 16-21MB；明显偏小说明 bundle 不完整
+            [ "$kb" -gt 12000 ] || { echo "::error::${abi} apk 只有 ${kb}KB，产物不完整"; exit 1; }
+            cp "$src" "dist/bb-$VERSION-android-${abi}.apk"
+          done
           cp client/build/app/outputs/bundle/release/app-release.aab "dist/bb-$VERSION-android.aab"
-          echo "::notice::apk 目前用仓库自带的 debug keystore 签名（可安装、不可上架）"
+          ls -la dist
+          echo "::notice::apk 按 abi 拆分，arm64-v8a 覆盖绝大多数 64 位设备；apk 用仓库自带的 debug keystore 签名（可安装、不可上架）"
       - uses: actions/upload-artifact@v4
         with:
           name: bb-android
