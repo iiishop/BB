@@ -11,6 +11,9 @@ import '../../models/chat_media.dart';
 import '../../models/chat_models.dart';
 import '../../services/chat_service.dart';
 import '../../services/media_stream_proxy.dart';
+import '../../services/profile_service.dart';
+import '../widgets/profile_avatar.dart';
+import 'chat_avatars.dart';
 import 'chat_composer.dart';
 import 'chat_format.dart';
 import 'media_actions.dart';
@@ -24,6 +27,7 @@ class ChatPage extends StatefulWidget {
     super.key,
     required this.peer,
     required this.chat,
+    required this.profile,
     this.openExternalStream,
     this.onMessagesChanged,
     this.saveService,
@@ -33,6 +37,10 @@ class ChatPage extends StatefulWidget {
 
   final ChatUser peer;
   final ChatService chat;
+
+  /// Avatar source shared with the Profile surfaces; the chat page never draws
+  /// its own initials.
+  final ProfileGateway profile;
 
   /// Injected by tests; production builds the platform save service lazily.
   final MediaSaveService? saveService;
@@ -72,6 +80,7 @@ class _ChatPageState extends State<ChatPage> {
   bool _loading = true;
   String? _error;
   Timer? _pollTimer;
+  late final ChatAvatarController _avatars;
 
   /// Highest contiguous server position whose page has been fetched.
   int _fetchedThrough = 0;
@@ -90,6 +99,12 @@ class _ChatPageState extends State<ChatPage> {
   @override
   void initState() {
     super.initState();
+    // Both sides are requested once when the conversation opens. The AppBar and
+    // every bubble read this same controller, so scrolling cannot add requests.
+    _avatars = ChatAvatarController(
+      profile: widget.profile,
+      accounts: <String>[widget.chat.selfAccount, widget.peer.account],
+    )..addListener(_onAvatarsChanged);
     unawaited(_loadInitial());
     _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       if (mounted && !_fetching) {
@@ -101,12 +116,21 @@ class _ChatPageState extends State<ChatPage> {
   @override
   void dispose() {
     _pollTimer?.cancel();
+    _avatars
+      ..removeListener(_onAvatarsChanged)
+      ..dispose();
     for (final MediaStreamHandle handle in _streamHandles) {
       unawaited(handle.close());
     }
     _streamHandles.clear();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  void _onAvatarsChanged() {
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   Future<void> _loadInitial() async {
@@ -551,22 +575,12 @@ class _ChatPageState extends State<ChatPage> {
         titleSpacing: 0,
         title: Row(
           children: <Widget>[
-            Container(
-              width: 36,
-              height: 36,
-              alignment: Alignment.center,
-              decoration: const BoxDecoration(
-                color: AppColors.accentSoft,
-                shape: BoxShape.circle,
-              ),
-              child: Text(
-                initialsOf(widget.peer.username),
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.accentDeep,
-                ),
-              ),
+            ProfileAvatar(
+              bytes: _avatars.bytesFor(widget.peer.account),
+              size: 36,
+              showBorder: false,
+              loading: _avatars.isLoading(widget.peer.account),
+              semanticLabel: '${widget.peer.username} 的头像',
             ),
             const SizedBox(width: AppSpacing.sm),
             Column(
@@ -691,6 +705,7 @@ class _ChatPageState extends State<ChatPage> {
           selfAccount: widget.chat.selfAccount,
           peerUsername: widget.peer.username,
           chat: widget.chat,
+          avatars: _avatars,
           busy: attachment != null && _busyMedia.contains(attachment.mediaId),
           onSaveAs: attachment == null ? null : () => _saveAs(attachment),
           onDownload: attachment == null ? null : () => _download(attachment),

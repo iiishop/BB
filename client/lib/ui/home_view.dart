@@ -149,7 +149,8 @@ class _HomeViewState extends State<HomeView> {
     }
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (BuildContext context) => ChatPage(peer: user, chat: chat),
+        builder: (BuildContext context) =>
+            ChatPage(peer: user, chat: chat, profile: widget.profile),
       ),
     );
   }

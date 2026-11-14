@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/fake_chat_service.dart';
+import 'support/fake_profile_gateway.dart';
 
 const AuthUser _self = AuthUser(account: '10000001', username: 'alice');
 const ChatUser _bob = ChatUser(
@@ -55,7 +56,7 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
-          home: ChatPage(peer: _bob, chat: chat, clipboard: clipboard),
+          home: ChatPage(peer: _bob, chat: chat, profile: FakeProfileGateway(), clipboard: clipboard),
         ),
       );
       await tester.pumpAndSettle();
@@ -122,7 +123,7 @@ void main() {
     chat.metadataFails = true;
     await tester.pumpWidget(
       MaterialApp(
-        home: ChatPage(peer: _bob, chat: chat),
+        home: ChatPage(peer: _bob, chat: chat, profile: FakeProfileGateway()),
       ),
     );
     await tester.pumpAndSettle();

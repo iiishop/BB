@@ -4,6 +4,7 @@ import 'dart:ui' show DisplayFeature, DisplayFeatureState, DisplayFeatureType;
 import 'package:bb_client/app.dart';
 import 'package:bb_client/models/auth_models.dart';
 import 'package:bb_client/models/chat_models.dart';
+import 'package:bb_client/models/profile_models.dart';
 import 'package:bb_client/services/auth_api_client.dart';
 import 'package:bb_client/services/auth_service.dart';
 import 'package:bb_client/services/auth_session.dart';
@@ -15,6 +16,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/avatar_fixtures.dart';
 import 'support/fake_auth_gateway.dart';
 import 'support/fake_chat_service.dart';
 import 'support/fake_profile_gateway.dart';
@@ -155,6 +157,16 @@ void main() {
       users: users,
       conversations: <String, List<ChatMessage>>{'10000002': thread},
     );
+    final FakeProfileGateway profile = FakeProfileGateway();
+    profile.profile = const Profile(
+      account: '10000001',
+      username: 'alice',
+      signature: null,
+      avatarUrl: '/avatars/10000001.png',
+      avatarVersion: 'v-alice',
+    );
+    profile.avatars['10000001'] = selfIdenticon;
+    profile.avatars['10000002'] = peerIdenticon;
     final HeartbeatController heartbeat = HeartbeatController(
       auth: AuthService(
         api: AuthApiClient(baseUri: Uri.parse('http://127.0.0.1:1')),
@@ -185,7 +197,7 @@ void main() {
             ),
             home: HomeView(
               user: _self,
-              profile: FakeProfileGateway(),
+              profile: profile,
               auth: FakeAuthGateway(),
               heartbeat: heartbeat,
               chat: chat,
