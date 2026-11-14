@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import '../../app.dart';
 import '../../models/chat_models.dart';
 import '../../services/chat_service.dart';
+import '../widgets/profile_avatar.dart';
+import 'chat_avatars.dart';
 import 'chat_format.dart';
 
 /// One incoming/outgoing chat bubble with ordered text/image content or an
@@ -16,6 +18,7 @@ class MessageBubble extends StatelessWidget {
     required this.selfAccount,
     required this.peerUsername,
     required this.chat,
+    required this.avatars,
     this.onSaveAs,
     this.onDownload,
     this.onPlay,
@@ -26,6 +29,9 @@ class MessageBubble extends StatelessWidget {
   final String selfAccount;
   final String peerUsername;
   final ChatService chat;
+
+  /// One request per account per chat visit, shared with the AppBar.
+  final ChatAvatarController avatars;
   final VoidCallback? onSaveAs;
   final VoidCallback? onDownload;
   final VoidCallback? onPlay;
@@ -91,7 +97,11 @@ class MessageBubble extends StatelessWidget {
       mainAxisAlignment: mine ? MainAxisAlignment.end : MainAxisAlignment.start,
       children: <Widget>[
         if (!mine) ...<Widget>[
-          _InitialAvatar(name: peerUsername),
+          _MessageAvatar(
+            avatars: avatars,
+            account: message.senderAccount,
+            semanticLabel: '$peerUsername 的头像',
+          ),
           const SizedBox(width: AppSpacing.sm),
         ],
         Flexible(
@@ -105,7 +115,11 @@ class MessageBubble extends StatelessWidget {
         ),
         if (mine) ...<Widget>[
           const SizedBox(width: AppSpacing.sm),
-          _InitialAvatar(name: '我', highlight: true),
+          _MessageAvatar(
+            avatars: avatars,
+            account: message.senderAccount,
+            semanticLabel: '我的头像',
+          ),
         ],
       ],
     );
@@ -443,31 +457,29 @@ class _MediaImage extends StatelessWidget {
   }
 }
 
-class _InitialAvatar extends StatelessWidget {
-  const _InitialAvatar({required this.name, this.highlight = false});
+/// Bubble avatar: the real bytes fetched for the sender's account.
+///
+/// Loading and failure both stay inside [ProfileAvatar]; a failed fetch shows
+/// its explicit placeholder instead of an invented initial.
+class _MessageAvatar extends StatelessWidget {
+  const _MessageAvatar({
+    required this.avatars,
+    required this.account,
+    required this.semanticLabel,
+  });
 
-  final String name;
-  final bool highlight;
+  final ChatAvatarController avatars;
+  final String account;
+  final String semanticLabel;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 32,
-      height: 32,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: highlight ? AppColors.accentDeep : AppColors.accentSoft,
-        shape: BoxShape.circle,
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Text(
-        initialsOf(name),
-        style: TextStyle(
-          fontSize: 13,
-          fontWeight: FontWeight.w700,
-          color: highlight ? AppColors.surface : AppColors.accentDeep,
-        ),
-      ),
+    return ProfileAvatar(
+      bytes: avatars.bytesFor(account),
+      size: 32,
+      showBorder: false,
+      loading: avatars.isLoading(account),
+      semanticLabel: semanticLabel,
     );
   }
 }

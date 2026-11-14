@@ -20,7 +20,14 @@ class FakeProfileGateway implements ProfileGateway {
 
   Profile profile;
   Uint8List avatar = _png;
+
+  /// Avatar bytes per account; falls back to [avatar] for unknown accounts.
+  final Map<String, Uint8List> avatars = <String, Uint8List>{};
+  final Map<String, int> loadAvatarByAccount = <String, int>{};
+  final List<String> loadAvatarAccounts = <String>[];
   AuthFailure? failure;
+  AuthFailure? avatarFailure;
+  Duration avatarDelay = Duration.zero;
   AuthFailure? saveFailure;
 
   int loadProfileCalls = 0;
@@ -43,14 +50,21 @@ class FakeProfileGateway implements ProfileGateway {
   @override
   Future<AvatarImage> loadAvatar({String? account, AuthIdentity? captured}) async {
     loadAvatarCalls += 1;
-    final AuthFailure? error = failure;
+    final String target = account ?? profile.account;
+    loadAvatarAccounts.add(target);
+    loadAvatarByAccount[target] = (loadAvatarByAccount[target] ?? 0) + 1;
+    if (avatarDelay > Duration.zero) {
+      await Future<void>.delayed(avatarDelay);
+    }
+    final AuthFailure? error = avatarFailure ?? failure;
     if (error != null) {
       throw error;
     }
+    final Uint8List bytes = avatars[target] ?? avatar;
     return AvatarImage(
-      account: profile.account,
-      bytes: avatar,
-      version: profile.avatarVersion,
+      account: target,
+      bytes: bytes,
+      version: 'v-$target-${bytes.length}',
     );
   }
 
