@@ -11,15 +11,28 @@ import '../../services/media_stream_proxy.dart';
 /// Playback lifecycle of one full-screen video item.
 enum ViewerVideoPhase { idle, opening, buffering, ready, failed }
 
-/// Bytes the loopback stream has delivered for the current playback request.
+/// Bytes the loopback stream has delivered for the current Range request.
+///
+/// [requestBytes] is the current response length; [mediaBytes] is the whole
+/// video size. These must be displayed separately: a short Range finishing is
+/// not the whole video being buffered.
 class ViewerVideoTransfer {
-  const ViewerVideoTransfer({this.receivedBytes = 0, this.totalBytes});
+  const ViewerVideoTransfer({
+    this.receivedBytes = 0,
+    this.requestBytes,
+    this.mediaBytes,
+    this.rangeStart,
+    this.rangeEnd,
+  });
 
   final int receivedBytes;
-  final int? totalBytes;
+  final int? requestBytes;
+  final int? mediaBytes;
+  final int? rangeStart;
+  final int? rangeEnd;
 
-  double? get fraction {
-    final int? total = totalBytes;
+  double? get requestFraction {
+    final int? total = requestBytes;
     if (total == null || total <= 0) {
       return null;
     }
@@ -41,6 +54,11 @@ abstract interface class ViewerVideoSession {
 
   ValueListenable<bool> get buffering;
 
+  /// Whole-video buffering (0..1) reported by the player, null when unknown.
+  ValueListenable<double?> get bufferedFraction;
+
+  ValueListenable<Duration> get position;
+
   /// Video surface once the first frame is available; empty before that.
   Widget buildSurface(BuildContext context);
 
@@ -49,6 +67,10 @@ abstract interface class ViewerVideoSession {
   Future<void> togglePlayPause();
 
   Future<void> retry();
+
+  /// Releases player and stream but keeps notifiers usable; the same session
+  /// can start again when its page becomes active.
+  Future<void> stop();
 
   Future<void> dispose();
 }
@@ -74,6 +96,10 @@ class StreamingViewerVideoSession implements ViewerVideoSession {
       ValueNotifier<ViewerVideoTransfer>(const ViewerVideoTransfer());
   final ValueNotifier<bool> _playing = ValueNotifier<bool>(false);
   final ValueNotifier<bool> _buffering = ValueNotifier<bool>(false);
+  final ValueNotifier<double?> _bufferedFraction = ValueNotifier<double?>(null);
+  final ValueNotifier<Duration> _position = ValueNotifier<Duration>(
+    Duration.zero,
+  );
 
   VideoPlayerController? _controller;
   MediaStreamHandle? _handle;
@@ -92,6 +118,12 @@ class StreamingViewerVideoSession implements ViewerVideoSession {
 
   @override
   ValueListenable<bool> get buffering => _buffering;
+
+  @override
+  ValueListenable<double?> get bufferedFraction => _bufferedFraction;
+
+  @override
+  ValueListenable<Duration> get position => _position;
 
   @override
   Widget buildSurface(BuildContext context) {
@@ -135,7 +167,10 @@ class StreamingViewerVideoSession implements ViewerVideoSession {
         }
         _transfer.value = ViewerVideoTransfer(
           receivedBytes: progress.receivedBytes,
-          totalBytes: progress.totalBytes,
+          requestBytes: progress.requestBytes,
+          mediaBytes: progress.mediaBytes,
+          rangeStart: progress.rangeStart,
+          rangeEnd: progress.rangeEnd,
         );
       }, onError: (Object _) {});
       final VideoPlayerController controller = VideoPlayerController.networkUrl(
@@ -178,7 +213,23 @@ class StreamingViewerVideoSession implements ViewerVideoSession {
       }
       _buffering.value = controller.value.isBuffering;
       _playing.value = controller.value.isPlaying;
+      _position.value = controller.value.position;
+      _bufferedFraction.value = _bufferedFractionOf(controller.value);
     }
+  }
+
+  double? _bufferedFractionOf(VideoPlayerValue value) {
+    if (!value.isInitialized || value.duration <= Duration.zero) {
+      return null;
+    }
+    if (value.buffered.isEmpty) {
+      return 0;
+    }
+    final Duration end = value.buffered.last.end;
+    if (end <= Duration.zero) {
+      return 0;
+    }
+    return (end.inMilliseconds / value.duration.inMilliseconds).clamp(0.0, 1.0);
   }
 
   @override
@@ -206,6 +257,15 @@ class StreamingViewerVideoSession implements ViewerVideoSession {
   }
 
   @override
+  Future<void> stop() async {
+    if (_disposed) {
+      return;
+    }
+    await _teardown();
+    _phase.value = ViewerVideoPhase.idle;
+  }
+
+  @override
   Future<void> dispose() async {
     if (_disposed) {
       return;
@@ -216,6 +276,8 @@ class StreamingViewerVideoSession implements ViewerVideoSession {
     _transfer.dispose();
     _playing.dispose();
     _buffering.dispose();
+    _bufferedFraction.dispose();
+    _position.dispose();
   }
 
   Future<void> _teardown() async {
@@ -233,5 +295,7 @@ class StreamingViewerVideoSession implements ViewerVideoSession {
     }
     _playing.value = false;
     _buffering.value = false;
+    _bufferedFraction.value = null;
+    _position.value = Duration.zero;
   }
 }

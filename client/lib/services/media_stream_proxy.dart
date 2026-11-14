@@ -7,13 +7,29 @@ import 'auth_session.dart';
 import 'chat_api_client.dart';
 
 /// Bytes delivered through the loopback stream for the current request.
+///
+/// [requestBytes] is only this Range response, while [mediaBytes] is the full
+/// media size from `Content-Range`/`Content-Length`. Callers must label them
+/// separately and never present a completed short Range as the whole video.
 class MediaStreamProgress {
-  const MediaStreamProgress({required this.receivedBytes, this.totalBytes});
+  const MediaStreamProgress({
+    required this.receivedBytes,
+    this.requestBytes,
+    this.mediaBytes,
+    this.rangeStart,
+    this.rangeEnd,
+  });
 
   final int receivedBytes;
 
   /// Declared length of the current request, when the server sent one.
-  final int? totalBytes;
+  final int? requestBytes;
+
+  /// Full media size, when the server declared it.
+  final int? mediaBytes;
+
+  final int? rangeStart;
+  final int? rangeEnd;
 }
 
 /// A click-scoped, loopback-only media stream.
@@ -85,6 +101,14 @@ class MediaStreamProxy {
     }
     return buffer.toString();
   }
+}
+
+class _ByteRange {
+  const _ByteRange({required this.start, required this.end, this.total});
+
+  final int start;
+  final int end;
+  final int? total;
 }
 
 class _LoopbackStream implements MediaStreamHandle {
@@ -189,18 +213,29 @@ class _LoopbackStream implements MediaStreamHandle {
       _copyHeader(upstreamResponse, response, HttpHeaders.acceptRangesHeader);
       _copyHeader(upstreamResponse, response, HttpHeaders.contentDisposition);
       response.headers.set(HttpHeaders.cacheControlHeader, 'private, no-store');
-      final int? total = _contentLength(upstreamResponse);
+      final int? requestBytes = _contentLength(upstreamResponse);
+      final _ByteRange? byteRange = _contentRange(upstreamResponse);
+      final int? mediaBytes = byteRange?.total ?? requestBytes;
       int received = 0;
-      if (!_progress.isClosed) {
-        _progress.add(MediaStreamProgress(receivedBytes: 0, totalBytes: total));
+      void report() {
+        if (_progress.isClosed) {
+          return;
+        }
+        _progress.add(
+          MediaStreamProgress(
+            receivedBytes: received,
+            requestBytes: requestBytes,
+            mediaBytes: mediaBytes,
+            rangeStart: byteRange?.start,
+            rangeEnd: byteRange?.end,
+          ),
+        );
       }
+
+      report();
       final Stream<List<int>> counted = upstreamResponse.map((List<int> chunk) {
         received += chunk.length;
-        if (!_progress.isClosed) {
-          _progress.add(
-            MediaStreamProgress(receivedBytes: received, totalBytes: total),
-          );
-        }
+        report();
         return chunk;
       });
       await response.addStream(counted);
@@ -241,6 +276,23 @@ class _LoopbackStream implements MediaStreamHandle {
   int? _contentLength(HttpClientResponse response) {
     final String? raw = response.headers.value(HttpHeaders.contentLengthHeader);
     return raw == null ? null : int.tryParse(raw);
+  }
+
+  _ByteRange? _contentRange(HttpClientResponse response) {
+    final String? raw = response.headers.value(HttpHeaders.contentRangeHeader);
+    if (raw == null) {
+      return null;
+    }
+    final RegExpMatch? match = RegExp(r'bytes\s+(\d+)-(\d+)/(\d+|\*)')
+        .firstMatch(raw);
+    if (match == null) {
+      return null;
+    }
+    return _ByteRange(
+      start: int.parse(match.group(1)!),
+      end: int.parse(match.group(2)!),
+      total: match.group(3) == '*' ? null : int.tryParse(match.group(3)!),
+    );
   }
 
   Future<void> _stop() async {

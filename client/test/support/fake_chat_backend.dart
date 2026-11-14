@@ -51,6 +51,10 @@ class FakeChatBackend {
   int _messageSeq = 0;
   int _mediaSeq = 0;
   String? lastMediaRange;
+
+  /// Every media GET, including the loopback player's Range requests.
+  final List<({String mediaId, String? range})> mediaRequests =
+      <({String mediaId, String? range})>[];
   int _eventSeq = 0;
 
   Uri get baseUri => Uri.parse('http://127.0.0.1:${_server.port}');
@@ -101,6 +105,25 @@ class FakeChatBackend {
         <String, dynamic>{'type': 'text', 'text': text},
       ],
       explicitPosition: position,
+    );
+    _appendEvent(message);
+    return message.id;
+  }
+
+  Future<String> seedAttachment({
+    required String sender,
+    required String target,
+    required String mediaId,
+  }) async {
+    final _FakeMedia? media = _media[mediaId];
+    if (media == null) {
+      throw ArgumentError.value(mediaId, 'mediaId', 'unknown media');
+    }
+    final _FakeMessage message = _appendMessage(
+      sender: sender,
+      target: target,
+      kind: 'attachment',
+      attachment: _mediaJson(media),
     );
     _appendEvent(message);
     return message.id;
@@ -837,6 +860,7 @@ class FakeChatBackend {
     }
     final String? range = request.headers.value(HttpHeaders.rangeHeader);
     lastMediaRange = range;
+    mediaRequests.add((mediaId: mediaId, range: range));
     final HttpResponse response = request.response;
     response.headers.set(HttpHeaders.contentTypeHeader, media.mime);
     response.headers.set(

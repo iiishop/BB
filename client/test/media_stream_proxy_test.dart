@@ -134,10 +134,18 @@ void main() {
 
       expect(events.first.receivedBytes, 0);
       expect(events.last.receivedBytes, 8);
-      expect(events.last.totalBytes, 8);
+      // A short Range is 8 bytes of a 16-byte video: the two totals stay apart.
+      expect(events.last.requestBytes, 8);
+      expect(events.last.mediaBytes, 16);
+      expect(events.last.rangeStart, 4);
+      expect(events.last.rangeEnd, 11);
       expect(
-        events.map((MediaStreamProgress event) => event.totalBytes).toSet(),
+        events.map((MediaStreamProgress event) => event.requestBytes).toSet(),
         <int?>{8},
+      );
+      expect(
+        events.map((MediaStreamProgress event) => event.mediaBytes).toSet(),
+        <int?>{16},
       );
       await subscription.cancel();
     },

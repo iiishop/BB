@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:bb_client/app.dart';
 import 'package:bb_client/models/auth_models.dart';
+import 'package:bb_client/models/chat_media.dart';
 import 'package:bb_client/models/chat_models.dart';
 import 'package:bb_client/services/auth_api_client.dart';
 import 'package:bb_client/services/auth_service.dart';
@@ -18,8 +19,9 @@ import 'package:bb_client/services/session_store.dart';
 import 'package:bb_client/ui/auth_shell.dart';
 import 'package:bb_client/ui/chat/chat_composer.dart';
 import 'package:bb_client/ui/chat/media_actions.dart';
-import 'package:bb_client/ui/chat/chat_page.dart';
+import 'package:bb_client/ui/chat/media_save.dart';
 import 'package:bb_client/ui/chat/media_viewer.dart';
+import 'package:bb_client/ui/chat/chat_page.dart';
 import 'package:bb_client/ui/chat/users_view.dart';
 import 'package:bb_client/ui/home_view.dart';
 import 'package:bb_client/ui/profile/profile_panel.dart';
@@ -29,6 +31,7 @@ import 'package:bb_client/ui/signed_in_view.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:video_player/video_player.dart';
 import 'package:integration_test/integration_test.dart';
 
 import '../test/support/fake_auth_backend.dart';
@@ -733,6 +736,197 @@ void main() {
       await tester.pump();
     },
   );
+
+  testWidgets('real FVP Linux: click plays frames, Range and releases', (
+    WidgetTester tester,
+  ) async {
+    final FakeChatBackend backend = await FakeChatBackend.start(
+      users: <String, String>{'10000001': 'alice', '10000002': 'bob'},
+    );
+    final Directory root = await Directory.systemTemp.createTemp(
+      'bb-integration-live-video-',
+    );
+    addTearDown(backend.close);
+    addTearDown(() async {
+      if (await root.exists()) {
+        await root.delete(recursive: true);
+      }
+    });
+    final String videoPath = '${root.path}/clip.mp4';
+    final ProcessResult generated = await Process.run('ffmpeg', <String>[
+      '-y',
+      '-f',
+      'lavfi',
+      '-i',
+      'testsrc2=size=320x240:rate=30:duration=4',
+      '-pix_fmt',
+      'yuv420p',
+      '-movflags',
+      '+faststart',
+      videoPath,
+    ]);
+    expect(generated.exitCode, 0, reason: '${generated.stderr}');
+    final Uint8List videoBytes = await File(videoPath).readAsBytes();
+    final String coverId = await backend.addImage(
+      owner: '10000002',
+      peer: '10000001',
+      bytes: base64Decode(_chatPng),
+    );
+    final String videoId = await backend.addMedia(
+      owner: '10000002',
+      peer: '10000001',
+      bytes: videoBytes,
+      mime: 'video/mp4',
+      kind: 'video',
+      filename: 'clip.mp4',
+      coverId: coverId,
+    );
+    final AuthSession session = AuthSession()
+      ..establish(
+        token: backend.tokenFor('10000001'),
+        user: const AuthUser(account: '10000001', username: 'alice'),
+      );
+    final ChatService chat = ChatService(
+      api: ChatApiClient(baseUri: backend.baseUri),
+      session: session,
+      ledger: ChatLedger.inMemory(),
+      cacheRoot: Directory('${root.path}/cache'),
+      webSocketHints: false,
+    );
+    addTearDown(chat.dispose);
+    final ChatMessage message = ChatMessage(
+      id: 'live-video',
+      position: 1,
+      senderAccount: '10000002',
+      targetAccount: '10000001',
+      createdAt: DateTime.now().toUtc(),
+      kind: ChatMessageKind.attachment,
+      attachment: Attachment(
+        mediaId: videoId,
+        kind: AttachmentKind.video,
+        filename: 'clip.mp4',
+        mimeType: 'video/mp4',
+        byteSize: videoBytes.length,
+        coverMediaId: coverId,
+      ),
+    );
+    final ChatMediaItem item = ChatMediaItem(
+      message: message,
+      kind: ChatMediaKind.video,
+      mediaId: videoId,
+      senderLabel: 'bob',
+      coverMediaId: coverId,
+      byteSize: videoBytes.length,
+      filename: 'clip.mp4',
+      mimeType: 'video/mp4',
+    );
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (BuildContext context) => Scaffold(
+            body: TextButton(
+              onPressed: () => Navigator.of(context).push<void>(
+                MaterialPageRoute<void>(
+                  builder: (BuildContext context) => MediaViewer(
+                    items: <ChatMediaItem>[item],
+                    initialIndex: 0,
+                    chat: chat,
+                    saveService: MediaSaveService(chat: chat),
+                  ),
+                ),
+              ),
+              child: const Text('打开视频'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('打开视频'));
+    await tester.pumpAndSettle();
+    expect(
+      backend.mediaRequests.where(
+        (({String mediaId, String? range}) request) =>
+            request.mediaId == videoId,
+      ),
+      isEmpty,
+      reason: 'opening the viewer must not request the video original',
+    );
+
+    await tester.tap(
+      find.byKey(ValueKey<String>('media-viewer-play-$videoId')),
+    );
+    await tester.pump();
+    for (int attempt = 0; attempt < 80; attempt += 1) {
+      if (find.byType(VideoPlayer).evaluate().isNotEmpty) {
+        break;
+      }
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+      });
+      await tester.pump();
+    }
+    expect(
+      find.byType(VideoPlayer),
+      findsOneWidget,
+      reason: 'FVP/video_player must render a real video surface on Linux',
+    );
+    expect(find.text('视频播放失败'), findsNothing);
+
+    String? positionText;
+    for (int attempt = 0; attempt < 40; attempt += 1) {
+      final Finder position = find.descendant(
+        of: find.byKey(const Key('media-viewer-video-position')),
+        matching: find.byType(Text),
+      );
+      if (position.evaluate().isNotEmpty) {
+        positionText = tester.widget<Text>(position).data;
+        if (positionText != '播放中 00:00') {
+          break;
+        }
+      }
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+      });
+      await tester.pump();
+    }
+    expect(positionText, isNotNull);
+    expect(
+      positionText,
+      isNot('播放中 00:00'),
+      reason: 'playback position must advance from a real decoded stream',
+    );
+
+    final List<({String mediaId, String? range})> videoRequests = backend
+        .mediaRequests
+        .where(
+          (({String mediaId, String? range}) request) =>
+              request.mediaId == videoId,
+        )
+        .toList();
+    expect(videoRequests, isNotEmpty);
+    expect(
+      videoRequests.any(
+        (({String mediaId, String? range}) request) =>
+            request.range != null && request.range != 'bytes=0-0',
+      ),
+      isTrue,
+      reason: 'playback must use a real media Range, not just the 1-byte probe',
+    );
+    expect(
+      find.byKey(const Key('media-viewer-video-buffered')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(MediaViewer.closeKey));
+    await tester.pumpAndSettle();
+    expect(find.byType(MediaViewer), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
 }
 
 class _IntegrationClipboard implements ClipboardMediaReader {

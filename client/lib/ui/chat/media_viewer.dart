@@ -36,6 +36,7 @@ class MediaViewer extends StatefulWidget {
     this.sequenceComplete = true,
     this.localPreviewFor,
     this.videoSessionFactory,
+    this.inlineVideoSupported,
   });
 
   final List<ChatMediaItem> items;
@@ -61,6 +62,9 @@ class MediaViewer extends StatefulWidget {
   /// implementation; null keeps the existing external-player hand-off.
   final ViewerVideoSessionFactory? videoSessionFactory;
 
+  /// Test/platform override for inline playback support.
+  final bool? inlineVideoSupported;
+
   static const Key pageViewKey = Key('media-viewer-pages');
   static const Key closeKey = Key('media-viewer-close');
   static const Key saveKey = Key('media-viewer-save');
@@ -81,6 +85,8 @@ class _MediaViewerState extends State<MediaViewer> {
   bool _reloading = false;
   bool _complete = true;
   double _dragOffset = 0;
+  final Map<String, GlobalKey<_ViewerVideoState>> _videoKeys =
+      <String, GlobalKey<_ViewerVideoState>>{};
   double _pointerStartX = 0;
   double _pointerStartY = 0;
 
@@ -172,16 +178,26 @@ class _MediaViewerState extends State<MediaViewer> {
       key: MediaViewer.pageViewKey,
       controller: _controller,
       itemCount: _items.length,
-      onPageChanged: (int index) => setState(() => _index = index),
+      onPageChanged: (int index) {
+        final ChatMediaItem previous = _items[_index];
+        if (previous.isVideo) {
+          _videoKeys[previous.key]?.currentState?.releasePlayback();
+        }
+        setState(() => _index = index);
+      },
       itemBuilder: (BuildContext context, int index) {
         final ChatMediaItem item = _items[index];
         return item.isVideo
             ? _ViewerVideo(
-                key: ValueKey<String>(item.key),
+                key: _videoKeys.putIfAbsent(
+                  item.key,
+                  () => GlobalKey<_ViewerVideoState>(),
+                ),
                 item: item,
                 chat: widget.chat,
                 onPlay: widget.onPlayVideo,
                 sessionFactory: widget.videoSessionFactory,
+                inlineSupportedOverride: widget.inlineVideoSupported,
               )
             : _ViewerImage(
                 key: ValueKey<String>(item.key),
@@ -659,6 +675,29 @@ class _ViewerImageState extends State<_ViewerImage> {
   }
 }
 
+class _VideoChip extends StatelessWidget {
+  const _VideoChip({super.key, required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0x99000000),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        child: Text(
+          text,
+          style: const TextStyle(color: Colors.white70, fontSize: 12),
+        ),
+      ),
+    );
+  }
+}
+
 class _BrokenMedia extends StatelessWidget {
   const _BrokenMedia({required this.label, this.onRetry});
 
@@ -697,6 +736,7 @@ class _ViewerVideo extends StatefulWidget {
     required this.chat,
     this.onPlay,
     this.sessionFactory,
+    this.inlineSupportedOverride,
   });
 
   final ChatMediaItem item;
@@ -704,8 +744,11 @@ class _ViewerVideo extends StatefulWidget {
   final Future<void> Function(ChatMediaItem item)? onPlay;
 
   /// Injected by tests. Null selects the platform default: inline playback on
-  /// Android/iOS/macOS, explicit external-player hand-off elsewhere.
+  /// Android/iOS/macOS/Linux/Windows, explicit external-player hand-off
+  /// elsewhere.
   final ViewerVideoSessionFactory? sessionFactory;
+
+  final bool? inlineSupportedOverride;
 
   @override
   State<_ViewerVideo> createState() => _ViewerVideoState();
@@ -717,13 +760,21 @@ class _ViewerVideoState extends State<_ViewerVideo> {
   ViewerVideoSession? _session;
 
   bool get _inlineCapable {
+    final bool? override = widget.inlineSupportedOverride;
+    if (override != null) {
+      return override;
+    }
     if (widget.sessionFactory != null) {
       return true;
     }
     if (kIsWeb) {
       return false;
     }
-    return Platform.isAndroid || Platform.isIOS || Platform.isMacOS;
+    return Platform.isAndroid ||
+        Platform.isIOS ||
+        Platform.isMacOS ||
+        Platform.isLinux ||
+        Platform.isWindows;
   }
 
   ViewerVideoSessionFactory? get _factory {
@@ -742,6 +793,10 @@ class _ViewerVideoState extends State<_ViewerVideo> {
   void initState() {
     super.initState();
     unawaited(_loadCover());
+  }
+
+  void releasePlayback() {
+    unawaited(_session?.stop());
   }
 
   @override
@@ -783,7 +838,11 @@ class _ViewerVideoState extends State<_ViewerVideo> {
       await widget.onPlay?.call(widget.item);
       return;
     }
-    if (_session != null) {
+    final ViewerVideoSession? existing = _session;
+    if (existing != null) {
+      if (existing.phase.value == ViewerVideoPhase.idle) {
+        await existing.start();
+      }
       return;
     }
     final ViewerVideoSession session = factory(widget.item);
@@ -791,15 +850,28 @@ class _ViewerVideoState extends State<_ViewerVideo> {
     await session.start();
   }
 
-  String _progressLabel(ViewerVideoTransfer transfer, ViewerVideoPhase phase) {
-    if (phase == ViewerVideoPhase.opening) {
-      return '正在请求视频…';
+  String _rangeLabel(ViewerVideoTransfer transfer) {
+    final String received = formatBytes(transfer.receivedBytes);
+    final int? requestBytes = transfer.requestBytes;
+    if (requestBytes == null) {
+      return '本次 Range 已接收 $received';
     }
-    final double? fraction = transfer.fraction;
-    if (fraction == null) {
-      return '缓冲中…';
+    return '本次 Range 接收 $received / ${formatBytes(requestBytes)}';
+  }
+
+  String _formatPosition(Duration position) {
+    final String minutes = position.inMinutes
+        .remainder(60)
+        .toString()
+        .padLeft(2, '0');
+    final String seconds = position.inSeconds
+        .remainder(60)
+        .toString()
+        .padLeft(2, '0');
+    if (position.inHours > 0) {
+      return '${position.inHours}:$minutes:$seconds';
     }
-    return '缓冲 ${(fraction * 100).round()}%';
+    return '$minutes:$seconds';
   }
 
   Widget _coverWidget() {
@@ -893,11 +965,44 @@ class _ViewerVideoState extends State<_ViewerVideo> {
             ),
           );
         }
+        if (phase == ViewerVideoPhase.idle) {
+          return _idleContent();
+        }
         if (phase == ViewerVideoPhase.ready) {
           return Stack(
             alignment: Alignment.center,
             children: <Widget>[
               Positioned.fill(child: session.buildSurface(context)),
+              Positioned(
+                left: AppSpacing.md,
+                top: AppSpacing.md,
+                child: ValueListenableBuilder<double?>(
+                  valueListenable: session.bufferedFraction,
+                  builder:
+                      (BuildContext context, double? fraction, Widget? child) {
+                        return _VideoChip(
+                          key: const Key('media-viewer-video-buffered'),
+                          text: fraction == null
+                              ? '已缓冲 —'
+                              : '已缓冲 ${(fraction * 100).round()}%',
+                        );
+                      },
+                ),
+              ),
+              Positioned(
+                left: AppSpacing.md,
+                bottom: AppSpacing.lg,
+                child: ValueListenableBuilder<Duration>(
+                  valueListenable: session.position,
+                  builder:
+                      (BuildContext context, Duration position, Widget? child) {
+                        return _VideoChip(
+                          key: const Key('media-viewer-video-position'),
+                          text: '播放中 ${_formatPosition(position)}',
+                        );
+                      },
+                ),
+              ),
               Positioned.fill(
                 child: Align(
                   alignment: Alignment.center,
@@ -956,7 +1061,7 @@ class _ViewerVideoState extends State<_ViewerVideo> {
                   ViewerVideoTransfer transfer,
                   Widget? child,
                 ) {
-                  final double? fraction = transfer.fraction;
+                  final double? fraction = transfer.requestFraction;
                   return Padding(
                     padding: const EdgeInsets.symmetric(
                       horizontal: AppSpacing.xl,
@@ -974,9 +1079,22 @@ class _ViewerVideoState extends State<_ViewerVideo> {
                         ),
                         const SizedBox(height: AppSpacing.md),
                         Text(
-                          _progressLabel(transfer, phase),
+                          phase == ViewerVideoPhase.opening
+                              ? '正在请求视频…'
+                              : '缓冲中…',
                           style: const TextStyle(color: Colors.white),
                         ),
+                        if (transfer.receivedBytes > 0 ||
+                            transfer.requestBytes != null) ...<Widget>[
+                          const SizedBox(height: AppSpacing.xs),
+                          Text(
+                            _rangeLabel(transfer),
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
                         const SizedBox(height: AppSpacing.sm),
                         SizedBox(
                           width: 220,

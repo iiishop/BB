@@ -137,30 +137,34 @@ ETag/304、415/503 错误）。客户端只消费契约，不改 `server/contrac
   `bb_<timestamp>_<原名>`；API ≤ 28 运行时申请写权限），iOS 预留 `saveToPhotos` 接口；
   Linux/Windows 继续 `getSaveLocation`。成功提示带相册位置或完整路径，取消不提示。
 - 视频：到达与打开查看器只取封面；中央播放才创建查看器内的 `StreamingViewerVideoSession`，
-  经既有 loopback Range 流由 `video_player` 播放，`MediaStreamProxy` 上报真实已收字节/总长度，
-  查看器显示「正在请求视频… / 缓冲 N%」；失败可在查看器内重试，关闭或切页会释放播放器与流。
-  Android/iOS/macOS 走内嵌播放；Linux/Windows 仍只有系统播放器交接，查看器会明确提示
-  「当前桌面构建使用系统播放器，暂不支持内嵌播放」，不计作全屏验收通过。补齐桌面内嵌需要
-  `media_kit` + `media_kit_video`（Linux 另需系统 libmpv，Windows 用随包库）或
-  `video_player_media_kit` 适配层；新增外部依赖需 Orion/owner 决定，本轮未加。
+  经既有 loopback Range 流由 `video_player` 播放；失败可在查看器内重试，关闭或切页会释放
+  播放器与流。Android/iOS/macOS 使用官方 `video_player`；Linux/Windows 通过新增的
+  `fvp: 0.40.0` 提供同一 `video_player` 平台实现（随包 MDK 预编译库，不依赖系统 libmpv，
+  不升级既有 `video_player` 版本；`pubspec.lock` 只新增 `fvp`）。
+- 进度语义：`MediaStreamProxy` 同时上报本次 Range 的 `requestBytes`/`receivedBytes` 与
+  `Content-Range` 的整媒体 `mediaBytes`；查看器把本次 Range 显示为「本次 Range 接收
+  X / Y」，把整段缓冲显示为播放器 `buffered/duration` 的「已缓冲 N%」。短 Range 完成绝不会
+  被显示成整段视频 100%；1 字节 `probeMedia` 只用于大小/MIME 探测，不作为播放进度。
 - 发送端本地预览：ChatComposer 把成功提交的正文图片 media id 映射回当前仍持有的本地 bytes，
   ChatPage 按当前账号绑定并做 8 条/24 MiB LRU；列表与查看器优先使用这些 bytes，不因衍生图
   未就绪而重新请求远端大图。接收端元信息/缩略图失败仍只显示占位与重试，不请求原图。
 - 验证（固定基线 `452e88e`，契约 `agent/forge/9e751f104948` @ `fa876b9`）：
   - `flutter analyze`：0 issue。
-  - `flutter test`：390 passed / 7 skipped。7 个 skip 的适用范围：
+  - `flutter test`：391 passed / 7 skipped。7 个 skip 的适用范围：
     1 个 DEA-471 live 契约用例（`BB_LIVE_SERVER_URL` 未设置）、3 个既有 live chat 用例、
     1 个既有 live auth 用例、1 个聊天截图用例（`QA_CHAT_SCREENSHOT_DIR` 未设置）、
     1 个 Profile 截图用例（`QA_SCREENSHOT_DIR` 未设置）；都不是本机代码失败。
   - 定向 25 tests：媒体序列/阈值、查看器导航与下载进度/重试/跨页隔离、聊天页接入、
     相册/桌面保存分流、server/account/media/variant 缓存隔离与缩略图失败不回退原图、
-    发送端本地预览、查看器内嵌视频进度/重试/释放、真实 loopback 流字节进度。
+    发送端本地预览、查看器内嵌视频进度/重试/切页释放、真实 loopback Range 的请求/整媒体双计数。
   - `BB_LIVE_SERVER_URL=http://127.0.0.1:8171 flutter test test/live_media_contract_test.dart`：
     1 passed；真实 Forge 服务端验证 metadata byte_size、512 边/≤64 KiB JPEG 缩略图、
     小图直取原图、原图字节一致、`Range bytes=0-0` 206 且总长正确、第三账号 404。
-  - `flutter test integration_test -d linux`：13 passed；真实 Linux 桌面构建中打开聊天图片
-    进入查看器并关闭。
-  - `flutter build apk --debug`：编译通过（Kotlin 通道语法/打包）；真机仍 NOT RUN。
+  - `flutter test integration_test -d linux`：14 passed；除查看器打开/关闭外，新增真实 FVP
+    用例：点击播放后出现 `VideoPlayer` 画面、position 从 00:00 前进、服务端收到非
+    `bytes=0-0` 的真实 Range、关闭后退出查看器。
+  - `flutter build linux --debug`：FVP/MDK 预编译库随包构建通过，Linux 包内有 libmdk/libffmpeg。
+  - `flutter build apk --debug`：编译通过（Kotlin 通道与 fvp Android 插件打包）；真机仍 NOT RUN。
   - 截图：`.qa-artifacts/screenshots/dea471-media-viewer.png`，420×900 widget 渲染，
     不是 Android/Windows 运行截图。
 
@@ -321,9 +325,8 @@ Owner/独立 QA 执行。
   NOT RUN；不以 Linux 结果代替。DEA-471 的 `flutter build apk --debug` 已在本环境编译通过
   （含 `bb/media_gallery` 与查看器内嵌播放代码），但安装、相册权限、真机播放/缓冲进度仍需
   真机复验。
-- **桌面内嵌视频**：Linux/Windows 本轮无 `video_player` 实现，查看器仍是系统播放器交接并已
-  显式提示；补齐路径见 5.1（`media_kit`/`video_player_media_kit`），依赖与系统 libmpv 需
-  Orion/owner 决策，不把外部播放器当全屏验收。
+- **桌面内嵌视频**：Linux 已用 `fvp 0.40.0`（随包 MDK）实跑真实播放；Windows 同一实现已接
+  入但没有 MSVC/Windows 环境，NOT RUN，不能把 Linux 结果当作 Windows 通过。
 - **桌面在线播放 GUI**：loopback Range 代理、点击触发、权限/取消与系统播放器交接已自动
   验证；实际播放窗口/解码未在无交互环境人工验收，NOT RUN，不记作已通过。
 - **iOS**：无本轮 runner，剪贴板、在线播放与 Photos 保存路径均未接入；`saveToPhotos`

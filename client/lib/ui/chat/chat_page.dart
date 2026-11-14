@@ -28,6 +28,7 @@ class ChatPage extends StatefulWidget {
     this.onMessagesChanged,
     this.saveService,
     this.clipboard = const PlatformClipboardMediaReader(),
+    this.viewerInlineVideoSupported,
   });
 
   final ChatUser peer;
@@ -38,6 +39,9 @@ class ChatPage extends StatefulWidget {
 
   /// Clipboard/images seam for tests that exercise the real composer.
   final ClipboardMediaReader clipboard;
+
+  /// Test seam: force the viewer's external-player path on unsupported hosts.
+  final bool? viewerInlineVideoSupported;
 
   /// Test seam for the desktop streaming hand-off. Production uses the
   /// platform opener on the authenticated loopback stream URL.
@@ -416,6 +420,7 @@ class _ChatPageState extends State<ChatPage> {
           onPlayVideo: _playViewerVideo,
           onReload: _reloadMediaSequence,
           localPreviewFor: _localPreviewFor,
+          inlineVideoSupported: widget.viewerInlineVideoSupported,
         ),
       ),
     );

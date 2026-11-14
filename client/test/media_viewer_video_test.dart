@@ -54,9 +54,19 @@ class _FakeSession implements ViewerVideoSession {
   final ValueNotifier<bool> playing = ValueNotifier<bool>(false);
   @override
   final ValueNotifier<bool> buffering = ValueNotifier<bool>(false);
+
+  @override
+  final ValueNotifier<double?> bufferedFraction = ValueNotifier<double?>(null);
+
+  @override
+  final ValueNotifier<Duration> position = ValueNotifier<Duration>(
+    Duration.zero,
+  );
+
   int starts = 0;
   int toggles = 0;
   int retries = 0;
+  int stops = 0;
   int disposes = 0;
 
   @override
@@ -81,6 +91,12 @@ class _FakeSession implements ViewerVideoSession {
   @override
   Future<void> retry() async {
     retries += 1;
+  }
+
+  @override
+  Future<void> stop() async {
+    stops += 1;
+    phase.value = ViewerVideoPhase.idle;
   }
 
   @override
@@ -172,15 +188,36 @@ void main() {
 
     session.transfer.value = const ViewerVideoTransfer(
       receivedBytes: 40,
-      totalBytes: 100,
+      requestBytes: 100,
+      mediaBytes: 4096,
+      rangeStart: 0,
+      rangeEnd: 99,
     );
     session.phase.value = ViewerVideoPhase.buffering;
     await tester.pump();
-    expect(find.textContaining('缓冲 40%'), findsOneWidget);
+    expect(find.text('缓冲中…'), findsOneWidget);
+    expect(find.textContaining('本次 Range'), findsOneWidget);
+    expect(find.textContaining('40 B / 100 B'), findsOneWidget);
 
+    session.transfer.value = const ViewerVideoTransfer(
+      receivedBytes: 100,
+      requestBytes: 100,
+      mediaBytes: 4096,
+      rangeStart: 0,
+      rangeEnd: 99,
+    );
+    session.bufferedFraction.value = 0.35;
+    session.position.value = const Duration(seconds: 1);
     session.phase.value = ViewerVideoPhase.ready;
     await tester.pump();
     expect(find.text('VIDEO_SURFACE'), findsOneWidget);
+    expect(find.text('已缓冲 35%'), findsOneWidget);
+    expect(find.text('播放中 00:01'), findsOneWidget);
+    expect(
+      find.text('已缓冲 100%'),
+      findsNothing,
+      reason: 'a finished short Range must not look like the whole video',
+    );
 
     await tester.tap(
       find.byKey(const ValueKey<String>('media-viewer-video-toggle')),
@@ -203,6 +240,65 @@ void main() {
     expect(chat.openMediaStreamCalls, isEmpty);
   });
 
+  testWidgets('switching to the next media releases the video stream', (
+    WidgetTester tester,
+  ) async {
+    final FakeChatService chat = FakeChatService(
+      self: _self,
+      users: const <ChatUser>[],
+    );
+    final _FakeFactory factory = _FakeFactory();
+    final ChatMessage imageMessage = ChatMessage(
+      id: 'm2',
+      position: 2,
+      senderAccount: _peer,
+      targetAccount: _self.account,
+      createdAt: DateTime.utc(2026, 11, 14, 10, 1),
+      kind: ChatMessageKind.body,
+      parts: const <MessagePart>[ImagePart('image-2')],
+    );
+    final ChatMediaItem image = ChatMediaItem(
+      message: imageMessage,
+      kind: ChatMediaKind.image,
+      mediaId: 'image-2',
+      senderLabel: 'bob',
+      partIndex: 0,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(),
+        home: MediaViewer(
+          items: <ChatMediaItem>[_videoItem(), image],
+          initialIndex: 0,
+          chat: chat,
+          saveService: _saveService(chat),
+          videoSessionFactory: factory.call,
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('media-viewer-play-video-1')),
+    );
+    await tester.pump();
+    final _FakeSession session = factory.sessions.single;
+    session.phase.value = ViewerVideoPhase.ready;
+    await tester.pump();
+
+    await tester.drag(
+      find.byKey(MediaViewer.pageViewKey),
+      const Offset(-420, 0),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('第 2 / 共 2'), findsOneWidget);
+    expect(session.stops, 1);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    expect(session.disposes, 1);
+  });
+
   testWidgets('desktop fallback stays an explicit external-player hand-off', (
     WidgetTester tester,
   ) async {
@@ -219,6 +315,7 @@ void main() {
           initialIndex: 0,
           chat: chat,
           saveService: _saveService(chat),
+          inlineVideoSupported: false,
           onPlayVideo: (ChatMediaItem item) async {
             external = true;
           },

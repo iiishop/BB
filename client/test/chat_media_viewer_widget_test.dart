@@ -138,6 +138,7 @@ void main() {
           peer: _bob,
           chat: chat,
           saveService: saveService,
+          viewerInlineVideoSupported: false,
           openExternalStream: (Uri uri) async {
             opened = uri;
           },

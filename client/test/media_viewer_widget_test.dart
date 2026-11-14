@@ -113,6 +113,7 @@ Widget _viewerApp({
       sequenceComplete: sequenceComplete,
       onReload: onReload,
       onPlayVideo: onPlayVideo,
+      inlineVideoSupported: false,
     ),
   );
 }
