@@ -84,6 +84,49 @@ async function fixture(t) {
   return { bridge, plan, hooks, facts, delivered, calls, cursors, agent };
 }
 
+test("subscription conflict on A does not starve B or download events", async (t) => {
+  const f = await fixture(t);
+  const polled = [], warnings = [];
+  t.mock.method(console, "warn", (...args) => warnings.push(args));
+  f.bridge.poll = async (peer) => polled.push(peer);
+  f.bridge.client.call = async (path, args) => {
+    f.calls.push({ path, args });
+    if (path === "chat/list_conversations")
+      return { items: [{ peer_account: a }, { peer_account: b }] };
+    if (path === "events/subscribe" && args.peer_account === a)
+      throw { status: 409, code: "idempotency_conflict" };
+    if (path === "events/read") return { items: [], has_more: false };
+    return {};
+  };
+  await f.bridge.tick();
+  assert.deepEqual(polled, [b]);
+  assert.equal(warnings.length, 1);
+  assert.ok(warnings[0].includes(a));
+  assert.ok(f.calls.some((c) => c.path === "events/read"));
+  assert.equal(f.bridge.journal.list().length, 0);
+  assert.equal(f.cursors.size, 0);
+});
+
+for (const failure of [
+  { status: 409, code: "stale_identity" },
+  { status: 409, code: "stale_binding" },
+  { status: 401, code: "unauthenticated" },
+  { status: 503, code: "storage_unavailable" },
+]) {
+  test(`subscription ${failure.code} must still stop the tick`, async (t) => {
+    const f = await fixture(t);
+    f.bridge.client.call = async () => { throw failure; };
+    await assert.rejects(f.bridge.tick(a), (error) => error === failure);
+  });
+}
+
+test("poll errors remain visible instead of being swallowed", async (t) => {
+  const f = await fixture(t);
+  const failure = new Error("Session flush failed");
+  f.bridge.poll = async () => { throw failure; };
+  await assert.rejects(f.bridge.tick(a), (error) => error === failure);
+});
+
 test("pending A does not suppress B; A cannot claim via passive or query", async (t) => {
   const f = await fixture(t);
   await f.plan();
