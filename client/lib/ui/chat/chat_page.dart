@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
@@ -26,6 +27,7 @@ class ChatPage extends StatefulWidget {
     this.openExternalStream,
     this.onMessagesChanged,
     this.saveService,
+    this.clipboard = const PlatformClipboardMediaReader(),
   });
 
   final ChatUser peer;
@@ -33,6 +35,9 @@ class ChatPage extends StatefulWidget {
 
   /// Injected by tests; production builds the platform save service lazily.
   final MediaSaveService? saveService;
+
+  /// Clipboard/images seam for tests that exercise the real composer.
+  final ClipboardMediaReader clipboard;
 
   /// Test seam for the desktop streaming hand-off. Production uses the
   /// platform opener on the authenticated loopback stream URL.
@@ -55,6 +60,11 @@ class _ChatPageState extends State<ChatPage> {
   final List<ChatMessage> _messages = <ChatMessage>[];
   final Set<String> _busyMedia = <String>{};
   final List<MediaStreamHandle> _streamHandles = <MediaStreamHandle>[];
+  final Map<String, Uint8List> _localPreviews = <String, Uint8List>{};
+  final List<String> _localPreviewOrder = <String>[];
+  String? _localPreviewAccount;
+  static const int _maxLocalPreviewEntries = 8;
+  static const int _maxLocalPreviewBytes = 24 * 1024 * 1024;
   bool _loading = true;
   String? _error;
   Timer? _pollTimer;
@@ -229,7 +239,11 @@ class _ChatPageState extends State<ChatPage> {
     _displayedMax = _messages.isEmpty ? 0 : _messages.last.position;
   }
 
-  void _onSent(List<ChatMessage> messages) {
+  void _onSent(
+    List<ChatMessage> messages,
+    Map<String, Uint8List> localPreviews,
+  ) {
+    _rememberLocalPreviews(localPreviews);
     final Set<String> known = _messages
         .map((ChatMessage message) => message.identity)
         .toSet();
@@ -319,6 +333,58 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
+  /// Local bytes are bound to the account that sent them. A different login
+  /// cannot reuse them, and the short LRU keeps a burst of large sends bounded.
+  void _rememberLocalPreviews(Map<String, Uint8List> previews) {
+    if (previews.isEmpty) {
+      return;
+    }
+    final String account;
+    try {
+      account = widget.chat.selfAccount;
+    } on AuthFailure {
+      return;
+    }
+    if (_localPreviewAccount != account) {
+      _localPreviews.clear();
+      _localPreviewOrder.clear();
+      _localPreviewAccount = account;
+    }
+    previews.forEach((String mediaId, Uint8List bytes) {
+      _localPreviews[mediaId] = bytes;
+      _localPreviewOrder
+        ..remove(mediaId)
+        ..add(mediaId);
+    });
+    int totalBytes = _localPreviews.values.fold<int>(
+      0,
+      (int sum, Uint8List bytes) => sum + bytes.length,
+    );
+    while (_localPreviewOrder.length > _maxLocalPreviewEntries ||
+        (totalBytes > _maxLocalPreviewBytes && _localPreviewOrder.isNotEmpty)) {
+      final String evicted = _localPreviewOrder.removeAt(0);
+      final Uint8List? bytes = _localPreviews.remove(evicted);
+      if (bytes != null) {
+        totalBytes -= bytes.length;
+      }
+    }
+  }
+
+  Uint8List? _localPreviewFor(String mediaId) {
+    final String? account = _localPreviewAccount;
+    if (account == null) {
+      return null;
+    }
+    try {
+      if (widget.chat.selfAccount != account) {
+        return null;
+      }
+    } on AuthFailure {
+      return null;
+    }
+    return _localPreviews[mediaId];
+  }
+
   List<ChatMediaItem> _buildMediaItems() {
     return buildConversationMedia(
       messages: _messages,
@@ -349,6 +415,7 @@ class _ChatPageState extends State<ChatPage> {
           sequenceComplete: _error == null,
           onPlayVideo: _playViewerVideo,
           onReload: _reloadMediaSequence,
+          localPreviewFor: _localPreviewFor,
         ),
       ),
     );
@@ -531,6 +598,7 @@ class _ChatPageState extends State<ChatPage> {
           ChatComposer(
             chat: widget.chat,
             peerAccount: widget.peer.account,
+            clipboard: widget.clipboard,
             onSent: _onSent,
           ),
         ],
@@ -625,6 +693,7 @@ class _ChatPageState extends State<ChatPage> {
               ? null
               : () => _play(attachment),
           onOpenMedia: _openMedia,
+          localMediaPreview: _localPreviewFor,
         ),
       );
       previous = message.createdAt;

@@ -6,8 +6,9 @@
 library;
 
 import 'dart:async';
-import 'dart:typed_data';
+import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../app.dart';
@@ -18,6 +19,7 @@ import '../../services/chat_api_client.dart';
 import '../../services/chat_service.dart';
 import 'chat_format.dart';
 import 'media_save.dart';
+import 'viewer_video.dart';
 
 typedef MediaViewerReload =
     Future<({List<ChatMediaItem> items, bool complete})> Function();
@@ -32,6 +34,8 @@ class MediaViewer extends StatefulWidget {
     this.onPlayVideo,
     this.onReload,
     this.sequenceComplete = true,
+    this.localPreviewFor,
+    this.videoSessionFactory,
   });
 
   final List<ChatMediaItem> items;
@@ -49,6 +53,13 @@ class MediaViewer extends StatefulWidget {
   /// False when the conversation history is not fully loaded; the viewer then
   /// shows a boundary badge instead of pretending the count is complete.
   final bool sequenceComplete;
+
+  /// Already-held bytes of the current account's just-sent images.
+  final Uint8List? Function(String mediaId)? localPreviewFor;
+
+  /// Test seam for the full-screen player. Production selects the platform
+  /// implementation; null keeps the existing external-player hand-off.
+  final ViewerVideoSessionFactory? videoSessionFactory;
 
   static const Key pageViewKey = Key('media-viewer-pages');
   static const Key closeKey = Key('media-viewer-close');
@@ -170,11 +181,13 @@ class _MediaViewerState extends State<MediaViewer> {
                 item: item,
                 chat: widget.chat,
                 onPlay: widget.onPlayVideo,
+                sessionFactory: widget.videoSessionFactory,
               )
             : _ViewerImage(
                 key: ValueKey<String>(item.key),
                 item: item,
                 chat: widget.chat,
+                localBytes: widget.localPreviewFor?.call(item.mediaId),
               );
       },
     );
@@ -402,10 +415,16 @@ class _SaveButton extends StatelessWidget {
 }
 
 class _ViewerImage extends StatefulWidget {
-  const _ViewerImage({super.key, required this.item, required this.chat});
+  const _ViewerImage({
+    super.key,
+    required this.item,
+    required this.chat,
+    this.localBytes,
+  });
 
   final ChatMediaItem item;
   final ChatService chat;
+  final Uint8List? localBytes;
 
   @override
   State<_ViewerImage> createState() => _ViewerImageState();
@@ -430,6 +449,14 @@ class _ViewerImageState extends State<_ViewerImage> {
   @override
   void initState() {
     super.initState();
+    final Uint8List? local = widget.localBytes;
+    if (local != null && local.isNotEmpty) {
+      _original = local;
+      _size = local.length;
+      _preview = MediaPreview(bytes: local, isDerivative: false);
+      _loadingPreview = false;
+      return;
+    }
     _size = widget.item.byteSize;
     unawaited(_initialize());
   }
@@ -669,11 +696,16 @@ class _ViewerVideo extends StatefulWidget {
     required this.item,
     required this.chat,
     this.onPlay,
+    this.sessionFactory,
   });
 
   final ChatMediaItem item;
   final ChatService chat;
   final Future<void> Function(ChatMediaItem item)? onPlay;
+
+  /// Injected by tests. Null selects the platform default: inline playback on
+  /// Android/iOS/macOS, explicit external-player hand-off elsewhere.
+  final ViewerVideoSessionFactory? sessionFactory;
 
   @override
   State<_ViewerVideo> createState() => _ViewerVideoState();
@@ -682,11 +714,40 @@ class _ViewerVideo extends StatefulWidget {
 class _ViewerVideoState extends State<_ViewerVideo> {
   Uint8List? _cover;
   bool _loading = true;
+  ViewerVideoSession? _session;
+
+  bool get _inlineCapable {
+    if (widget.sessionFactory != null) {
+      return true;
+    }
+    if (kIsWeb) {
+      return false;
+    }
+    return Platform.isAndroid || Platform.isIOS || Platform.isMacOS;
+  }
+
+  ViewerVideoSessionFactory? get _factory {
+    final ViewerVideoSessionFactory? injected = widget.sessionFactory;
+    if (injected != null) {
+      return injected;
+    }
+    if (!_inlineCapable) {
+      return null;
+    }
+    return (ChatMediaItem item) =>
+        StreamingViewerVideoSession(chat: widget.chat, item: item);
+  }
 
   @override
   void initState() {
     super.initState();
     unawaited(_loadCover());
+  }
+
+  @override
+  void dispose() {
+    unawaited(_session?.dispose());
+    super.dispose();
   }
 
   Future<void> _loadCover() async {
@@ -713,62 +774,239 @@ class _ViewerVideoState extends State<_ViewerVideo> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return ColoredBox(
-      color: const Color(0xFF0B0F10),
-      child: Stack(
-        alignment: Alignment.center,
-        children: <Widget>[
-          Positioned.fill(
-            child: _cover != null
-                ? Image.memory(
-                    _cover!,
-                    fit: BoxFit.contain,
-                    gaplessPlayback: true,
-                    errorBuilder:
-                        (
-                          BuildContext context,
-                          Object error,
-                          StackTrace? stackTrace,
-                        ) => const Center(
-                          child: Icon(
-                            Icons.movie_outlined,
-                            color: Colors.white54,
-                            size: 46,
-                          ),
-                        ),
-                  )
-                : _loading
-                ? const Center(
+  Future<void> _play() async {
+    if (!mounted) {
+      return;
+    }
+    final ViewerVideoSessionFactory? factory = _factory;
+    if (factory == null) {
+      await widget.onPlay?.call(widget.item);
+      return;
+    }
+    if (_session != null) {
+      return;
+    }
+    final ViewerVideoSession session = factory(widget.item);
+    setState(() => _session = session);
+    await session.start();
+  }
+
+  String _progressLabel(ViewerVideoTransfer transfer, ViewerVideoPhase phase) {
+    if (phase == ViewerVideoPhase.opening) {
+      return '正在请求视频…';
+    }
+    final double? fraction = transfer.fraction;
+    if (fraction == null) {
+      return '缓冲中…';
+    }
+    return '缓冲 ${(fraction * 100).round()}%';
+  }
+
+  Widget _coverWidget() {
+    if (_cover != null) {
+      return Image.memory(
+        _cover!,
+        fit: BoxFit.contain,
+        gaplessPlayback: true,
+        errorBuilder:
+            (BuildContext context, Object error, StackTrace? stackTrace) =>
+                const Center(
+                  child: Icon(
+                    Icons.movie_outlined,
+                    color: Colors.white54,
+                    size: 46,
+                  ),
+                ),
+      );
+    }
+    if (_loading) {
+      return const Center(
+        child: SizedBox(
+          width: 26,
+          height: 26,
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            color: Colors.white70,
+          ),
+        ),
+      );
+    }
+    return const Center(
+      child: Icon(Icons.movie_outlined, color: Colors.white54, size: 46),
+    );
+  }
+
+  Widget _idleContent() {
+    final bool externalOnly = _factory == null;
+    return Stack(
+      alignment: Alignment.center,
+      children: <Widget>[
+        IconButton.filled(
+          key: ValueKey<String>('media-viewer-play-${widget.item.mediaId}'),
+          onPressed: widget.onPlay == null && externalOnly
+              ? null
+              : () => unawaited(_play()),
+          style: IconButton.styleFrom(
+            backgroundColor: const Color(0x99000000),
+            foregroundColor: Colors.white,
+            minimumSize: const Size(64, 64),
+          ),
+          icon: const Icon(Icons.play_arrow_rounded, size: 38),
+        ),
+        if (externalOnly)
+          Positioned(
+            left: AppSpacing.lg,
+            right: AppSpacing.lg,
+            bottom: AppSpacing.xxl,
+            child: Text(
+              '当前桌面构建使用系统播放器，暂不支持内嵌播放',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white60, fontSize: 12),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _sessionContent(ViewerVideoSession session) {
+    return ValueListenableBuilder<ViewerVideoPhase>(
+      valueListenable: session.phase,
+      builder: (BuildContext context, ViewerVideoPhase phase, Widget? child) {
+        if (phase == ViewerVideoPhase.failed) {
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                const Icon(
+                  Icons.error_outline_rounded,
+                  color: Colors.white70,
+                  size: 34,
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                const Text('视频播放失败', style: TextStyle(color: Colors.white)),
+                TextButton(
+                  key: const Key('media-viewer-video-retry'),
+                  onPressed: () => unawaited(session.retry()),
+                  child: const Text('重试'),
+                ),
+              ],
+            ),
+          );
+        }
+        if (phase == ViewerVideoPhase.ready) {
+          return Stack(
+            alignment: Alignment.center,
+            children: <Widget>[
+              Positioned.fill(child: session.buildSurface(context)),
+              Positioned.fill(
+                child: Align(
+                  alignment: Alignment.center,
+                  child: ValueListenableBuilder<bool>(
+                    valueListenable: session.playing,
+                    builder:
+                        (BuildContext context, bool playing, Widget? child) {
+                          return IconButton.filled(
+                            key: const Key('media-viewer-video-toggle'),
+                            onPressed: () =>
+                                unawaited(session.togglePlayPause()),
+                            style: IconButton.styleFrom(
+                              backgroundColor: const Color(0x66000000),
+                              foregroundColor: Colors.white,
+                              minimumSize: const Size(56, 56),
+                            ),
+                            icon: Icon(
+                              playing
+                                  ? Icons.pause_rounded
+                                  : Icons.play_arrow_rounded,
+                              size: 34,
+                            ),
+                          );
+                        },
+                  ),
+                ),
+              ),
+              ValueListenableBuilder<bool>(
+                valueListenable: session.buffering,
+                builder: (BuildContext context, bool buffering, Widget? child) {
+                  if (!buffering) {
+                    return const SizedBox.shrink();
+                  }
+                  return const Positioned(
+                    top: AppSpacing.md,
                     child: SizedBox(
-                      width: 26,
-                      height: 26,
+                      width: 22,
+                      height: 22,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
                         color: Colors.white70,
                       ),
                     ),
-                  )
-                : const Center(
-                    child: Icon(
-                      Icons.movie_outlined,
-                      color: Colors.white54,
-                      size: 46,
+                  );
+                },
+              ),
+            ],
+          );
+        }
+        return Center(
+          child: ValueListenableBuilder<ViewerVideoTransfer>(
+            valueListenable: session.transfer,
+            builder:
+                (
+                  BuildContext context,
+                  ViewerVideoTransfer transfer,
+                  Widget? child,
+                ) {
+                  final double? fraction = transfer.fraction;
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.xl,
                     ),
-                  ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        const SizedBox(
+                          width: 28,
+                          height: 28,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white70,
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.md),
+                        Text(
+                          _progressLabel(transfer, phase),
+                          style: const TextStyle(color: Colors.white),
+                        ),
+                        const SizedBox(height: AppSpacing.sm),
+                        SizedBox(
+                          width: 220,
+                          child: LinearProgressIndicator(
+                            value: fraction,
+                            minHeight: 3,
+                            backgroundColor: Colors.white24,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
           ),
-          IconButton.filled(
-            key: ValueKey<String>('media-viewer-play-${widget.item.mediaId}'),
-            onPressed: widget.onPlay == null
-                ? null
-                : () => unawaited(widget.onPlay!(widget.item)),
-            style: IconButton.styleFrom(
-              backgroundColor: const Color(0x99000000),
-              foregroundColor: Colors.white,
-              minimumSize: const Size(64, 64),
-            ),
-            icon: const Icon(Icons.play_arrow_rounded, size: 38),
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ViewerVideoSession? session = _session;
+    return ColoredBox(
+      color: const Color(0xFF0B0F10),
+      child: Stack(
+        alignment: Alignment.center,
+        children: <Widget>[
+          Positioned.fill(child: _coverWidget()),
+          Positioned.fill(
+            child: session == null ? _idleContent() : _sessionContent(session),
           ),
         ],
       ),

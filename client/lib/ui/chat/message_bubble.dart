@@ -20,6 +20,7 @@ class MessageBubble extends StatelessWidget {
     this.onDownload,
     this.onPlay,
     this.onOpenMedia,
+    this.localMediaPreview,
     this.busy = false,
   });
 
@@ -33,6 +34,9 @@ class MessageBubble extends StatelessWidget {
 
   /// Opens the full-screen viewer at this media slot; null disables the tap.
   final void Function(ChatMessage message, int? partIndex)? onOpenMedia;
+
+  /// Already-held bytes for a just-sent image of the current account.
+  final Uint8List? Function(String mediaId)? localMediaPreview;
   final bool busy;
 
   bool get mine => message.senderAccount == selfAccount;
@@ -153,6 +157,7 @@ class MessageBubble extends StatelessWidget {
                 child: _MediaImage(
                   chat: chat,
                   mediaId: part.mediaId,
+                  localBytes: localMediaPreview?.call(part.mediaId),
                   width: 160,
                   height: 160,
                 ),
@@ -403,17 +408,36 @@ class _MediaImage extends StatelessWidget {
   const _MediaImage({
     required this.chat,
     required this.mediaId,
+    this.localBytes,
     this.width,
     this.height,
   });
 
   final ChatService chat;
   final String mediaId;
+  final Uint8List? localBytes;
   final double? width;
   final double? height;
 
   @override
   Widget build(BuildContext context) {
+    final Uint8List? local = localBytes;
+    if (local != null && local.isNotEmpty) {
+      return Image.memory(
+        local,
+        width: width,
+        height: height,
+        fit: height == null ? BoxFit.contain : BoxFit.cover,
+        gaplessPlayback: true,
+        errorBuilder:
+            (BuildContext context, Object error, StackTrace? stackTrace) =>
+                _placeholder(
+                  width ?? 220,
+                  height ?? 120,
+                  Icons.broken_image_outlined,
+                ),
+      );
+    }
     return FutureBuilder<Uint8List>(
       future: chat.loadListPreview(mediaId),
       builder: (BuildContext context, AsyncSnapshot<Uint8List> snapshot) {

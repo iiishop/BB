@@ -25,7 +25,14 @@ class ChatComposer extends StatefulWidget {
 
   final ChatService chat;
   final String peerAccount;
-  final void Function(List<ChatMessage> messages) onSent;
+
+  /// Successful messages plus the local bytes already held for body images,
+  /// keyed by the committed media id.
+  final void Function(
+    List<ChatMessage> messages,
+    Map<String, Uint8List> localPreviews,
+  )
+  onSent;
   final bool enabled;
   final ClipboardMediaReader clipboard;
 
@@ -228,7 +235,7 @@ class _ChatComposerState extends State<ChatComposer> {
         _failed = failed;
       });
       if (sent.isNotEmpty) {
-        widget.onSent(sent);
+        widget.onSent(sent, _bodyLocalPreviews(result.body));
       }
       if (failed.isNotEmpty) {
         _snack('有 ${failed.length} 项发送失败，可点击重试');
@@ -249,6 +256,7 @@ class _ChatComposerState extends State<ChatComposer> {
     setState(() => _sending = true);
     final List<ChatMessage> sent = <ChatMessage>[];
     final List<SendOutcome> remaining = <SendOutcome>[];
+    final Map<String, Uint8List> previews = <String, Uint8List>{};
     for (final SendOutcome outcome in List<SendOutcome>.from(_failed)) {
       try {
         if (outcome.part != null) {
@@ -259,6 +267,7 @@ class _ChatComposerState extends State<ChatComposer> {
           );
           if (retried.message != null) {
             sent.add(retried.message!);
+            previews.addAll(_bodyLocalPreviews(retried));
           }
         } else if (outcome.attachment != null) {
           final SendOutcome retried = await widget.chat.sendAttachment(
@@ -289,11 +298,39 @@ class _ChatComposerState extends State<ChatComposer> {
       _failed = remaining;
     });
     if (sent.isNotEmpty) {
-      widget.onSent(sent);
+      widget.onSent(sent, previews);
     }
     if (remaining.isNotEmpty) {
       _snack('仍有 ${remaining.length} 项发送失败');
     }
+  }
+
+  /// Maps committed image blocks back to the bytes the composer still holds.
+  /// Only used when both sides report the same number of images; a mismatch
+  /// means the server normalized the body and guessing would bind wrong bytes.
+  Map<String, Uint8List> _bodyLocalPreviews(SendOutcome? outcome) {
+    final ChatMessage? message = outcome?.message;
+    final List<OutgoingPart>? parts = outcome?.part;
+    if (message == null || parts == null) {
+      return <String, Uint8List>{};
+    }
+    final List<ImagePart> images = message.parts
+        .whereType<ImagePart>()
+        .toList();
+    final List<OutgoingImage> outgoing = parts
+        .whereType<OutgoingImage>()
+        .toList();
+    if (images.length != outgoing.length) {
+      return <String, Uint8List>{};
+    }
+    final Map<String, Uint8List> previews = <String, Uint8List>{};
+    for (int index = 0; index < images.length; index += 1) {
+      final Uint8List? bytes = outgoing[index].source.bytes;
+      if (bytes != null && bytes.isNotEmpty) {
+        previews[images[index].mediaId] = bytes;
+      }
+    }
+    return previews;
   }
 
   void _snack(String message) {

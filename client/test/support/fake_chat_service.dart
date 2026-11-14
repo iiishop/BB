@@ -68,6 +68,8 @@ class FakeChatService extends ChatService {
   final List<int> originalProgress = <int>[];
 
   bool previewFails = false;
+  bool metadataFails = false;
+  bool listPreviewFails = false;
   Object? originalFailure;
   Completer<void>? originalGate;
   Uint8List? originalBytes;
@@ -268,12 +270,26 @@ class FakeChatService extends ChatService {
   @override
   Future<Attachment> loadMediaMetadata(String mediaId) async {
     metadataCalls.add(mediaId);
+    if (metadataFails) {
+      throw const AuthFailure(
+        status: 503,
+        code: 'metadata_unavailable',
+        message: '元信息暂不可用',
+      );
+    }
     return metadata;
   }
 
   @override
   Future<Uint8List> loadListPreview(String mediaId) async {
     listPreviewCalls.add(mediaId);
+    if (listPreviewFails) {
+      throw const AuthFailure(
+        status: 503,
+        code: 'thumbnail_unavailable',
+        message: '缩略图暂不可用',
+      );
+    }
     final Attachment info = await loadMediaMetadata(mediaId);
     if (mediaNeedsExplicitOriginal(info.byteSize)) {
       return (await loadMediaPreview(mediaId, thumbnail: true)).bytes;
@@ -334,11 +350,22 @@ class FakeMediaStreamHandle implements MediaStreamHandle {
 
   @override
   final Uri uri;
+
+  final StreamController<MediaStreamProgress> _progress =
+      StreamController<MediaStreamProgress>.broadcast();
+
+  @override
+  Stream<MediaStreamProgress> get progress => _progress.stream;
+
   bool closed = false;
 
   @override
   Future<void> close() async {
+    if (closed) {
+      return;
+    }
     closed = true;
+    await _progress.close();
   }
 }
 

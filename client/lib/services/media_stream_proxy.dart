@@ -6,6 +6,16 @@ import '../models/auth_models.dart';
 import 'auth_session.dart';
 import 'chat_api_client.dart';
 
+/// Bytes delivered through the loopback stream for the current request.
+class MediaStreamProgress {
+  const MediaStreamProgress({required this.receivedBytes, this.totalBytes});
+
+  final int receivedBytes;
+
+  /// Declared length of the current request, when the server sent one.
+  final int? totalBytes;
+}
+
 /// A click-scoped, loopback-only media stream.
 ///
 /// The URL is opened only when the human presses play. The proxy forwards the
@@ -13,6 +23,10 @@ import 'chat_api_client.dart';
 /// the response; it never downloads or caches the complete original first.
 abstract interface class MediaStreamHandle {
   Uri get uri;
+
+  /// Real delivered-byte progress for the current range request. Broadcast so
+  /// the viewer can subscribe before the player issues its first request.
+  Stream<MediaStreamProgress> get progress;
 
   Future<void> close();
 }
@@ -92,9 +106,14 @@ class _LoopbackStream implements MediaStreamHandle {
   final AuthIdentity identity;
   final void Function(_LoopbackStream stream) onClosed;
   bool _closed = false;
+  final StreamController<MediaStreamProgress> _progress =
+      StreamController<MediaStreamProgress>.broadcast();
 
   @override
   Uri get uri => Uri.parse('http://127.0.0.1:${server.port}/stream/$token');
+
+  @override
+  Stream<MediaStreamProgress> get progress => _progress.stream;
 
   void start() {
     server.listen(_handle, onError: (Object _) {});
@@ -170,7 +189,21 @@ class _LoopbackStream implements MediaStreamHandle {
       _copyHeader(upstreamResponse, response, HttpHeaders.acceptRangesHeader);
       _copyHeader(upstreamResponse, response, HttpHeaders.contentDisposition);
       response.headers.set(HttpHeaders.cacheControlHeader, 'private, no-store');
-      await response.addStream(upstreamResponse);
+      final int? total = _contentLength(upstreamResponse);
+      int received = 0;
+      if (!_progress.isClosed) {
+        _progress.add(MediaStreamProgress(receivedBytes: 0, totalBytes: total));
+      }
+      final Stream<List<int>> counted = upstreamResponse.map((List<int> chunk) {
+        received += chunk.length;
+        if (!_progress.isClosed) {
+          _progress.add(
+            MediaStreamProgress(receivedBytes: received, totalBytes: total),
+          );
+        }
+        return chunk;
+      });
+      await response.addStream(counted);
       await response.close();
     } on HttpException {
       await _writeError(request, HttpStatus.badGateway);
@@ -205,8 +238,16 @@ class _LoopbackStream implements MediaStreamHandle {
     await response.close();
   }
 
+  int? _contentLength(HttpClientResponse response) {
+    final String? raw = response.headers.value(HttpHeaders.contentLengthHeader);
+    return raw == null ? null : int.tryParse(raw);
+  }
+
   Future<void> _stop() async {
     await server.close(force: true);
+    if (!_progress.isClosed) {
+      await _progress.close();
+    }
   }
 
   @override
