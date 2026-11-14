@@ -147,8 +147,9 @@ void main() {
       final ledger = ChatLedger.atPath(
         file.path,
         beforeReplace: () async {
-          if (fail)
+          if (fail) {
             throw const FileSystemException('injected replacement failure');
+          }
         },
       );
       await expectLater(
