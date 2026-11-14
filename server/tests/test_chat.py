@@ -3,9 +3,10 @@ import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
-from bb_server.app import create_app
 from fastapi.testclient import TestClient
 from PIL import Image
+
+from bb_server.app import create_app
 
 
 @pytest.fixture
