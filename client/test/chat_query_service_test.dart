@@ -170,6 +170,63 @@ void main() {
     }
   });
 
+  test('notification settings preserve unread, cutoff unsynced off interval, and cold restart', () async {
+    final identity = await service.identityFor('notices');
+    Future<Map<String, dynamic>> toggle(bool enabled) => service.ledger.setNotificationSettings(
+      identity: identity, enabled: enabled, stillCurrent: () => true,
+      sourceHead: () => service.api.eventHead(token: session.identity!.token));
+    expect((await service.ledger.notificationSettings(_a))['enabled'], true);
+    await toggle(false);
+    await backend.seedMessage(sender: _b, target: _a, text: 'while off, not yet synced');
+    final on = await toggle(true);
+    await service.subscribeEventsFor(expectedIdentity: identity, discover: true);
+    final skipped = await service.notificationChanges(expectedIdentity: identity, afterCursor: 0);
+    expect(skipped['items'], isEmpty, reason: 'off interval source IDs skipped even after late sync');
+    await backend.seedMessage(sender: _c, target: _a, text: 'new after enabling');
+    await service.subscribeEventsFor(expectedIdentity: identity, discover: true);
+    final notices = await service.notificationChanges(expectedIdentity: identity, afterCursor: skipped['next_cursor'] as int);
+    final rows = notices['items'] as List;
+    expect(rows.length, 1);
+    expect(rows.single['peer_account'], _c);
+    expect(rows.single['new_count'], 1);
+    expect(rows.single['incoming_unread'], 2);
+    expect(await service.ledger.displayedMessageIds(_a), isEmpty);
+    expect(await toggle(true), on, reason: 'idempotent on never resets offline cutoff');
+    expect(await ChatLedger.atPath('${root.path}/ledger.json').notificationSettings(_a), on);
+    expect((await service.ledger.notificationSettings(_b))['revision'], 1);
+    await expectLater(service.notificationChanges(expectedIdentity: identity, afterCursor: 9999), throwsA(failure(422, 'validation_error')));
+  });
+
+  test('manual enable has an exact head snapshot boundary during concurrent arrival', () async {
+    final identity = await service.identityFor('concurrent-toggle');
+    await service.ledger.setNotificationSettings(identity: identity, enabled: false, stillCurrent: () => true, sourceHead: () async => 0);
+    final entered = Completer<void>(), release = Completer<void>();
+    final enabling = service.ledger.setNotificationSettings(identity: identity, enabled: true, stillCurrent: () => true, sourceHead: () async {
+      final head = await service.api.eventHead(token: session.identity!.token);
+      entered.complete(); await release.future; return head;
+    });
+    await entered.future;
+    await backend.seedMessage(sender: _c, target: _a, text: 'after head snapshot, before settings commit');
+    release.complete(); await enabling;
+    await service.subscribeEventsFor(expectedIdentity: identity, discover: true);
+    final page = await service.notificationChanges(expectedIdentity: identity, afterCursor: 0);
+    expect((page['items'] as List).length, 1);
+    expect((page['items'] as List).single['peer_account'], _c);
+    expect((page['items'] as List).single['new_count'], 1);
+    expect((page['items'] as List).single['incoming_unread'], 2, reason: 'old C unread is retained but not re-notified');
+  });
+
+  test('notification enabling failures and stale identity leave disabled state intact', () async {
+    final identity = await service.identityFor('toggle-failure');
+    await service.ledger.setNotificationSettings(identity: identity, enabled: false, stillCurrent: () => true, sourceHead: () async => 0);
+    final before = await service.ledger.notificationSettings(_a);
+    await expectLater(service.ledger.setNotificationSettings(identity: identity, enabled: true, stillCurrent: () => true, sourceHead: () async => throw StateError('offline')), throwsStateError);
+    bool current = true;
+    await expectLater(service.ledger.setNotificationSettings(identity: identity, enabled: true, stillCurrent: () => current, sourceHead: () async { current = false; return 100; }), throwsA(failure(409, 'stale_identity')));
+    expect(await service.ledger.notificationSettings(_a), before);
+    expect(await ChatLedger.atPath('${root.path}/ledger.json').notificationSettings(_a), before);
+  });
+
   test('conversations are existing private chats with consumer enrichment',
       () async {
     final String consumer = (await service.identityFor('q-reader')).consumerId;
@@ -186,6 +243,8 @@ void main() {
     expect(b.latestPosition, 3);
     expect(b.consumedThrough, 0);
     expect(b.unconsumedPositions, 3);
+    expect(b.toJson()['incoming_unread'], 2,
+      reason: 'outgoing position 2 is not incoming unread');
     expect(b.lastActivityAt.isUtc, isTrue);
     expect(page.nextCursor, isNull);
 
@@ -220,6 +279,47 @@ void main() {
     );
     expect(secondPage.items.map((ConversationSummary i) => i.peerAccount), <String>[_c]);
     expect(secondPage.nextCursor, _c);
+  });
+
+  test('sparse successful display clears exact inbound ids across consumers', () async {
+    final reader = await service.identityFor('reader');
+    final binding = (await service.ledger.bindingById(reader.consumerId))!;
+    final other = (await service.identityFor('another-reader')).consumerId;
+    final message = (await service.query.messageById(b3Id))!;
+    final visible = await service.visibleMessageForQuery(captured: session.identity!, binding: binding, peerAccount: _b, message: message);
+    Future<ConversationPage> list() => service.query.listConversations(consumerId: other, unreadOnly: true);
+    expect((await list()).items.first.incomingUnread, 2, reason: 'prepared display is not successful presentation');
+    await service.ledger.confirmPresentationAttempt(account: _a, consumerSession: 'reader', consumerId: binding.consumerId, attemptId: 'sparse', requestDigest: 'digest', receiptIds: [visible.item.presentation!.receiptId], expectedIdentity: binding.identity, stillCurrent: () => true);
+    final page = await list();
+    expect(page.items.map((i) => i.peerAccount), [_b, _c]);
+    expect(page.items.first.incomingUnread, 1, reason: 'position 1 remains unread despite successful position 3');
+    expect(page.items.first.latestUnread!['message_id'], b1Id);
+    expect(page.items.last.incomingUnread, 1, reason: 'reading B does not clear C');
+    expect(await service.ledger.consumedThrough(_a, _b, consumerId: binding.consumerId), 0, reason: 'account unread is not the consumer recovery watermark');
+    expect(await ChatLedger.atPath('${root.path}/ledger.json').displayedMessageIds(_a), {b3Id});
+    expect(await service.ledger.displayedMessageIds(_c), isEmpty);
+  });
+
+  test('recent unread pages freeze ordering and reject foreign or stale cursors', () async {
+    final identity = await service.identityFor('pages');
+    final other = await service.identityFor('other-pages');
+    final first = await service.query.listConversations(consumerId: identity.consumerId, order: 'recent', unreadOnly: true, limit: 1);
+    expect(first.items.single.peerAccount, _c);
+    expect(first.nextCursor, isNotNull);
+    await backend.seedMessage(sender: _b, target: _a, text: 'now newest');
+    final next = await service.query.listConversations(consumerId: identity.consumerId, order: 'recent', unreadOnly: true, cursor: first.nextCursor, limit: 1);
+    expect(next.items.single.peerAccount, _b);
+    expect(next.items.single.latestPosition, 3, reason: 'snapshot does not move when traffic arrives');
+    expect(next.nextCursor, isNull);
+    final fresh = await service.query.listConversations(consumerId: identity.consumerId, order: 'recent', unreadOnly: true, limit: 1);
+    expect(fresh.items.single.peerAccount, _b);
+    await expectLater(service.query.listConversations(consumerId: other.consumerId, order: 'recent', unreadOnly: true, cursor: first.nextCursor), throwsA(failure(422, 'validation_error')));
+    await service.ledger.bindConsumer(account: _a, authGeneration: session.identity!.authGeneration, consumerSession: 'new-session', consumerId: identity.consumerId, expectedBindingRevision: identity.bindingRevision);
+    // A true owner CAS always bumps revision, even with the same generation.
+    final owner = await service.ledger.enrollConsumer(account: _a, authGeneration: session.identity!.authGeneration, ownerKeyHash: 'owner', sessionId: 'owned-session');
+    final ownedPage = await service.query.listConversations(consumerId: owner.consumerId, order: 'recent', limit: 1);
+    await service.ledger.bindConsumerOwner(account: _a, authGeneration: session.identity!.authGeneration, ownerKeyHash: 'owner', consumerId: owner.consumerId, expectedBindingRevision: 1, sessionId: 'owned-session-2');
+    await expectLater(service.query.listConversations(consumerId: owner.consumerId, order: 'recent', cursor: ownedPage.nextCursor), throwsA(failure(422, 'validation_error')));
   });
 
   test('a consumer id must be bound to the authenticated account', () async {

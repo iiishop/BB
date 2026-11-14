@@ -338,6 +338,12 @@ def install(app, path, directory, current_session, clock):
                 "next_cursor": items[-1]["account"] if len(rows) > limit else None,
             }
 
+    @app.get("/events/head", responses=errors)
+    def event_head(identity=identity_dep):
+        with connection(path) as db:
+            value = db.execute("SELECT COALESCE(MAX(event_id),0) FROM events WHERE account=?", (identity["account"],)).fetchone()[0]
+        return {"event_id": value}
+
     @app.get("/events", response_model=EventPage, responses=errors)
     def replay(
         after_event_id: int = Query(0, ge=0),

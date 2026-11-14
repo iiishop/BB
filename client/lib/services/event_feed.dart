@@ -30,7 +30,8 @@ class EventFeed {
 
   Timer? _timer;
   WebSocket? _socket;
-  bool _polling = false;
+  Future<void>? _activePoll;
+  AuthFailure? lastFailure;
   bool _disposed = false;
   int _revision = 0;
 
@@ -42,8 +43,8 @@ class EventFeed {
     if (_timer != null || _disposed) {
       return;
     }
-    _timer = Timer.periodic(pollInterval, (_) => unawaited(pollOnce()));
-    unawaited(pollOnce());
+    _timer = Timer.periodic(pollInterval, (_) => unawaited(_backgroundPoll()));
+    unawaited(_backgroundPoll());
     if (webSocketHints) {
       unawaited(_connectHintSocket());
     }
@@ -63,11 +64,18 @@ class EventFeed {
 
   Future<void> subscribe({
     required String consumerSession,
-    required String peerAccount,
+    String? peerAccount,
+    bool discover = false,
+    ExpectedIdentity? expectedIdentity,
   }) async {
     final AuthIdentity? captured = session.identity;
     if (captured == null) {
       throw unauthenticated;
+    }
+    if (expectedIdentity != null &&
+        (expectedIdentity.account != captured.account ||
+            expectedIdentity.authGeneration != captured.authGeneration)) {
+      throw staleIdentity;
     }
     if (consumerSession.trim().isEmpty) {
       throw const AuthFailure(
@@ -76,13 +84,17 @@ class EventFeed {
         message: 'consumer_session 不能为空',
       );
     }
-    await ledger.subscribe(captured.account, consumerSession, peerAccount);
+    await ledger.subscribe(captured.account, consumerSession, peerAccount,
+      discover: discover, expectedIdentity: expectedIdentity,
+      stillCurrent: () => session.isCurrent(captured));
     if (!session.isCurrent(captured)) {
       throw unauthenticated;
     }
     // Registration is not consumption: keep the existing cursor untouched.
     // Await one backfill pass so an immediate read after subscribe can see the
     // pre-registration backlog instead of racing an unawaited poll.
+    // A poll that started before registration cannot satisfy this backfill.
+    await _activePoll;
     await _pollAll(captured);
   }
 
@@ -91,47 +103,75 @@ class EventFeed {
   /// A new consumer starts from source cursor 0 and can recover pre-registration
   /// backlog for its peer. Advancing `consumer A` never marks consumer B as
   /// having accepted anything.
+  Future<void> _backgroundPoll() async {
+    try {
+      await pollOnce();
+      lastFailure = null;
+    } on AuthFailure catch (failure) {
+      // Scheduled work has no HTTP caller. Preserve the failure for diagnostics;
+      // explicit subscribe/poll still throws identity/storage errors.
+      lastFailure = failure;
+    } on FileSystemException {
+      lastFailure = const AuthFailure(status: 503, code: 'storage_unavailable', message: '事件存储不可用');
+    }
+  }
+
   Future<void> pollOnce() async {
-    if (_polling || _disposed) {
-      return;
-    }
+    if (_disposed) return;
     final AuthIdentity? captured = session.identity;
-    if (captured == null) {
-      return;
-    }
+    if (captured == null) return;
     await _pollAll(captured);
   }
 
   Future<void> _pollAll(AuthIdentity captured) async {
-    if (_polling || _disposed) {
-      return;
-    }
-    _polling = true;
+    if (_disposed) return;
+    if (_activePoll != null) return _activePoll!;
+    final Future<void> run = _pollSubscriptions(captured);
+    _activePoll = run;
     try {
-      await deliverPendingFor(captured.account);
-      final Map<String, String> subscriptions = await ledger.subscriptions(
-        captured.account,
-      );
-      for (final MapEntry<String, String> subscription
-          in subscriptions.entries) {
-        if (_disposed || !session.isCurrent(captured)) {
-          return;
-        }
-        await _pollConsumer(
-          captured: captured,
-          consumerSession: subscription.key,
-          peerAccount: subscription.value,
-        );
-      }
-    } on AuthFailure catch (failure) {
-      if (failure.status == 401) {
-        return;
-      }
-    } catch (_) {
-      // Network faults are retried by the timer.
+      await run;
     } finally {
-      _polling = false;
+      _activePoll = null;
     }
+  }
+
+  Future<void> _pollSubscriptions(AuthIdentity captured) async {
+    await deliverPendingFor(captured.account);
+    final Map<String, List<String>> subscriptions = await ledger.subscriptions(captured.account);
+    for (final MapEntry<String, List<String>> subscription in subscriptions.entries) {
+      _ensureCurrent(captured);
+      final Set<String> peers = subscription.value.toSet();
+      if (await ledger.discoversConversations(captured.account, subscription.key)) {
+        String after = '';
+        do {
+          final ConversationRecordPage page = await api.conversations(token: captured.token, afterAccount: after, limit: 100);
+          _ensureCurrent(captured);
+          for (final ConversationRecord row in page.items) {
+            await ledger.subscribe(captured.account, subscription.key, row.peerAccount,
+              stillCurrent: () => session.isCurrent(captured));
+            peers.add(row.peerAccount);
+          }
+          if (page.nextCursor == null) break;
+          if (page.nextCursor!.compareTo(after) <= 0) throw const FormatException('conversation cursor did not advance');
+          after = page.nextCursor!;
+        } while (!_disposed);
+      }
+      for (final String peer in peers) {
+        _ensureCurrent(captured);
+        if (_disposed) return;
+        try {
+          await _pollConsumer(captured: captured, consumerSession: subscription.key, peerAccount: peer);
+        } on AuthFailure catch (failure) {
+          // Only peer-local availability failures can be isolated. Shared
+          // identity, owner/CAS and storage failures must remain visible.
+          if (!const <String>{'not_found', 'upstream_unavailable', 'upstream_timeout', 'network_error'}.contains(failure.code)) rethrow;
+        }
+      }
+    }
+  }
+
+  void _ensureCurrent(AuthIdentity captured) {
+    if (!session.isCurrent(captured)) throw staleIdentity;
   }
 
   Future<void> _pollConsumer({
@@ -139,9 +179,10 @@ class EventFeed {
     required String consumerSession,
     required String peerAccount,
   }) async {
-    int cursor = await ledger.consumerEventCursor(
+    int cursor = await ledger.subscriptionCursor(
       captured.account,
       consumerSession,
+      peerAccount,
     );
     // Snapshot the binding that admits this feed's events. v2 callbacks must
     // carry the origin identity; a later rebind never rewrites it.
@@ -157,6 +198,7 @@ class EventFeed {
         afterEventId: cursor,
         limit: 100,
       );
+      _ensureCurrent(captured);
       for (final ServerEvent event in page.items) {
         if (event.peerAccount == peerAccount) {
           final ChatMessage? message = await _readable(
@@ -165,6 +207,7 @@ class EventFeed {
             event.position,
             event.messageId,
           );
+          _ensureCurrent(captured);
           if (message == null) {
             // Not readable yet: keep this consumer's cursor so a later poll
             // retries the source event instead of dropping it.
@@ -188,9 +231,10 @@ class EventFeed {
         cursor = event.eventId;
         advanced = true;
       }
-      await ledger.setConsumerEventCursor(
+      await ledger.setSubscriptionCursor(
         captured.account,
         consumerSession,
+        peerAccount,
         cursor,
       );
       if (!page.hasMore) {
@@ -401,7 +445,7 @@ class EventFeed {
       final WebSocket socket = await api.connectEvents(token);
       _socket = socket;
       socket.listen(
-        (_) => unawaited(pollOnce()),
+        (_) => unawaited(_backgroundPoll()),
         onError: (Object _) {},
         onDone: () {
           _socket = null;

@@ -207,10 +207,9 @@ class ChatLedger {
     return ChatLedger._(null, data);
   }
 
-  /// Current document version. Version 1 stored account+peer consumption
-  /// watermarks; version 2 stores consumer-scoped consumption plus the
-  /// client-owned consumer registry.
-  static const int _version = 2;
+  /// Version 3 changes only subscription representation and scan progress.
+  /// Version 2 is migrated with a backup; pre-v2 formats still fail closed.
+  static const int _version = 3;
   final File? _file;
   final Future<void> Function()? _beforeReplace;
   Map<String, dynamic>? _rollbackPoint;
@@ -254,6 +253,7 @@ class ChatLedger {
     }
     final File? file = _file;
     if (file == null) {
+      if (_data['version'] == 2) _migrateSubscriptions();
       _loaded = true;
       return;
     }
@@ -270,7 +270,7 @@ class ChatLedger {
         throw const FormatException('chat ledger must be an object');
       }
       final Object? version = decoded['version'];
-      if (version == _version) {
+      if (version == 2 || version == _version) {
         final Object? accounts = decoded['accounts'];
         if (accounts is! Map<String, dynamic>) {
           throw const FormatException('chat ledger accounts are invalid');
@@ -281,6 +281,26 @@ class ChatLedger {
         }
         decoded.putIfAbsent('consumer_owners', () => <String, dynamic>{});
         _data = decoded;
+        if (version == 2) {
+          // Preserve the exact old bytes before publishing the new format.
+          // A failed migration leaves the old path intact and is retried on load.
+          final File backup = File('${file.path}.v2.bak');
+          if (!await backup.exists()) {
+            final File temporaryBackup = File('${backup.path}.tmp');
+            await temporaryBackup.writeAsString(raw, flush: true);
+            await temporaryBackup.rename(backup.path);
+          } else if (await backup.readAsString() != raw) {
+            throw const FormatException('migration backup does not match v2 ledger');
+          }
+          _rollbackPoint = _snapshotLocked();
+          try {
+            _migrateSubscriptions();
+            await _flush();
+          } finally {
+            _data = _rollbackPoint!;
+            _rollbackPoint = null;
+          }
+        }
         _loaded = true;
       } else {
         // The single supported document version. Old pre-v2 documents are
@@ -354,17 +374,9 @@ class ChatLedger {
           await handle.close();
         }
         await _beforeReplace?.call();
-        try {
-          await temporary.rename(file.path);
-        } on FileSystemException {
-          // POSIX replacement is already atomic; a failed rename must not
-          // delete the prior commit. Retain the existing Windows fallback.
-          if (!Platform.isWindows) rethrow;
-          if (await file.exists()) {
-            await file.delete();
-          }
-          await temporary.rename(file.path);
-        }
+        // Never delete the committed file to make replacement succeed.
+        // Unsupported replacement filesystems fail closed with the old data.
+        await temporary.rename(file.path);
       } finally {
         try {
           if (await temporary.exists()) await temporary.delete();
@@ -437,62 +449,147 @@ class ChatLedger {
 
   // ----------------------------------------------------------- subscription --
 
+  void _migrateSubscriptions() {
+    for (final Object? value in (_data['accounts'] as Map<String, dynamic>).values) {
+      final Map<String, dynamic> account = value as Map<String, dynamic>;
+      final Map<String, dynamic> subscriptions =
+          (account['subscriptions'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+      final Map<String, dynamic> feeds =
+          (account['events'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+      for (final String consumer in subscriptions.keys.toList()) {
+        final Map<String, dynamic> old = subscriptions[consumer] as Map<String, dynamic>;
+        final String peer = old['peer_account'] as String;
+        final Map<String, dynamic>? feed = feeds[consumer] as Map<String, dynamic>?;
+        subscriptions[consumer] = <String, dynamic>{
+          'discover': false,
+          'peers': <String, dynamic>{peer: <String, dynamic>{
+            'created_at': old['created_at'],
+            'server_cursor': feed?['server_cursor'] ?? 0,
+          }},
+        };
+      }
+      account['subscriptions'] = subscriptions;
+    }
+    _data['version'] = _version;
+  }
+
+  /// Explicit subscriptions are additive. Discovery is opt-in and never turns
+  /// an existing explicit single-peer installation into an all-chat consumer.
   Future<void> subscribe(
     String account,
     String consumerSession,
-    String peerAccount,
-  ) {
+    String? peerAccount, {
+    bool discover = false,
+    ExpectedIdentity? expectedIdentity,
+    bool Function()? stillCurrent,
+  }) {
     return _mutate(() async {
+      if (stillCurrent != null && !stillCurrent()) throw staleIdentity;
+      if (expectedIdentity != null) {
+        final ConsumerBinding? binding = _bindingLocked(consumerSession);
+        if (binding == null || binding.account != account || !expectedIdentity.matches(binding.identity)) {
+          throw staleBinding('消费者绑定版本已变化');
+        }
+      }
       final Map<String, dynamic> subscriptions =
           _account(account)['subscriptions'] as Map<String, dynamic>;
-      final Map<String, dynamic> events =
-          _account(account)['events'] as Map<String, dynamic>;
-      final Map<String, dynamic>? prior =
-          subscriptions[consumerSession] as Map<String, dynamic>?;
-      if (prior != null && prior['peer_account'] != peerAccount) {
-        throw const AuthFailure(
-          status: 409,
-          code: 'conflict',
-          message: 'consumer_session 已绑定另一个 peer',
-        );
-      }
-      final bool feedExisted = events.containsKey(consumerSession);
-      final Map<String, dynamic> feed = events.putIfAbsent(
+      final Map<String, dynamic> subscription = subscriptions.putIfAbsent(
         consumerSession,
-        () => <String, dynamic>{
-          'next_cursor': 1,
-          'entries': <dynamic>[],
-          'source_event_ids': <String>[],
-          'server_cursor': 0,
-        },
+        () => <String, dynamic>{'discover': false, 'peers': <String, dynamic>{}},
       ) as Map<String, dynamic>;
-      feed.putIfAbsent('server_cursor', () => 0);
-      final bool sameBinding =
-          prior != null && prior['peer_account'] == peerAccount;
-      if (sameBinding && feedExisted) {
-        return;
+      final Map<String, dynamic> peers = subscription['peers'] as Map<String, dynamic>;
+      bool changed = false;
+      if (discover && subscription['discover'] != true) {
+        subscription['discover'] = true;
+        changed = true;
       }
-      subscriptions[consumerSession] = <String, dynamic>{
-        'peer_account': peerAccount,
-        'created_at': DateTime.now().toUtc().toIso8601String(),
-      };
-      await _flush();
+      if (peerAccount != null && !peers.containsKey(peerAccount)) {
+        peers[peerAccount] = <String, dynamic>{
+          'server_cursor': 0,
+          'created_at': DateTime.now().toUtc().toIso8601String(),
+        };
+        changed = true;
+      }
+      if (changed) await _flush();
     });
   }
 
-  Future<Map<String, String>> subscriptions(String account) {
+  Future<Map<String, List<String>>> subscriptions(String account) {
     return _locked(() async {
-      final Map<String, dynamic> raw =
-          _account(account)['subscriptions'] as Map<String, dynamic>;
-      return <String, String>{
+      final Map<String, dynamic> raw = _account(account)['subscriptions'] as Map<String, dynamic>;
+      return <String, List<String>>{
         for (final MapEntry<String, dynamic> entry in raw.entries)
-          if (entry.value is Map<String, dynamic> &&
-              (entry.value as Map<String, dynamic>)['peer_account'] is String)
-            entry.key:
-                (entry.value as Map<String, dynamic>)['peer_account'] as String,
+          entry.key: ((entry.value as Map<String, dynamic>)['peers'] as Map<String, dynamic>).keys.toList(),
       };
     });
   }
+
+  Future<bool> discoversConversations(String account, String consumer) => _locked(() async {
+    final Map<String, dynamic> raw = _account(account)['subscriptions'] as Map<String, dynamic>;
+    return (raw[consumer] as Map<String, dynamic>?)?['discover'] == true;
+  });
+
+  Future<int> subscriptionCursor(String account, String consumer, String peer) => _locked(() async {
+    return _subscriptionLocked(account, consumer, peer)['server_cursor'] as int;
+  });
+
+  Map<String, dynamic> _subscriptionLocked(String account, String consumer, String peer) {
+    final Map<String, dynamic> subscriptions = _account(account)['subscriptions'] as Map<String, dynamic>;
+    return ((subscriptions[consumer] as Map<String, dynamic>)['peers'] as Map<String, dynamic>)[peer] as Map<String, dynamic>;
+  }
+
+  Future<void> setSubscriptionCursor(String account, String consumer, String peer, int cursor) => _mutate(() async {
+    final Map<String, dynamic> subscription = _subscriptionLocked(account, consumer, peer);
+    if (cursor > (subscription['server_cursor'] as int)) {
+      subscription['server_cursor'] = cursor;
+      await _flush();
+    }
+  });
+
+  /// Account-level product unread is derived from exact successful display
+  /// facts, independently of a consumer's contiguous recovery/ACK watermark.
+  /// Do not persist a second message/read database or fill sparse gaps.
+  Future<Set<String>> displayedMessageIds(String account) => _locked(() async {
+    final Map<String, dynamic> receipts = _account(account)['receipts'] as Map<String, dynamic>;
+    return <String>{
+      for (final Object? value in receipts.values)
+        if (value is Map<String, dynamic> && value['confirmed'] == true)
+          PresentationReceipt.fromJson(value).messageId,
+    };
+  });
+
+  Map<String, dynamic> _notificationSettings(String account) =>
+      Map<String, dynamic>.from((_account(account)['notification_settings'] as Map<String, dynamic>?) ??
+        <String, dynamic>{'enabled': true, 'revision': 1, 'skip_source_through': 0});
+
+  Future<Map<String, dynamic>> notificationSettings(String account) =>
+      _locked(() async => _notificationSettings(account));
+
+  Future<Map<String, dynamic>> setNotificationSettings({
+    required ExpectedIdentity identity,
+    required bool enabled,
+    required bool Function() stillCurrent,
+    required Future<int> Function() sourceHead,
+  }) => _mutate(() async {
+    void check() {
+      if (!stillCurrent()) throw staleIdentity;
+      final ConsumerBinding? binding = _bindingLocked(identity.consumerId);
+      if (binding == null || !identity.matches(binding.identity)) throw staleBinding('消费者绑定版本已变化');
+    }
+    check();
+    final settings = _notificationSettings(identity.account);
+    if (settings['enabled'] == enabled) return settings;
+    // The server head is the linearization boundary for off->on. The ledger
+    // mutex excludes ingestion and competing toggles until commit. Repeating
+    // on while already on MUST NOT skip offline backlog.
+    final int cutoff = enabled ? await sourceHead() : settings['skip_source_through'] as int;
+    check();
+    final next = <String, dynamic>{'enabled': enabled,
+      'revision': (settings['revision'] as int) + 1, 'skip_source_through': cutoff};
+    _account(identity.account)['notification_settings'] = next;
+    await _flush();
+    return next;
+  });
 
   // -------------------------------------------------------------- operations --
 

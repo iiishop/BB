@@ -24,6 +24,10 @@ def run(
 ):
     import os
 
+    if os.environ.get("BB_PRODUCT_CASES") == "notifications":
+        from live_notifications import run as run_notifications
+        return run_notifications(origin=origin, account=account, peer=peer, api=api, runtime=runtime, root=root, private=private, launch=launch, stop=stop, record=record, **unused)
+
     if os.environ.get("BB_PRODUCT_CASES") == "peer-isolation":
         from live_peer_isolation import run as run_peer_isolation
 
@@ -126,6 +130,8 @@ def run(
         json.dumps(
             {
                 "origin": origin,
+                "api": api,
+                "account": account,
                 "peer": peer,
                 "images": [png((255, 0, 0)), png((0, 0, 255))],
             }

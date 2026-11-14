@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { Notifications } from "./notifications.js";
 import { History } from "./history.js";
 import { Operations } from "./operations.js";
 import { digest, Journal } from "./store.js";
@@ -10,6 +11,7 @@ export class Bridge {
     this.journal = new Journal(root, client.identity);
     this.operations = new Operations(client, root);
     this.history = new History(this);
+    this.notifications = new Notifications(this);
     this.tail = Promise.resolve();
     this.observers = Promise.resolve();
     this.closed = false;
@@ -47,6 +49,7 @@ export class Bridge {
   async mount() {
     await this.journal.open();
     await this.operations.open();
+    await this.notifications.open();
     const self = this;
     this.fiber = await this.ctx.plugin({
       name: "bb-chat-consumption",
@@ -63,6 +66,7 @@ export class Bridge {
             yield* next();
             return;
           }
+          await self.notifications.beforeModel(options);
           const candidates = self.journal
             .list()
             .map((row) => {
@@ -172,7 +176,7 @@ export class Bridge {
                 .some(
                   (r) =>
                     r.peer === exec.arguments.account &&
-                    r.state !== "completed",
+                    !["completed", "awaiting_read"].includes(r.state),
                 )
             )
               throw new Error("BB input already active; await its settlement");
@@ -392,8 +396,8 @@ export class Bridge {
         // Dispatched inputs are never re-executed or reassigned.
         if (
           callId &&
-          ["claimed", "prepared"].includes(prior.state) &&
-          (!prior.nativeId ||
+          ["awaiting_read", "claimed", "prepared"].includes(prior.state) &&
+          (prior.state === "awaiting_read" || !prior.nativeId ||
             !this.agent.session
               .snapshotEvents()
               .some(
@@ -403,11 +407,14 @@ export class Bridge {
         ) {
           if (prior.nativeId) this.agent.inbox.remove(prior.nativeId);
           await this.flush();
-          const bootstrap = await this.history.prepare(prior);
+          const bootstrap = { content: [] };
           const updated = await this.journal.put({
             ...prior,
             ...(bootstrap.metadata ? { bootstrap: bootstrap.metadata } : {}),
             callId,
+            session: this.agent.session.id,
+            sessionCreatedAt: this.agent.session.header.createdAt,
+            receiptId: item.presentation.receipt_id,
             claimTurn: this.turn,
             projectionImageCount,
             nativeId: undefined,
@@ -440,7 +447,7 @@ export class Bridge {
       row = await this.journal.put(row);
       await this.checkpoint("claimed");
       if (callId) {
-        const bootstrap = await this.history.prepare(row);
+        const bootstrap = { content: [] };
         row.state = "prepared";
         if (bootstrap.metadata) row.bootstrap = bootstrap.metadata;
         await this.journal.put(row);
@@ -616,11 +623,23 @@ export class Bridge {
     return item;
   }
   async recover() {
+    for (const row of this.journal.list()) {
+      if (row.kind === "download" || !["claimed", "prepared"].includes(row.state)) continue;
+      // No durable dispatch intent means no authorized provider exposure.
+      // Stored tool results are context, not proof that a model received them.
+      if (row.session === this.agent.session.id) {
+        await this.agent.runMaintenance(async () => {
+          if (row.nativeId) this.agent.inbox.remove(row.nativeId);
+          await this.flush();
+          await this.journal.put({ ...row, state: "awaiting_read" });
+        });
+      }
+    }
     const mismatches = this.journal
       .list()
       .filter(
         (row) =>
-          row.state !== "completed" &&
+          !["completed", "awaiting_read"].includes(row.state) &&
           (row.session !== this.agent.session.id ||
             (row.sessionCreatedAt !== undefined &&
               row.sessionCreatedAt !== this.agent.session.header.createdAt)),
@@ -658,7 +677,7 @@ export class Bridge {
     for (let row of this.journal
       .list()
       .sort((a, b) => a.position - b.position)) {
-      if (row.state === "completed") continue;
+      if (["completed", "awaiting_read"].includes(row.state)) continue;
       if (row.state === "dispatching" || row.state === "uncertain") {
         // The durable native turn can resolve a lost plugin observer update.
         const facts = this.agent.session.snapshotEvents();
@@ -695,14 +714,13 @@ export class Bridge {
         else await this.journal.put({ ...row, state: "uncertain" });
         continue;
       }
-      const item =
-        row.kind === "download"
-          ? { message: row.event, blocks: [] }
-          : await this.findItem(row);
+      if (row.kind !== "download") continue;
+      const item = { message: row.event, blocks: [] };
       await this.serial(() =>
         this.resumeDelivery(row, item, { replacePending: true }),
       );
     }
+    await this.notifications.resumePending();
   }
   async claimDownload(event, cursor) {
     const identity = this.client.identity;
@@ -773,34 +791,8 @@ export class Bridge {
         );
       if (completed) await this.settle(row);
     }
-    const peers = [];
-    if (peer) peers.push(peer);
-    else {
-      let after_account = "";
-      for (;;) {
-        const page = await this.client.call("chat/list_conversations", {
-          after_account,
-          limit: 100,
-        });
-        for (const c of page.items) peers.push(c.peer_account);
-        if (!page.next_cursor) break;
-        after_account = page.next_cursor;
-      }
-    }
-    for (const target of peers) {
-      try {
-        await this.client.call("events/subscribe", { peer_account: target });
-      } catch (error) {
-        // The current client binds a subscription to one peer. A conflicting
-        // peer must not starve the existing subscription. Identity, ownership
-        // and storage failures still stop this tick; no receipt is advanced.
-        if (error.status !== 409 || error.code !== "idempotency_conflict")
-          throw error;
-        console.warn("[bb-bridge] subscription conflict", target, error.code);
-        continue;
-      }
-      await this.poll(target);
-    }
+    await this.client.call("events/subscribe", peer ? { peer_account: peer } : { discover: true });
+    await this.notifications.tick(peer);
     let after_cursor = 0;
     for (;;) {
       const page = await this.client.call("events/read", {
@@ -815,31 +807,19 @@ export class Bridge {
     }
   }
   async poll(peer) {
-    if (!peer || this.closed || this.waiting(peer)) return;
-    await this.observers;
-    if (this.inputBlocked(peer)) return;
-    const { consumed_through } = await this.client.call("chat/consumption", {
-      account: peer,
-    });
-    const page = await this.client.call("chat/read_messages", {
-      account: peer,
-      after_position: consumed_through,
-      limit: 50,
-    });
-    for (const item of page.items) {
-      if (this.waiting(peer)) break;
-      await this.claim(item);
-    }
+    return this.notifications.tick(peer);
   }
   async drain() {
     await this.agent.whenIdle();
     await this.observers;
     await this.tail;
+    await this.notifications.tail;
   }
   status() {
     return {
       identity: this.client.identity,
       operations: this.operations.status(),
+      notifications: this.notifications.status(),
       items: this.journal
         .list()
         .map(({ messageId, position, peer, state, kind }) => ({

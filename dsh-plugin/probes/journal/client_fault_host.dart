@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:mirrors';
 
+import 'package:bb_client/models/auth_models.dart';
 import 'package:bb_client/models/chat_models.dart';
 import 'package:bb_client/services/auth_api_client.dart';
 import 'package:bb_client/services/auth_service.dart';
@@ -20,6 +21,7 @@ class Gate {
   Completer<void> entered = Completer<void>();
   Completer<void> released = Completer<void>();
   final List<String> trace = <String>[];
+  String? failingMetadataPeer;
 
   void arm(String next) {
     if (edge != null) throw StateError('barrier already armed');
@@ -110,6 +112,25 @@ class GatedApi extends ChatApiClient {
   final Gate gate;
 
   @override
+  Future<MessagePage> conversation({
+    required String token,
+    required String account,
+    int? afterPosition = 0,
+    int? beforePosition,
+    int limit = 50,
+  }) {
+    // Only the metadata lookup fails; feed synchronization still uses the
+    // real API. Notification range validation remains the production code.
+    if (limit == 1 && account == gate.failingMetadataPeer) {
+      gate.trace.add('metadata-unavailable');
+      throw const AuthFailure(status: 503, code: 'upstream_unavailable',
+        message: 'isolated metadata fault');
+    }
+    return super.conversation(token: token, account: account,
+      afterPosition: afterPosition, beforePosition: beforePosition, limit: limit);
+  }
+
+  @override
   Future<ChatMessage> sendMessage({
     required String token,
     required String targetAccount,
@@ -131,11 +152,15 @@ class GatedApi extends ChatApiClient {
     required String token,
     required String mediaId,
     String? range,
+    String? variant,
+    void Function(int received, int? total)? onProgress,
   }) async {
     final response = await super.fetchMedia(
       token: token,
       mediaId: mediaId,
       range: range,
+      variant: variant,
+      onProgress: onProgress,
     );
     await gate.pause('download-after-fetch');
     return response;
@@ -194,6 +219,8 @@ Future<void> main(List<String> args) async {
           gate.release();
         case '/trace':
           break;
+        case '/metadata-failure':
+          gate.failingMetadataPeer = body['peer'] as String?;
         default:
           throw StateError('unknown probe control');
       }

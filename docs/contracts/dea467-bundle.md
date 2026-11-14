@@ -25,7 +25,7 @@ The five fields above are editable together and saved atomically against the nat
 
 Connection status distinguishes disabled, waiting for login/client/session, bound, and recovery/identity fencing. The optional host-owned GET `/api/bb-bridge/status` uses the public authenticated owner Fetch route service and exposes only state, diagnostic code and required session IDs. It does not expose tokens or consumer capability, and is removed on unload. The browser status timer/requests are disposed on leaving the editor. This is a local DSH plugin interface; the BB HTTP contract is unchanged.
 
-Stopping automatic binding is separate from the reason displayed. A failed initial bind or connected-client check still uses the original stop/retry policy: ordinary transport failure stops automatic rebinding. Its state is now `connection_unavailable`, with allowlisted diagnostics distinguishing TCP refusal, timeout, generic fetch failure and a fetch-restricted port. The page explicitly says rebinding is paused: start the client/check the URL, save a corrected URL or disable/save then enable/save. Restoring a listener alone does not silently rebind. Unknown failures show `stopped` with manual recovery guidance; they are not labelled identity failures or endless connection attempts.
+Stopping automatic binding is separate from the reason displayed. A failed initial bind still pauses binding. DEA-474 changes an established connection: transient transport loss preserves the binding and retries connectivity; same-account re-login establishes a fresh generation automatically. Owner/CAS conflicts remain fenced. Its state is now `connection_unavailable`, with allowlisted diagnostics distinguishing TCP refusal, timeout, generic fetch failure and a fetch-restricted port. The page explicitly says rebinding is paused: start the client/check the URL, save a corrected URL or disable/save then enable/save. Restoring a listener alone does not un-fence a failed initial bind; an already bound client resumes without a new CAS. Unknown failures show `stopped` with manual recovery guidance; they are not labelled identity failures or endless connection attempts.
 
 Actual `stale_identity`, `stale_binding`, session-owner mismatch and recovery requirements remain `blocked`; `required_sessions` is retained. Resolve the account/binding/session restriction first, keeping original recovery records, then explicitly rebind. An unknown provider result remains uncertain; changing the diagnostic does not retry models, resend operations, settle messages or delete journals. Only allowlisted diagnostic codes reach the page; arbitrary upstream messages/stacks are not displayed. The local `bb_bridge_status` tool uses the same state mapping.
 
@@ -45,19 +45,9 @@ Download plans are reconciled through `downloads/get`, using a saved task ID or 
 
 The bridge periodically discovers/subscribes to authorized peers and reads client facts. Wait, native query presentation and passive input share the journal. Queries themselves never confirm/ACK; only a complete native model presentation and a successful durable turn permit internal settlement. Missing images, failed turns and uncertain requests do not consume. No final model text is forwarded: only explicit send tools own outbound messages.
 
-Inputs contain BB/source account, consumer/session and original message metadata plus ordered text/image blocks. Actual images are saved through the public attachment service; image-capable model metadata and actual projected image blocks are checked. A fresh consumer catches up incrementally; an existing consumer starts after its own committed position. New/rebuilt sessions receive bounded history automatically as described below. Exact context and older history remain available through `get_context`, `get_message` and bidirectional `read_messages`; the bridge does not synthesize summaries. Download completion/failure is delivered only for a journaled operation initiated by the configured session, after querying the client's current task fact.
+DEA-474 replaces passive message/history injection with aggregate metadata notifications. The normative contract, write-entry inventory and migration rules are in `dea474-notifications-v1.md`. Notifications are account-configurable, default on, and never confirm read receipts. Models explicitly choose list/read/wait/send tools. No automatic history bootstrap runs for message queries; historical images remain available via explicit queries with their original order. Download callbacks remain automatic for a journaled operation owned by the configured session.
 
-This version uses one configured native session per bundle instance. While claimed work exists, resume its recorded session before selecting a different session; the bridge fails closed rather than abandoning an old pending input. Different consumers use different private state directories. It does not implement shared-JSON cross-machine HA.
-
-## Automatic bounded history
-
-Before the first incremental input for each native session incarnation and peer, the bridge queries the existing client `get_context` fact, anchored at that input. It prefixes the same native message/tool result with a `history_context` envelope and nearby already-consumed messages. This applies to passive delivery and model wait/query presentation. The journal records session ID, public session-header creation time, peer, anchor, consumed position, selected IDs/ranges, omissions and projection digest. It stores no historical message bodies. The host's ordinary Session persistence owns the rendered context.
-
-The envelope has hard limits: eight neighboring historical messages, 12 KiB of total historical text including metadata, two images and 2 MiB of decoded image bytes. Selection prefers nearby messages and restores chronological order; each retained message preserves text/image order. Source/target identities and original message IDs distinguish history from the current increment. Text overflow, image overflow/unavailability, missing positions/media, unsupported reply relations and an older-page indicator are explicit. The envelope includes bounded `get_context`, backward `read_messages`, and exact `get_message` continuation arguments. `reserved_usage` describes conservative reservations before omissions, not model token usage.
-
-Only positions at or below the captured committed cursor are historical context. Unconsumed neighboring positions are labelled `unconsumed_not_history`, never silently treated as processed. Historical queries may prepare receipts, but the bridge does not claim those messages, confirm their receipts, send anything, or ACK them. The first increment alone is the new task, and its own complete presentation plus successful turn remain necessary for settlement. A historical image may be explicitly omitted; missing incremental media still fails the ordinary strict presentation gate.
-
-The durable initializer is part of the first incremental journal record and native projection. Later inputs and a restored original session do not repeat it. Rebuilding a settled session, including reusing its ID with a different public header creation time, initializes it again. If unsettled work belongs to a different or lost original session incarnation, binding reports `recovery_session_required` and `required_sessions`; it preserves uncertainty and performs no model replay or early consumption. This is an explicit recovery restriction, not a claim that the lost native session was recovered. Restore the original session evidence before retrying; deleting uncertain rows is not a supported repair.
+`history.js`, `history.test.mjs` and the old `--context`/`online`/`peer-isolation` probes are historical/component helpers, not DEA-474 product acceptance. The updated installed probe verifies explicit model-driven queries and history; `BB_PRODUCT_CASES=notifications` verifies summary delivery, actual wait A/B, offline re-login and notification crash recovery. The new dependency-free notification tests use the existing plugin pytest/CI entry.
 
 ## A/B/C recovery implementation
 
@@ -65,7 +55,7 @@ Every journal write is fsynced, atomically renamed and directory-synced. Owner c
 
 | Boundary | Replacement behavior |
 | --- | --- |
-| A: claim durable, not delivered; or owned native pending persisted | Rebind explicitly; resume the native session; remove the old owned pending entry under public maintenance; fetch the original fact and create one new attempt. |
+| A: old message claim durable, no model dispatch intent | Preserve as `awaiting_read`, remove only its owned pending entry; no unsolicited body replay. An explicit query can claim it with a fresh receipt. Download callbacks retain their prior recovery. |
 | B: dispatch intent durable, model outcome unknown | Preserve queryable uncertain. No model replay, send, confirm or ACK. A fully durable successful native turn may resolve a lost observer update. |
 | C: completed native turn, confirm/ACK response lost | Reuse the same attempt/digest/receipt; idempotently confirm and query/advance the client's cursor, without another provider request. |
 | Explicit send succeeded, result not journaled | Query original operation ID, retain the original success, never resend; an unfinished native turn stays uncertain. |
@@ -73,13 +63,7 @@ Every journal write is fsynced, atomically renamed and directory-synced. Owner c
 
 The metadata journal is not an alternate scheduler. The stock host owns inboxes, turns, tool calls, cancellation, Session projection and Session persistence. The bridge uses `followup`, `runMaintenance`, `inbox.remove`, `sessions.flush`, scoped tool registration and documented event hooks only.
 
-Online pre-dispatch retries use the same delivery advancement as replacement recovery.
-A `claimed` or unprojected `prepared` record can continue on the next normal tick
-after a transient history/media/projection failure. The bridge checks the original
-session incarnation and public native pending/projection facts first. An existing
-pending item is retained online; replacement recovery may replace only that owned
-pending item under maintenance. Already projected, dispatching or uncertain inputs
-are never blindly delivered again. Download callback reservations follow the same rule.
+Message bodies are no longer scheduled by polling. Old unexposed body reservations await explicit queries; successful or uncertain presentations retain their original evidence. Notification reservations have a separate durable window/cursor and native-ID reconciliation; see the DEA-474 contract. Download callback reservations retain their existing advancement rules.
 
 Operation uncertainty is different from a pre-dispatch reservation. Ordinary ticks
 skip only the affected peers while a send/download result is unknown; they do not retry the tool.
@@ -95,7 +79,7 @@ Missing download events/tasks remain uncertain. A terminal operation resolves on
 that operation: an unfinished native turn still remains uncertain and cannot confirm/ACK.
 
 Before dispatch, new plans persist the target peer plus peers whose inputs belong
-to the current native turn. `poll`, passive/query `claim`, wait admission and
+to the current native turn. Explicit query `claim`, wait admission and
 replacement delivery use the same peer uncertainty guard. Uncertain input journals
 also block only their peer. Other peers can deliver and settle independently.
 Settlement checks the guard before confirmation/ACK and retains the original
@@ -149,7 +133,7 @@ DSH_HOME=/absolute/new/lifecycle/home node dsh-plugin/probes/product/lifecycle.m
 
 `--product` uses actual isolated FastAPI/SQLite, actual Dart client, actual MCP stdio and unchanged DSH. Only the model is deterministic. Its crash cuts kill the actual plugin process, then start a fresh process and CAS rebind; the install test uses native Plugin Manager and Settings. `BB_PRODUCT_CASES=installed` selects only the install/media test for debugging and is not a full gate result.
 
-`--context` uses six separate plugin processes: seed/settle, new native session, restore that session, rebuild the same ID, unknown model outcome, and lost original session rejection. It checks cursor/request/receipt facts and actual red/blue native image bytes. The installed product test also switches a fully settled session via the real Settings service and proves automatic historical context plus one new task. `history.test.mjs` separately uses a query double for budgets, omissions and peer/session scoping. Neither test's deterministic provider is evidence of real model visual understanding.
+The old `--context` probe documents the former automatic-history behavior and is not the DEA-474 acceptance entry. Updated `--product`, `BB_PRODUCT_CASES=gap` and `BB_PRODUCT_CASES=notifications` exercise explicit reads, sparse display, send/download recovery and aggregate reminders. Deterministic providers prove transport/projection ordering, not real model comprehension.
 
 Only sanitized `results.json`, `sources.json`, `host-integrity.json`, lifecycle/installed summaries and inspected UI screenshots are distributable. Private service logs, browser storage, native sessions, owner files, databases and raw configs may contain synthetic credentials/capabilities and must not be attached. The runner hashes the fixed eight host files before/after and records product source hashes. Real model/visual understanding, Windows/Android, final same-SHA Flutter/CI and Sentinel independent QA remain separate acceptance work; deterministic media projection is not visual-understanding evidence.
 

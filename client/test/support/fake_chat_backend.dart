@@ -196,6 +196,11 @@ class FakeChatBackend {
         await _uploadMedia(request, account);
         return;
       }
+      if (request.method == 'GET' && path == '/events/head') {
+        final events = _events.where((e) => e.account == account).toList();
+        await _write(request, 200, <String, dynamic>{'event_id': events.isEmpty ? 0 : events.last.id});
+        return;
+      }
       if (request.method == 'GET' && path == '/events') {
         await _eventsPage(request, account);
         return;
@@ -607,6 +612,7 @@ class FakeChatBackend {
         'peer_account': peer,
         'last_message': _messageJson(last),
         'last_activity_at': last.createdAt.toIso8601String(),
+        'display_name': _users[peer],
         'latest_position': last.position,
       });
     }

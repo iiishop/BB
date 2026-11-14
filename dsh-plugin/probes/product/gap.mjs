@@ -37,19 +37,20 @@ const rt = await boot(
   root,
   async function* () {
     modelCalls++;
+    const fill = phase === "recover" && modelCalls === 1;
     const query = phase === "seed" && modelCalls === 1;
     const send = phase === "seed" && modelCalls === 2;
-    if (query || send) {
+    if (fill || query || send) {
       yield { type: "block-start", index: 0, blockType: "tool-call" };
       yield {
         type: "block-end",
         index: 0,
         block: {
           type: "tool-call",
-          id: query ? "query-position-3" : "one-explicit-send",
-          name: "mcp__bb__" + (query ? config.query : "send_message"),
+          id: fill ? "explicit-fill-gaps" : query ? "query-position-3" : "one-explicit-send",
+          name: "mcp__bb__" + (fill ? "read_messages" : query ? config.query : "send_message"),
           arguments: JSON.stringify(
-            query
+            fill ? {account:config.peer,after_position:0,limit:50} : query
               ? {
                   message_id: config.message_id,
                   ...(config.query === "get_context"
@@ -68,7 +69,7 @@ const rt = await boot(
     }
     yield {
       type: "finish",
-      reason: { kind: query || send ? "tool-calls" : "stop" },
+      reason: { kind: fill || query || send ? "tool-calls" : "stop" },
     };
   },
   (kind, data) => {
@@ -127,6 +128,7 @@ const output = (result) =>
 try {
   if (phase === "seed") {
     assert.equal(await cursor(), 0);
+    await client.call("notifications/set", {enabled:false});
     agent.followup({
       id: "query-instruction",
       role: "user",
@@ -236,6 +238,14 @@ try {
     await bridge.drain();
     await bridge.tick(config.peer);
     await bridge.drain();
+    if (phase === "recover") {
+      assert.equal(await cursor(), 0, "background tick does not fill display gaps");
+      assert.equal(modelCalls, 0);
+      agent.followup({id:"explicit-fill-instruction",role:"user",source:{kind:"user"},content:[{type:"text",text:"Explicitly read the remaining history."}]});
+      await bridge.drain();
+      await bridge.tick(config.peer);
+      await bridge.drain();
+    }
     assert.equal(await cursor(), 4);
     const rows = bridge.journal.list().sort((a, b) => a.position - b.position);
     assert.deepEqual(
@@ -262,12 +272,12 @@ try {
       .filter((b) => b.type === "tool-call");
     assert.deepEqual(
       calls.map((b) => b.id),
-      ["query-position-3", "one-explicit-send"],
+      ["query-position-3", "one-explicit-send", "explicit-fill-gaps"],
     );
     for (const row of rows.filter((r) => r.position !== 3))
       assert.equal(
         events.filter(
-          (e) => e.type === "user/message" && e.data.id === row.nativeId,
+          (e) => e.type === "tool/result" && e.data.message.id === row.nativeId,
         ).length,
         1,
       );

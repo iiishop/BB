@@ -17,6 +17,47 @@ class ConversationQuery(v1.Wire):
     limit: int = Field(default=50, ge=1, le=100)
 
 
+class ConversationRef(v1.Wire):
+    type: Literal["direct"] = "direct"
+    id: str = Field(pattern=r"^dm:[1-9][0-9]{7}:[1-9][0-9]{7}$")
+
+    @model_validator(mode="after")
+    def canonical(self):
+        _, low, high = self.id.split(":")
+        if low >= high:
+            raise ValueError(
+                "direct conversation requires two sorted distinct accounts"
+            )
+        return self
+
+
+class ConsumerConversationQuery(ConversationQuery):
+    order: Literal["account", "recent"] = "account"
+    unread_only: bool = False
+    cursor: str | None = Field(
+        default=None, min_length=1, max_length=200, pattern=r"^[A-Za-z0-9_-]+$"
+    )
+
+    @model_validator(mode="after")
+    def pagination(self):
+        if self.after_account and (
+            self.order != "account" or self.unread_only or self.cursor
+        ):
+            raise ValueError(
+                "after_account cannot be combined with snapshot pagination"
+            )
+        return self
+
+
+class MessagePreview(v1.Wire):
+    message_id: MessageId
+    sender_account: v1.Account
+    position: Position
+    created_at: str
+    text: str = Field(max_length=160)
+    truncated: bool
+
+
 class MessageQuery(v1.Wire):
     message_id: MessageId
 
@@ -42,6 +83,7 @@ class HistoryQuery(v1.Wire):
 
 class Conversation(v1.Wire):
     peer_account: v1.Account
+    display_name: str | None = None
     last_message: v1.Message
     last_activity_at: str
     latest_position: Position
@@ -53,6 +95,11 @@ class ConversationPage(v1.Wire):
 
 
 class ConsumerConversation(Conversation):
+    conversation: ConversationRef
+    display_name: str
+    incoming_unread: Position
+    latest_unread: MessagePreview | None
+
     # Positions in the complete bidirectional stream, NOT incoming unread count.
     consumed_through: Position
     unconsumed_positions: Position
@@ -65,6 +112,8 @@ class ConsumerConversation(Conversation):
             raise ValueError(
                 "unconsumed_positions must agree with the consumer watermark"
             )
+        if (self.incoming_unread > 0) != (self.latest_unread is not None):
+            raise ValueError("unread count and preview must agree")
         return self
 
 

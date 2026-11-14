@@ -373,15 +373,123 @@ class ChatService {
     );
   }
 
+  Future<Map<String, dynamic>> notificationChanges({
+    required ExpectedIdentity expectedIdentity,
+    required int afterCursor,
+    int? throughCursor,
+    List<int> retryCursors = const [],
+    int limit = 100,
+  }) async {
+    final context = await requireIdentity(expectedIdentity);
+    final account = context.identity.account;
+    final settings = await ledger.notificationSettings(account);
+    final int available = await ledger.localEventHead(account, expectedIdentity.consumerId);
+    final int head = throughCursor ?? available;
+    if (afterCursor < 0 || head < afterCursor || head > available) {
+      throw const AuthFailure(status: 422, code: 'validation_error', message: 'Invalid notification cursor range.');
+    }
+    final displayed = await ledger.displayedMessageIds(account);
+    final page = await ledger.readLocalEvents(account: account,
+      consumerSession: expectedIdentity.consumerId, afterCursor: afterCursor, limit: limit);
+    final fresh = page.items.where((e) => e.cursor <= head).toList();
+    final entries = [...fresh];
+    if (retryCursors.length > 100 || retryCursors.any((c) => c < 1 || c > afterCursor)) {
+      throw const AuthFailure(status: 422, code: 'validation_error', message: 'Invalid retry cursor.');
+    }
+    for (final cursor in retryCursors.toSet()) {
+      final retry = await ledger.readLocalEvents(account: account, consumerSession: expectedIdentity.consumerId, afterCursor: cursor - 1, limit: 1);
+      if (retry.items.isNotEmpty && retry.items.first.cursor == cursor) entries.add(retry.items.first);
+    }
+    final List<Map<String, dynamic>> deferred = [];
+    bool localFailure(AuthFailure f) => const {'not_found', 'upstream_unavailable', 'upstream_timeout', 'network_error'}.contains(f.code);
+    final Map<String, String> failedPeers = {};
+    final Map<String, Map<String, dynamic>> changes = {};
+    if (settings['enabled'] == true) {
+      for (final entry in entries) {
+        final event = entry.event;
+        if (event.type != LocalEventType.messageAvailable || event.peerAccount == null || event.position == null) continue;
+        final source = int.tryParse(event.eventId.replaceFirst('server:', ''));
+        if (source == null) throw const FormatException('invalid notification source');
+        if (source <= (settings['skip_source_through'] as int)) continue;
+        // Durable v1 local events deliberately store peer/position, not bodies or
+        // message IDs. Resolve exactly that authoritative position (also works
+        // for migrated feeds); never turn this lookup into a display receipt.
+        if (failedPeers.containsKey(event.peerAccount)) continue;
+        MessagePage history;
+        try {
+          history = await api.conversation(token: context.identity.token,
+            account: event.peerAccount!, afterPosition: event.position! - 1, limit: 1);
+        } on AuthFailure catch (failure) {
+          if (!localFailure(failure)) rethrow;
+          failedPeers[event.peerAccount!] = failure.code;
+          continue;
+        }
+        if (history.items.isEmpty || history.items.first.position != event.position) continue;
+        final message = history.items.first;
+        if (displayed.contains(message.id)) continue;
+        if (message.targetAccount != account) continue;
+        final peer = message.senderAccount;
+        final row = changes.putIfAbsent(peer, () => <String, dynamic>{
+          'conversation': directConversation(account, peer), 'peer_account': peer,
+          'display_name': peer, 'new_count': 0, 'incoming_unread': 0,
+          'last_message': messagePreview(message),
+        });
+        row['new_count'] = (row['new_count'] as int) + 1;
+        if (message.position > ((row['last_message'] as Map<String, dynamic>)['position'] as int)) row['last_message'] = messagePreview(message);
+      }
+      // Reuse the sole account-unread implementation; no notification-specific
+      // read database. No change means no history query on an idle heartbeat.
+      if (changes.isNotEmpty) {
+        String after = '';
+        do {
+          final summaries = await api.conversations(token: context.identity.token, afterAccount: after, limit: 100);
+          for (final row in summaries.items) {
+            if (!changes.containsKey(row.peerAccount) || failedPeers.containsKey(row.peerAccount)) continue;
+            try {
+              final summary = await query.summarizeConversation(captured: context.identity, row: row,
+                consumerId: expectedIdentity.consumerId, displayed: displayed);
+              changes[row.peerAccount]?['incoming_unread'] = summary.incomingUnread;
+              changes[row.peerAccount]?['display_name'] = summary.displayName;
+            } on AuthFailure catch (failure) {
+              if (!localFailure(failure)) rethrow;
+              failedPeers[row.peerAccount] = failure.code;
+            }
+          }
+          if (summaries.nextCursor == null) break;
+          after = summaries.nextCursor!;
+        } while (true);
+      }
+    }
+    for (final peer in failedPeers.keys) { changes.remove(peer); }
+    for (final entry in entries) {
+      final code = failedPeers[entry.event.peerAccount];
+      if (code != null) deferred.add({'cursor': entry.cursor, 'peer_account': entry.event.peerAccount, 'error_code': code});
+    }
+    await requireIdentity(expectedIdentity);
+    final current = await ledger.notificationSettings(account);
+    if (current['revision'] != settings['revision']) {
+      // Discard the sampled metadata; the caller retries from its old cursor.
+      return <String, dynamic>{'settings': current, 'items': <dynamic>[], 'deferred': <dynamic>[],
+        'next_cursor': afterCursor, 'through_cursor': head, 'has_more': afterCursor < head};
+    }
+    final int next = settings['enabled'] == false ? head : fresh.isEmpty ? head : fresh.last.cursor;
+    return <String, dynamic>{'settings': settings, 'items': changes.values.toList(), 'deferred': deferred,
+      'next_cursor': next, 'through_cursor': head, 'has_more': next < head};
+  }
+
   Future<void> subscribeEventsFor({
     required ExpectedIdentity expectedIdentity,
-    required String peerAccount,
+    String? peerAccount,
+    bool discover = false,
   }) async {
     await requireIdentity(expectedIdentity);
     await eventFeed.subscribe(
       consumerSession: expectedIdentity.consumerId,
       peerAccount: peerAccount,
+      discover: discover,
+      expectedIdentity: expectedIdentity,
     );
+    await requireIdentity(expectedIdentity);
   }
 
   Future<LocalEventPage> readEventsFor({

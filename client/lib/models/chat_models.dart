@@ -455,9 +455,11 @@ class ConversationRecord {
     required this.lastMessage,
     required this.lastActivityAt,
     required this.latestPosition,
+    this.displayName,
   });
 
   final String peerAccount;
+  final String? displayName;
   final ChatMessage lastMessage;
   final DateTime lastActivityAt;
   final int latestPosition;
@@ -482,6 +484,7 @@ class ConversationRecord {
     }
     return ConversationRecord(
       peerAccount: peer,
+      displayName: json['display_name'] as String?,
       lastMessage: ChatMessage.fromJson(last),
       lastActivityAt: at.toUtc(),
       latestPosition: latest,

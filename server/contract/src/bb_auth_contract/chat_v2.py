@@ -135,10 +135,10 @@ class Peer(Protected):
 
 
 class Read(Peer, query.HistoryQuery):
-    pass
+    unread_only: bool = False
 
 
-class Conversations(Protected, query.ConversationQuery):
+class Conversations(Protected, query.ConsumerConversationQuery):
     pass
 
 
@@ -226,11 +226,79 @@ class Download(v1.Wire):
 
 
 class Subscribe(Protected):
-    peer_account: v1.Account
+    peer_account: v1.Account | None = None
+    conversation: query.ConversationRef | None = None
+    discover: bool = False
+
+    @model_validator(mode="after")
+    def selection(self):
+        if (
+            sum(
+                (
+                    self.peer_account is not None,
+                    self.conversation is not None,
+                    self.discover,
+                )
+            )
+            != 1
+        ):
+            raise ValueError("select one peer, conversation or discovery")
+        if self.peer_account == self.expected_identity.account:
+            raise ValueError("self conversation is unsupported")
+        if (
+            self.conversation
+            and self.expected_identity.account
+            not in self.conversation.id.split(":")[1:]
+        ):
+            raise ValueError("conversation does not belong to the current account")
+        return self
 
 
 class Subscription(v1.Wire):
+    peer_account: v1.Account | None
+    conversation: query.ConversationRef | None
+    discover: bool
+
+
+class NotificationSettings(v1.Wire):
+    enabled: bool
+    revision: Revision
+    skip_source_through: Position
+
+
+class SetNotifications(Protected):
+    enabled: bool
+
+
+class NotificationChanges(Protected):
+    retry_cursors: list[Annotated[int, Field(ge=1, le=9007199254740991)]] = Field(default_factory=list, max_length=100)
+    after_cursor: Position = 0
+    through_cursor: Position | None = None
+    limit: int = Field(default=100, ge=1, le=100)
+
+
+class NotificationSummary(v1.Wire):
+    conversation: query.ConversationRef
     peer_account: v1.Account
+    display_name: str
+    new_count: int = Field(ge=1)
+    incoming_unread: Position
+    last_message: query.MessagePreview
+
+
+class DeferredNotification(v1.Wire):
+    cursor: int = Field(ge=1, le=9007199254740991)
+    peer_account: v1.Account
+    error_code: Literal["not_found", "upstream_unavailable", "upstream_timeout", "network_error"]
+
+
+class NotificationPage(v1.Wire):
+    deferred: list[DeferredNotification]
+    settings: NotificationSettings
+    items: list[NotificationSummary]
+    next_cursor: Position
+    through_cursor: Position
+    has_more: bool
 
 
 class EventsRead(Protected):
@@ -249,6 +317,7 @@ class EventBase(v1.Wire):
 
 
 class MessageEvent(EventBase):
+    conversation: query.ConversationRef
     type: Literal["message.available"]
     peer_account: v1.Account
     position: int = Field(ge=1, le=9007199254740991)
@@ -361,6 +430,9 @@ BUSINESS = {
         200,
         True,
     ),
+    "get_notifications": ("/v2/notifications/get", Protected, Reply[NotificationSettings], 200, True),
+    "set_notifications": ("/v2/notifications/set", SetNotifications, Reply[NotificationSettings], 200, True),
+    "notification_changes": ("/v2/notifications/changes", NotificationChanges, Reply[NotificationPage], 200, True),
     "list_conversations": (
         "/v2/chat/list_conversations",
         Conversations,

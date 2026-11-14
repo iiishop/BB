@@ -28,13 +28,18 @@ const rt = await boot(
   root,
   async function* () {
     modelCalls++;
-    if (cut === "provider-unknown") await checkpoint("provider-unknown");
+    if (cut === "provider-unknown" && modelCalls === 2) await checkpoint("provider-unknown");
     const wait =
       cut.startsWith("wait-") && phase === "crash" && modelCalls === 1;
     const send =
       ["operation-result", "download-result"].includes(cut) &&
       phase === "crash" &&
-      modelCalls === 1;
+      modelCalls === 2;
+    const query = !cut.startsWith("wait-") && phase === "crash" && modelCalls === 1;
+    if (query) {
+      yield {type:"block-start", index:0, blockType:"tool-call"};
+      yield {type:"block-end", index:0, block:{type:"tool-call",id:"explicit-read",name:"mcp__bb__read_messages",arguments:JSON.stringify({account:config.peer,after_position:0,limit:1})}};
+    }
     if (wait) {
       yield { type: "block-start", index: 0, blockType: "tool-call" };
       yield {
@@ -82,7 +87,7 @@ const rt = await boot(
     }
     yield {
       type: "finish",
-      reason: { kind: wait || send ? "tool-calls" : "stop" },
+      reason: { kind: wait || send || query ? "tool-calls" : "stop" },
     };
   },
   (kind, data) => native.push({ kind, ...data }),
@@ -185,23 +190,12 @@ const bridge = await new Bridge(
 bridge.installOperations();
 try {
   if (phase === "crash") {
-    if (cut.startsWith("wait-"))
-      agent.followup({
-        id: "wait-instruction",
-        role: "user",
-        source: { kind: "user" },
-        content: [
-          { type: "text", text: "synthetic instruction: wait for BB input" },
-        ],
-      });
-    else if (cut === "download-result") {
-      const page = await client.call("chat/read_messages", {
-        account: config.peer,
-        after_position: 0,
-        limit: 1,
-      });
-      await bridge.claim(page.items[0]);
-    } else await bridge.poll(config.peer);
+    await client.call("notifications/set", {enabled:false});
+    await bridge.flush();
+    if (["claimed", "pending"].includes(cut)) {
+      const page = await client.call("chat/read_messages", {account:config.peer,after_position:0,limit:1});
+      await bridge.claim(page.items[0]); // seed an actual old-version passive reservation for migration
+    } else agent.followup({id:"explicit-instruction",role:"user",source:{kind:"user"},content:[{type:"text",text:"Explicitly query BB, then perform only the specified tool."}]});
     await bridge.drain();
     throw new Error("Did not reach crash barrier");
   }
@@ -224,6 +218,10 @@ try {
     await bridge.poll(config.peer);
     await bridge.drain();
     assert.equal(modelCalls, 0);
+  } else if (["claimed", "wait-claimed", "pending"].includes(cut)) {
+    assert.equal(rows[0].state, "awaiting_read");
+    assert.equal(after.consumed_through, 0);
+    assert.equal(modelCalls, 0, "unprojected old reservation never auto-delivers body");
   } else {
     assert.equal(rows[0].state, "completed", JSON.stringify(bridge.status()));
     assert.equal(after.consumed_through, 1);
