@@ -10,7 +10,7 @@ from pathlib import Path
 from plan import changed_paths, plan
 
 ROOT = Path(__file__).resolve().parents[2]
-ALL = {"flutter", "server", "plugin", "admin_ui"}
+ALL = {"flutter", "android", "server", "plugin", "admin_ui"}
 
 
 class PlanTests(unittest.TestCase):
@@ -33,11 +33,16 @@ class PlanTests(unittest.TestCase):
             "server/probes/public_browser.mjs": {"server", "admin_ui"},
             "server/probes/public_browser_fixture.py": {"server", "admin_ui"},
             "server/uv.lock": {"server", "admin_ui"},
-            "server/contract/profile-cases.json": ALL,
-            "server/contract/chat-v2-openapi.json": ALL,
-            "server/contract/src/bb_auth_contract/admin.py": ALL,
-            "server/contract/pyproject.toml": ALL,
+            "server/contract/profile-cases.json": ALL - {"android"},
+            "server/contract/chat-v2-openapi.json": ALL - {"android"},
+            "server/contract/src/bb_auth_contract/admin.py": ALL - {"android"},
+            "server/contract/pyproject.toml": ALL - {"android"},
             "scripts/run_flutter_tests.sh": {"flutter"},
+            # Android 门禁只在 Android 侧或依赖变化时构建 APK。
+            "client/lib/ui/chat/chat_page.dart": {"flutter"},
+            "client/android/app/build.gradle.kts": {"flutter", "android"},
+            "client/pubspec.lock": {"flutter", "android"},
+            "scripts/ci/apk_budget.py": {"android"},
             ".github/workflows/ci.yml": ALL,
             "scripts/ci/plan.py": ALL,
             "scripts/ci/test_plan.py": ALL,
@@ -69,12 +74,12 @@ class PlanTests(unittest.TestCase):
             [".github/workflows/ci.yml"],
             ["server/contract/cases.json"],
         ):
-            self.assertEqual(self.enabled(paths), ALL - {"flutter"})
+            self.assertEqual(self.enabled(paths), ALL - {"flutter", "android"})
 
     def test_large_changes_and_unusual_names(self):
         paths = ["docs/" + "x" * 100 + str(i) for i in range(10000)]
         paths += ["client/new\nfile.dart", "server/contract/空 格.json"]
-        self.assertEqual(self.enabled(paths), ALL)
+        self.assertEqual(self.enabled(paths), ALL - {"android"})
 
     def git(self, *args):
         return subprocess.check_output(

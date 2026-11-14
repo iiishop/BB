@@ -11,6 +11,18 @@ TARGETS = {
         "client",
         ("client/", "server/contract/", "scripts/run_flutter_tests.sh"),
     ),
+    # Android 包体门禁要真构建 APK（gradle 几分钟），所以只在 Android 侧
+    # 或依赖变化时触发，日常改 Dart 代码不付这个成本。
+    "android": (
+        "client",
+        (
+            "client/android/",
+            "client/pubspec.yaml",
+            "client/pubspec.lock",
+            "scripts/ci/apk_budget.py",
+            "scripts/ci/test_apk_budget.py",
+        ),
+    ),
     "server": ("server", ("server/",)),
     "plugin": ("dsh-plugin", ("dsh-plugin/", "server/contract/")),
     # The browser probe runs the real server and imports server/tests fixtures.
