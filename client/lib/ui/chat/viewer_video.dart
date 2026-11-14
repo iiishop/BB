@@ -101,11 +101,11 @@ class StreamingViewerVideoSession implements ViewerVideoSession {
     Duration.zero,
   );
 
-  VideoPlayerController? _controller;
-  MediaStreamHandle? _handle;
-  StreamSubscription<MediaStreamProgress>? _progressSubscription;
+  /// The sole current playback round. A new round may start while an older
+  /// round is still waiting on native creation; the old round owns and releases
+  /// its own resources and is never allowed to write session state again.
+  _VideoRound? _round;
   bool _disposed = false;
-  bool _starting = false;
   int _generation = 0;
 
   @override
@@ -126,9 +126,13 @@ class StreamingViewerVideoSession implements ViewerVideoSession {
   @override
   ValueListenable<Duration> get position => _position;
 
+  bool _isCurrent(_VideoRound round) {
+    return !_disposed && identical(_round, round);
+  }
+
   @override
   Widget buildSurface(BuildContext context) {
-    final VideoPlayerController? controller = _controller;
+    final VideoPlayerController? controller = _round?.controller;
     if (controller == null || !controller.value.isInitialized) {
       return const SizedBox.shrink();
     }
@@ -140,31 +144,40 @@ class StreamingViewerVideoSession implements ViewerVideoSession {
     );
   }
 
+  /// Admits a new playback round and starts it in the background.
+  ///
+  /// Returning once the round is admitted keeps a stalled native create from
+  /// blocking the caller; stop/restart can then create a fresh round.
   @override
   Future<void> start() async {
-    if (_disposed || _starting) {
+    if (_disposed || _round != null) {
       return;
     }
-    if (_phase.value == ViewerVideoPhase.opening ||
-        _phase.value == ViewerVideoPhase.buffering ||
-        _phase.value == ViewerVideoPhase.ready) {
-      return;
-    }
-    _starting = true;
-    final int generation = ++_generation;
+    final _VideoRound round = _VideoRound(++_generation);
+    _round = round;
     _phase.value = ViewerVideoPhase.opening;
     _transfer.value = const ViewerVideoTransfer();
+    _resetPlaybackValues();
+    unawaited(_runRound(round));
+  }
+
+  Future<void> _runRound(_VideoRound round) async {
     try {
       final MediaStreamHandle handle = await chat.openMediaStream(item.mediaId);
-      if (_disposed || generation != _generation) {
-        await handle.close();
+      round.handle = handle;
+      if (!_isCurrent(round)) {
+        await round.release();
         return;
       }
-      _handle = handle;
-      _progressSubscription = handle.progress.listen((
+      final VideoPlayerController controller = VideoPlayerController.networkUrl(
+        handle.uri,
+      );
+      round.controller = controller;
+      controller.addListener(() => _onControllerChanged(round));
+      round.progressSubscription = handle.progress.listen((
         MediaStreamProgress progress,
       ) {
-        if (_disposed || generation != _generation) {
+        if (!_isCurrent(round)) {
           return;
         }
         _transfer.value = ViewerVideoTransfer(
@@ -179,34 +192,38 @@ class StreamingViewerVideoSession implements ViewerVideoSession {
           _phase.value = ViewerVideoPhase.buffering;
         }
       }, onError: (Object _) {});
-      final VideoPlayerController controller = VideoPlayerController.networkUrl(
-        handle.uri,
-      );
-      _controller = controller;
-      controller.addListener(_onControllerChanged);
       await controller.initialize();
-      if (_disposed || generation != _generation) {
+      if (!_isCurrent(round)) {
+        await round.release();
         return;
       }
       _phase.value = ViewerVideoPhase.ready;
       _buffering.value = controller.value.isBuffering;
       await controller.play();
+      if (!_isCurrent(round)) {
+        return;
+      }
       _playing.value = controller.value.isPlaying;
     } catch (_) {
-      if (generation == _generation) {
-        await _teardown();
+      if (_isCurrent(round)) {
+        _round = null;
+        _generation += 1;
+        await round.release();
         if (!_disposed) {
           _phase.value = ViewerVideoPhase.failed;
         }
+      } else {
+        await round.release();
       }
-    } finally {
-      _starting = false;
     }
   }
 
-  void _onControllerChanged() {
-    final VideoPlayerController? controller = _controller;
-    if (_disposed || controller == null) {
+  void _onControllerChanged(_VideoRound round) {
+    if (!_isCurrent(round)) {
+      return;
+    }
+    final VideoPlayerController? controller = round.controller;
+    if (controller == null) {
       return;
     }
     if (controller.value.hasError) {
@@ -242,14 +259,20 @@ class StreamingViewerVideoSession implements ViewerVideoSession {
 
   @override
   Future<void> togglePlayPause() async {
-    final VideoPlayerController? controller = _controller;
-    if (controller == null || !controller.value.isInitialized) {
+    final _VideoRound? round = _round;
+    final VideoPlayerController? controller = round?.controller;
+    if (round == null ||
+        controller == null ||
+        !controller.value.isInitialized) {
       return;
     }
     if (controller.value.isPlaying) {
       await controller.pause();
     } else {
       await controller.play();
+    }
+    if (!_isCurrent(round)) {
+      return;
     }
     _playing.value = controller.value.isPlaying;
   }
@@ -259,8 +282,16 @@ class StreamingViewerVideoSession implements ViewerVideoSession {
     if (_disposed) {
       return;
     }
-    await _teardown();
+    final _VideoRound? round = _round;
+    _round = null;
+    _generation += 1;
+    await round?.release();
+    if (_disposed || _round != null) {
+      return;
+    }
     _phase.value = ViewerVideoPhase.idle;
+    _transfer.value = const ViewerVideoTransfer();
+    _resetPlaybackValues();
     await start();
   }
 
@@ -269,9 +300,17 @@ class StreamingViewerVideoSession implements ViewerVideoSession {
     if (_disposed) {
       return;
     }
-    _generation += 1;
-    await _teardown();
-    _phase.value = ViewerVideoPhase.idle;
+    final _VideoRound? round = _round;
+    _round = null;
+    final int generation = ++_generation;
+    await round?.release();
+    // A new round may have started while the old stream was closing; it owns
+    // the phase and playback notifiers now.
+    if (!_disposed && _round == null && _generation == generation) {
+      _phase.value = ViewerVideoPhase.idle;
+      _transfer.value = const ViewerVideoTransfer();
+      _resetPlaybackValues();
+    }
   }
 
   @override
@@ -280,8 +319,10 @@ class StreamingViewerVideoSession implements ViewerVideoSession {
       return;
     }
     _disposed = true;
+    final _VideoRound? round = _round;
+    _round = null;
     _generation += 1;
-    await _teardown();
+    await round?.release();
     _phase.dispose();
     _transfer.dispose();
     _playing.dispose();
@@ -290,31 +331,46 @@ class StreamingViewerVideoSession implements ViewerVideoSession {
     _position.dispose();
   }
 
-  Future<void> _teardown() async {
-    await _progressSubscription?.cancel();
-    _progressSubscription = null;
-    final MediaStreamHandle? handle = _handle;
-    _handle = null;
-    final VideoPlayerController? controller = _controller;
-    _controller = null;
-    // The authenticated stream must close even when native player creation is
-    // still pending. video_player's dispose waits for that native call, so it
-    // must not be sequenced before the handle close.
-    if (handle != null) {
-      await handle.close();
+  void _resetPlaybackValues() {
+    _playing.value = false;
+    _buffering.value = false;
+    _bufferedFraction.value = null;
+    _position.value = Duration.zero;
+  }
+}
+
+/// Resources owned by one start() attempt. Release is idempotent and never
+/// waits for native player creation before closing the authenticated stream.
+class _VideoRound {
+  _VideoRound(this.generation);
+
+  final int generation;
+  MediaStreamHandle? handle;
+  VideoPlayerController? controller;
+  StreamSubscription<MediaStreamProgress>? progressSubscription;
+
+  Future<void> release() async {
+    await progressSubscription?.cancel();
+    progressSubscription = null;
+    final MediaStreamHandle? stream = handle;
+    handle = null;
+    if (stream != null) {
+      try {
+        await stream.close();
+      } catch (_) {
+        // Already closed by another release path.
+      }
     }
-    if (controller != null) {
+    final VideoPlayerController? player = controller;
+    controller = null;
+    if (player != null) {
       unawaited(() async {
         try {
-          await controller.dispose();
+          await player.dispose();
         } catch (_) {
           // A late native create may fail after the stream was released.
         }
       }());
     }
-    _playing.value = false;
-    _buffering.value = false;
-    _bufferedFraction.value = null;
-    _position.value = Duration.zero;
   }
 }

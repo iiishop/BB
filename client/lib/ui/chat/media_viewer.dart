@@ -975,32 +975,43 @@ class _ViewerVideoState extends State<_ViewerVideo> {
               Positioned.fill(child: session.buildSurface(context)),
               Positioned(
                 left: AppSpacing.md,
-                top: AppSpacing.md,
-                child: ValueListenableBuilder<double?>(
-                  valueListenable: session.bufferedFraction,
-                  builder:
-                      (BuildContext context, double? fraction, Widget? child) {
-                        return _VideoChip(
-                          key: const Key('media-viewer-video-buffered'),
-                          text: fraction == null
-                              ? '已缓冲 —'
-                              : '已缓冲 ${(fraction * 100).round()}%',
-                        );
-                      },
-                ),
-              ),
-              Positioned(
-                left: AppSpacing.md,
                 bottom: AppSpacing.lg,
-                child: ValueListenableBuilder<Duration>(
-                  valueListenable: session.position,
-                  builder:
-                      (BuildContext context, Duration position, Widget? child) {
-                        return _VideoChip(
-                          key: const Key('media-viewer-video-position'),
-                          text: '播放中 ${_formatPosition(position)}',
-                        );
-                      },
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    ValueListenableBuilder<double?>(
+                      valueListenable: session.bufferedFraction,
+                      builder:
+                          (
+                            BuildContext context,
+                            double? fraction,
+                            Widget? child,
+                          ) {
+                            return _VideoChip(
+                              key: const Key('media-viewer-video-buffered'),
+                              text: fraction == null
+                                  ? '已缓冲 —'
+                                  : '已缓冲 ${(fraction * 100).round()}%',
+                            );
+                          },
+                    ),
+                    const SizedBox(height: AppSpacing.xs),
+                    ValueListenableBuilder<Duration>(
+                      valueListenable: session.position,
+                      builder:
+                          (
+                            BuildContext context,
+                            Duration position,
+                            Widget? child,
+                          ) {
+                            return _VideoChip(
+                              key: const Key('media-viewer-video-position'),
+                              text: '播放中 ${_formatPosition(position)}',
+                            );
+                          },
+                    ),
+                  ],
                 ),
               ),
               Positioned.fill(

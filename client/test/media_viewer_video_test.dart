@@ -240,6 +240,52 @@ void main() {
     expect(chat.openMediaStreamCalls, isEmpty);
   });
 
+  testWidgets('whole-video buffer label does not overlap the viewer index', (
+    WidgetTester tester,
+  ) async {
+    final FakeChatService chat = FakeChatService(
+      self: _self,
+      users: const <ChatUser>[],
+    );
+    final _FakeFactory factory = _FakeFactory();
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(),
+        home: MediaViewer(
+          items: <ChatMediaItem>[_videoItem()],
+          initialIndex: 0,
+          chat: chat,
+          saveService: _saveService(chat),
+          videoSessionFactory: factory.call,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('media-viewer-play-video-1')),
+    );
+    await tester.pump();
+    final _FakeSession session = factory.sessions.single;
+    session.phase.value = ViewerVideoPhase.ready;
+    session.bufferedFraction.value = 0.93;
+    await tester.pump();
+
+    final Rect index = tester.getRect(find.byKey(MediaViewer.indexKey));
+    final Rect buffered = tester.getRect(
+      find.byKey(const Key('media-viewer-video-buffered')),
+    );
+    expect(index.overlaps(buffered), isFalse);
+    expect(
+      index.top < buffered.top,
+      isTrue,
+      reason:
+          'the index stays in the top bar; buffering is below the video area',
+    );
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+  });
+
   testWidgets('switching to the next media releases the video stream', (
     WidgetTester tester,
   ) async {

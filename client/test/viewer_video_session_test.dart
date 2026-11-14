@@ -191,6 +191,130 @@ void main() {
     await platform.events.close();
   });
 
+  testWidgets(
+    'drag out and back while create is pending lets the next play start a round',
+    (WidgetTester tester) async {
+      final VideoPlayerPlatform previous = VideoPlayerPlatform.instance;
+      addTearDown(() => VideoPlayerPlatform.instance = previous);
+      final _PendingPlatform platform = _PendingPlatform();
+      VideoPlayerPlatform.instance = platform;
+      final _ProbeChat chat = _ProbeChat();
+      final List<StreamingViewerVideoSession> sessions =
+          <StreamingViewerVideoSession>[];
+      final ChatMessage imageMessage = ChatMessage(
+        id: 'm2',
+        position: 2,
+        senderAccount: _peer,
+        targetAccount: _self.account,
+        createdAt: DateTime.utc(2026, 11, 14, 10, 1),
+        kind: ChatMessageKind.body,
+        parts: const <MessagePart>[ImagePart('next-image')],
+      );
+      final ChatMediaItem image = ChatMediaItem(
+        message: imageMessage,
+        kind: ChatMediaKind.image,
+        mediaId: 'next-image',
+        senderLabel: 'bob',
+        partIndex: 0,
+        byteSize: 40,
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildAppTheme(),
+          home: MediaViewer(
+            items: <ChatMediaItem>[_videoItem(), image],
+            initialIndex: 0,
+            chat: chat,
+            saveService: _saveService(chat),
+            videoSessionFactory: (ChatMediaItem item) {
+              final StreamingViewerVideoSession value =
+                  StreamingViewerVideoSession(chat: chat, item: item);
+              sessions.add(value);
+              return value;
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey<String>('media-viewer-play-video-1')),
+      );
+      await tester.pump();
+      expect(platform.entered, isTrue);
+      expect(chat.openMediaStreamCalls, hasLength(1));
+
+      final TestGesture gesture = await tester.startGesture(
+        const Offset(700, 300),
+      );
+      await gesture.moveBy(const Offset(-30, 0));
+      await tester.pump();
+      await gesture.moveBy(const Offset(-450, 0));
+      await tester.pump(const Duration(milliseconds: 40));
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+      });
+      await tester.pump();
+      expect(
+        sessions.first.phase.value,
+        ViewerVideoPhase.idle,
+        reason: 'crossing the page midpoint stops the pending video round',
+      );
+
+      await gesture.moveBy(const Offset(480, 0));
+      await gesture.up();
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey<String>('media-viewer-play-video-1')),
+      );
+      await tester.pump();
+      expect(
+        chat.openMediaStreamCalls,
+        hasLength(2),
+        reason:
+            'returning and playing while the old create is pending must reopen',
+      );
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      platform.created.complete(1);
+      await tester.pump();
+      await platform.events.close();
+    },
+  );
+
+  test('stop during pending create allows a fresh round immediately', () async {
+    final VideoPlayerPlatform previous = VideoPlayerPlatform.instance;
+    addTearDown(() => VideoPlayerPlatform.instance = previous);
+    final _PendingPlatform platform = _PendingPlatform();
+    VideoPlayerPlatform.instance = platform;
+    final _ProbeChat chat = _ProbeChat();
+    final StreamingViewerVideoSession session = StreamingViewerVideoSession(
+      chat: chat,
+      item: _videoItem(),
+    );
+
+    await session.start();
+    await Future<void>.delayed(const Duration(milliseconds: 30));
+    expect(platform.entered, isTrue);
+    expect(chat.openMediaStreamCalls, hasLength(1));
+
+    await session.stop();
+    expect(chat.handle.closed, isTrue);
+    expect(session.phase.value, ViewerVideoPhase.idle);
+
+    await session.start();
+    expect(
+      chat.openMediaStreamCalls,
+      hasLength(2),
+      reason: 'a stopped pending round must not block the next play',
+    );
+    expect(session.phase.value, ViewerVideoPhase.opening);
+
+    await session.dispose();
+    platform.created.complete(1);
+    await Future<void>.delayed(const Duration(milliseconds: 30));
+    await platform.events.close();
+  });
+
   test(
     'closing during pending native create releases the stream immediately',
     () async {
