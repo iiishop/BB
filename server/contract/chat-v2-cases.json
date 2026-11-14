@@ -1,5 +1,19 @@
 {
-  "query_revision": "dea467-query-v1",
+  "query_revision": "dea474-query-v1",
+  "multichat_subscriptions": [
+    {
+      "peer_account": "10000002"
+    },
+    {
+      "conversation": {
+        "type": "direct",
+        "id": "dm:10000001:10000002"
+      }
+    },
+    {
+      "discover": true
+    }
+  ],
   "query_pagination": [
     {
       "request": {
@@ -212,6 +226,9 @@
     "list_conversations": {
       "after_account": "",
       "limit": 50,
+      "order": "account",
+      "unread_only": false,
+      "cursor": null,
       "expected_identity": {
         "account": "10000001",
         "auth_generation": "generation-A-1",
@@ -388,7 +405,9 @@
         "consumer_id": "consumer-A",
         "binding_revision": 1
       },
-      "peer_account": "10000002"
+      "peer_account": "10000002",
+      "conversation": null,
+      "discover": false
     },
     "events_read": {
       "expected_identity": {
@@ -527,6 +546,7 @@
         "items": [
           {
             "peer_account": "10000002",
+            "display_name": "Bob",
             "last_message": {
               "id": "example-message",
               "position": 1,
@@ -544,6 +564,19 @@
             },
             "last_activity_at": "2026-11-11T00:00:00Z",
             "latest_position": 1,
+            "conversation": {
+              "type": "direct",
+              "id": "dm:10000001:10000002"
+            },
+            "incoming_unread": 1,
+            "latest_unread": {
+              "message_id": "example-message",
+              "sender_account": "10000002",
+              "position": 1,
+              "created_at": "2026-11-11T00:00:00Z",
+              "text": "preview",
+              "truncated": false
+            },
             "consumed_through": 0,
             "unconsumed_positions": 1
           }
@@ -916,7 +949,12 @@
         "binding_revision": 1
       },
       "result": {
-        "peer_account": "10000002"
+        "peer_account": "10000002",
+        "conversation": {
+          "type": "direct",
+          "id": "dm:10000001:10000002"
+        },
+        "discover": false
       }
     },
     "events_read": {
@@ -938,6 +976,10 @@
                 "auth_generation": "generation-A-1",
                 "consumer_id": "consumer-A",
                 "binding_revision": 1
+              },
+              "conversation": {
+                "type": "direct",
+                "id": "dm:10000001:10000002"
               },
               "type": "message.available",
               "peer_account": "10000002",
@@ -968,6 +1010,10 @@
                 "auth_generation": "generation-A-1",
                 "consumer_id": "consumer-A",
                 "binding_revision": 1
+              },
+              "conversation": {
+                "type": "direct",
+                "id": "dm:10000001:10000002"
               },
               "type": "message.available",
               "peer_account": "10000002",
@@ -1458,6 +1504,159 @@
           "consumer_id": "consumer-A",
           "binding_revision": 1
         }
+      }
+    },
+    {
+      "id": "subscription-empty",
+      "operation": "events_subscribe",
+      "input": {
+        "expected_identity": {
+          "account": "10000001",
+          "auth_generation": "generation-A-1",
+          "consumer_id": "consumer-A",
+          "binding_revision": 1
+        }
+      }
+    },
+    {
+      "id": "subscription-two-selectors",
+      "operation": "events_subscribe",
+      "input": {
+        "expected_identity": {
+          "account": "10000001",
+          "auth_generation": "generation-A-1",
+          "consumer_id": "consumer-A",
+          "binding_revision": 1
+        },
+        "peer_account": "10000002",
+        "discover": true
+      }
+    },
+    {
+      "id": "subscription-self",
+      "operation": "events_subscribe",
+      "input": {
+        "expected_identity": {
+          "account": "10000001",
+          "auth_generation": "generation-A-1",
+          "consumer_id": "consumer-A",
+          "binding_revision": 1
+        },
+        "peer_account": "10000001"
+      }
+    },
+    {
+      "id": "subscription-group",
+      "operation": "events_subscribe",
+      "input": {
+        "expected_identity": {
+          "account": "10000001",
+          "auth_generation": "generation-A-1",
+          "consumer_id": "consumer-A",
+          "binding_revision": 1
+        },
+        "conversation": {
+          "type": "group",
+          "id": "group:test"
+        }
+      }
+    },
+    {
+      "id": "subscription-noncanonical",
+      "operation": "events_subscribe",
+      "input": {
+        "expected_identity": {
+          "account": "10000001",
+          "auth_generation": "generation-A-1",
+          "consumer_id": "consumer-A",
+          "binding_revision": 1
+        },
+        "conversation": {
+          "type": "direct",
+          "id": "dm:10000002:10000001"
+        }
+      }
+    },
+    {
+      "id": "subscription-foreign",
+      "operation": "events_subscribe",
+      "input": {
+        "expected_identity": {
+          "account": "10000001",
+          "auth_generation": "generation-A-1",
+          "consumer_id": "consumer-A",
+          "binding_revision": 1
+        },
+        "conversation": {
+          "type": "direct",
+          "id": "dm:10000002:10000003"
+        }
+      }
+    },
+    {
+      "id": "subscription-discover-not-bool",
+      "operation": "events_subscribe",
+      "input": {
+        "expected_identity": {
+          "account": "10000001",
+          "auth_generation": "generation-A-1",
+          "consumer_id": "consumer-A",
+          "binding_revision": 1
+        },
+        "discover": 1
+      }
+    },
+    {
+      "id": "conversation-unknown-order",
+      "operation": "list_conversations",
+      "input": {
+        "expected_identity": {
+          "account": "10000001",
+          "auth_generation": "generation-A-1",
+          "consumer_id": "consumer-A",
+          "binding_revision": 1
+        },
+        "order": "random"
+      }
+    },
+    {
+      "id": "conversation-null-order",
+      "operation": "list_conversations",
+      "input": {
+        "expected_identity": {
+          "account": "10000001",
+          "auth_generation": "generation-A-1",
+          "consumer_id": "consumer-A",
+          "binding_revision": 1
+        },
+        "order": null
+      }
+    },
+    {
+      "id": "conversation-null-unread",
+      "operation": "list_conversations",
+      "input": {
+        "expected_identity": {
+          "account": "10000001",
+          "auth_generation": "generation-A-1",
+          "consumer_id": "consumer-A",
+          "binding_revision": 1
+        },
+        "unread_only": null
+      }
+    },
+    {
+      "id": "conversation-mixed-cursor",
+      "operation": "list_conversations",
+      "input": {
+        "expected_identity": {
+          "account": "10000001",
+          "auth_generation": "generation-A-1",
+          "consumer_id": "consumer-A",
+          "binding_revision": 1
+        },
+        "after_account": "10000002",
+        "order": "recent"
       }
     }
   ],

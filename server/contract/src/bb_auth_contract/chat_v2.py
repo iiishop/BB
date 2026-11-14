@@ -138,7 +138,7 @@ class Read(Peer, query.HistoryQuery):
     pass
 
 
-class Conversations(Protected, query.ConversationQuery):
+class Conversations(Protected, query.ConsumerConversationQuery):
     pass
 
 
@@ -226,11 +226,38 @@ class Download(v1.Wire):
 
 
 class Subscribe(Protected):
-    peer_account: v1.Account
+    peer_account: v1.Account | None = None
+    conversation: query.ConversationRef | None = None
+    discover: bool = False
+
+    @model_validator(mode="after")
+    def selection(self):
+        if (
+            sum(
+                (
+                    self.peer_account is not None,
+                    self.conversation is not None,
+                    self.discover,
+                )
+            )
+            != 1
+        ):
+            raise ValueError("select one peer, conversation or discovery")
+        if self.peer_account == self.expected_identity.account:
+            raise ValueError("self conversation is unsupported")
+        if (
+            self.conversation
+            and self.expected_identity.account
+            not in self.conversation.id.split(":")[1:]
+        ):
+            raise ValueError("conversation does not belong to the current account")
+        return self
 
 
 class Subscription(v1.Wire):
-    peer_account: v1.Account
+    peer_account: v1.Account | None
+    conversation: query.ConversationRef | None
+    discover: bool
 
 
 class EventsRead(Protected):
@@ -249,6 +276,7 @@ class EventBase(v1.Wire):
 
 
 class MessageEvent(EventBase):
+    conversation: query.ConversationRef
     type: Literal["message.available"]
     peer_account: v1.Account
     position: int = Field(ge=1, le=9007199254740991)

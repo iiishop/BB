@@ -70,7 +70,7 @@ def conversations(path, account, after, limit):
             "WITH own AS (SELECT *, CASE WHEN sender=? THEN target ELSE sender END AS peer "
             "FROM messages WHERE sender=? OR target=?), "
             "last AS (SELECT peer, MAX(position) AS pos FROM own GROUP BY peer) "
-            "SELECT own.peer, own.payload FROM own JOIN last ON own.peer=last.peer AND own.position=last.pos "
+            "SELECT own.peer, own.payload, users.username FROM own JOIN last ON own.peer=last.peer AND own.position=last.pos JOIN users ON users.account=own.peer "
             "WHERE own.peer>? ORDER BY own.peer LIMIT ?",
             (account, account, account, after, limit + 1),
         ).fetchall()
@@ -80,6 +80,7 @@ def conversations(path, account, after, limit):
         items.append(
             {
                 "peer_account": row["peer"],
+                "display_name": row["username"],
                 "last_message": item,
                 "last_activity_at": item["created_at"],
                 "latest_position": item["position"],

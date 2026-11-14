@@ -126,6 +126,8 @@ void main() {
         : bindingView(await target.bindingById(createdBinding!.consumerId)),
     'serverCursor': await target.serverEventCursor(account),
     'consumerCursor': await target.consumerEventCursor(account, 'session'),
+    'subscriptionCursor': await target.subscriptionCursor(account, 'session', peer),
+    'discover': await target.discoversConversations(account, 'session'),
     'subscriptions': await target.subscriptions(account),
     'operation': (await target.operation(account, 'op'))?.toJson(),
     'download': (await target.download(account, 'task'))?.toJson(),
@@ -163,6 +165,10 @@ void main() {
         await ledger.setServerEventCursor(account, 5);
       case 'setConsumerEventCursor':
         await ledger.setConsumerEventCursor(account, 'session', 5);
+      case 'setSubscriptionCursor':
+        await ledger.setSubscriptionCursor(account, 'session', peer, 5);
+      case 'discovery':
+        await ledger.subscribe(account, 'session', null, discover: true);
       case 'subscribe':
         await ledger.subscribe(account, 'another-session', peer);
       case 'saveOperation':
@@ -279,6 +285,8 @@ void main() {
   for (final entry in [
     'setServerEventCursor',
     'setConsumerEventCursor',
+    'setSubscriptionCursor',
+    'discovery',
     'subscribe',
     'saveOperation',
     'saveDownload',

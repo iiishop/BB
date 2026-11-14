@@ -181,6 +181,7 @@ def fixtures():
         "event_id": "event-one",
         "origin_identity": IDENTITY,
         "type": "message.available",
+        "conversation": {"type": "direct", "id": "dm:10000001:10000002"},
         "peer_account": "10000002",
         "position": 1,
     }
@@ -231,6 +232,17 @@ def fixtures():
                     "latest_position": message["position"],
                     "consumed_through": 0,
                     "unconsumed_positions": message["position"],
+                    "conversation": {"type": "direct", "id": "dm:10000001:10000002"},
+                    "display_name": "Bob",
+                    "incoming_unread": 1,
+                    "latest_unread": {
+                        "message_id": message["id"],
+                        "sender_account": message["sender_account"],
+                        "position": message["position"],
+                        "created_at": message["created_at"],
+                        "text": "preview",
+                        "truncated": False,
+                    },
                 }
             ],
             "next_cursor": None,
@@ -269,7 +281,11 @@ def fixtures():
             "status": "succeeded",
             "message": sent_message,
         },
-        "events_subscribe": {"peer_account": "10000002"},
+        "events_subscribe": {
+            "peer_account": "10000002",
+            "conversation": {"type": "direct", "id": "dm:10000001:10000002"},
+            "discover": False,
+        },
         "events_read": event_page,
         "events_wait": {**event_page, "reason": "events"},
     }
@@ -344,8 +360,45 @@ def fixtures():
             "input": {**inputs["get_message"], "message_id": "../other"},
         },
     ]
+    for case_id, fields in [
+        ("empty", {}),
+        ("two-selectors", {"peer_account": "10000002", "discover": True}),
+        ("self", {"peer_account": "10000001"}),
+        ("group", {"conversation": {"type": "group", "id": "group:test"}}),
+        (
+            "noncanonical",
+            {"conversation": {"type": "direct", "id": "dm:10000002:10000001"}},
+        ),
+        ("foreign", {"conversation": {"type": "direct", "id": "dm:10000002:10000003"}}),
+        ("discover-not-bool", {"discover": 1}),
+    ]:
+        invalid.append(
+            {
+                "id": "subscription-" + case_id,
+                "operation": "events_subscribe",
+                "input": {"expected_identity": IDENTITY, **fields},
+            }
+        )
+    for case_id, fields in [
+        ("unknown-order", {"order": "random"}),
+        ("null-order", {"order": None}),
+        ("null-unread", {"unread_only": None}),
+        ("mixed-cursor", {"after_account": "10000002", "order": "recent"}),
+    ]:
+        invalid.append(
+            {
+                "id": "conversation-" + case_id,
+                "operation": "list_conversations",
+                "input": {"expected_identity": IDENTITY, **fields},
+            }
+        )
     return {
-        "query_revision": "dea467-query-v1",
+        "query_revision": "dea474-query-v1",
+        "multichat_subscriptions": [
+            {"peer_account": "10000002"},
+            {"conversation": {"type": "direct", "id": "dm:10000001:10000002"}},
+            {"discover": True},
+        ],
         "query_pagination": [
             {
                 "request": {"limit": 2},

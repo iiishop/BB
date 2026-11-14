@@ -53,6 +53,9 @@ class ChatV2Router {
     '/v2/chat/list_conversations': <String>{
       'expected_identity',
       'after_account',
+      'order',
+      'unread_only',
+      'cursor',
       'limit',
     },
     '/v2/chat/get_message': <String>{'expected_identity', 'message_id'},
@@ -113,7 +116,7 @@ class ChatV2Router {
       'directory',
     },
     '/v2/downloads/get': <String>{'expected_identity', 'task_id'},
-    '/v2/events/subscribe': <String>{'expected_identity', 'peer_account'},
+    '/v2/events/subscribe': <String>{'expected_identity', 'peer_account', 'conversation', 'discover'},
     '/v2/events/read': <String>{
       'expected_identity',
       'after_cursor',
@@ -405,6 +408,9 @@ class ChatV2Router {
             afterAccount: (args.values['after_account'] as String?) ?? '',
             limit: (args.values['limit'] as int?) ?? 50,
             consumerId: context.binding.consumerId,
+            order: args.values['order'] as String,
+            unreadOnly: args.values['unread_only'] as bool,
+            cursor: args.values['cursor'] as String?,
           );
           return page.toJson();
         });
@@ -593,12 +599,17 @@ class ChatV2Router {
         }
         return _reply(expected, _download(task));
       case '/v2/events/subscribe':
-        final String peer = args.values['peer_account'] as String;
+        final String? peer = args.values['peer_account'] as String?;
         await service.subscribeEventsFor(
           expectedIdentity: expected,
           peerAccount: peer,
+          discover: args.values['discover'] as bool,
         );
-        return _reply(expected, <String, dynamic>{'peer_account': peer});
+        return _reply(expected, <String, dynamic>{
+          'peer_account': peer,
+          'conversation': peer == null ? null : directConversation(expected.account, peer),
+          'discover': args.values['discover'],
+        });
       case '/v2/events/read':
         final LocalEventPage page = await service.readEventsFor(
           expectedIdentity: expected,
@@ -674,6 +685,12 @@ class ChatV2Router {
             ) ??
             '';
         args.values['limit'] = request.optionalInteger('limit', 1, 100);
+        final Object? order = request.raw['order'] ?? 'account';
+        if (request.contains('order') && request.raw['order'] == null || !const <String>{'account', 'recent'}.contains(order)) throw _validation('order');
+        args.values['order'] = order;
+        args.values['unread_only'] = request.boolean('unread_only', false);
+        args.values['cursor'] = request.raw['cursor'] == null ? null : request.opaque('cursor');
+        if (args.values['after_account'] != '' && (order != 'account' || args.values['unread_only'] == true || args.values['cursor'] != null)) throw _validation('cursor');
       case '/v2/chat/get_message':
         args.values['message_id'] = request.pattern(
           'message_id',
@@ -766,7 +783,22 @@ class ChatV2Router {
       case '/v2/downloads/get':
         args.values['task_id'] = request.opaque('task_id');
       case '/v2/events/subscribe':
-        args.values['peer_account'] = request.account('peer_account');
+        String? peer = request.raw['peer_account'] == null ? null : request.account('peer_account');
+        final bool discover = request.boolean('discover', false);
+        final Object? conversation = request.raw['conversation'];
+        if ((peer != null ? 1 : 0) + (conversation != null ? 1 : 0) + (discover ? 1 : 0) != 1) throw _validation('conversation');
+        if (conversation != null) {
+          final Map<String, dynamic> ref = request.object('conversation', <String>{'id', 'type'});
+          final Object? id = ref['id'];
+          if ((ref.containsKey('type') && ref['type'] != 'direct') || id is! String || !RegExp(r'^dm:[1-9][0-9]{7}:[1-9][0-9]{7}$').hasMatch(id)) throw _validation('conversation');
+          final List<String> members = id.split(':').sublist(1);
+          final String account = args.expectedIdentity!.account;
+          if (members[0].compareTo(members[1]) >= 0 || !members.contains(account)) throw _validation('conversation');
+          peer = members.firstWhere((member) => member != account);
+        }
+        if (peer == args.expectedIdentity!.account) throw _validation('peer_account');
+        args.values['peer_account'] = peer;
+        args.values['discover'] = discover;
       case '/v2/events/read':
         args.values['after_cursor'] = request.optionalInteger(
           'after_cursor',
@@ -1041,6 +1073,7 @@ class ChatV2Router {
         return <String, dynamic>{
           ...base,
           'type': 'message.available',
+          'conversation': directConversation(origin.account, peer),
           'peer_account': peer,
           'position': position,
         };
@@ -1280,6 +1313,13 @@ class _Request {
   final Set<String> allowed;
 
   bool contains(String field) => raw.containsKey(field);
+
+  bool boolean(String field, bool fallback) {
+    if (!contains(field)) return fallback;
+    final Object? value = raw[field];
+    if (value is! bool) throw _invalid(field);
+    return value;
+  }
 
   void check() {
     for (final String key in raw.keys) {

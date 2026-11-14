@@ -4309,6 +4309,35 @@
             "title": "Limit",
             "type": "integer"
           },
+          "order": {
+            "default": "account",
+            "enum": [
+              "account",
+              "recent"
+            ],
+            "title": "Order",
+            "type": "string"
+          },
+          "unread_only": {
+            "default": false,
+            "title": "Unread Only",
+            "type": "boolean"
+          },
+          "cursor": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Cursor"
+          },
           "expected_identity": {
             "$ref": "#/components/schemas/ExpectedIdentity"
           }
@@ -4327,6 +4356,10 @@
             "title": "Peer Account",
             "type": "string"
           },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
           "last_message": {
             "$ref": "#/components/schemas/Message"
           },
@@ -4339,6 +4372,25 @@
             "minimum": 0,
             "title": "Latest Position",
             "type": "integer"
+          },
+          "conversation": {
+            "$ref": "#/components/schemas/ConversationRef"
+          },
+          "incoming_unread": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Incoming Unread",
+            "type": "integer"
+          },
+          "latest_unread": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MessagePreview"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "consumed_through": {
             "maximum": 9007199254740991,
@@ -4355,9 +4407,13 @@
         },
         "required": [
           "peer_account",
+          "display_name",
           "last_message",
           "last_activity_at",
           "latest_position",
+          "conversation",
+          "incoming_unread",
+          "latest_unread",
           "consumed_through",
           "unconsumed_positions"
         ],
@@ -4391,6 +4447,27 @@
           "next_cursor"
         ],
         "title": "ConsumerConversationPage",
+        "type": "object"
+      },
+      "ConversationRef": {
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "const": "direct",
+            "default": "direct",
+            "title": "Type",
+            "type": "string"
+          },
+          "id": {
+            "pattern": "^dm:[1-9][0-9]{7}:[1-9][0-9]{7}$",
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "ConversationRef",
         "type": "object"
       },
       "Image": {
@@ -4549,6 +4626,52 @@
           "kind"
         ],
         "title": "Message",
+        "type": "object"
+      },
+      "MessagePreview": {
+        "additionalProperties": false,
+        "properties": {
+          "message_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Message Id",
+            "type": "string"
+          },
+          "sender_account": {
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Sender Account",
+            "type": "string"
+          },
+          "position": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Position",
+            "type": "integer"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "text": {
+            "maxLength": 160,
+            "title": "Text",
+            "type": "string"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "message_id",
+          "sender_account",
+          "position",
+          "created_at",
+          "text",
+          "truncated"
+        ],
+        "title": "MessagePreview",
         "type": "object"
       },
       "Text": {
@@ -5872,14 +5995,37 @@
             "$ref": "#/components/schemas/ExpectedIdentity"
           },
           "peer_account": {
-            "pattern": "^[1-9][0-9]{7}$",
-            "title": "Peer Account",
-            "type": "string"
+            "anyOf": [
+              {
+                "pattern": "^[1-9][0-9]{7}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Peer Account"
+          },
+          "conversation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConversationRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "discover": {
+            "default": false,
+            "title": "Discover",
+            "type": "boolean"
           }
         },
         "required": [
-          "expected_identity",
-          "peer_account"
+          "expected_identity"
         ],
         "title": "Subscribe",
         "type": "object"
@@ -5888,13 +6034,36 @@
         "additionalProperties": false,
         "properties": {
           "peer_account": {
-            "pattern": "^[1-9][0-9]{7}$",
-            "title": "Peer Account",
-            "type": "string"
+            "anyOf": [
+              {
+                "pattern": "^[1-9][0-9]{7}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Peer Account"
+          },
+          "conversation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConversationRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "discover": {
+            "title": "Discover",
+            "type": "boolean"
           }
         },
         "required": [
-          "peer_account"
+          "peer_account",
+          "conversation",
+          "discover"
         ],
         "title": "Subscription",
         "type": "object"
@@ -6137,6 +6306,9 @@
           "origin_identity": {
             "$ref": "#/components/schemas/ExpectedIdentity"
           },
+          "conversation": {
+            "$ref": "#/components/schemas/ConversationRef"
+          },
           "type": {
             "const": "message.available",
             "title": "Type",
@@ -6158,6 +6330,7 @@
           "version",
           "event_id",
           "origin_identity",
+          "conversation",
           "type",
           "peer_account",
           "position"

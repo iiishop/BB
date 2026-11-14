@@ -208,6 +208,31 @@ void main() {
     expect(v1['status'], 404);
   });
 
+  test('v2 conversation reference, discovery, unread filter and sparse confirmation', () async {
+    final ref = {'type': 'direct', 'id': 'dm:$_account:$_peer'};
+    final subscription = await ok('/v2/events/subscribe', withIdentity({'conversation': ref}));
+    expect(subscription['body']['result']['conversation'], ref);
+    await ok('/v2/events/subscribe', withIdentity({'peer_account': _third}));
+    await ok('/v2/events/subscribe', withIdentity({'discover': true}));
+    final events = await ok('/v2/events/read', withIdentity({}));
+    expect((events['body']['result']['items'] as List).map((e) => e['event']['peer_account']).toSet(), {_peer, _third});
+    final listing = await ok('/v2/chat/list_conversations', withIdentity({'unread_only': true, 'order': 'recent', 'limit': 1}));
+    final cursor = listing['body']['result']['next_cursor'];
+    expect(cursor, isNotNull);
+    final second = await ok('/v2/chat/list_conversations', withIdentity({'unread_only': true, 'order': 'recent', 'cursor': cursor}));
+    expect(second['body']['result']['items'][0]['incoming_unread'], 2);
+    final read = await ok('/v2/chat/get_message', withIdentity({'message_id': b3Id}));
+    final receipt = read['body']['result']['item']['presentation']['receipt_id'];
+    await ok('/v2/chat/confirm_presentation', withIdentity({'attempt_id': 'sparse', 'request_digest': 'a' * 64, 'receipt_ids': [receipt]}));
+    final after = await ok('/v2/chat/list_conversations', withIdentity({}));
+    expect(after['body']['result']['items'][0]['incoming_unread'], 1);
+    expect(after['body']['result']['items'][0]['latest_unread']['message_id'], b1Id);
+    expect(after['body']['result']['items'][1]['incoming_unread'], 1);
+    expect(after['body']['result']['items'][0]['consumed_through'], 0);
+    await call('/v2/events/subscribe', withIdentity({'conversation': {'type': 'group', 'id': 'group:test'}}), status: 422);
+    await call('/v2/events/subscribe', withIdentity({'discover': true}), ownerKey: otherOwner, status: 409);
+  });
+
   test('list_conversations is keyset-paged and consumer-enriched', () async {
     final Map<String, dynamic> page = await ok(
       '/v2/chat/list_conversations',
@@ -229,6 +254,10 @@ void main() {
       'latest_position',
       'consumed_through',
       'unconsumed_positions',
+      'conversation',
+      'display_name',
+      'incoming_unread',
+      'latest_unread',
     });
     expect(first['latest_position'], 3);
     expect(first['consumed_through'], 0);

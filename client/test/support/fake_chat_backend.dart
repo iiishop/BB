@@ -607,6 +607,7 @@ class FakeChatBackend {
         'peer_account': peer,
         'last_message': _messageJson(last),
         'last_activity_at': last.createdAt.toIso8601String(),
+        'display_name': _users[peer],
         'latest_position': last.position,
       });
     }

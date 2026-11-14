@@ -24,6 +24,7 @@ class ChatQueryService {
   final ChatApiClient api;
   final AuthSession session;
   final ChatLedger ledger;
+  final Map<String, _ConversationSnapshot> _snapshots = <String, _ConversationSnapshot>{};
 
   static final RegExp _accountPattern = RegExp(r'^[1-9][0-9]{7}$');
   static final RegExp _messageIdPattern = RegExp(r'^[A-Za-z0-9_-]{1,200}$');
@@ -40,6 +41,9 @@ class ChatQueryService {
     String afterAccount = '',
     int limit = 50,
     required String consumerId,
+    String order = 'account',
+    bool unreadOnly = false,
+    String? cursor,
   }) async {
     final AuthIdentity captured = _requireLogin();
     if (afterAccount.isNotEmpty && !_accountPattern.hasMatch(afterAccount)) {
@@ -52,36 +56,100 @@ class ChatQueryService {
     if (binding == null || binding.account != captured.account) {
       throw staleBindingFailure;
     }
-    final ConversationRecordPage page = await api.conversations(
-      token: captured.token,
-      afterAccount: afterAccount,
-      limit: limit,
-    );
-    _ensureCurrent(captured);
+    if (!const <String>{'account', 'recent'}.contains(order) ||
+        (afterAccount.isNotEmpty && (order != 'account' || unreadOnly || cursor != null))) {
+      throw _validation('cursor');
+    }
+    final String scope = '${captured.account}:${captured.authGeneration}:$consumerId:${binding.bindingRevision}';
+    final DateTime now = DateTime.now().toUtc();
+    _snapshots.removeWhere((_, snapshot) => snapshot.expires.isBefore(now));
+    if (cursor != null) {
+      final _ConversationSnapshot? snapshot = _snapshots[cursor];
+      if (snapshot == null || snapshot.scope != scope || snapshot.order != order || snapshot.unreadOnly != unreadOnly) {
+        throw _validation('cursor');
+      }
+      _ensureCurrent(captured);
+      return _snapshotPage(snapshot, limit);
+    }
+    final bool snapshotMode = order == 'recent' || unreadOnly;
+    final Set<String> displayed = await ledger.displayedMessageIds(captured.account);
     final List<ConversationSummary> items = <ConversationSummary>[];
-    for (final ConversationRecord row in page.items) {
-      final int consumed = await ledger.consumedThrough(
-        captured.account,
-        row.peerAccount,
-        consumerId: consumerId,
+    String after = afterAccount;
+    String? next;
+    do {
+      final ConversationRecordPage page = await api.conversations(
+        token: captured.token, afterAccount: after, limit: snapshotMode ? 100 : limit,
       );
       _ensureCurrent(captured);
-      items.add(
-        ConversationSummary(
-          peerAccount: row.peerAccount,
-          lastMessage: row.lastMessage,
-          lastActivityAt: row.lastActivityAt,
-          latestPosition: row.latestPosition,
-          consumedThrough: consumed,
-          unconsumedPositions: math.max(0, row.latestPosition - consumed),
-        ),
-      );
-    }
+      for (final ConversationRecord row in page.items) {
+        final int consumed = await ledger.consumedThrough(captured.account, row.peerAccount, consumerId: consumerId);
+        int unread = 0;
+        ChatMessage? latestUnread;
+        int position = 0;
+        // Query authoritative messages without projecting images, preparing
+        // receipts or confirming them. Bound the scan at this row's head so
+        // sustained traffic cannot keep a list request running forever.
+        while (position < row.latestPosition) {
+          final MessagePage history = await api.conversation(token: captured.token,
+            account: row.peerAccount, afterPosition: position, limit: 100);
+          _ensureCurrent(captured);
+          for (final ChatMessage message in history.items) {
+            if (message.position > row.latestPosition) break;
+            if (message.targetAccount == captured.account && !displayed.contains(message.id)) {
+              unread += 1;
+              latestUnread = message;
+            }
+          }
+          if (history.items.isEmpty || !history.hasMore) break;
+          if (history.nextPosition <= position) throw const FormatException('history cursor did not advance');
+          position = history.nextPosition;
+        }
+        if (!unreadOnly || unread > 0) {
+          items.add(ConversationSummary(
+            peerAccount: row.peerAccount,
+            conversation: directConversation(captured.account, row.peerAccount),
+            displayName: row.displayName ?? row.peerAccount,
+            lastMessage: row.lastMessage, lastActivityAt: row.lastActivityAt,
+            latestPosition: row.latestPosition, consumedThrough: consumed,
+            unconsumedPositions: math.max(0, row.latestPosition - consumed),
+            incomingUnread: unread,
+            latestUnread: latestUnread == null ? null : messagePreview(latestUnread),
+          ));
+        }
+      }
+      next = page.nextCursor;
+      if (!snapshotMode || next == null) break;
+      if (next.compareTo(after) <= 0) throw const FormatException('conversation cursor did not advance');
+      after = next;
+    } while (true);
     _ensureCurrent(captured);
-    return ConversationPage(
-      items: List<ConversationSummary>.unmodifiable(items),
-      nextCursor: page.nextCursor,
-    );
+    if (!snapshotMode) {
+      return ConversationPage(items: List<ConversationSummary>.unmodifiable(items), nextCursor: next);
+    }
+    if (order == 'recent') {
+      items.sort((a, b) {
+        final int time = b.lastActivityAt.compareTo(a.lastActivityAt);
+        return time != 0 ? time : a.peerAccount.compareTo(b.peerAccount);
+      });
+    }
+    return _snapshotPage(_ConversationSnapshot(scope: scope, order: order,
+      unreadOnly: unreadOnly, expires: now.add(const Duration(minutes: 5)),
+      items: List<ConversationSummary>.unmodifiable(items)), limit);
+  }
+
+  ConversationPage _snapshotPage(_ConversationSnapshot snapshot, int limit) {
+    final List<ConversationSummary> page = snapshot.items.take(limit).toList();
+    String? next;
+    if (snapshot.items.length > limit) {
+      // Ephemeral query cache only: no durable copy of business messages.
+      // The cursor is scoped to this binding and expires on restart/after 5m.
+      next = newConsumerId();
+      if (_snapshots.length >= 32) _snapshots.remove(_snapshots.keys.first);
+      _snapshots[next] = _ConversationSnapshot(scope: snapshot.scope, order: snapshot.order,
+        unreadOnly: snapshot.unreadOnly, expires: snapshot.expires,
+        items: snapshot.items.sublist(limit));
+    }
+    return ConversationPage(items: page, nextCursor: next);
   }
 
   // --------------------------------------------------------------- messages --
@@ -229,6 +297,10 @@ class ConversationSummary {
     required this.latestPosition,
     required this.consumedThrough,
     required this.unconsumedPositions,
+    required this.conversation,
+    required this.displayName,
+    required this.incomingUnread,
+    required this.latestUnread,
   });
 
   final String peerAccount;
@@ -237,6 +309,10 @@ class ConversationSummary {
   final int latestPosition;
   final int consumedThrough;
   final int unconsumedPositions;
+  final Map<String, dynamic> conversation;
+  final String displayName;
+  final int incomingUnread;
+  final Map<String, dynamic>? latestUnread;
 
   Map<String, dynamic> toJson() => <String, dynamic>{
     'peer_account': peerAccount,
@@ -245,6 +321,10 @@ class ConversationSummary {
     'latest_position': latestPosition,
     'consumed_through': consumedThrough,
     'unconsumed_positions': unconsumedPositions,
+    'conversation': conversation,
+    'display_name': displayName,
+    'incoming_unread': incomingUnread,
+    'latest_unread': latestUnread,
   };
 }
 
@@ -326,3 +406,32 @@ const AuthFailure staleBindingFailure = AuthFailure(
   code: 'stale_binding',
   message: '消费者能力或绑定不匹配',
 );
+
+class _ConversationSnapshot {
+  const _ConversationSnapshot({required this.scope, required this.order,
+    required this.unreadOnly, required this.expires, required this.items});
+  final String scope;
+  final String order;
+  final bool unreadOnly;
+  final DateTime expires;
+  final List<ConversationSummary> items;
+}
+
+/// Canonical protocol-v1 conversation identity. Speaker identity stays separate.
+Map<String, dynamic> directConversation(String account, String peer) {
+  final List<String> members = <String>[account, peer]..sort();
+  return <String, dynamic>{'type': 'direct', 'id': 'dm:${members[0]}:${members[1]}'};
+}
+
+/// Untrusted text metadata only; this never loads media or creates a receipt.
+Map<String, dynamic> messagePreview(ChatMessage message) {
+  final String text = message.kind == ChatMessageKind.attachment
+      ? '[attachment]'
+      : message.parts.map((part) => part is TextPart ? part.text : '[image]').join(' ');
+  final List<int> runes = text.runes.take(161).toList();
+  return <String, dynamic>{
+    'message_id': message.id, 'sender_account': message.senderAccount,
+    'position': message.position, 'created_at': message.createdAt.toUtc().toIso8601String(),
+    'text': String.fromCharCodes(runes.take(160)), 'truncated': runes.length > 160,
+  };
+}

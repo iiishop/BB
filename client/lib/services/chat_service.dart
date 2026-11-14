@@ -375,13 +375,17 @@ class ChatService {
 
   Future<void> subscribeEventsFor({
     required ExpectedIdentity expectedIdentity,
-    required String peerAccount,
+    String? peerAccount,
+    bool discover = false,
   }) async {
     await requireIdentity(expectedIdentity);
     await eventFeed.subscribe(
       consumerSession: expectedIdentity.consumerId,
       peerAccount: peerAccount,
+      discover: discover,
+      expectedIdentity: expectedIdentity,
     );
+    await requireIdentity(expectedIdentity);
   }
 
   Future<LocalEventPage> readEventsFor({
