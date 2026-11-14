@@ -25,6 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       flutter: ${{ steps.gate.outputs.flutter }}
+      android: ${{ steps.gate.outputs.android }}
       server: ${{ steps.gate.outputs.server }}
       plugin: ${{ steps.gate.outputs.plugin }}
       admin_ui: ${{ steps.gate.outputs.admin_ui }}
@@ -87,6 +88,35 @@ jobs:
             client/.qa-artifacts/**/*.log
           if-no-files-found: ignore
           retention-days: 7
+
+  android-apk:
+    name: Android release 构建
+    needs: plan
+    if: needs.plan.outputs.android == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.9'
+          channel: stable
+          cache: true
+
+      # 只验证 Android 侧改动没把 release 构建弄坏；只编 arm64 一个架构，
+      # 三个 ABI 走的是同一份 gradle 配置。
+      - name: flutter build apk --release
+        working-directory: client
+        run: |
+          set -euo pipefail
+          flutter pub get
+          flutter build apk --release --target-platform android-arm64
 
   server:
     name: 服务端 pytest

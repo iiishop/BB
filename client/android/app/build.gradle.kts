@@ -29,6 +29,22 @@ android {
         versionName = flutter.versionName
     }
 
+    packaging {
+        jniLibs {
+            // fvp 只在 Linux / Windows 桌面负责内嵌播放；Android 走官方
+            // video_player（ExoPlayer），没有任何调用路径会碰这几个 so。
+            // FvpPlugin 的 static 块 catch 了 UnsatisfiedLinkError，缺失时只
+            // 打一条 Log.w，不影响启动。libc++_shared.so 保留：它可能被其它
+            // 原生依赖复用。
+            excludes += listOf(
+                "lib/**/libffmpeg.so",
+                "lib/**/libmdk.so",
+                "lib/**/libass.so",
+                "lib/**/libfvp.so",
+            )
+        }
+    }
+
     signingConfigs {
         getByName("debug") {
             // The sandbox home is read-only; use a checked-in public debug key.

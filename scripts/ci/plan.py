@@ -11,6 +11,16 @@ TARGETS = {
         "client",
         ("client/", "server/contract/", "scripts/run_flutter_tests.sh"),
     ),
+    # Android 构建要真跑 gradle（几分钟），所以只在 Android 侧或依赖变化时
+    # 触发，日常改 Dart 代码不付这个成本。
+    "android": (
+        "client",
+        (
+            "client/android/",
+            "client/pubspec.yaml",
+            "client/pubspec.lock",
+        ),
+    ),
     "server": ("server", ("server/",)),
     "plugin": ("dsh-plugin", ("dsh-plugin/", "server/contract/")),
     # The browser probe runs the real server and imports server/tests fixtures.
