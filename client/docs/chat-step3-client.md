@@ -130,17 +130,18 @@ ETag/304、415/503 错误）。客户端只消费契约，不改 `server/contrac
   `media_policy.dart`；元信息失败可重试，不当作小图直接拉原图。
 - 原图：查看器左下角显示「原图 3.0 MB」，点击才 `GET /media/{id}`，按收到的字节/总长度显示
   百分比；失败回到「重试 原图 …」，不展示半张图。原图只在当前查看页面持有，不进入共享预览
-  缓存；缩略图缓存与账号/媒体/服务端绑定，和原图、头像缓存分开。
+  缓存；原图/缩略图/元信息缓存键均含 server/account/media/variant，和头像缓存分开，
+  缩略图失败不会回退成远端原图。
 - 保存：Android 通过 `bb/media_gallery` 通道写 MediaStore（`Pictures/BB`、`Movies/BB`，
   `bb_<timestamp>_<原名>`；API ≤ 28 运行时申请写权限），iOS 预留 `saveToPhotos` 接口；
   Linux/Windows 继续 `getSaveLocation`。成功提示带相册位置或完整路径，取消不提示。
 - 视频：到达与打开查看器只取封面；中央播放才走既有 loopback 在线流；保存单独获取原视频。
 - 验证（固定基线 `452e88e`，契约 `agent/forge/9e751f104948` @ `fa876b9`）：
   - `flutter analyze`：0 issue。
-  - `flutter test`：383 passed / 7 skipped（skip 为既有可选真实链路与 `BB_LIVE_SERVER_URL`
+  - `flutter test`：385 passed / 7 skipped（skip 为既有可选真实链路与 `BB_LIVE_SERVER_URL`
     未设置的 DEA-471 live 用例）。
-  - 定向 19 tests：媒体序列/阈值、查看器导航与下载进度/重试/跨页隔离、聊天页接入、
-    相册/桌面保存分流。
+  - 定向 21 tests：媒体序列/阈值、查看器导航与下载进度/重试/跨页隔离、聊天页接入、
+    相册/桌面保存分流，以及 server/account/media/variant 缓存隔离与缩略图失败不回退原图。
   - `BB_LIVE_SERVER_URL=http://127.0.0.1:8171 flutter test test/live_media_contract_test.dart`：
     1 passed；真实 Forge 服务端验证 metadata byte_size、512 边/≤64 KiB JPEG 缩略图、
     小图直取原图、原图字节一致、`Range bytes=0-0` 206 且总长正确、第三账号 404。
