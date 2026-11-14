@@ -82,14 +82,32 @@ pending item under maintenance. Already projected, dispatching or uncertain inpu
 are never blindly delivered again. Download callback reservations follow the same rule.
 
 Operation uncertainty is different from a pre-dispatch reservation. Ordinary ticks
-remain blocked while a send/download result is unknown; they do not retry the tool.
+skip only the affected peers while a send/download result is unknown; they do not retry the tool.
 The existing explicit recovery path is disable/save, then enable/save with the same
 account and original native session. Binding invokes `Bridge.recover`, which queries
-the original operation ID (or the matching download event/task). A missing fact
-remains uncertain. A terminal client fact resolves only that operation: an unfinished
-native turn still remains uncertain and cannot confirm/ACK. F5's observation that
-ticks alone do not reconcile is therefore not a violation of this replacement
-recovery contract; it does not authorize a new automatic retry policy.
+the original operation ID (or the matching download event/task). A send lookup's
+404 becomes durable `failed_absent`: absent in the current client scope, not proof
+that the remote send never happened. Its operation ID, logical key and digest stay
+reserved; no automatic resend or new-ID retry is authorized. Transport errors,
+timeouts and 5xx leave unresolved plans `uncertain`; identity/schema errors still
+reject recovery. A failed lookup does not reopen a previously terminal record.
+Missing download events/tasks remain uncertain. A terminal operation resolves only
+that operation: an unfinished native turn still remains uncertain and cannot confirm/ACK.
+
+Before dispatch, new plans persist the target peer plus peers whose inputs belong
+to the current native turn. `poll`, passive/query `claim`, wait admission and
+replacement delivery use the same peer uncertainty guard. Uncertain input journals
+also block only their peer. Other peers can deliver and settle independently.
+Settlement checks the guard before confirmation/ACK and retains the original
+successful turn proof until it can commit; the client still enforces contiguous ACK.
+Wait reservations are scoped by peer and release through the existing tool hooks.
+
+Pre-DEA-470 journals have no peer metadata. Such unresolved plans allow new input,
+but conservatively withhold confirmation/ACK until explicit reconciliation resolves
+them. They are not deleted or assigned a guessed peer. Failed/unknown native turns
+remain protected even after an operation becomes absent. Automatic periodic
+reconciliation is outside DEA-470; disable/save then enable/save remains the
+supported explicit recovery path.
 
 F2/F5 targeted checks: `BB_PRODUCT_CASES=online` with the real `live.py --product`
 entry tests one-shot HTTP history failure, pre-followup failure and post-enqueue
@@ -97,6 +115,16 @@ failure. `node dsh-plugin/probes/product/operation-contract.mjs "$RUNTIME" "$EVI
 checks the explicit operation recovery contract with stock DSH and labelled
 client/model doubles; the existing `operation-result`/`download-result` product
 cases exercise actual client facts across process restart.
+
+DEA-470 regression: `BB_PRODUCT_CASES=peer-isolation` with the same `live.py --product`
+command starts the real standalone Dart entry, FastAPI, official MCP and stock DSH.
+It drops a successful MCP result before journal settlement, delivers peer B while
+A is blocked, injects a lookup transport failure, reconciles the original ID,
+checks real 404 and then cold-reopens without another send or model call.
+`BB_PRODUCT_CASES=gap` checks real out-of-order query receipts and contiguous ACK.
+The dependency-free `probes/product/*.test.mjs` cases run through the existing
+plugin pytest/CI entry (`tests/test_bundle_regressions.py`); no new CI job or package
+installation is added. All providers in these probes are deterministic doubles.
 
 ## Reproduction and evidence scope
 

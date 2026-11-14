@@ -115,13 +115,13 @@ try {
   assert.equal(messageReads, 0);
   missing = true;
   await bridge.recover();
-  assert.equal(bridge.operations.status()[0].state, "uncertain");
+  assert.equal(bridge.operations.status()[0].state, "failed_absent");
   await bridge.tick("10000002");
-  assert.equal(messageReads, 0);
+  assert.equal(messageReads, 1);
   missing = false;
   await bridge.recover();
   await bridge.tick("10000002");
-  assert.equal(messageReads, 1);
+  assert.equal(messageReads, 2);
   assert.equal(sends, 1);
   assert.ok(queriedIds.every((id) => id === fact.operation_id));
   assert.equal(bridge.operations.status()[0].state, "succeeded");
@@ -129,7 +129,7 @@ try {
     JSON.stringify({
       status: "PASS",
       classification:
-        "INVALID as an automatic-retry defect under the explicit replacement recovery contract",
+        "DEA-470: absent lookup terminates locally; original ID remains reserved",
       model: "deterministic double",
       client: "fault double",
       host: "stock",
@@ -138,7 +138,7 @@ try {
       messageReads,
       afterTicks: 3,
       original_id_only: true,
-      unknown_stays_blocked: true,
+      absent_releases_input_without_resend: true,
     }),
   );
 } finally {

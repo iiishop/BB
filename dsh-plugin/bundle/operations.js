@@ -93,15 +93,22 @@ export class Operations {
       // This is not proof of remote failure and never permits redispatch.
       const absent = row.kind !== "download" && error.status === 404;
       if (
-        !absent && error.status !== 404 &&
+        !absent &&
+        error.status !== 404 &&
         !(error.status >= 500 && error.status <= 599) &&
-        !(error instanceof TypeError) && error.name !== "TimeoutError"
-      ) throw error;
-      await this.put({ ...row, state: absent ? "failed_absent" : "uncertain" });
+        !(error instanceof TypeError) &&
+        error.name !== "TimeoutError"
+      )
+        throw error;
+      if (this.unresolved(row))
+        await this.put({
+          ...row,
+          state: absent ? "failed_absent" : "uncertain",
+        });
       return null;
     }
   }
-  async prepare(exec) {
+  async prepare(exec, sourcePeers = []) {
     const origin = exec.agent.session
       .snapshotEvents()
       .findLast(
@@ -142,6 +149,8 @@ export class Operations {
       session: exec.agent.session.id,
       sessionCreatedAt: exec.agent.session.header.createdAt,
       kind: exec.name === "mcp__bb__start_download" ? "download" : "send",
+      peer: exec.arguments.target_account,
+      sourcePeers: [...new Set(sourcePeers)],
       payloadDigest,
       state: "dispatching",
     });
@@ -163,5 +172,16 @@ export class Operations {
   }
   unresolved(row) {
     return !["succeeded", "failed", "failed_absent"].includes(row.state);
+  }
+  blocks(peer, { settlement = false } = {}) {
+    return [...this.rows.values()].some(
+      (row) =>
+        this.unresolved(row) &&
+        (row.peer === peer ||
+          row.sourcePeers?.includes(peer) ||
+          // Pre-DEA-470 records have no peer metadata. They cannot freeze input
+          // globally, but no consumption is safe until their scope/result is known.
+          (settlement && !row.peer && row.sourcePeers === undefined)),
+    );
   }
 }

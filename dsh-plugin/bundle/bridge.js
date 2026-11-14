@@ -13,7 +13,7 @@ export class Bridge {
     this.tail = Promise.resolve();
     this.observers = Promise.resolve();
     this.closed = false;
-    this.waiters = new Set();
+    this.waiters = new Map();
     this.errors = [];
   }
   serial(fn) {
@@ -28,6 +28,21 @@ export class Bridge {
   async check() {
     if (this.closed) throw new Error("Bridge stopped");
     await this.client.check();
+  }
+  waiting(peer) {
+    return [...this.waiters.values()].includes(peer);
+  }
+  inputBlocked(peer) {
+    return (
+      this.operations.blocks(peer) ||
+      this.journal
+        .list()
+        .some(
+          (row) =>
+            row.peer === peer &&
+            ["uncertain", "dispatching"].includes(row.state),
+        )
+    );
   }
   async mount() {
     await this.journal.open();
@@ -150,8 +165,15 @@ export class Bridge {
           await self.serial(async () => {
             await self.check();
             if (
-              self.waiters.size ||
-              self.journal.list().some((r) => r.state !== "completed")
+              self.waiting(exec.arguments.account) ||
+              self.inputBlocked(exec.arguments.account) ||
+              self.journal
+                .list()
+                .some(
+                  (r) =>
+                    r.peer === exec.arguments.account &&
+                    r.state !== "completed",
+                )
             )
               throw new Error("BB input already active; await its settlement");
             const cursor = await self.client.call("chat/consumption", {
@@ -159,7 +181,7 @@ export class Bridge {
             });
             if (exec.arguments.seen_position < cursor.consumed_through)
               throw new Error("BB wait cursor precedes consumption");
-            self.waiters.add(exec.callId);
+            self.waiters.set(exec.callId, exec.arguments.account);
           });
           return next();
         });
@@ -276,7 +298,19 @@ export class Bridge {
           execute: async (args, exec) => {
             await this.flush();
             const plan = await this.serial(() =>
-              this.operations.prepare({ ...exec, arguments: args }),
+              this.operations.prepare(
+                { ...exec, arguments: args },
+                this.journal
+                  .list()
+                  .filter(
+                    (r) =>
+                      r.session === this.agent.session.id &&
+                      r.turn === this.turn &&
+                      r.state !== "completed" &&
+                      r.peer,
+                  )
+                  .map((r) => r.peer),
+              ),
             );
             const value = await definition.execute(
               { ...args, operation_id: plan.operation_id },
@@ -342,7 +376,6 @@ export class Bridge {
   async claim(item, { callId, projectionImageCount } = {}) {
     return this.serial(async () => {
       await this.check();
-      if (!callId && this.waiters.size) return;
       if (!item.presentation)
         throw new Error("BB message has no complete presentation receipt");
       const m = item.message,
@@ -351,6 +384,7 @@ export class Bridge {
         m.sender_account === identity.account
           ? m.target_account
           : m.sender_account;
+      if ((!callId && this.waiting(peer)) || this.inputBlocked(peer)) return;
       const key = digest([identity.account, identity.consumer_id, peer, m.id]);
       const prior = this.journal.get(key);
       if (prior) {
@@ -421,6 +455,7 @@ export class Bridge {
   // callback or flush failed after followup.
   async resumeDelivery(row, item, { replacePending = false } = {}) {
     if (!["claimed", "prepared"].includes(row.state)) return row;
+    if (row.kind !== "download" && this.inputBlocked(row.peer)) return row;
     await this.check();
     if (
       row.session !== this.agent.session.id ||
@@ -507,6 +542,12 @@ export class Bridge {
       await this.check();
       row = this.journal.get(row.key);
       if (row.state === "completed") return;
+      if (
+        row.kind !== "download" &&
+        (this.inputBlocked(row.peer) ||
+          this.operations.blocks(row.peer, { settlement: true }))
+      )
+        return;
       const facts = this.agent.session.snapshotEvents();
       const projected = facts.some(
         (e) =>
@@ -764,20 +805,9 @@ export class Bridge {
     }
   }
   async poll(peer) {
-    if (
-      !peer ||
-      this.closed ||
-      this.waiters.size ||
-      this.operations.uncertain()
-    )
-      return;
+    if (!peer || this.closed || this.waiting(peer)) return;
     await this.observers;
-    if (
-      this.journal
-        .list()
-        .some((r) => r.state === "uncertain" || r.state === "dispatching")
-    )
-      return;
+    if (this.inputBlocked(peer)) return;
     const { consumed_through } = await this.client.call("chat/consumption", {
       account: peer,
     });
@@ -787,7 +817,7 @@ export class Bridge {
       limit: 50,
     });
     for (const item of page.items) {
-      if (this.waiters.size) break;
+      if (this.waiting(peer)) break;
       await this.claim(item);
     }
   }
