@@ -1805,13 +1805,22 @@ class ChatService {
 
   String get _cacheServer => api.baseUri.toString();
 
+  /// Cache identity is server + account + media + variant, so switching any
+  /// of them can never reuse another context's bytes.
+  String _mediaCacheKey(String account, String mediaId, String variant) {
+    return '$_cacheServer\u0001$account\u0001$mediaId\u0001$variant';
+  }
+
   Future<Uint8List> mediaBytes(String mediaId) async {
     final AuthIdentity? captured = session.identity;
     if (captured == null) {
       throw unauthenticated;
     }
-    final String cacheKey =
-        '$_cacheServer\u0001${captured.account}\u0001$mediaId';
+    final String cacheKey = _mediaCacheKey(
+      captured.account,
+      mediaId,
+      'original',
+    );
     final Uint8List? cached = _mediaCache[cacheKey];
     if (cached != null) {
       return cached;
@@ -1856,7 +1865,7 @@ class ChatService {
     if (captured == null) {
       throw unauthenticated;
     }
-    final String key = '$_cacheServer\u0001${captured.account}\u0001$mediaId';
+    final String key = _mediaCacheKey(captured.account, mediaId, 'metadata');
     final Attachment? cached = _mediaMetadata[key];
     if (cached != null) {
       return cached;
@@ -1883,8 +1892,7 @@ class ChatService {
     if (captured == null) {
       throw unauthenticated;
     }
-    final String cacheKey =
-        '$_cacheServer\u0001${captured.account}\u0001$mediaId';
+    final String cacheKey = _mediaCacheKey(captured.account, mediaId, 'thumb');
     final Uint8List? cached = _thumbnailCache[cacheKey];
     if (cached != null) {
       return cached;
