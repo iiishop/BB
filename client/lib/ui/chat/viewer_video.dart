@@ -207,9 +207,11 @@ class StreamingViewerVideoSession implements ViewerVideoSession {
     } catch (_) {
       if (_isCurrent(round)) {
         _round = null;
-        _generation += 1;
+        final int failedGeneration = ++_generation;
         await round.release();
-        if (!_disposed) {
+        // A retry may have started while the old stream was closing. Commit the
+        // failure only if this frame is still the idle owner of the session.
+        if (!_disposed && _round == null && _generation == failedGeneration) {
           _phase.value = ViewerVideoPhase.failed;
         }
       } else {

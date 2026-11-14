@@ -141,9 +141,10 @@ ETag/304、415/503 错误）。客户端只消费契约，不改 `server/contrac
   播放器与流。会话按“播放轮次”持有 handle/controller/progress subscription，`_round` 是唯一
   当前指针：start 只登记新轮并在后台初始化，stop/retry/dispose 退役当前轮并递增 generation，
   原生 create 回调、controller listener、progress 和 toggle continuation 都先校验轮次归属，
-  旧 finally/迟到回调不会写新轮状态。释放顺序是先关闭已建立的 loopback 句柄，再异步 dispose
-  播放器：原生 `createWithOptions` 尚未返回时关闭不会阻塞流释放，旧创建迟到也只能释放自己
-  的资源。
+  旧 finally/迟到回调不会写新轮状态；失败清理在 `await release()` **之后**再次核对
+  `_round == null` 与 generation，旧错误收尾不能把已 ready 的新轮改回 failed。释放顺序是先
+  关闭已建立的 loopback 句柄，再异步 dispose 播放器：原生 `createWithOptions` 尚未返回时关闭
+  不会阻塞流释放，旧创建迟到也只能释放自己的资源。
   Android/iOS/macOS 使用官方 `video_player`；Linux/Windows 通过新增的 `fvp: 0.40.0` 提供
   同一 `video_player` 平台实现（随包 MDK 预编译库，不依赖系统 libmpv，不升级既有
   `video_player` 版本；`pubspec.lock` 只新增 `fvp`）。测试仅把锁文件已有的
@@ -158,7 +159,7 @@ ETag/304、415/503 错误）。客户端只消费契约，不改 `server/contrac
   未就绪而重新请求远端大图。接收端元信息/缩略图失败仍只显示占位与重试，不请求原图。
 - 验证（固定基线 `452e88e`，契约 `agent/forge/9e751f104948` @ `fa876b9`）：
   - `flutter analyze`：0 issue。
-  - `flutter test`：396 passed / 7 skipped。7 个 skip 的适用范围：
+  - `flutter test`：398 passed / 7 skipped。7 个 skip 的适用范围：
     1 个 DEA-471 live 契约用例（`BB_LIVE_SERVER_URL` 未设置）、3 个既有 live chat 用例、
     1 个既有 live auth 用例、1 个聊天截图用例（`QA_CHAT_SCREENSHOT_DIR` 未设置）、
     1 个 Profile 截图用例（`QA_SCREENSHOT_DIR` 未设置）；都不是本机代码失败。
@@ -166,8 +167,8 @@ ETag/304、415/503 错误）。客户端只消费契约，不改 `server/contrac
     相册/桌面保存分流、server/account/media/variant 缓存隔离与缩略图失败不回退原图、
     发送端本地预览、查看器内嵌视频进度/重试/切页释放、真实 loopback Range 的请求/整媒体双计数，
     以及 production session 的「4/8 字节进入 buffering + Range 文案」「原生 create 挂起时关闭
-    先释放流」「挂起 stop 后重新 start 立即开新流」、组件手势「拖出/拖回后重播」和「缓冲标签
-    不与索引相交」回归。
+    先释放流」「挂起 stop 后重新 start 立即开新流」「旧失败 release 收尾不覆盖新轮 ready」
+    与组件「拖出/拖回重播」「重试按钮后旧错误不重现」「缓冲标签不与索引相交」回归。
   - `BB_LIVE_SERVER_URL=http://127.0.0.1:8171 flutter test test/live_media_contract_test.dart`：
     1 passed；真实 Forge 服务端验证 metadata byte_size、512 边/≤64 KiB JPEG 缩略图、
     小图直取原图、原图字节一致、`Range bytes=0-0` 206 且总长正确、第三账号 404。
