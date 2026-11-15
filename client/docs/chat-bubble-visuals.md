@@ -134,6 +134,14 @@
   `pending_operation_test.dart` 3/3 通过（含真实 ChatService 语义测试）。未恢复内容启发式，
   未改契约。
 
+## Sentinel 复验修复（revision 7：大字状态行）
+
+- 状态行不再用固定 `SizedBox(height: 14)`；改为 `minHeight: 14`，由文字缩放决定实际高度。
+  失败/发送中的 `Row` 文本改为 `Flexible`，空间不足时换行而不是横向裁切。
+- 时间、发送中、失败/重试共用同一状态槽；状态切换（sending→failed→time）时高度随内容变化。
+- 回归：1.6 倍文字下用 `RenderParagraph` 与实际 `TextPainter` 比较高度，时间/发送中/失败三种
+  状态都必须完整布局；390×844 下无异常。Sentinel r6 `scaled_status_test.dart` 2/2 通过。
+
 ## 用户返稿记录
 
 | 日期 | 意见 | 修改 | 适用场景 |

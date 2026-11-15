@@ -13,6 +13,7 @@ import 'package:bb_client/ui/chat/media_actions.dart';
 import 'package:bb_client/ui/chat/message_bubble.dart';
 import 'package:bb_client/ui/chat/pending_send.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/fake_chat_service.dart';
@@ -1100,6 +1101,45 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('uncertain commit'), findsOneWidget);
     expect(find.byKey(MessageBubble.failedKey), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('status rows scale with text and are not vertically clipped', (
+    WidgetTester tester,
+  ) async {
+    void expectFullyLaidOut(String text) {
+      final RenderParagraph paragraph = tester.renderObject<RenderParagraph>(
+        find.text(text),
+      );
+      final TextPainter painter = TextPainter(
+        text: paragraph.text,
+        textDirection: TextDirection.ltr,
+        textScaler: paragraph.textScaler,
+      )..layout(maxWidth: paragraph.size.width);
+      expect(
+        paragraph.size.height,
+        greaterThanOrEqualTo(painter.height - 0.01),
+        reason: '$text must not be taller than its allocated box',
+      );
+      painter.dispose();
+    }
+
+    final _Harness harness = _Harness(
+      thread: <ChatMessage>[_message(1)],
+      textScale: 1.6,
+    );
+    harness.chat.sendGate = Completer<void>();
+    harness.chat.failBody = true;
+    await harness.pump(tester);
+    expectFullyLaidOut('12:01');
+
+    await harness.send(tester, 'scaled status');
+    await tester.pump();
+    expectFullyLaidOut('发送中…');
+
+    harness.chat.sendGate!.complete();
+    await tester.pumpAndSettle();
+    expectFullyLaidOut('未发送 · 点按重试');
     expect(tester.takeException(), isNull);
   });
 

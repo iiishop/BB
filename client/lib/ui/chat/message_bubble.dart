@@ -387,7 +387,12 @@ class _StatusSlot extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 4),
-          Text('发送中…', style: TextStyle(fontSize: 11, color: mutedColor)),
+          Flexible(
+            child: Text(
+              '发送中…',
+              style: TextStyle(fontSize: 11, color: mutedColor),
+            ),
+          ),
         ],
       );
     } else if (failed) {
@@ -397,9 +402,11 @@ class _StatusSlot extends StatelessWidget {
         children: <Widget>[
           Icon(Icons.error_outline_rounded, size: 12, color: AppColors.danger),
           const SizedBox(width: 3),
-          const Text(
-            '未发送 · 点按重试',
-            style: TextStyle(fontSize: 11, color: AppColors.danger),
+          const Flexible(
+            child: Text(
+              '未发送 · 点按重试',
+              style: TextStyle(fontSize: 11, color: AppColors.danger),
+            ),
           ),
         ],
       );
@@ -409,8 +416,8 @@ class _StatusSlot extends StatelessWidget {
         style: TextStyle(fontSize: 11, color: mutedColor),
       );
     }
-    return SizedBox(
-      height: 14,
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 14),
       child: AnimatedSwitcher(
         duration: reducedMotion
             ? Duration.zero

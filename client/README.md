@@ -179,7 +179,7 @@ flutter test integration_test -d linux
 QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_tests.sh client
 ```
 
-- 默认 `flutter test`：最新严格 runner 为 **447 passed / 8 skipped / exit 0**。新增覆盖
+- 默认 `flutter test`：最新严格 runner 为 **448 passed / 8 skipped / exit 0**。新增覆盖
   1000 条真实分页下发送/接收并发补取无缺口、events/wait limit 边界、原子展示确认/冲突/全组
   拒绝/重启幂等、新 consumer 独立补取、有序图文发送、幂等/冲突、read→receipt→ACK 缺口、
   附件只读元信息、异步下载内容、持久事件、wait 积压/提前到达、用户列表分页/预览/在线状态、
@@ -190,9 +190,9 @@ QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_test
   跨日期分隔插入时 entrance State 保持、不同 operation 的同文/同媒体消息不吞掉本地失败、
   两条发送乱序返回、失败后由 `GET /operations/{id}` 确认已提交、operation 查询在途期间
   poll/refresh 不重复、查询失败与 pending/uncertain 保持未知并保留暂存与重试、后续轮询重查
-  恢复、重试与查询交错。
+  恢复、重试与查询交错、1.6 倍文字下时间/发送中/失败状态行完整可读。
 - 严格命令：`QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_tests.sh client`
-  → `RESULT=PASS`（analyze PASS、flutter-test 447 passed / 8 skipped / exit 0、linux-integration 14 passed / exit 0）。
+  → `RESULT=PASS`（analyze PASS、flutter-test 448 passed / 8 skipped / exit 0、linux-integration 14 passed / exit 0）。
 - `test/qa_metrics_test.dart` / `qa_session_race_test.dart` 保留独立 QA 的失败回归：
   打开面板后实时缩放/折叠重排、旧会话延迟 401 不得清掉新登录会话。
 - `test/qa_resize_transition_test.dart`、`profile_transition_reflow_test.dart` 保留并覆盖
