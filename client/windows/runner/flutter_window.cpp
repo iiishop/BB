@@ -1,6 +1,8 @@
 #include "flutter_window.h"
 
 #include <optional>
+#include <shellapi.h>
+#include <string>
 
 #include "flutter/generated_plugin_registrant.h"
 
@@ -29,6 +31,21 @@ bool FlutterWindow::OnCreate() {
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
     this->Show();
+    // Acknowledges that the new payload rendered before the updater commits.
+    int argc = 0;
+    LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    if (argv) {
+      const std::wstring prefix = L"--bb-update-ready=Local\\BBUpdate-";
+      for (int i = 1; i < argc; ++i) {
+        const std::wstring arg(argv[i]);
+        if (arg.rfind(prefix, 0) == 0 && arg.size() == prefix.size() + 32) {
+          const auto name = arg.substr(std::wstring(L"--bb-update-ready=").size());
+          HANDLE event = OpenEventW(EVENT_MODIFY_STATE, FALSE, name.c_str());
+          if (event) { SetEvent(event); CloseHandle(event); }
+        }
+      }
+      LocalFree(argv);
+    }
   });
 
   // Flutter can complete the first frame before the "show window" callback is

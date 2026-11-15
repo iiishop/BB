@@ -53,6 +53,22 @@ add_subdirectory(${FLUTTER_MANAGED_DIR})
 add_subdirectory("runner")
 
 
+# Independent update executor, compiled with Windows' built-in .NET Framework.
+set(UPDATER_EXE "${CMAKE_CURRENT_BINARY_DIR}/bb_updater.exe")
+file(TO_CMAKE_PATH "$ENV{WINDIR}/Microsoft.NET/Framework64/v4.0.30319/csc.exe" FRAMEWORK_CSC)
+add_custom_command(OUTPUT "${UPDATER_EXE}"
+  COMMAND "${FRAMEWORK_CSC}" /nologo /warnaserror /target:exe
+    /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll
+    "/out:${UPDATER_EXE}" "${CMAKE_CURRENT_SOURCE_DIR}/updater/Updater.cs"
+  DEPENDS "updater/Updater.cs" VERBATIM)
+add_custom_target(bb_updater ALL DEPENDS "${UPDATER_EXE}")
+set(BB_UPDATE_ARCH "unsupported")
+if(CMAKE_GENERATOR_PLATFORM STREQUAL "x64")
+  set(BB_UPDATE_ARCH "x64")
+endif()
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/bb-build.json"
+  "{\"version\":\"${FLUTTER_VERSION}\",\"buildNumber\":${FLUTTER_VERSION_BUILD},\"architecture\":\"${BB_UPDATE_ARCH}\"}")
+
 # Generated plugin build rules, which manage building the plugins and adding
 # them to the application.
 include(flutter/generated_plugins.cmake)
@@ -71,6 +87,9 @@ endif()
 
 set(INSTALL_BUNDLE_DATA_DIR "${CMAKE_INSTALL_PREFIX}/data")
 set(INSTALL_BUNDLE_LIB_DIR "${CMAKE_INSTALL_PREFIX}")
+install(FILES "${UPDATER_EXE}" "${CMAKE_CURRENT_BINARY_DIR}/bb-build.json"
+  DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime)
+
 
 install(TARGETS ${BINARY_NAME} RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
   COMPONENT Runtime)
