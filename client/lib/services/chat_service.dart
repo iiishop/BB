@@ -340,37 +340,14 @@ class ChatService {
     if (owner == null || owner.consumerId != expectedIdentity.consumerId) {
       return null;
     }
-    if (record.state == 'succeeded' && record.message != null) {
-      return OperationResult(
-        operationId: operationId,
-        kind: record.kind,
-        status: OperationStatus.succeeded,
-        message: record.message,
-      );
-    }
-    final OperationResult? remote = await api.getOperation(
-      token: context.identity.token,
-      operationId: operationId,
+    final result = await _queryMessageOperation(
+      context.identity,
+      operationId,
+      record: record,
+      exposeUncertain: true,
     );
-    if (remote != null) {
-      if (remote.status == OperationStatus.succeeded &&
-          remote.message != null) {
-        await _succeed(account, record, remote.message!);
-      }
-      return remote;
-    }
-    return OperationResult(
-      operationId: operationId,
-      kind: record.kind,
-      status: switch (record.state) {
-        'succeeded' => OperationStatus.succeeded,
-        'failed' => OperationStatus.failed,
-        'uncertain' => OperationStatus.uncertain,
-        _ => OperationStatus.pending,
-      },
-      message: record.message,
-      errorCode: record.errorCode,
-    );
+    await requireIdentity(expectedIdentity);
+    return result;
   }
 
   Future<Map<String, dynamic>> notificationChanges({
@@ -647,6 +624,11 @@ class ChatService {
       afterPosition: afterPosition,
       limit: limit.clamp(1, 100),
     );
+    await ledger.observeMessageAssociations(
+      captured.account,
+      page.items,
+      peerAccount: peerAccount,
+    );
     if (!session.isCurrent(captured)) {
       throw unauthenticated;
     }
@@ -705,40 +687,119 @@ class ChatService {
       account,
       operationId,
     );
-    if (record == null) {
-      // The server's own idempotency record may be the only evidence left
-      // after a process crashed before persisting a local result.
-      return api.getOperation(token: captured.token, operationId: operationId);
+    return _queryMessageOperation(captured, operationId, record: record);
+  }
+
+  OperationResult _operationResult(
+    ChatOperationRecord record, {
+    bool exposeUncertain = false,
+  }) {
+    final succeeded = record.state == 'succeeded' && record.message != null;
+    return OperationResult(
+      operationId: record.operationId,
+      kind: 'message',
+      status: succeeded
+          ? OperationStatus.succeeded
+          : switch (record.state) {
+              'failed' => OperationStatus.failed,
+              'uncertain' when exposeUncertain => OperationStatus.uncertain,
+              _ => OperationStatus.pending,
+            },
+      message: succeeded
+          ? record.message!.withOperationId(record.operationId)
+          : null,
+      errorCode: record.state == 'failed' ? record.errorCode : null,
+    );
+  }
+
+  ChatMessage _associatedMessage(
+    ChatMessage message,
+    String account,
+    String operationId, {
+    String? target,
+    ChatMessageKind? kind,
+  }) {
+    if (message.senderAccount != account ||
+        (target != null && message.targetAccount != target) ||
+        (kind != null && message.kind != kind) ||
+        (message.operationId != null && message.operationId != operationId)) {
+      throw upstreamMalformed;
     }
-    if (record.state == 'succeeded' && record.message != null) {
+    return message.withOperationId(operationId);
+  }
+
+  /// Permissions are checked by the two distinct callers. Only reconciliation
+  /// and monotonic persistence are shared; a consumer never falls back to an
+  /// account-wide query when its local plan is absent.
+  Future<OperationResult?> _queryMessageOperation(
+    AuthIdentity captured,
+    String operationId, {
+    ChatOperationRecord? record,
+    bool exposeUncertain = false,
+  }) async {
+    final account = captured.account;
+    OperationResult? latestSuccess(ChatOperationRecord? value) =>
+        value?.state == 'succeeded' && value?.message != null
+        ? _operationResult(value!, exposeUncertain: exposeUncertain)
+        : null;
+    final saved = latestSuccess(record);
+    if (saved != null) return saved;
+    final OperationResult? remote;
+    try {
+      remote = await api.getOperation(
+        token: captured.token,
+        operationId: operationId,
+      );
+    } catch (_) {
+      final latest = latestSuccess(
+        await ledger.operation(account, operationId),
+      );
+      if (latest != null) return latest;
+      rethrow;
+    }
+    if (remote != null &&
+        (remote.operationId != operationId ||
+            remote.kind != 'message' ||
+            (remote.status == OperationStatus.succeeded &&
+                remote.message == null) ||
+            (remote.status != OperationStatus.succeeded &&
+                remote.message != null))) {
+      throw upstreamMalformed;
+    }
+    if (remote?.status == OperationStatus.succeeded) {
+      final plan = record ?? await ledger.operation(account, operationId);
+      final message = _associatedMessage(
+        remote!.message!,
+        account,
+        operationId,
+        target: plan?.targetAccount,
+        kind: plan == null
+            ? null
+            : plan.kind == 'attachment'
+            ? ChatMessageKind.attachment
+            : ChatMessageKind.body,
+      );
+      if (plan != null) {
+        await _succeed(account, plan, message);
+      }
       return OperationResult(
         operationId: operationId,
         kind: 'message',
         status: OperationStatus.succeeded,
-        message: record.message,
-        errorCode: record.errorCode,
+        message: message,
       );
     }
-    // A local non-terminal record is not proof of failure. Ask the server
-    // before reporting anything, and never mint a new operation id.
-    final OperationResult? remote = await api.getOperation(
-      token: captured.token,
-      operationId: operationId,
-    );
-    if (remote != null) {
-      return remote;
+    // The network response may predate a concurrent retry's durable commit.
+    final current = await ledger.operation(account, operationId);
+    final committed = latestSuccess(current);
+    if (committed != null) return committed;
+    if (current != null && current.revision != record?.revision) {
+      return _operationResult(current, exposeUncertain: exposeUncertain);
     }
-    return OperationResult(
-      operationId: operationId,
-      kind: 'message',
-      status: switch (record.state) {
-        'failed' => OperationStatus.failed,
-        'succeeded' => OperationStatus.succeeded,
-        _ => OperationStatus.pending,
-      },
-      message: record.message,
-      errorCode: record.errorCode,
-    );
+    if (remote != null) return remote;
+    return current == null
+        ? null
+        : _operationResult(current, exposeUncertain: exposeUncertain);
   }
 
   // ------------------------------------------------------------------ send --
@@ -868,7 +929,40 @@ class ChatService {
     if (!session.isCurrent(captured)) {
       throw staleIdentity;
     }
-    return _submitBody(captured, account, record, cleaned, mediaIds);
+    return _sendOrCommitted(
+      captured,
+      record,
+      () => _submitBody(captured, account, record!, cleaned, mediaIds),
+      parts: cleaned,
+    );
+  }
+
+  Future<SendOutcome> _sendOrCommitted(
+    AuthIdentity captured,
+    ChatOperationRecord record,
+    Future<SendOutcome> Function() submit, {
+    List<OutgoingPart>? parts,
+    OutgoingAttachment? attachment,
+  }) async {
+    try {
+      return await submit();
+    } on AuthFailure {
+      final latest = await ledger.operation(
+        captured.account,
+        record.operationId,
+      );
+      if (session.isCurrent(captured) &&
+          latest?.state == 'succeeded' &&
+          latest?.message != null) {
+        return SendOutcome(
+          operationId: record.operationId,
+          message: latest!.message!.withOperationId(record.operationId),
+          part: parts,
+          attachment: attachment,
+        );
+      }
+      rethrow;
+    }
   }
 
   static const int _maxStorageBusyRetries = 3;
@@ -881,11 +975,18 @@ class ChatService {
   }) async {
     for (int attempt = 0; ; attempt++) {
       try {
-        return await api.sendMessage(
+        final message = await api.sendMessage(
           token: captured.token,
           targetAccount: targetAccount,
           clientNonce: clientNonce,
           content: content,
+        );
+        return _associatedMessage(
+          message,
+          captured.account,
+          clientNonce,
+          target: targetAccount,
+          kind: ChatMessageKind.body,
         );
       } on AuthFailure catch (failure) {
         if (failure.status == 503 && failure.code == 'storage_busy') {
@@ -917,11 +1018,18 @@ class ChatService {
   }) async {
     for (int attempt = 0; ; attempt++) {
       try {
-        return await api.sendAttachment(
+        final message = await api.sendAttachment(
           token: captured.token,
           targetAccount: targetAccount,
           clientNonce: clientNonce,
           mediaId: mediaId,
+        );
+        return _associatedMessage(
+          message,
+          captured.account,
+          clientNonce,
+          target: targetAccount,
+          kind: ChatMessageKind.attachment,
         );
       } on AuthFailure catch (failure) {
         if (failure.status == 503 && failure.code == 'storage_busy') {
@@ -1229,7 +1337,12 @@ class ChatService {
     if (!session.isCurrent(captured)) {
       throw staleIdentity;
     }
-    return _submitAttachment(captured, account, record, attachment);
+    return _sendOrCommitted(
+      captured,
+      record,
+      () => _submitAttachment(captured, account, record!, attachment),
+      attachment: attachment,
+    );
   }
 
   Future<SendOutcome> _submitAttachment(
@@ -1483,7 +1596,15 @@ class ChatService {
       account,
       record.copyWith(
         state: 'succeeded',
-        message: message,
+        message: _associatedMessage(
+          message,
+          account,
+          record.operationId,
+          target: record.targetAccount,
+          kind: record.kind == 'attachment'
+              ? ChatMessageKind.attachment
+              : ChatMessageKind.body,
+        ),
         updatedAt: _clock(),
       ),
     );
@@ -1742,6 +1863,11 @@ class ChatService {
     required bool tolerateMissingMedia,
     Set<String>? createdReceiptIds,
   }) async {
+    await ledger.observeMessageAssociations(captured.account, [
+      message,
+    ], peerAccount: peerAccount);
+    if (!session.isCurrent(captured)) throw staleIdentity;
+
     if (!captured.sameAs(session.identity)) {
       throw unauthenticated;
     }

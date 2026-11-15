@@ -676,15 +676,38 @@
       "post": {
         "summary": "Send",
         "operationId": "send_messages_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-BB-Message-Association",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Bb-Message-Association"
+            }
+          }
+        ],
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/SendMessage"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "200": {
@@ -692,102 +715,137 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Message"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Message"
+                    },
+                    {
+                      "$ref": "#/components/schemas/AssociatedMessage"
+                    }
+                  ],
+                  "title": "Response Send Messages Post"
+                }
+              }
+            },
+            "headers": {
+              "X-BB-Message-Association": {
+                "description": "Present with value 1 only when association format was negotiated; authorization is unchanged.",
+                "schema": {
+                  "type": "string",
+                  "const": "1"
                 }
               }
             }
           },
           "401": {
-            "description": "Unauthorized",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            }
+            },
+            "description": "Unauthorized"
           },
           "404": {
-            "description": "Not Found",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            }
+            },
+            "description": "Not Found"
           },
           "409": {
-            "description": "Conflict",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            }
+            },
+            "description": "Conflict"
           },
           "413": {
-            "description": "Content Too Large",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            }
+            },
+            "description": "Content Too Large"
           },
           "415": {
-            "description": "Unsupported Media Type",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            }
+            },
+            "description": "Unsupported Media Type"
           },
           "422": {
-            "description": "Unprocessable Content",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            }
+            },
+            "description": "Unprocessable Content"
           },
           "503": {
-            "description": "Service Unavailable",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            }
+            },
+            "description": "Service Unavailable"
           }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
+        }
       }
     },
     "/messages/attachments": {
       "post": {
         "summary": "Attach",
         "operationId": "attach_messages_attachments_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-BB-Message-Association",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Bb-Message-Association"
+            }
+          }
+        ],
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/SendAttachment"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "200": {
@@ -795,87 +853,99 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Message"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Message"
+                    },
+                    {
+                      "$ref": "#/components/schemas/AssociatedMessage"
+                    }
+                  ],
+                  "title": "Response Attach Messages Attachments Post"
+                }
+              }
+            },
+            "headers": {
+              "X-BB-Message-Association": {
+                "description": "Present with value 1 only when association format was negotiated; authorization is unchanged.",
+                "schema": {
+                  "type": "string",
+                  "const": "1"
                 }
               }
             }
           },
           "401": {
-            "description": "Unauthorized",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            }
+            },
+            "description": "Unauthorized"
           },
           "404": {
-            "description": "Not Found",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            }
+            },
+            "description": "Not Found"
           },
           "409": {
-            "description": "Conflict",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            }
+            },
+            "description": "Conflict"
           },
           "413": {
-            "description": "Content Too Large",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            }
+            },
+            "description": "Content Too Large"
           },
           "415": {
-            "description": "Unsupported Media Type",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            }
+            },
+            "description": "Unsupported Media Type"
           },
           "422": {
-            "description": "Unprocessable Content",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            }
+            },
+            "description": "Unprocessable Content"
           },
           "503": {
-            "description": "Service Unavailable",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
-            }
+            },
+            "description": "Service Unavailable"
           }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
+        }
       }
     },
     "/operations/{operation_id}": {
@@ -896,6 +966,22 @@
               "type": "string",
               "title": "Operation Id"
             }
+          },
+          {
+            "name": "X-BB-Message-Association",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Bb-Message-Association"
+            }
           }
         ],
         "responses": {
@@ -904,7 +990,24 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Operation"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Operation"
+                    },
+                    {
+                      "$ref": "#/components/schemas/AssociatedOperation"
+                    }
+                  ],
+                  "title": "Response Operation Operations  Operation Id  Get"
+                }
+              }
+            },
+            "headers": {
+              "X-BB-Message-Association": {
+                "description": "Present with value 1 only when association format was negotiated; authorization is unchanged.",
+                "schema": {
+                  "type": "string",
+                  "const": "1"
                 }
               }
             }
@@ -1049,6 +1152,22 @@
               "default": 50,
               "title": "Limit"
             }
+          },
+          {
+            "name": "X-BB-Message-Association",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Bb-Message-Association"
+            }
           }
         ],
         "responses": {
@@ -1057,7 +1176,24 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MessagePage"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/MessagePage"
+                    },
+                    {
+                      "$ref": "#/components/schemas/AssociatedMessagePage"
+                    }
+                  ],
+                  "title": "Response History Conversations  Account  Messages Get"
+                }
+              }
+            },
+            "headers": {
+              "X-BB-Message-Association": {
+                "description": "Present with value 1 only when association format was negotiated; authorization is unchanged.",
+                "schema": {
+                  "type": "string",
+                  "const": "1"
                 }
               }
             }
@@ -1167,6 +1303,22 @@
               "default": 50,
               "title": "Limit"
             }
+          },
+          {
+            "name": "X-BB-Message-Association",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Bb-Message-Association"
+            }
           }
         ],
         "responses": {
@@ -1175,7 +1327,24 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ConversationPage"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ConversationPage"
+                    },
+                    {
+                      "$ref": "#/components/schemas/AssociatedConversationPage"
+                    }
+                  ],
+                  "title": "Response Conversations Conversations Get"
+                }
+              }
+            },
+            "headers": {
+              "X-BB-Message-Association": {
+                "description": "Present with value 1 only when association format was negotiated; authorization is unchanged.",
+                "schema": {
+                  "type": "string",
+                  "const": "1"
                 }
               }
             }
@@ -1274,6 +1443,22 @@
               "pattern": "^[A-Za-z0-9_-]+$",
               "title": "Message Id"
             }
+          },
+          {
+            "name": "X-BB-Message-Association",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Bb-Message-Association"
+            }
           }
         ],
         "responses": {
@@ -1282,7 +1467,24 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Message"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Message"
+                    },
+                    {
+                      "$ref": "#/components/schemas/AssociatedMessage"
+                    }
+                  ],
+                  "title": "Response Get Message Messages  Message Id  Get"
+                }
+              }
+            },
+            "headers": {
+              "X-BB-Message-Association": {
+                "description": "Present with value 1 only when association format was negotiated; authorization is unchanged.",
+                "schema": {
+                  "type": "string",
+                  "const": "1"
                 }
               }
             }
@@ -1405,6 +1607,22 @@
               "default": 10,
               "title": "After Limit"
             }
+          },
+          {
+            "name": "X-BB-Message-Association",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Bb-Message-Association"
+            }
           }
         ],
         "responses": {
@@ -1413,7 +1631,24 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MessageContext"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/MessageContext"
+                    },
+                    {
+                      "$ref": "#/components/schemas/AssociatedMessageContext"
+                    }
+                  ],
+                  "title": "Response Get Context Messages  Message Id  Context Get"
+                }
+              }
+            },
+            "headers": {
+              "X-BB-Message-Association": {
+                "description": "Present with value 1 only when association format was negotiated; authorization is unchanged.",
+                "schema": {
+                  "type": "string",
+                  "const": "1"
                 }
               }
             }
@@ -2197,6 +2432,332 @@
           "username"
         ],
         "title": "AccountResponse"
+      },
+      "AssociatedConversation": {
+        "properties": {
+          "peer_account": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Peer Account"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "last_message": {
+            "$ref": "#/components/schemas/AssociatedMessage"
+          },
+          "last_activity_at": {
+            "type": "string",
+            "title": "Last Activity At"
+          },
+          "latest_position": {
+            "type": "integer",
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Latest Position"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "peer_account",
+          "last_message",
+          "last_activity_at",
+          "latest_position"
+        ],
+        "title": "AssociatedConversation"
+      },
+      "AssociatedConversationPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AssociatedConversation"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "AssociatedConversationPage"
+      },
+      "AssociatedMessage": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "position": {
+            "type": "integer",
+            "title": "Position"
+          },
+          "sender_account": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Sender Account"
+          },
+          "target_account": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Target Account"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "body",
+              "attachment"
+            ],
+            "title": "Kind"
+          },
+          "content": {
+            "anyOf": [
+              {
+                "items": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Text"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Image"
+                    }
+                  ],
+                  "discriminator": {
+                    "propertyName": "type",
+                    "mapping": {
+                      "image": "#/components/schemas/Image",
+                      "text": "#/components/schemas/Text"
+                    }
+                  }
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content"
+          },
+          "attachment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Media"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "operation_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{1,128}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "position",
+          "sender_account",
+          "target_account",
+          "created_at",
+          "kind"
+        ],
+        "title": "AssociatedMessage"
+      },
+      "AssociatedMessageContext": {
+        "properties": {
+          "peer_account": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Peer Account"
+          },
+          "anchor_message_id": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Anchor Message Id"
+          },
+          "range": {
+            "$ref": "#/components/schemas/PositionRange"
+          },
+          "before_has_more": {
+            "type": "boolean",
+            "title": "Before Has More"
+          },
+          "after_has_more": {
+            "type": "boolean",
+            "title": "After Has More"
+          },
+          "missing_positions": {
+            "items": {
+              "type": "integer",
+              "maximum": 9007199254740991.0,
+              "minimum": 0.0
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Missing Positions"
+          },
+          "missing_truncated": {
+            "type": "boolean",
+            "title": "Missing Truncated"
+          },
+          "reply_relations": {
+            "type": "string",
+            "const": "unsupported",
+            "title": "Reply Relations",
+            "default": "unsupported"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AssociatedMessage"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "peer_account",
+          "anchor_message_id",
+          "range",
+          "before_has_more",
+          "after_has_more",
+          "missing_positions",
+          "missing_truncated",
+          "items"
+        ],
+        "title": "AssociatedMessageContext"
+      },
+      "AssociatedMessagePage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AssociatedMessage"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_position": {
+            "type": "integer",
+            "title": "Next Position"
+          },
+          "has_more": {
+            "type": "boolean",
+            "title": "Has More"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "items",
+          "next_position",
+          "has_more"
+        ],
+        "title": "AssociatedMessagePage"
+      },
+      "AssociatedOperation": {
+        "properties": {
+          "operation_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$",
+            "title": "Operation Id"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "message",
+              "download"
+            ],
+            "title": "Kind"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "succeeded",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssociatedMessage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Id"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "operation_id",
+          "kind",
+          "status"
+        ],
+        "title": "AssociatedOperation"
       },
       "AvatarResponse": {
         "properties": {

@@ -205,6 +205,7 @@ class ChatMessage {
     required this.kind,
     this.parts = const <MessagePart>[],
     this.attachment,
+    this.operationId,
   });
 
   final String id;
@@ -215,6 +216,38 @@ class ChatMessage {
   final ChatMessageKind kind;
   final List<MessagePart> parts;
   final Attachment? attachment;
+
+  /// Account-private association supplied by the negotiated server protocol
+  /// or a verified send/operation response. Null is unknown, never a safe miss.
+  final String? operationId;
+
+  void validateReader(String account, {String? peerAccount}) {
+    if ((senderAccount != account && targetAccount != account) ||
+        (operationId != null && senderAccount != account) ||
+        (peerAccount != null &&
+            !((senderAccount == account && targetAccount == peerAccount) ||
+                (targetAccount == account && senderAccount == peerAccount)))) {
+      throw const FormatException('message association scope mismatch');
+    }
+  }
+
+  ChatMessage withOperationId(String value) {
+    if (!RegExp(r'^[A-Za-z0-9_-]{1,128}$').hasMatch(value) ||
+        (operationId != null && operationId != value)) {
+      throw const FormatException('conflicting message association');
+    }
+    return ChatMessage(
+      id: id,
+      position: position,
+      senderAccount: senderAccount,
+      targetAccount: targetAccount,
+      createdAt: createdAt,
+      kind: kind,
+      parts: parts,
+      attachment: attachment,
+      operationId: value,
+    );
+  }
 
   bool isMine(String selfAccount) => senderAccount == selfAccount;
 
@@ -230,6 +263,12 @@ class ChatMessage {
     final Object? sender = json['sender_account'];
     final Object? target = json['target_account'];
     final Object? createdAt = json['created_at'];
+    final Object? operationId = json['operation_id'];
+    if (operationId != null &&
+        (operationId is! String ||
+            !RegExp(r'^[A-Za-z0-9_-]{1,128}$').hasMatch(operationId))) {
+      throw const FormatException('invalid message association');
+    }
     final ChatMessageKind? kind = ChatMessageKind.tryParse(json['kind']);
     if (id is! String ||
         position is! int ||
@@ -277,6 +316,7 @@ class ChatMessage {
       kind: kind,
       parts: List<MessagePart>.unmodifiable(parts),
       attachment: attachment,
+      operationId: operationId as String?,
     );
   }
 
@@ -1161,8 +1201,14 @@ class VisibleMessage {
   }
 }
 
-Map<String, dynamic> messageToJson(ChatMessage message) =>
-    _messageToJson(message);
+Map<String, dynamic> messageToJson(
+  ChatMessage message, {
+  bool includeAssociation = false,
+}) => <String, dynamic>{
+  ..._messageToJson(message),
+  if (includeAssociation && message.operationId != null)
+    'operation_id': message.operationId,
+};
 
 Map<String, dynamic> _messageToJson(ChatMessage message) => <String, dynamic>{
   'id': message.id,

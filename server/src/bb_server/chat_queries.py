@@ -12,22 +12,49 @@ def missing():
     raise ContractError(404, "not_found", "not_found")
 
 
-def find_message(db, account, message_id):
+def project_messages(db, account, items, association=False):
+    """Project only an already authorized page, from the same read snapshot.
+
+    Never store account-private metadata in the shared message payload.
+    One batch lookup also covers context, summaries and submission replays.
+    """
+    for item in items:
+        item.pop("operation_id", None)
+    own = {m["id"] for m in items if m["sender_account"] == account}
+    if not association or not own:
+        return items
+    markers = ",".join("?" for _ in own)
+    rows = db.execute(
+        f"SELECT message_id, operation_id FROM operations WHERE account=? AND message_id IN ({markers})",
+        (account, *own),
+    ).fetchall()
+    operations = {}
+    for row in rows:
+        if row["message_id"] in operations:
+            raise ContractError(503, "storage_unavailable", "ambiguous association")
+        operations[row["message_id"]] = row["operation_id"]
+    for item in items:
+        if item["id"] in operations:
+            item["operation_id"] = operations[item["id"]]
+    return items
+
+
+def find_message(db, account, message_id, association=False):
     row = db.execute(
         "SELECT payload FROM messages WHERE id=? AND (sender=? OR target=?)",
         (message_id, account, account),
     ).fetchone()
     if row is None:
         missing()
-    return json.loads(row[0])
+    return project_messages(db, account, [json.loads(row[0])], association)[0]
 
 
-def message(path, account, message_id):
+def message(path, account, message_id, association=False):
     with connection(path) as db:
-        return find_message(db, account, message_id)
+        return find_message(db, account, message_id, association)
 
 
-def select_history(db, account, peer, after, before, limit):
+def select_history(db, account, peer, after, before, limit, association=False):
     if after is not None and before is not None:
         raise ContractError(422, "validation_error", "exclusive history boundaries")
     backward = before is not None
@@ -38,6 +65,7 @@ def select_history(db, account, peer, after, before, limit):
         (*sorted([account, peer]), before if backward else (after or 0), limit + 1),
     ).fetchall()
     items = [json.loads(row[0]) for row in rows[:limit]]
+    project_messages(db, account, items, association)
     if backward:
         items.reverse()
     return {
@@ -53,17 +81,17 @@ def select_history(db, account, peer, after, before, limit):
     }
 
 
-def history(path, account, peer, after, before, limit):
+def history(path, account, peer, after, before, limit, association=False):
     with connection(path) as db:
         if (
             account == peer
             or not db.execute("SELECT 1 FROM users WHERE account=?", (peer,)).fetchone()
         ):
             missing()
-        return select_history(db, account, peer, after, before, limit)
+        return select_history(db, account, peer, after, before, limit, association)
 
 
-def conversations(path, account, after, limit):
+def conversations(path, account, after, limit, association=False):
     with connection(path) as db:
         # Peer keyset order does not move when a conversation gets new messages.
         rows = db.execute(
@@ -74,9 +102,11 @@ def conversations(path, account, after, limit):
             "WHERE own.peer>? ORDER BY own.peer LIMIT ?",
             (account, account, account, after, limit + 1),
         ).fetchall()
+        messages = project_messages(
+            db, account, [json.loads(r["payload"]) for r in rows[:limit]], association
+        )
     items = []
-    for row in rows[:limit]:
-        item = json.loads(row["payload"])
+    for row, item in zip(rows[:limit], messages, strict=True):
         items.append(
             {
                 "peer_account": row["peer"],
@@ -92,19 +122,21 @@ def conversations(path, account, after, limit):
     }
 
 
-def context(path, account, message_id, before_limit, after_limit):
+def context(path, account, message_id, before_limit, after_limit, association=False):
     with connection(path) as db:
         # One snapshot for the anchor and both pages. Read operations never consume.
-        anchor = find_message(db, account, message_id)
+        anchor = find_message(db, account, message_id, association)
         peer = (
             anchor["target_account"]
             if anchor["sender_account"] == account
             else anchor["sender_account"]
         )
         before = select_history(
-            db, account, peer, None, anchor["position"], before_limit
+            db, account, peer, None, anchor["position"], before_limit, association
         )
-        after = select_history(db, account, peer, anchor["position"], None, after_limit)
+        after = select_history(
+            db, account, peer, anchor["position"], None, after_limit, association
+        )
         items = before["items"] + [anchor] + after["items"]
         gaps = []
         gap_count = 0
