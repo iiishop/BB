@@ -170,27 +170,55 @@ jobs:
     needs: meta
     if: needs.meta.outputs.has_client == 'true'
     runs-on: windows-latest
-    timeout-minutes: 40
+    timeout-minutes: 75
     env:
       VERSION: ${{ needs.meta.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.47.9'
           channel: stable
           cache: true
+      - name: 下载并校验固定源码（FFmpeg / zlib）
+        run: python scripts/ci/fetch_ffmpeg_sources.py --dest .ffmpeg-src
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-binutils
+            make
+      - name: 从固定源码构建最小 FFmpeg（仅解码 + PNG 封面）
+        shell: msys2 {0}
+        env:
+          BB_GIT_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: bash scripts/ci/build_ffmpeg_windows.sh --sources .ffmpeg-src --dest client/windows/ffmpeg
+      - name: 读取内置 FFmpeg 构建 hash
+        id: ffmpeg
+        shell: pwsh
+        run: |
+          $line = Select-String -Path client/windows/ffmpeg/BUILD-MANIFEST.txt -Pattern '^ffmpeg_exe_sha256=' | Select-Object -First 1
+          $sha = $line.Line.Split('=', 2)[1]
+          "sha=$sha" | Out-File -Encoding utf8 -Append $env:GITHUB_OUTPUT
       - name: flutter build windows
         working-directory: client
         run: |
           flutter pub get
           flutter build windows --release
-      - name: 压缩产物
+      - name: 打包、ZIP 内容检查与无系统 FFmpeg 冒烟
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force dist | Out-Null
-          Compress-Archive -Path client\build\windows\x64\runner\Release\* `
-            -DestinationPath "dist\bb-$env:VERSION-windows-x64.zip" -Force
+          python scripts/ci/package_windows.py `
+            --bundle client/build/windows/x64/runner/Release `
+            --out dist `
+            --version "$env:VERSION" `
+            --name "bb-$env:VERSION-windows-x64" `
+            --expected-ffmpeg-sha256 "${{ steps.ffmpeg.outputs.sha }}"
       - uses: actions/upload-artifact@v4
         with:
           name: bb-windows

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
@@ -47,53 +46,13 @@ class PickedMedia {
   final String? path;
 }
 
-/// Clipboard media read seam used by the composer and its widget tests.
-abstract interface class ClipboardMediaReader {
-  Future<PickedMedia?> read();
-}
-
-class PlatformClipboardMediaReader implements ClipboardMediaReader {
-  const PlatformClipboardMediaReader();
-
-  @override
-  Future<PickedMedia?> read() => MediaActions.readClipboardMedia();
-}
-
-/// Parses a text/uri-list or plain path into a local file Uri.
-///
-/// Only local files are accepted here; remote http(s) sources are deliberately
-/// rejected so a clipboard value cannot make the client fetch arbitrary URLs.
-Uri? parseClipboardMediaUri(String raw) {
-  for (final String line in raw.split(RegExp(r'[\r\n]+'))) {
-    final String value = line.trim();
-    if (value.isEmpty || value.startsWith('#')) {
-      continue;
-    }
-    final Uri? uri = Uri.tryParse(value);
-    if (uri == null) {
-      continue;
-    }
-    if (uri.scheme == 'file') {
-      return uri;
-    }
-    if (uri.scheme.isEmpty &&
-        (value.startsWith('/') || RegExp(r'^[A-Za-z]:[\\/]').hasMatch(value))) {
-      return Uri.file(value);
-    }
-  }
-  return null;
-}
-
-/// Platform file pickers, clipboard media and save locations.
+/// Platform file pickers, video covers and save locations.
 class MediaActions {
   static const XTypeGroup _imageGroup = XTypeGroup(
     label: '图片',
     extensions: <String>['png', 'jpg', 'jpeg', 'webp'],
   );
 
-  static const MethodChannel _clipboardChannel = MethodChannel(
-    'bb/media_clipboard',
-  );
   static const MethodChannel _videoCoverChannel = MethodChannel(
     'bb/video_cover',
   );
@@ -139,197 +98,6 @@ class MediaActions {
     return location?.path;
   }
 
-  /// Reads an image or video from the platform clipboard.
-  ///
-  /// Desktop uses explicit image/video clipboard targets first, then a local
-  /// file URI / path from the text clipboard. Android uses the platform
-  /// ClipData URI channel implemented in MainActivity.
-  static Future<PickedMedia?> readClipboardMedia() async {
-    if (kIsWeb) {
-      return null;
-    }
-    if (Platform.isAndroid) {
-      return _readAndroidClipboard();
-    }
-    if (Platform.isIOS) {
-      return null;
-    }
-    return _readDesktopClipboard();
-  }
-
-  static Future<PickedMedia?> _readAndroidClipboard() async {
-    try {
-      final Map<Object?, Object?>? raw = await _clipboardChannel
-          .invokeMethod<Map<Object?, Object?>>('readClipboardMedia');
-      if (raw == null) {
-        return null;
-      }
-      final Object? data = raw['data'];
-      final Object? mime = raw['mime_type'];
-      final Object? filename = raw['filename'];
-      if (data is! Uint8List ||
-          mime is! String ||
-          !(mime.startsWith('image/') || mime.startsWith('video/'))) {
-        return null;
-      }
-      if (data.isEmpty || data.length > chatMaxUploadBytes) {
-        return null;
-      }
-      return PickedMedia(
-        bytes: data,
-        filename: filename is String && filename.isNotEmpty
-            ? filename
-            : 'clipboard-${DateTime.now().millisecondsSinceEpoch}',
-        mimeType: mime,
-      );
-    } on PlatformException {
-      return null;
-    } on MissingPluginException {
-      return null;
-    }
-  }
-
-  static Future<PickedMedia?> _readDesktopClipboard() async {
-    final List<_ClipboardCommand> binaryCandidates = <_ClipboardCommand>[
-      _ClipboardCommand('wl-paste', <String>[
-        '--no-newline',
-        '--type',
-        'image/png',
-      ], 'image/png'),
-      _ClipboardCommand('wl-paste', <String>[
-        '--no-newline',
-        '--type',
-        'image/jpeg',
-      ], 'image/jpeg'),
-      _ClipboardCommand('wl-paste', <String>[
-        '--no-newline',
-        '--type',
-        'video/mp4',
-      ], 'video/mp4'),
-      _ClipboardCommand('wl-paste', <String>[
-        '--no-newline',
-        '--type',
-        'video/webm',
-      ], 'video/webm'),
-      _ClipboardCommand('xclip', <String>[
-        '-selection',
-        'clipboard',
-        '-t',
-        'image/png',
-        '-o',
-      ], 'image/png'),
-      _ClipboardCommand('xclip', <String>[
-        '-selection',
-        'clipboard',
-        '-t',
-        'video/mp4',
-        '-o',
-      ], 'video/mp4'),
-    ];
-    for (final _ClipboardCommand command in binaryCandidates) {
-      final Uint8List? bytes = await command.readBytes();
-      if (bytes == null || bytes.isEmpty) {
-        continue;
-      }
-      final String sniffed = sniffMime(bytes);
-      if (!sniffed.startsWith('image/') && !sniffed.startsWith('video/')) {
-        continue;
-      }
-      final String mime = sniffed == 'application/octet-stream'
-          ? command.mime
-          : sniffed;
-      return PickedMedia(
-        bytes: bytes,
-        filename:
-            'clipboard-${DateTime.now().millisecondsSinceEpoch}'
-            '.${_extensionForMime(mime)}',
-        mimeType: mime,
-      );
-    }
-
-    final List<_ClipboardCommand> textCandidates = <_ClipboardCommand>[
-      _ClipboardCommand('wl-paste', <String>[
-        '--no-newline',
-        '--type',
-        'text/uri-list',
-      ]),
-      _ClipboardCommand('xclip', <String>['-selection', 'clipboard', '-o']),
-      _ClipboardCommand('xsel', <String>['--clipboard', '--output']),
-    ];
-    for (final _ClipboardCommand command in textCandidates) {
-      final String? text = await command.readText();
-      if (text == null || text.trim().isEmpty) {
-        continue;
-      }
-      final PickedMedia? fromData = _fromDataUri(text);
-      if (fromData != null) {
-        return fromData;
-      }
-      final Uri? uri = parseClipboardMediaUri(text);
-      if (uri == null) {
-        continue;
-      }
-      try {
-        final File file = File.fromUri(uri);
-        if (!await file.exists()) {
-          continue;
-        }
-        final int length = await file.length();
-        if (length == 0 || length > chatMaxUploadBytes) {
-          continue;
-        }
-        final Uint8List bytes = await file.readAsBytes();
-        final String mime = sniffMime(bytes, file.path);
-        if (!mime.startsWith('image/') && !mime.startsWith('video/')) {
-          continue;
-        }
-        return PickedMedia(
-          bytes: bytes,
-          filename: file.uri.pathSegments.isEmpty
-              ? 'clipboard'
-              : file.uri.pathSegments.last,
-          mimeType: mime,
-          path: file.path,
-        );
-      } on FileSystemException {
-        continue;
-      }
-    }
-    return null;
-  }
-
-  static PickedMedia? _fromDataUri(String text) {
-    final RegExpMatch? match = RegExp(
-      r'^data:(image/(?:png|jpeg|webp)|video/(?:mp4|webm));base64,([A-Za-z0-9+/=\s]+)$',
-      multiLine: true,
-    ).firstMatch(text.trim());
-    if (match == null) {
-      return null;
-    }
-    try {
-      final Uint8List bytes = base64Decode(
-        match.group(2)!.replaceAll(RegExp(r'\s'), ''),
-      );
-      if (bytes.isEmpty || bytes.length > chatMaxUploadBytes) {
-        return null;
-      }
-      final String mime = match.group(1)!;
-      final String sniffed = sniffMime(bytes);
-      if (sniffed != mime) {
-        return null;
-      }
-      return PickedMedia(
-        bytes: bytes,
-        filename:
-            'clipboard-${DateTime.now().millisecondsSinceEpoch}'
-            '.${_extensionForMime(mime)}',
-        mimeType: mime,
-      );
-    } on FormatException {
-      return null;
-    }
-  }
-
   /// Extracts a real video frame. A path is used directly; bytes-only sources
   /// (clipboard, content URI, URL) are staged in a private temp file that is
   /// always removed. Null means no cover and the send must not proceed.
@@ -347,7 +115,7 @@ class MediaActions {
         );
         final File staged = File(
           '${temporaryDirectory.path}${Platform.pathSeparator}'
-          'source.${_extensionForMime(sniffMime(bytes, filename))}',
+          'source.${extensionForMime(sniffMime(bytes, filename))}',
         );
         await staged.writeAsBytes(bytes, flush: true);
         source = staged.path;
@@ -392,7 +160,7 @@ class MediaActions {
     return dot > 0 ? name.substring(0, dot) : name;
   }
 
-  static String _extensionForMime(String mime) {
+  static String extensionForMime(String mime) {
     return switch (mime) {
       'image/png' => 'png',
       'image/jpeg' => 'jpg',
@@ -425,52 +193,5 @@ class MediaActions {
       return;
     }
     await Process.start('xdg-open', <String>[path]);
-  }
-}
-
-class _ClipboardCommand {
-  const _ClipboardCommand(this.executable, this.arguments, [this.mime = '']);
-
-  final String executable;
-  final List<String> arguments;
-  final String mime;
-
-  Future<Uint8List?> readBytes() async {
-    try {
-      final ProcessResult result = await Process.run(
-        executable,
-        arguments,
-        stdoutEncoding: null,
-        stderrEncoding: null,
-      );
-      if (result.exitCode != 0) {
-        return null;
-      }
-      final Object? raw = result.stdout;
-      final Uint8List bytes = raw is Uint8List
-          ? raw
-          : Uint8List.fromList((raw as List<int>?) ?? const <int>[]);
-      return bytes.isEmpty ? null : bytes;
-    } on ProcessException {
-      return null;
-    }
-  }
-
-  Future<String?> readText() async {
-    try {
-      final ProcessResult result = await Process.run(
-        executable,
-        arguments,
-        stdoutEncoding: utf8,
-        stderrEncoding: utf8,
-      );
-      if (result.exitCode != 0) {
-        return null;
-      }
-      final Object? raw = result.stdout;
-      return raw is String ? raw : null;
-    } on ProcessException {
-      return null;
-    }
   }
 }

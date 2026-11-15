@@ -18,6 +18,7 @@ import 'package:bb_client/services/profile_service.dart';
 import 'package:bb_client/services/session_store.dart';
 import 'package:bb_client/ui/auth_shell.dart';
 import 'package:bb_client/ui/chat/chat_composer.dart';
+import 'package:bb_client/ui/chat/clipboard_paste.dart';
 import 'package:bb_client/ui/chat/media_actions.dart';
 import 'package:bb_client/ui/chat/media_save.dart';
 import 'package:bb_client/ui/chat/media_viewer.dart';
@@ -719,7 +720,9 @@ void main() {
         ),
       );
       await tester.enterText(find.byKey(ChatComposer.inputKey), '真实视频混排');
-      await tester.tap(find.byKey(ChatComposer.pasteKey));
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyV);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
       await tester.runAsync(() async {
         await Future<void>.delayed(const Duration(seconds: 1));
       });
@@ -951,7 +954,9 @@ class _IntegrationClipboard implements ClipboardMediaReader {
   final PickedMedia media;
 
   @override
-  Future<PickedMedia?> read() async => media;
+  Future<ClipboardPaste> read() async {
+    return ClipboardPaste(files: <PickedMedia>[media]);
+  }
 }
 
 const String _chatPng =

@@ -1,0 +1,3 @@
+# Inputs/outputs of the pinned FFmpeg source fetch/build (scripts/ci)
+/.ffmpeg-src/
+/build/ffmpeg-build/
