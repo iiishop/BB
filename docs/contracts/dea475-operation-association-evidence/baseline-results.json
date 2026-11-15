@@ -1,0 +1,46 @@
+{
+  "real_server_http": {
+    "same_content_distinct_operation": true,
+    "replay_same_message": true,
+    "changed_target_409": true,
+    "account_scoped_same_nonce": true,
+    "third_party_404_unauthenticated_401": true,
+    "message_surfaces_lack_association": [
+      "send",
+      "attachment",
+      "history",
+      "single",
+      "context",
+      "conversation_last_message"
+    ],
+    "events_metadata_only": true,
+    "operations": "succeeded or 404; not remote pending/uncertain"
+  },
+  "real_server_restart_replay": true,
+  "standalone_dart_real_http": {
+    "entry": "client/bin/bb_client_api.dart",
+    "response_models_validated": [
+      "send_message",
+      "get_operation",
+      "get_message",
+      "get_context",
+      "list_conversations",
+      "read_messages"
+    ],
+    "same_account_other_consumer_operation_404": true
+  },
+  "synthetic_added_field_rejected_by_baseline_contract": [
+    "send_message",
+    "send_attachment",
+    "get_operation",
+    "read_messages",
+    "wait_messages",
+    "get_message",
+    "get_context",
+    "list_conversations"
+  ],
+  "baseline_sha": "3a523a888663d7f67bed0951bce2da451b75db00",
+  "python": "3.13.15",
+  "duration_seconds": 2.86,
+  "proposal_implemented": false
+}
