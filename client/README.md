@@ -44,6 +44,11 @@ flutter run -d linux --dart-define=BB_API_BASE_URL=http://127.0.0.1:8000
 Android release 已在主 manifest 声明 `INTERNET`，并允许明文流量——自托管服务端通常
 是局域网 HTTP，Android 从 API 28 起默认拒绝。对外可达的服务端请用 HTTPS 域名。
 
+客户端自更新（DEA-479）的设置页界面外壳与 Android 系统安装接入见
+`docs/dea479-client-update.md`：Release 正文安全呈现、下载/取消/失败重试、安装权限引导和
+草稿/在途阻塞提示已实现并有测试；共享更新契约、设置入口与启动时一次检查待 Forge 的
+`lib/updates/update_contract.dart` 落地后接线。
+
 登录成功后进入 STEP-3 首页：当前服务器全部注册用户的逐行列表（含未联系用户），点行进入
 一对一聊天；左下角头像仍打开 Profile。资料面板按视口分为三种形态：
 
