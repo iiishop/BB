@@ -220,7 +220,19 @@ void main() {
     expect(paste.files, hasLength(1));
     expect(paste.files.single.mimeType, 'image/png');
     expect(paste.files.single.filename, endsWith('.png'));
-    expect(paste.files.single.bytes, _png);
+    // CF_DIB is converted to a fresh PNG by the probe, so compare the PNG
+    // signature instead of the source file's exact encoding.
+    expect(paste.files.single.bytes.take(8), <int>[
+      0x89,
+      0x50,
+      0x4E,
+      0x47,
+      0x0D,
+      0x0A,
+      0x1A,
+      0x0A,
+    ]);
+    expect(paste.files.single.bytes.length, greaterThan(8));
   });
 
   test(
