@@ -26,7 +26,7 @@ on:
       - 'scripts/ci/test_*ffmpeg*.py'
       - 'scripts/ci/test_package_windows.py'
       - 'scripts/ci/test_windows_workflow.py'
-      - 'scripts/ci/fixtures/**'
+      - 'scripts/ci/fixtures/cover-smoke-*'
       - '.github/workflows/windows-test-package.yml'
   workflow_dispatch:
 

@@ -29,7 +29,9 @@ class WindowsPathsTests(unittest.TestCase):
         paths = re.findall(r"^      - '([^']+)'$", text, re.M)
         def triggers(path):
             return any(fnmatch.fnmatchcase(path, pattern) for pattern in paths)
-        excluded = ['scripts/ci/qa_evidence.py', 'scripts/ci/test_qa_evidence.py',
+        excluded = ['scripts/ci/fixtures/qa_native/flutter-pass/report.jsonl',
+                    'scripts/ci/qa_results.py', 'scripts/ci/test_qa_native.py',
+                    'scripts/ci/qa_evidence.py', 'scripts/ci/test_qa_evidence.py',
                     'client/docs/dea477-windows-package.md', 'client/android/app/build.gradle.kts',
                     'client/linux/CMakeLists.txt', 'client/macos/Runner/AppDelegate.swift',
                     'scripts/ci/package-linux.sh', 'scripts/ci/plan.py']
