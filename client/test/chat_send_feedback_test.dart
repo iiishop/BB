@@ -1143,6 +1143,68 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  for (final bool lateError in <bool>[false, true]) {
+    testWidgets(
+      'a late lookup ${lateError ? 'error' : 'success'} after a definitive '
+      'retry cannot hide another operation',
+      (WidgetTester tester) async {
+        final _CommitThenFailService service = _CommitThenFailService(
+          lookupGate: Completer<void>(),
+          failLookup: lateError,
+        )..retryReturnsCommitted = true;
+        final _Harness harness = _Harness(service: service);
+        await harness.pump(tester);
+
+        await harness.send(tester, 'retry during lookup');
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        expect(find.byKey(MessageBubble.failedKey), findsOneWidget);
+
+        await tester.tap(find.byKey(MessageBubble.failedKey));
+        await tester.pumpAndSettle();
+        expect(find.byKey(MessageBubble.failedKey), findsNothing);
+        expect(find.text('retry during lookup'), findsOneWidget);
+
+        service.lookupGate!.complete();
+        await tester.pumpAndSettle();
+
+        service.conversations[_bob.account]!.add(
+          _message(1000, sender: _self.account, text: 'different writer'),
+        );
+        await tester.tap(find.byKey(ChatPage.refreshKey));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text('different writer'),
+          findsOneWidget,
+          reason: 'a stale lookup cannot hold an unrelated committed message',
+        );
+        expect(find.text('retry during lookup'), findsOneWidget);
+        expect(find.byKey(MessageBubble.failedKey), findsNothing);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  testWidgets('a lookup completing after the conversation is disposed does '
+      'not mutate or throw', (WidgetTester tester) async {
+    final _CommitThenFailService service = _CommitThenFailService(
+      lookupGate: Completer<void>(),
+    );
+    final _Harness harness = _Harness(service: service);
+    await harness.pump(tester);
+    await harness.send(tester, 'closed conversation');
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    service.lookupGate!.complete();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'phone/desktop and large text keep long bubbles without overflow',
     (WidgetTester tester) async {

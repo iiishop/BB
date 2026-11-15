@@ -142,6 +142,32 @@
 - 回归：1.6 倍文字下用 `RenderParagraph` 与实际 `TextPainter` 比较高度，时间/发送中/失败三种
   状态都必须完整布局；390×844 下无异常。Sentinel r6 `scaled_status_test.dart` 2/2 通过。
 
+## R8 阶段 A：UI 回调顺序（revision 8）
+
+本阶段只修不依赖新字段的页面时序；`ChatMessage.operationId` 接入与全局 hold 删除留给下一阶段。
+
+入口与规则：
+
+- **发送成功**：`Composer._send → _applyResult → onSent/onSentOperations`。已提交消息先合并，
+  operation 映射随后写入；不会因后续查询被降级。
+- **发送失败/查询成功**：`_resolveFailedOperation` 先检查该 operation 是否仍是 failed pending；
+  过期查询直接返回，不改 `_resolvedOperations`/`_unresolvedOperations`，不遮住其他消息。
+- **查询 catch/finally**：catch 只在“仍存活 failed pending”时加入 unresolved；finally 只移除
+  自己的 `_resolvingOperations` 条目，并按全局 hold 条件决定是否释放；不清理别人的请求。
+- **重试**：`_retryOne` 复用幂等 ID；`_onPendingChanged` 在 failed→sending/移除时清理该
+  operation 的 unresolved。迟到成功/错误查询不能重建未知状态。
+- **poll/refresh**：`_loadInitial`/`_pollNew` 仍按全局 hold 暂存本人消息（本阶段保留的已知
+  机制缺陷）；迟到查询完成后只按自己的 operation 更新；已推进的游标不倒退。
+- **切会话**：`dispose` 后旧查询仅在 mounted 检查外返回，finally 不会触碰页面状态；新增
+  dispose 后完成查询的回归。
+- **未解决**：关联字段未接入前，“另一来源已提交本人消息被全局 hold 隐藏”的 Sentinel 红例
+  继续保留，不通过扩大 hold 或改断言处理。等 Forge 关联提交后使用 `ChatMessage.operationId`
+  精确关联并删除全局 hold。
+
+本阶段新增迟到成功/错误查询后重试的永久回归、dispose 回归；Sentinel `b2473ec`
+`association_test.dart` 的 2 个 late lookup 用例通过，13 个“无关 B 可见性”红例保留（10 pass /
+13 fail，exit 1，符合修前边界）。未改 models/services，未交终验。
+
 ## 用户返稿记录
 
 | 日期 | 意见 | 修改 | 适用场景 |

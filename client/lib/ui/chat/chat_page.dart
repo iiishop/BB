@@ -413,6 +413,12 @@ class _ChatPageState extends State<ChatPage> {
       if (!mounted) {
         return;
       }
+      // A lookup from an earlier unresolved phase is stale once the operation
+      // has been retried or removed. It must not recreate unknown state or
+      // downgrade a definitive commit that already settled.
+      if (!_isFailedPendingLive(operationId)) {
+        return;
+      }
       final ChatMessage? message = result?.message;
       if (result?.status == OperationStatus.succeeded && message != null) {
         setState(() {
@@ -445,13 +451,14 @@ class _ChatPageState extends State<ChatPage> {
       }
     } on AuthFailure {
       // Unknown is not failed: hold accepted self messages and keep retry.
-      if (mounted) {
+      // A late error for an operation that already settled is ignored.
+      if (mounted && _isFailedPendingLive(operationId)) {
         setState(() {
           _unresolvedOperations.add(operationId);
         });
       }
     } catch (_) {
-      if (mounted) {
+      if (mounted && _isFailedPendingLive(operationId)) {
         setState(() {
           _unresolvedOperations.add(operationId);
         });
