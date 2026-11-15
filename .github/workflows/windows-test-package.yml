@@ -65,6 +65,10 @@ jobs:
           [ -n "$version" ]
           echo "version=${version}" >> "$GITHUB_OUTPUT"
 
+      - name: Windows 原生剪贴板链路诊断（DEA-480 临时）
+        working-directory: client
+        run: flutter test test/windows_clipboard_native_diag_test.dart
+
       - name: 记录 runner 自带的 FFmpeg（仅诊断，不作为验收依据）
         shell: pwsh
         run: |
