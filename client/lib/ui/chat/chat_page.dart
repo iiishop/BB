@@ -113,6 +113,11 @@ class _ChatPageState extends State<ChatPage> {
 
   /// Invalidates callbacks captured for a previous peer on this widget.
   int _pageEpoch = 0;
+
+  /// Owns the shared history-fetch gate. A peer switch abandons the old ticket
+  /// so its finally cannot clear a newer request's _fetching flag.
+  int _historyTicket = 0;
+  int? _activeHistoryTicket;
   static const int _maxLocalPreviewEntries = 8;
   static const int _maxLocalPreviewBytes = 24 * 1024 * 1024;
   bool _loading = true;
@@ -176,6 +181,8 @@ class _ChatPageState extends State<ChatPage> {
       _fetchedThrough = 0;
       _displayedMax = 0;
       _fetching = false;
+      _activeHistoryTicket = null;
+      _historyTicket += 1;
       _error = null;
       _loading = true;
       unawaited(_loadInitial());
@@ -202,11 +209,34 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
+  int _beginHistoryRequest() {
+    final int ticket = ++_historyTicket;
+    _activeHistoryTicket = ticket;
+    _fetching = true;
+    return ticket;
+  }
+
+  bool _historyRequestCurrent(int ticket, int epoch, String peer) {
+    return mounted &&
+        _activeHistoryTicket == ticket &&
+        _pageEpoch == epoch &&
+        widget.peer.account == peer;
+  }
+
+  void _endHistoryRequest(int ticket) {
+    if (_activeHistoryTicket == ticket) {
+      _fetching = false;
+      _activeHistoryTicket = null;
+    }
+  }
+
   Future<void> _loadInitial() async {
     if (_fetching) {
       return;
     }
-    _fetching = true;
+    final int epoch = _pageEpoch;
+    final String peer = widget.peer.account;
+    final int ticket = _beginHistoryRequest();
     if (mounted) {
       setState(() {
         _loading = true;
@@ -239,7 +269,7 @@ class _ChatPageState extends State<ChatPage> {
           break;
         }
       }
-      if (!mounted) {
+      if (!_historyRequestCurrent(ticket, epoch, peer)) {
         return;
       }
       setState(() {
@@ -253,7 +283,7 @@ class _ChatPageState extends State<ChatPage> {
       _retryUnresolvedLookups();
       _scrollToBottom(animate: false, force: true);
     } on AuthFailure catch (failure) {
-      if (!mounted) {
+      if (!_historyRequestCurrent(ticket, epoch, peer)) {
         return;
       }
       setState(() {
@@ -261,7 +291,7 @@ class _ChatPageState extends State<ChatPage> {
         _error = failure.message;
       });
     } catch (_) {
-      if (!mounted) {
+      if (!_historyRequestCurrent(ticket, epoch, peer)) {
         return;
       }
       setState(() {
@@ -269,7 +299,7 @@ class _ChatPageState extends State<ChatPage> {
         _error = '消息加载失败，请稍后重试';
       });
     } finally {
-      _fetching = false;
+      _endHistoryRequest(ticket);
     }
   }
 
@@ -277,7 +307,9 @@ class _ChatPageState extends State<ChatPage> {
     if (_fetching) {
       return;
     }
-    _fetching = true;
+    final int epoch = _pageEpoch;
+    final String peer = widget.peer.account;
+    final int ticket = _beginHistoryRequest();
     try {
       final List<ChatMessage> loaded = <ChatMessage>[];
       int cursor = _fetchedThrough;
@@ -301,7 +333,7 @@ class _ChatPageState extends State<ChatPage> {
           break;
         }
       }
-      if (!mounted) {
+      if (!_historyRequestCurrent(ticket, epoch, peer)) {
         return;
       }
       final bool wasNearBottom = _isNearBottom;
@@ -328,7 +360,7 @@ class _ChatPageState extends State<ChatPage> {
     } catch (_) {
       // Polling is best effort; the explicit refresh keeps the error visible.
     } finally {
-      _fetching = false;
+      _endHistoryRequest(ticket);
     }
   }
 

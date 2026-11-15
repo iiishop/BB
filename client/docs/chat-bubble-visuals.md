@@ -189,6 +189,15 @@
   failed/absent 对照、同文/同媒体、poll/refresh、迟到查询）在集成候选上 **23 passed**；
   永久 `chat_send_feedback_test.dart` 45 例覆盖同集及 ticket/peer/未知文案。全量见 README。
 
+## R8 阶段 B：历史回调 scope（revision 10）
+
+- `_loadInitial` / `_pollNew` 发起时捕获 account 之外的 peer、page epoch 与历史请求 ticket；
+  返回/错误/finally 只在 ticket、epoch、peer 全部匹配时写页面。旧 refresh/poll 的成功或错误
+  不能进入新 peer 页面，旧 finally 只清自己的 ticket，不清新请求的 `_fetching` 标记。
+- peer 变化清空消息/待确认状态并推进 ticket，再启动新页加载；Composer 以 peer 作为 key 重建。
+- 永久回归：refresh/poll × 成功/错误的 4 个跨 peer 变体；Sentinel `b2473ec`/r9 探针在最终树
+  通过。未变化视觉/滚动/媒体/1.6x 证据按版本复用。
+
 ## 用户返稿记录
 
 | 日期 | 意见 | 修改 | 适用场景 |

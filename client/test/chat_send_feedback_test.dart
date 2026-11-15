@@ -145,6 +145,46 @@ class _CommitThenFailService extends FakeChatService {
   }
 }
 
+class _HistoryScopeService extends FakeChatService {
+  _HistoryScopeService()
+    : super(
+        self: _self,
+        users: const <ChatUser>[_bob],
+        conversations: <String, List<ChatMessage>>{
+          _bob.account: <ChatMessage>[_message(1, text: 'BOB PRIVATE')],
+          '10000003': <ChatMessage>[],
+        },
+      );
+
+  Completer<void>? historyGate;
+  bool reject = false;
+
+  @override
+  Future<MessagePage> loadConversation({
+    required String peerAccount,
+    int afterPosition = 0,
+    int limit = 50,
+  }) async {
+    final MessagePage snapshot = await super.loadConversation(
+      peerAccount: peerAccount,
+      afterPosition: afterPosition,
+      limit: limit,
+    );
+    final Completer<void>? pending = historyGate;
+    if (peerAccount == _bob.account && pending != null) {
+      await pending.future;
+      if (reject) {
+        throw const AuthFailure(
+          status: 502,
+          code: 'gateway_failed',
+          message: 'OLD BOB LOAD ERROR',
+        );
+      }
+    }
+    return snapshot;
+  }
+}
+
 class _UnresolvedLookupService extends FakeChatService {
   _UnresolvedLookupService(this.answer)
     : super(
@@ -1485,6 +1525,50 @@ void main() {
     );
     expect(tester.takeException(), isNull);
   });
+
+  for (final bool poll in <bool>[false, true]) {
+    for (final bool reject in <bool>[false, true]) {
+      testWidgets(
+        'old history ${poll ? 'poll' : 'refresh'} ${reject ? 'error' : 'success'} '
+        'cannot change the new peer page',
+        (WidgetTester tester) async {
+          final _HistoryScopeService service = _HistoryScopeService();
+          final _Harness harness = _Harness(service: service);
+          await harness.pump(tester);
+
+          service.conversations[_bob.account]!.add(
+            _message(2, text: 'BOB LATE PRIVATE'),
+          );
+          service.historyGate = Completer<void>();
+          service.reject = reject;
+          if (poll) {
+            await tester.pump(const Duration(seconds: 3));
+            await tester.pump();
+          } else {
+            await tester.tap(find.byKey(ChatPage.refreshKey));
+            await tester.pump();
+          }
+
+          await harness.pump(
+            tester,
+            peer: const ChatUser(
+              account: '10000003',
+              username: 'carol',
+              avatarUrl: '/avatars/10000003.png',
+              avatarVersion: 'v-carol',
+              presence: Presence.offline,
+            ),
+          );
+          service.historyGate!.complete();
+          await tester.pumpAndSettle();
+
+          expect(find.text('BOB LATE PRIVATE'), findsNothing);
+          expect(find.text('OLD BOB LOAD ERROR'), findsNothing);
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+  }
 
   testWidgets(
     'phone/desktop and large text keep long bubbles without overflow',
