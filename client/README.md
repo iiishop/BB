@@ -56,9 +56,10 @@ Android release 已在主 manifest 声明 `INTERNET`，并允许明文流量—�
 
 Linux 默认窗口 1180×780，Windows 同样 1180×780。Windows 构建/运行与 Android 运行在本
 环境均为 **NOT RUN**：Windows 没有 MSVC 工具链、Android 没有模拟器/真机；Linux 截图不代表
-这两个平台。Windows release 包由 CI `Windows test package` 工作流构建，包内自带固定版本
-FFmpeg（`ffmpeg/ffmpeg.exe`，LGPL，应用目录解析、不依赖 PATH），见
-`docs/dea477-windows-package.md`；CI 产包不等于 Windows 原生验收。
+这两个平台。Windows release 包由 CI `Windows test package` 工作流从固定源码自建最小
+FFmpeg（`ffmpeg/ffmpeg.exe`，LGPL-2.1+，仅内部解码组件 + zlib；应用目录解析、不依赖 PATH；
+包内含许可与源码/构建配置材料），见 `docs/dea477-windows-package.md`；CI 产包不等于 Windows
+原生验收。
 
 ## 会话持久化与登出
 
@@ -288,8 +289,9 @@ QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_test
 - 不做 token 过期/刷新；真正重新登录只有主动退出或服务端清理 24h 离线会话后 401。
 - 不做群聊、好友申请/搜索、动态、产品已读回执、跨机器文件传输、附件自动解析。
 - Windows 原生剪贴板读取（PowerShell CF_HDROP/CF_DIB）只做了 listing/脚本/文件收集层单测，
-  真实 Windows 运行时 **NOT RUN**。Windows 发布包自带 `ffmpeg/ffmpeg.exe`（LGPL，应用目录
-  解析、不依赖 PATH）；Linux/macOS 仍使用系统 `ffmpeg`（各自分发方式未变）。粘贴入口只处理
+  真实 Windows 运行时 **NOT RUN**。Windows 发布包自带从固定源码自建的 `ffmpeg/ffmpeg.exe`
+  （LGPL-2.1+，仅解码 + zlib，应用目录解析、不依赖 PATH，含许可/源码材料）；Linux/macOS 仍
+  使用系统 `ffmpeg`（各自分发方式未变）。粘贴入口只处理
   “文件/图片 + 纯文本”，不读取第三方软件私有格式或仅存在于虚拟剪贴板的对象。
 - Windows 测试包（CI artifact）未做 Authenticode 签名，首次运行会弹 SmartScreen；免安装
   ZIP 删除目录即移除应用与随包 FFmpeg。真实 Windows 交互（Enter/Ctrl+Enter、IME、截图/

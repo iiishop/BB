@@ -54,9 +54,9 @@ Windows runner 没有剪贴板插件，本轮用系统自带 PowerShell（不安
 - 每个文件在 Dart 侧重新检查存在性/类型/大小并重新 sniff MIME；目录、空文件、超 32 MiB、
   不可读、已删除分别给提示。
 - 依赖：`powershell.exe`（Windows 11 自带；失败再尝试 `pwsh.exe`）。视频封面在 Windows
-  使用随包 `ffmpeg/ffmpeg.exe`（应用目录解析，不依赖 PATH，版本/哈希/许可见
-  `dea477-windows-package.md`）；Linux/macOS 仍用系统 `ffmpeg`。找不到可用 ffmpeg 时提示
-  “未找到可用的 ffmpeg”。
+  使用随包自建的 `ffmpeg/ffmpeg.exe`（LGPL-2.1+，固定 FFmpeg 8.1.3 + zlib 1.3.1 源码构建；
+  应用目录解析、不依赖 PATH；版本/哈希/许可/源码材料见 `dea477-windows-package.md`）；
+  Linux/macOS 仍用系统 `ffmpeg`。找不到可用 ffmpeg 时提示“未找到可用的 ffmpeg”。
 
 限制：只处理文件列表、原始图片和纯文本；不读取第三方软件私有/虚拟剪贴板格式；PowerShell
 冷启动会带来约数百毫秒的粘贴延迟；Windows 上仍可能有短暂的隐藏窗口开启开销。

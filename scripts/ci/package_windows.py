@@ -3,13 +3,18 @@
 
 The Windows package must be self-contained: ``ffmpeg/ffmpeg.exe`` ships next to
 the application and is executed from the installation directory, never from the
-system PATH. This script checks the bundle layout, proves the bundled binary
-runs with a PATH that has no ffmpeg/ffprobe, mirrors the client's cover
-extraction arguments, zips the bundle and then re-extracts the archive into a
-path containing spaces and Chinese characters for a second validation.
+system PATH. FFmpeg is built from pinned sources by
+``scripts/ci/build_ffmpeg_windows.sh``; the build manifest records the exact
+source hashes, executable hash and configure flags.
 
-On non-Windows hosts the binary smoke is reported as NOT_RUN; the layout, zip
-and re-extraction checks still run (they are what CI and tests need).
+This script refuses a bundle whose FFmpeg does not match the manifest (and the
+optionally supplied expected executable hash), checks the license/notice set,
+proves the bundled binary runs with a PATH that has no ffmpeg/ffprobe, decodes
+the committed cover fixtures to PNG, zips the bundle and re-extracts the archive
+into a path containing spaces and Chinese characters for a second validation.
+
+On non-Windows hosts the binary smoke is reported as NOT_RUN; layout, hash,
+license and zip checks still run.
 """
 
 from __future__ import annotations
@@ -26,6 +31,16 @@ import time
 import zipfile
 from pathlib import Path
 
+from ffmpeg_pins import (
+    FFMPEG_COMMIT,
+    FFMPEG_FORBIDDEN_CONFIGURE,
+    FFMPEG_REQUIRED_CONFIGURE,
+    FFMPEG_SOURCE_SHA256,
+    FFMPEG_VERSION,
+    ZLIB_SOURCE_SHA256,
+    ZLIB_VERSION,
+)
+
 if hasattr(sys.stdout, "reconfigure"):
     # Windows runners default to cp1252; summaries contain Chinese paths.
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -33,18 +48,34 @@ if hasattr(sys.stdout, "reconfigure"):
 
 APP_EXECUTABLE = "bb_client.exe"
 FFMPEG_RELATIVE = "ffmpeg/ffmpeg.exe"
+MANIFEST_RELATIVE = "ffmpeg/BUILD-MANIFEST.txt"
 REQUIRED_RELATIVE = (
     APP_EXECUTABLE,
     FFMPEG_RELATIVE,
+    MANIFEST_RELATIVE,
     "ffmpeg/FFMPEG-LICENSE.txt",
+    "ffmpeg/FFMPEG-LGPLv3.txt",
+    "ffmpeg/FFMPEG-GPLv3.txt",
+    "ffmpeg/ZLIB-LICENSE.txt",
     "ffmpeg/FFMPEG-NOTICE.txt",
 )
+LICENSE_MARKERS = {
+    "ffmpeg/FFMPEG-LICENSE.txt": "GNU LESSER GENERAL PUBLIC LICENSE",
+    "ffmpeg/FFMPEG-LGPLv3.txt": "Version 3",
+    "ffmpeg/FFMPEG-GPLv3.txt": "GNU GENERAL PUBLIC LICENSE",
+    "ffmpeg/ZLIB-LICENSE.txt": "This software is provided 'as-is'",
+}
 FORBIDDEN_BINARIES = ("ffprobe.exe", "ffplay.exe")
 FLUTTER_ASSETS_PREFIX = "data/flutter_assets/"
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
-MIN_FFMPEG_BYTES = 90 * 1024 * 1024
+MIN_FFMPEG_BYTES = 10 * 1024 * 1024
 MIN_APP_BYTES = 50 * 1024
-MIN_ZIP_BYTES = 20 * 1024 * 1024
+MIN_ZIP_BYTES = 10 * 1024 * 1024
+DEFAULT_SAMPLES = (
+    "scripts/ci/fixtures/cover-smoke-h264.mp4",
+    "scripts/ci/fixtures/cover-smoke-hevc.mp4",
+    "scripts/ci/fixtures/cover-smoke-vp9.webm",
+)
 
 
 def sha256_file(path: Path) -> str:
@@ -55,11 +86,25 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def read_manifest(bundle: Path) -> dict[str, str]:
+    manifest_path = Path(bundle) / MANIFEST_RELATIVE
+    if not manifest_path.is_file():
+        raise RuntimeError(f"missing {MANIFEST_RELATIVE}")
+    values: dict[str, str] = {}
+    for line in manifest_path.read_text(encoding="utf-8").splitlines():
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip()
+    return values
+
+
 def validate_bundle(
     bundle: Path,
     *,
     min_ffmpeg_bytes: int = MIN_FFMPEG_BYTES,
     min_app_bytes: int = MIN_APP_BYTES,
+    expected_ffmpeg_sha256: str | None = None,
 ) -> dict[str, object]:
     bundle = Path(bundle)
     if not bundle.is_dir():
@@ -84,14 +129,78 @@ def validate_bundle(
                 problems.append(f"{FFMPEG_RELATIVE} is not a Windows PE file")
     for path in bundle.rglob("*"):
         if path.is_file() and path.name.lower() in FORBIDDEN_BINARIES:
-            problems.append(f"unused tool must not be bundled: {path.relative_to(bundle)}")
+            problems.append(
+                f"unused tool must not be bundled: {path.relative_to(bundle)}"
+            )
+    for relative, marker in LICENSE_MARKERS.items():
+        path = bundle / relative
+        if path.is_file() and marker not in path.read_text(
+            encoding="utf-8", errors="replace"
+        ):
+            problems.append(f"{relative} does not contain {marker!r}")
+    if problems:
+        raise RuntimeError("; ".join(problems))
+
+    manifest = read_manifest(bundle)
+    pins = {
+        "format": "1",
+        "ffmpeg_version": FFMPEG_VERSION,
+        "ffmpeg_commit": FFMPEG_COMMIT,
+        "ffmpeg_source_sha256": FFMPEG_SOURCE_SHA256,
+        "zlib_version": ZLIB_VERSION,
+        "zlib_source_sha256": ZLIB_SOURCE_SHA256,
+    }
+    for key, expected in pins.items():
+        if manifest.get(key) != expected:
+            problems.append(
+                f"manifest {key}={manifest.get(key)!r} != pinned {expected!r}"
+            )
+    configure = manifest.get("configure", "")
+    for flag in FFMPEG_REQUIRED_CONFIGURE:
+        if flag not in configure:
+            problems.append(f"manifest configure is missing {flag}")
+    for flag in FFMPEG_FORBIDDEN_CONFIGURE:
+        if flag in configure:
+            problems.append(f"manifest configure must not contain {flag}")
+
+    actual_sha256 = sha256_file(ffmpeg)
+    if manifest.get("ffmpeg_exe_sha256") != actual_sha256:
+        problems.append(
+            "ffmpeg.exe SHA256 does not match BUILD-MANIFEST.txt "
+            f"({actual_sha256} != {manifest.get('ffmpeg_exe_sha256')})"
+        )
+    if manifest.get("ffmpeg_exe_bytes") != str(ffmpeg.stat().st_size):
+        problems.append("ffmpeg.exe size does not match BUILD-MANIFEST.txt")
+    if expected_ffmpeg_sha256 and actual_sha256 != expected_ffmpeg_sha256:
+        problems.append(
+            "ffmpeg.exe SHA256 does not match the expected build output "
+            f"({actual_sha256} != {expected_ffmpeg_sha256})"
+        )
+    notice = (bundle / "ffmpeg/FFMPEG-NOTICE.txt").read_text(
+        encoding="utf-8", errors="replace"
+    )
+    for marker in (
+        FFMPEG_VERSION,
+        FFMPEG_COMMIT,
+        FFMPEG_SOURCE_SHA256,
+        ZLIB_VERSION,
+        ZLIB_SOURCE_SHA256,
+        "LGPL",
+        "Corresponding source",
+    ):
+        if marker not in notice:
+            problems.append(f"FFMPEG-NOTICE.txt is missing {marker!r}")
     if problems:
         raise RuntimeError("; ".join(problems))
     return {
         "bundle": str(bundle),
         "app_bytes": app.stat().st_size,
         "ffmpeg_bytes": ffmpeg.stat().st_size,
-        "ffmpeg_sha256": sha256_file(ffmpeg),
+        "ffmpeg_sha256": actual_sha256,
+        "ffmpeg_version": manifest.get("ffmpeg_version"),
+        "ffmpeg_commit": manifest.get("ffmpeg_commit"),
+        "zlib_version": manifest.get("zlib_version"),
+        "imports": manifest.get("imports", ""),
     }
 
 
@@ -131,8 +240,12 @@ def _run(command: list[str], env: dict[str, str], timeout: int = 180) -> str:
     return stdout
 
 
-def cover_smoke(bundle: Path, workspace: Path) -> dict[str, object]:
-    """Prove the packaged ffmpeg can produce the cover the client asks for."""
+def cover_smoke(
+    bundle: Path,
+    workspace: Path,
+    samples: list[Path] | tuple[Path, ...] = (),
+) -> dict[str, object]:
+    """Prove the packaged ffmpeg can decode fixtures into the requested cover."""
     if os.name != "nt":
         return {
             "status": "NOT_RUN",
@@ -145,58 +258,48 @@ def cover_smoke(bundle: Path, workspace: Path) -> dict[str, object]:
     env = build_clean_env()
     assert_no_system_ffmpeg(env)
     version = _run([str(ffmpeg), "-version"], env).splitlines()[0]
-    sample = workspace / "sample.mp4"
-    _run(
-        [
-            str(ffmpeg),
-            "-v",
-            "error",
-            "-f",
-            "lavfi",
-            "-i",
-            "color=c=orange:s=64x64:d=1",
-            "-pix_fmt",
-            "yuv420p",
-            "-movflags",
-            "+faststart",
-            "-y",
-            str(sample),
-        ],
-        env,
-    )
-    cover = workspace / "cover.png"
-    # Same arguments the client uses for a cover, with pipe:1 replaced by a
-    # file so the archive check can inspect the PNG.
-    _run(
-        [
-            str(ffmpeg),
-            "-v",
-            "error",
-            "-ss",
-            "0",
-            "-i",
-            str(sample),
-            "-frames:v",
-            "1",
-            "-f",
-            "image2",
-            "-vcodec",
-            "png",
-            "-y",
-            str(cover),
-        ],
-        env,
-    )
-    payload = cover.read_bytes()
-    if len(payload) < 100 or payload[:8] != PNG_SIGNATURE:
-        raise RuntimeError("bundled ffmpeg produced no valid PNG cover")
+    decoded: list[dict[str, object]] = []
+    for sample in samples:
+        sample = Path(sample)
+        if not sample.is_file():
+            raise RuntimeError(f"cover fixture not found: {sample}")
+        cover = workspace / f"{sample.stem}.png"
+        # Same arguments the client uses for a cover, with pipe:1 replaced by a
+        # file so the archive check can inspect the PNG.
+        _run(
+            [
+                str(ffmpeg),
+                "-v",
+                "error",
+                "-ss",
+                "0",
+                "-i",
+                str(sample),
+                "-frames:v",
+                "1",
+                "-f",
+                "image2",
+                "-vcodec",
+                "png",
+                "-y",
+                str(cover),
+            ],
+            env,
+        )
+        payload = cover.read_bytes()
+        if len(payload) < 100 or payload[:8] != PNG_SIGNATURE:
+            raise RuntimeError(
+                f"bundled ffmpeg produced no valid PNG for {sample.name}"
+            )
+        decoded.append({"fixture": sample.name, "cover_bytes": len(payload)})
+    if not decoded:
+        raise RuntimeError("no cover fixtures were supplied to the package smoke")
     return {
         "status": "PASS",
         "ffmpeg_version": version,
         "ffmpeg_path": str(ffmpeg),
         "clean_path": env["PATH"],
-        "sample_bytes": sample.stat().st_size,
-        "cover_bytes": len(payload),
+        "decoded": decoded,
     }
 
 
@@ -244,30 +347,6 @@ def inspect_zip(
     }
 
 
-def extract_and_recheck(
-    zip_path: Path,
-    workspace: Path,
-    *,
-    min_ffmpeg_bytes: int = MIN_FFMPEG_BYTES,
-    min_app_bytes: int = MIN_APP_BYTES,
-) -> dict[str, object]:
-    target = Path(workspace) / "BB 测试 包"
-    if target.exists():
-        shutil.rmtree(target)
-    target.mkdir(parents=True)
-    with zipfile.ZipFile(zip_path) as archive:
-        archive.extractall(target)
-    bundle = validate_bundle(
-        target, min_ffmpeg_bytes=min_ffmpeg_bytes, min_app_bytes=min_app_bytes
-    )
-    smoke = cover_smoke(target, target / "smoke")
-    return {
-        "extracted_to": str(target),
-        "bundle": bundle,
-        "smoke": smoke,
-    }
-
-
 def remove_tree(path: Path) -> None:
     """Best-effort recursive delete; Windows may briefly lock a just-run .exe."""
     for _ in range(10):
@@ -281,23 +360,67 @@ def remove_tree(path: Path) -> None:
     shutil.rmtree(path, ignore_errors=True)
 
 
+def extract_and_recheck(
+    zip_path: Path,
+    workspace: Path,
+    *,
+    min_ffmpeg_bytes: int = MIN_FFMPEG_BYTES,
+    min_app_bytes: int = MIN_APP_BYTES,
+    expected_ffmpeg_sha256: str | None = None,
+    samples: list[Path] | tuple[Path, ...] = (),
+) -> dict[str, object]:
+    target = Path(workspace) / "BB 测试 包"
+    if target.exists():
+        shutil.rmtree(target)
+    target.mkdir(parents=True)
+    with zipfile.ZipFile(zip_path) as archive:
+        archive.extractall(target)
+    bundle = validate_bundle(
+        target,
+        min_ffmpeg_bytes=min_ffmpeg_bytes,
+        min_app_bytes=min_app_bytes,
+        expected_ffmpeg_sha256=expected_ffmpeg_sha256,
+    )
+    smoke = cover_smoke(target, target / "smoke", samples)
+    return {
+        "extracted_to": str(target),
+        "bundle": bundle,
+        "smoke": smoke,
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bundle", required=True)
     parser.add_argument("--out", default="dist")
     parser.add_argument("--version", required=True)
     parser.add_argument("--name", default=None)
+    parser.add_argument(
+        "--expected-ffmpeg-sha256",
+        default=None,
+        help="hash emitted by the build step; the bundle must match it",
+    )
+    parser.add_argument(
+        "--samples",
+        nargs="*",
+        default=list(DEFAULT_SAMPLES),
+        help="video fixtures decoded by the bundled ffmpeg (Windows only)",
+    )
     args = parser.parse_args(argv)
 
     name = args.name or f"bb-{args.version}-windows-x64"
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
+    samples = [Path(path) for path in args.samples]
     log: list[str] = []
     started = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     try:
-        bundle_report = validate_bundle(Path(args.bundle))
+        bundle_report = validate_bundle(
+            Path(args.bundle),
+            expected_ffmpeg_sha256=args.expected_ffmpeg_sha256,
+        )
         log.append(f"bundle: {json.dumps(bundle_report, ensure_ascii=False)}")
-        smoke = cover_smoke(Path(args.bundle), out / "smoke")
+        smoke = cover_smoke(Path(args.bundle), out / "smoke", samples)
         log.append(f"bundle smoke: {json.dumps(smoke, ensure_ascii=False)}")
 
         zip_path = out / f"{name}.zip"
@@ -307,7 +430,12 @@ def main(argv: list[str] | None = None) -> int:
 
         temporary = tempfile.mkdtemp(prefix="bb-windows-recheck-")
         try:
-            extracted = extract_and_recheck(zip_path, temporary)
+            extracted = extract_and_recheck(
+                zip_path,
+                temporary,
+                expected_ffmpeg_sha256=args.expected_ffmpeg_sha256,
+                samples=samples,
+            )
         finally:
             remove_tree(Path(temporary))
         log.append(f"extracted recheck: {json.dumps(extracted, ensure_ascii=False)}")
@@ -321,6 +449,7 @@ def main(argv: list[str] | None = None) -> int:
             "name": name,
             "version": args.version,
             "generated_at": started,
+            "expected_ffmpeg_sha256": args.expected_ffmpeg_sha256,
             "archive": archive_report,
             "bundle": bundle_report,
             "bundle_smoke": smoke,

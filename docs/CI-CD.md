@@ -46,16 +46,21 @@ bash scripts/ci/package-linux.sh --bundle <flutter linux bundle 目录> \
 # Arch 包（要在 Arch 环境，非 root 用户跑 makepkg）
 bash scripts/ci/package-arch.sh --bundle <bundle> --out dist --version 0.2.0
 
-# Windows：下载并校验固定 FFmpeg（LGPL）→ 构建 → 打包/检查/无系统 FFmpeg 冒烟
-python scripts/ci/fetch_ffmpeg_windows.py --dest client/windows/ffmpeg
+# Windows：下载并校验固定源码 → MSYS2 自建最小 FFmpeg → 打包/检查/无系统 FFmpeg 冒烟
+python scripts/ci/fetch_ffmpeg_sources.py --dest .ffmpeg-src
+bash scripts/ci/build_ffmpeg_windows.sh --sources .ffmpeg-src --dest client/windows/ffmpeg
 python scripts/ci/package_windows.py \
   --bundle client/build/windows/x64/runner/Release \
-  --out dist --version 0.2.0
+  --out dist --version 0.2.0 \
+  --expected-ffmpeg-sha256 "$(grep '^ffmpeg_exe_sha256=' client/windows/ffmpeg/BUILD-MANIFEST.txt | cut -d= -f2)"
 ```
 
 Windows 包不再依赖用户 PATH：`client/windows/CMakeLists.txt` 把暂存的
 `windows/ffmpeg/` 安装进 release bundle（Release 缺失即失败），运行时
-`resolveFfmpegExecutable()` 从应用目录解析。固定版本/哈希/许可与测试包说明见
+`resolveFfmpegExecutable()` 从应用目录解析。FFmpeg 由 `scripts/ci/ffmpeg_pins.py` 固定的源码
+（FFmpeg 8.1.3 + zlib 1.3.1）在 CI 中自建，关闭 GPL/nonfree 与外部库；打包入口同时校验
+`BUILD-MANIFEST.txt` 与构建输出的期望哈希，拒绝被改变/复用的旧暂存。固定版本/哈希/许可与
+测试包说明见
 `client/docs/dea477-windows-package.md`。PR 触发的 `Windows test package` 工作流会上传
 `bb-windows-test-package` artifact；`release.yml` 的 Windows 作业复用同一脚本。
 
@@ -68,8 +73,9 @@ Windows 包不再依赖用户 PATH：`client/windows/CMakeLists.txt` 把暂存�
 3. **apk 用的是仓库自带的 debug keystore**（`client/android/debug.keystore`，密码 `android`）。可以安装，不能上架。真签名要改 `client/android/app/build.gradle.kts` 读 `key.properties`，并把 keystore 放 Secrets，属于产品侧改动。
 4. **macOS 未签名未公证**。产物会被 Gatekeeper 拦，用户需要右键打开。公证需要 Apple Developer 账号（99 美元/年）和 `notarytool` 凭据。
 5. **Windows 未做 Authenticode**，首次运行会弹 SmartScreen。EV 证书要钱，开源项目通常不签。
-   Windows 包已内置固定 LGPL FFmpeg（版本/哈希/许可见 `client/docs/dea477-windows-package.md`）；
-   更换 FFmpeg 构建时需重新核实许可、DLL 依赖与源码提供义务，不能沿用旧结论。
+   Windows 包内置从固定源码自建的 LGPL FFmpeg（FFmpeg 8.1.3 + zlib 1.3.1；版本/哈希/许可/源码
+   提供方式见 `client/docs/dea477-windows-package.md`）。若改变源码、configure 或引入外部库，
+   必须重新核实许可、PE 依赖与源码提供义务，不能沿用旧结论。
 6. **Arch 只出二进制包，没出 AUR 提交物**。AUR 只收 PKGBUILD 文本，要上 AUR 得单独建仓库、把 `PKGBUILD` + `.SRCINFO` 推上去。现在这个 `.pkg.tar.zst` 只能本地 `pacman -U` 装。
 7. **服务端没有打包**。`server/` 目前是 `uv run` 起的 Python 服务，真要分发应该出 Docker 镜像或 systemd 单元，这条不在本次范围里。
 
