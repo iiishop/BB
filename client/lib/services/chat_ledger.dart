@@ -32,6 +32,7 @@ class ChatOperationRecord {
     this.createdAt,
     this.updatedAt,
     this.expectedIdentity,
+    this.revision = 0,
   });
 
   final String operationId;
@@ -43,6 +44,9 @@ class ChatOperationRecord {
   /// Identity captured when the plan was accepted (persisted before any
   /// network attempt). Null only for records written by an older client.
   final ExpectedIdentity? expectedIdentity;
+
+  /// Local durable snapshot revision, not a server event/consumption cursor.
+  final int revision;
 
   /// Persisted ordered content for body operations.
   final List<Map<String, dynamic>> parts;
@@ -74,6 +78,7 @@ class ChatOperationRecord {
     int? attempts,
     DateTime? updatedAt,
     ExpectedIdentity? expectedIdentity,
+    int? revision,
   }) {
     return ChatOperationRecord(
       operationId: operationId,
@@ -94,6 +99,7 @@ class ChatOperationRecord {
       createdAt: createdAt,
       updatedAt: updatedAt,
       expectedIdentity: expectedIdentity ?? this.expectedIdentity,
+      revision: revision ?? this.revision,
     );
   }
 
@@ -108,14 +114,17 @@ class ChatOperationRecord {
     'resolved_media_ids': resolvedMediaIds,
     'resolved_media_id': resolvedMediaId,
     'resolved_cover_media_id': resolvedCoverMediaId,
-    'message': message == null ? null : messageToJson(message!),
-    'error_code': errorCode,
-    'error_status': errorStatus,
-    'error_message': errorMessage,
+    'message': message == null
+        ? null
+        : messageToJson(message!, includeAssociation: true),
+    'error_code': state == 'succeeded' ? null : errorCode,
+    'error_status': state == 'succeeded' ? null : errorStatus,
+    'error_message': state == 'succeeded' ? null : errorMessage,
     'attempts': attempts,
     'created_at': createdAt?.toIso8601String(),
     'updated_at': updatedAt?.toIso8601String(),
     'expected_identity': expectedIdentity?.toJson(),
+    'revision': revision,
   };
 
   factory ChatOperationRecord.fromJson(Object? json) {
@@ -157,7 +166,11 @@ class ChatOperationRecord {
       resolvedMediaIds: resolvedMediaIds,
       resolvedMediaId: json['resolved_media_id'] as String?,
       resolvedCoverMediaId: json['resolved_cover_media_id'] as String?,
-      message: rawMessage == null ? null : ChatMessage.fromJson(rawMessage),
+      message: rawMessage == null
+          ? null
+          : ChatMessage.fromJson(rawMessage).withOperationId(
+              json['operation_id'] as String,
+            ),
       errorCode: json['error_code'] as String?,
       errorStatus: json['error_status'] is int
           ? json['error_status'] as int
@@ -171,6 +184,7 @@ class ChatOperationRecord {
           ? DateTime.tryParse(json['updated_at'] as String)
           : null,
       expectedIdentity: ExpectedIdentity.tryParse(json['expected_identity']),
+      revision: json['revision'] is int ? json['revision'] as int : 0,
     );
   }
 }
@@ -629,9 +643,52 @@ class ChatLedger {
 
   Future<void> saveOperation(String account, ChatOperationRecord record) {
     return _mutate(() async {
-      (_account(account)['operations']
-          as Map<String, dynamic>)[record.operationId] = record
-          .toJson();
+      final operations =
+          _account(account)['operations'] as Map<String, dynamic>;
+      final raw = operations[record.operationId];
+      final previous = raw is Map<String, dynamic>
+          ? ChatOperationRecord.fromJson(raw)
+          : null;
+      if (record.expectedIdentity != null &&
+          record.expectedIdentity!.account != account) {
+        throw const FormatException('operation account mismatch');
+      }
+      if (previous != null &&
+          (previous.kind != record.kind ||
+              previous.targetAccount != record.targetAccount ||
+              previous.sourceDigest != record.sourceDigest ||
+              previous.expectedIdentity?.consumerId !=
+                  record.expectedIdentity?.consumerId)) {
+        throw const FormatException('operation intent mismatch');
+      }
+      final message = record.message;
+      if (record.state == 'succeeded' &&
+          (message == null ||
+              message.senderAccount != account ||
+              message.targetAccount != record.targetAccount ||
+              message.kind !=
+                  (record.kind == 'attachment'
+                      ? ChatMessageKind.attachment
+                      : ChatMessageKind.body) ||
+              (message.operationId != null &&
+                  message.operationId != record.operationId))) {
+        throw const FormatException('invalid committed operation');
+      }
+      if (previous?.state == 'succeeded' && previous?.message != null) {
+        if (record.state == 'succeeded' &&
+            previous!.message!.identity != message!.identity) {
+          throw const FormatException('conflicting committed operation');
+        }
+        return; // All writers, including preparation and late failure, share this fence.
+      }
+      operations[record.operationId] =
+          (record.state == 'succeeded'
+                  ? record.copyWith(
+                      message: message!.withOperationId(record.operationId),
+                    )
+                  : record)
+              .copyWith(revision: (previous?.revision ?? 0) + 1)
+              .toJson();
       await _flush();
     });
   }
@@ -648,6 +705,30 @@ class ChatLedger {
       }
       return items;
     });
+  }
+
+  /// A negotiated history result can settle an existing local plan. It cannot
+  /// create a new plan, transfer consumer ownership or advance any read cursor.
+  Future<void> observeMessageAssociations(
+    String account,
+    Iterable<ChatMessage> messages, {
+    String? peerAccount,
+  }) async {
+    for (final message in messages) {
+      message.validateReader(account, peerAccount: peerAccount);
+      final operationId = message.operationId;
+      if (operationId == null) continue;
+      final record = await operation(account, operationId);
+      if (record == null) continue;
+      await saveOperation(
+        account,
+        record.copyWith(
+          state: 'succeeded',
+          message: message,
+          updatedAt: DateTime.now().toUtc(),
+        ),
+      );
+    }
   }
 
   // --------------------------------------------------------------- downloads --
