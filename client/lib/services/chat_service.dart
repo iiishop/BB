@@ -8,6 +8,7 @@ import '../config/media_policy.dart';
 import '../models/auth_models.dart';
 import '../models/chat_models.dart';
 import 'auth_session.dart';
+import 'install_safety_gate.dart';
 import 'chat_api_client.dart';
 import 'chat_ledger.dart';
 import 'chat_query.dart';
@@ -841,6 +842,20 @@ class ChatService {
     required List<OutgoingPart> content,
     String? operationId,
     ExpectedIdentity? expectedIdentity,
+  }) => InstallSafetyGate.instance.protect(
+    () => _sendBody(
+      targetAccount: targetAccount,
+      content: content,
+      operationId: operationId,
+      expectedIdentity: expectedIdentity,
+    ),
+  );
+
+  Future<SendOutcome> _sendBody({
+    required String targetAccount,
+    required List<OutgoingPart> content,
+    String? operationId,
+    ExpectedIdentity? expectedIdentity,
   }) async {
     final AuthIdentity? maybeCurrent = session.identity;
     if (maybeCurrent == null) {
@@ -1226,6 +1241,20 @@ class ChatService {
     required OutgoingAttachment attachment,
     String? operationId,
     ExpectedIdentity? expectedIdentity,
+  }) => InstallSafetyGate.instance.protect(
+    () => _sendAttachment(
+      targetAccount: targetAccount,
+      attachment: attachment,
+      operationId: operationId,
+      expectedIdentity: expectedIdentity,
+    ),
+  );
+
+  Future<SendOutcome> _sendAttachment({
+    required String targetAccount,
+    required OutgoingAttachment attachment,
+    String? operationId,
+    ExpectedIdentity? expectedIdentity,
   }) async {
     final AuthIdentity? maybeCurrent = session.identity;
     if (maybeCurrent == null) {
@@ -1485,6 +1514,20 @@ class ChatService {
 
   /// UI entry: body first, then each non-image attachment in original order.
   Future<ComposedSendResult> sendComposed({
+    required String targetAccount,
+    required List<OutgoingPart> body,
+    required List<OutgoingAttachment> attachments,
+    String? operationSeed,
+  }) => InstallSafetyGate.instance.protect(
+    () => _sendComposed(
+      targetAccount: targetAccount,
+      body: body,
+      attachments: attachments,
+      operationSeed: operationSeed,
+    ),
+  );
+
+  Future<ComposedSendResult> _sendComposed({
     required String targetAccount,
     required List<OutgoingPart> body,
     required List<OutgoingAttachment> attachments,

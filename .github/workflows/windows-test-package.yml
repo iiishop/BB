@@ -122,7 +122,7 @@ jobs:
 
       - name: Windows 单元测试（应用目录解析 + 粘贴准备）
         working-directory: client
-        run: flutter test test/ffmpeg_tool_test.dart test/chat_clipboard_paste_test.dart
+        run: flutter test test/ffmpeg_tool_test.dart test/chat_clipboard_paste_test.dart test/release_update_test.dart
 
       - name: 打包、ZIP 内容检查、无系统 FFmpeg 冒烟与中文/空格路径复验
         run: >
@@ -132,6 +132,11 @@ jobs:
           --version ${{ steps.version.outputs.version }}
           --name bb-${{ steps.version.outputs.version }}-windows-x64-dea477
           --expected-ffmpeg-sha256 ${{ steps.ffmpeg.outputs.sha }}
+
+      - name: Windows 更新执行器原生事务与恢复回归（隔离安装夹具）
+        env:
+          BB_UPDATER_PACKAGE_DIR: dist
+        run: python -m unittest discover -s scripts/ci -p test_windows_updater.py -v
 
       - name: 复核 artifact 与校验和
         shell: bash

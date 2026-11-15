@@ -52,6 +52,8 @@ FFMPEG_RELATIVE = "ffmpeg/ffmpeg.exe"
 MANIFEST_RELATIVE = "ffmpeg/BUILD-MANIFEST.txt"
 REQUIRED_RELATIVE = (
     APP_EXECUTABLE,
+    "bb_updater.exe",
+    "bb-build.json",
     FFMPEG_RELATIVE,
     MANIFEST_RELATIVE,
     "ffmpeg/FFMPEG-LICENSE.txt",
@@ -331,6 +333,14 @@ def build_zip(bundle: Path, output_zip: Path) -> None:
     bundle = Path(bundle)
     output_zip = Path(output_zip)
     output_zip.parent.mkdir(parents=True, exist_ok=True)
+    # This inventory is the ownership boundary for replacement and user files.
+    payload = sorted(path for path in bundle.rglob("*") if path.is_file()
+                     and path.relative_to(bundle).as_posix() != "bb-payload.sha256")
+    if any(path.is_symlink() for path in bundle.rglob("*")):
+        raise RuntimeError("payload must not contain symlinks")
+    (bundle / "bb-payload.sha256").write_text(
+        "".join(f"{sha256_file(path)}  {path.relative_to(bundle).as_posix()}\n"
+                for path in payload), encoding="utf-8")
     with zipfile.ZipFile(
         output_zip, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6
     ) as archive:

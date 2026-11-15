@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  DEA-479: files that may be handed to the system package installer through
+  the app-private FileProvider. Only the app's own cache and files directories
+  are exposed, read-only and per-URI; nothing under external storage or the
+  shared download folder can be served through this provider.
+-->
+<paths>
+    <cache-path name="update_cache" path="." />
+    <files-path name="update_files" path="." />
+</paths>

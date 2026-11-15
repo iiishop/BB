@@ -37,6 +37,8 @@ def make_bundle(
     assets.mkdir(parents=True, exist_ok=True)
     (assets / "AssetManifest.bin").write_bytes(b"manifest")
     (root / "bb_client.exe").write_bytes(b"MZ" + b"\0" * 512)
+    (root / "bb_updater.exe").write_bytes(b"MZ" + b"\0" * 512)
+    (root / "bb-build.json").write_text('{"version":"0.0.1","buildNumber":2,"architecture":"x64"}')
     ffmpeg_dir = root / "ffmpeg"
     ffmpeg_dir.mkdir()
     exe = ffmpeg_dir / "ffmpeg.exe"

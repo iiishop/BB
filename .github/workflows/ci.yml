@@ -118,6 +118,15 @@ jobs:
           set -euo pipefail
           flutter pub get
           flutter build apk --release --target-platform android-arm64
+          (cd android && ./gradlew :app:testUpdateInstaller)
+
+      - name: 上传 Android 可安装验收包
+        uses: actions/upload-artifact@v4
+        with:
+          name: bb-android-arm64-test-package
+          path: client/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 14
 
   server:
     name: 服务端 pytest

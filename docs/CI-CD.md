@@ -82,3 +82,14 @@ Windows 包不再依赖用户 PATH：`client/windows/CMakeLists.txt` 把暂存�
 ## 需要的 Secrets
 
 现在一个都不需要（全平台用默认凭据能出包）。将来补签名才需要：`ANDROID_KEYSTORE_BASE64`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`、`ANDROID_STORE_PASSWORD`；macOS 侧 `MACOS_CERT_P12`、`MACOS_CERT_PASSWORD`、`APPLE_ID`、`APPLE_TEAM_ID`、`APPLE_APP_PASSWORD`。
+
+
+## DEA-479 更新回归（现有作业）
+
+共享下载/版本/安全门回归在默认 Flutter 测试中。Windows package 与 Release 的
+Windows 作业在打包后从实际 ZIP 提取 `bb_updater.exe`，执行
+`python -m unittest discover -s scripts/ci -p test_windows_updater.py -v`
+（`BB_UPDATER_PACKAGE_DIR=dist`）。不新增 job、不重复安装 Flutter/FFmpeg。
+这组测试在非 Windows 明确 skip；本机未测原生耗时，不承诺成本节省。
+Android 现有 arm64 构建作业上传可安装 artifact，供缺设备时交付用户。
+机制、事务崩溃窗口与人工恢复入口见 `client/docs/dea479-update-mechanism.md`。
