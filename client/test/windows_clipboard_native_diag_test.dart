@@ -9,6 +9,7 @@ import 'dart:typed_data';
 
 import 'package:bb_client/models/chat_models.dart';
 import 'package:bb_client/ui/chat/clipboard_paste.dart';
+import 'package:bb_client/ui/chat/media_actions.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 String _encodePowerShell(String script) {
@@ -184,7 +185,7 @@ void main() {
       'Add-Type -AssemblyName System.Drawing; '
       "\$img = [System.Drawing.Image]::FromFile('${image.path.replaceAll("'", "''")}'); "
       '[System.Windows.Forms.Clipboard]::SetImage(\$img); '
-      '$img.Dispose()',
+      r'$img.Dispose()',
     ));
     await _probe('image', outputPath);
   }, timeout: const Timeout(Duration(minutes: 8)));
