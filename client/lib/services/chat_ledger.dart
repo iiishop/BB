@@ -605,6 +605,60 @@ class ChatLedger {
     return next;
   });
 
+  // Space dispatch metadata shares the atomic ledger, not a business cache.
+  Map<String, dynamic> _spacePlans(String scope) =>
+      (_data.putIfAbsent('space_operations', () => <String, dynamic>{})
+                  as Map<String, dynamic>)
+              .putIfAbsent(scope, () => <String, dynamic>{})
+          as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>?> spaceOperation(String scope, String id) =>
+      _locked(() async {
+        final row = _spacePlans(scope)[id];
+        return row == null
+            ? null
+            : jsonDecode(jsonEncode(row)) as Map<String, dynamic>;
+      });
+
+  Future<Map<String, dynamic>?> planSpaceOperation(
+    String scope,
+    String id,
+    String action,
+    String digest,
+  ) => _mutate(() async {
+    final plans = _spacePlans(scope);
+    final previous = plans[id] as Map<String, dynamic>?;
+    if (previous != null) {
+      if (previous['action'] != action || previous['digest'] != digest) {
+        throw const AuthFailure(
+          status: 409,
+          code: 'idempotency_conflict',
+          message: 'Operation intent changed',
+        );
+      }
+      return jsonDecode(jsonEncode(previous)) as Map<String, dynamic>;
+    }
+    plans[id] = {'action': action, 'digest': digest};
+    await _flush();
+    return null;
+  });
+
+  Future<void> commitSpaceOperation(
+    String scope,
+    String id,
+    Map<String, dynamic> receipt,
+  ) => _mutate(() async {
+    final row = _spacePlans(scope)[id] as Map<String, dynamic>?;
+    if (row == null ||
+        row['action'] != receipt['action'] ||
+        receipt['operation_id'] != id) {
+      throw const FormatException('space receipt mismatch');
+    }
+    // IDs/version only: no body/image snapshot can survive a deletion here.
+    row['receipt'] = Map<String, dynamic>.from(receipt);
+    await _flush();
+  });
+
   // -------------------------------------------------------------- operations --
 
   Future<ChatOperationRecord?> operation(String account, String operationId) {
