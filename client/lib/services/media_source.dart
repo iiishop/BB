@@ -281,6 +281,12 @@ String sniffMime(Uint8List bytes, [String? filename]) {
     return 'application/pdf';
   }
   if (asciiAt(4, 'ftyp')) {
+    // Audio-only ISO-BMFF brands (m4a/m4b/f4a) otherwise look like video/mp4;
+    // the server only accepts real mp4/webm video and requires a cover frame,
+    // so they are sent as the contract's generic "other" file type instead.
+    if (asciiAt(8, 'M4A ') || asciiAt(8, 'M4B ') || asciiAt(8, 'F4A ')) {
+      return 'application/octet-stream';
+    }
     return 'video/mp4';
   }
   if (startsWith(const <int>[0x1A, 0x45, 0xDF, 0xA3])) {

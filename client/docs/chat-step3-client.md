@@ -34,14 +34,15 @@ client/lib/services/media_stream_proxy.dart 点击播放的 loopback Range 流�
 client/lib/services/local_auth_server.dart 九工具 + R3 内部路由（保留 auth/profile）
 client/lib/ui/chat/users_view.dart         注册用户列表、预览、在线状态、分页/刷新
 client/lib/ui/chat/chat_page.dart          消息时间分组、附件卡、下载/播放/另存为
-client/lib/ui/chat/chat_composer.dart      有序草稿、图片/文件、粘贴、失败重试
+client/lib/ui/chat/chat_composer.dart      有序草稿、图片/文件、Enter/Ctrl+Enter、Ctrl+V、失败重试
 client/lib/ui/chat/message_bubble.dart     正文按序 text/image、附件卡、上下文菜单
 client/lib/ui/chat/media_viewer.dart       DEA-471 全屏查看器、跨消息媒体序列、原图进度/重试
 client/lib/ui/chat/media_save.dart         相册（MediaStore/Photos 预留）与桌面另存为分流
 client/lib/ui/chat/viewer_video.dart       查看器内嵌视频会话、流字节进度与失败重试
 client/lib/config/media_policy.dart        100 KiB 直出原图/缩略图边界（集中定义）
 client/lib/models/chat_media.dart          会话媒体序列、稳定排序与索引查找
-client/lib/ui/chat/media_actions.dart      file_selector、剪贴板图片、视频封面、系统打开
+client/lib/ui/chat/media_actions.dart      file_selector、视频封面、系统打开
+client/lib/ui/chat/clipboard_paste.dart    剪贴板文件/图片/多文件读取（Linux/Windows/Android）
 client/lib/ui/home_view.dart               主页切换为用户列表（chat 非空时）
 client/lib/main.dart / bin/bb_client_api.dart  共用同一 ChatService 与本地接口
 ```
@@ -210,8 +211,9 @@ ETag/304、415/503 错误）。客户端只消费契约，不改 `server/contrac
   列表按 account 升序 keyset 分页（limit 1–100），30s 静默刷新，支持下拉刷新和“加载更多”。
 - 聊天页：日期分组 + 5 分钟时间分隔；正文 text/image 严格按序；附件卡显示类型/文件名/
   大小/视频封面；右键/长按菜单“下载/播放/另存为”；空态、加载、错误、断线横幅沿用既有组件。
-- 输入区：图片/附件/粘贴按钮 + 1–5 行输入框 + 发送；草稿条按插入顺序显示 text/image 与
-  独立附件，可单项删除；部分失败保留失败项并显示“重试不发已成功项”。
+- 输入区：图片/附件入口 + 1–5 行输入框 + 发送；Enter 发送、Ctrl+Enter 换行、输入框聚焦时
+  Ctrl+V 粘贴剪贴板文件/图片（不再有专用粘贴按钮，见 `dea477-input-clipboard.md`）；草稿条按插入
+  顺序显示 text/image 与独立附件，可单项删除；部分失败保留失败项并显示“重试不发已成功项”。
 - 视口：手机 390×844、宽屏 1440×900、折叠注入 `DisplayFeature` 1024×768 均无溢出；
   主页列表最大宽度 760，聊天最大宽度 860。
 

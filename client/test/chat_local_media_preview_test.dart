@@ -2,11 +2,13 @@ import 'package:bb_client/models/auth_models.dart';
 import 'package:bb_client/models/chat_models.dart';
 import 'package:bb_client/ui/chat/chat_composer.dart';
 import 'package:bb_client/ui/chat/chat_page.dart';
+import 'package:bb_client/ui/chat/clipboard_paste.dart';
 import 'package:bb_client/ui/chat/media_actions.dart';
 import 'package:bb_client/ui/chat/media_viewer.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/chat_keyboard.dart';
 import 'support/fake_chat_service.dart';
 import 'support/fake_profile_gateway.dart';
 
@@ -25,7 +27,9 @@ class _FakeClipboard implements ClipboardMediaReader {
   final PickedMedia media;
 
   @override
-  Future<PickedMedia?> read() async => media;
+  Future<ClipboardPaste> read() async {
+    return ClipboardPaste(files: <PickedMedia>[media]);
+  }
 }
 
 void main() {
@@ -56,13 +60,17 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
-          home: ChatPage(peer: _bob, chat: chat, profile: FakeProfileGateway(), clipboard: clipboard),
+          home: ChatPage(
+            peer: _bob,
+            chat: chat,
+            profile: FakeProfileGateway(),
+            clipboard: clipboard,
+          ),
         ),
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byKey(ChatComposer.pasteKey));
-      await tester.pumpAndSettle();
+      await pasteFromClipboard(tester);
       await tester.tap(find.byKey(ChatComposer.sendKey));
       await tester.pumpAndSettle();
 

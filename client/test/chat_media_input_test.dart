@@ -6,10 +6,12 @@ import 'package:bb_client/models/chat_models.dart';
 import 'package:bb_client/services/chat_service.dart';
 import 'package:bb_client/services/media_source.dart';
 import 'package:bb_client/ui/chat/chat_composer.dart';
+import 'package:bb_client/ui/chat/clipboard_paste.dart';
 import 'package:bb_client/ui/chat/media_actions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/chat_keyboard.dart';
 import 'support/fake_chat_service.dart';
 
 const AuthUser _self = AuthUser(account: '10000001', username: 'alice');
@@ -21,9 +23,12 @@ class _FakeClipboard implements ClipboardMediaReader {
   int calls = 0;
 
   @override
-  Future<PickedMedia?> read() async {
+  Future<ClipboardPaste> read() async {
     calls += 1;
-    return media;
+    final PickedMedia? single = media;
+    return ClipboardPaste(
+      files: single == null ? const <PickedMedia>[] : <PickedMedia>[single],
+    );
   }
 }
 
@@ -98,6 +103,61 @@ void main() {
     expect(parseClipboardMediaUri('not a uri'), isNull);
   });
 
+  test('clipboard URI parser keeps every local file in order', () {
+    final List<Uri> uris = parseClipboardFileUris(
+      'file:///tmp/a.png\r\n'
+      'file:///tmp/b.zip\n'
+      '# comment\n'
+      'file:///tmp/a.png\n'
+      'https://example.com/c.png\n',
+    );
+    expect(uris.map((Uri uri) => uri.path), <String>[
+      '/tmp/a.png',
+      '/tmp/b.zip',
+    ]);
+  });
+
+  test('audio-only mp4 containers stay generic files, not video', () {
+    final Uint8List m4a = Uint8List.fromList(<int>[
+      0,
+      0,
+      0,
+      0x18,
+      0x66,
+      0x74,
+      0x79,
+      0x70,
+      0x4D,
+      0x34,
+      0x41,
+      0x20,
+      0,
+      0,
+      0,
+      0,
+    ]);
+    expect(sniffMime(m4a, 'voice.m4a'), 'application/octet-stream');
+    final Uint8List mp4 = Uint8List.fromList(<int>[
+      0,
+      0,
+      0,
+      0x18,
+      0x66,
+      0x74,
+      0x79,
+      0x70,
+      0x69,
+      0x73,
+      0x6F,
+      0x6D,
+      0,
+      0,
+      0,
+      0,
+    ]);
+    expect(sniffMime(mp4, 'clip.mp4'), 'video/mp4');
+  });
+
   testWidgets('pasted image enters the ordered body draft', (
     WidgetTester tester,
   ) async {
@@ -124,8 +184,7 @@ void main() {
         ),
       ),
     );
-    await tester.tap(find.byKey(ChatComposer.pasteKey));
-    await tester.pumpAndSettle();
+    await pasteFromClipboard(tester);
     await tester.tap(find.byKey(ChatComposer.sendKey));
     await tester.pumpAndSettle();
     expect(clipboard.calls, 1);
@@ -174,8 +233,7 @@ void main() {
       ),
     );
     await tester.enterText(find.byKey(ChatComposer.inputKey), '混排正文');
-    await tester.tap(find.byKey(ChatComposer.pasteKey));
-    await tester.pumpAndSettle();
+    await pasteFromClipboard(tester);
     await tester.tap(find.byKey(ChatComposer.sendKey));
     await tester.pumpAndSettle();
     expect(clipboard.calls, 1);

@@ -16,6 +16,7 @@ import '../widgets/profile_avatar.dart';
 import 'chat_avatars.dart';
 import 'chat_composer.dart';
 import 'chat_format.dart';
+import 'clipboard_paste.dart';
 import 'media_actions.dart';
 import 'media_save.dart';
 import 'media_viewer.dart';

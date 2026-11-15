@@ -117,15 +117,23 @@ Linux 默认窗口 1180×780，Windows 同样 1180×780。Windows 构建/运行�
 - **持久事件/展示/ACK**：`/events/{subscribe,read,wait}`、`/chat/confirm_presentation`、
   `/chat/ack_messages`；receipt 绑定账号/consumer/peer/message/有序 blocks；未确认的位置
   ACK 返回 409 `consumption_gap`；下载完成不推进消息水位。
-- **剪贴板**：桌面先尝试图片/视频二进制剪贴板目标，再解析 text/uri-list、file:// 或绝对路径
-  （仅本地文件）；Android 通过 `bb/media_clipboard` 平台通道读取 ClipData content URI 的
-  图片/视频。图片进入正文，视频进入带真实封面的独立附件；iOS 无本轮 runner，未接入。
+- **键盘**：输入框聚焦时 Enter 发送、Ctrl+Enter 换行（Shift/Alt+Enter 留给编辑器），
+  中文 IME 组词/选字期间 Enter 只确认候选不发送，长按 Enter/Ctrl+V 不重复提交；空内容不发。
+  桌面输入框提示与实际快捷键一致，发送按钮 tooltip 显示“发送（Enter）”。
+- **剪贴板**：输入框聚焦时 Ctrl+V 读取剪贴板文件/图片；不再有专用“粘贴图片或视频”按钮。
+  Linux 先试图片/视频二进制剪贴板目标，再解析 text/uri-list/file:///绝对路径（可多文件）；
+  Windows 由 `client/lib/ui/chat/clipboard_paste.dart` 调用 PowerShell 读取 CF_HDROP 文件列表
+  （资源管理器多选）或把 CF_DIB 图片转成 PNG；Android 仍经 `bb/media_clipboard` 读取单个
+  ClipData content URI 图片/视频。图片进入正文，视频（真实封面）与音频/PDF/ZIP/其他普通文件
+  进入独立附件；多文件保持剪贴板顺序进入附件组（图片按序进入正文）、可逐项删除、不自动发送。文件不存在/是文件夹/为空/
+  超过 32 MiB 时给出可见提示，不静默丢弃；未知类型以 `application/octet-stream` 走契约的
+  `other`。iOS 无本轮 runner，未接入。
 - **在线播放**：附件到达只取封面；点击播放时才启动 `127.0.0.1` 随机 token 的 loopback 流代理，
   按播放器 Range 向带 Bearer 的 `/media/{id}` 透传，不预下载原文件。Android/iOS 用
   `VideoPlayerController.networkUrl` 在线播放；桌面把流 URL 交给系统播放器并保留“停止/取消”
   与重试；另存为仍是独立目录选择操作。桌面 GUI 播放未在本环境人工验收，见 NOT RUN。
 - **UI**：日期/5 分钟时间分组、有序文本+图片、附件卡右击/长按“下载/播放/另存为”、
-  输入区图片/文件/粘贴与草稿顺序；手机 390×844、桌面 1440×900、折叠 1024×768 均无溢出。
+  输入区图片/文件入口与草稿顺序；手机 390×844、桌面 1440×900、折叠 1024×768 均无溢出。
 - **气泡与发送反馈**：同发送者 5 分钟 run 只在最后一个气泡显示头像，18px/6px 方向圆角，
   气泡宽度 `min(340, 74% 视口)`；发送点击后立即出现本地气泡，状态为“发送中…”/“未发送 ·
   点按重试”/“状态待确认 · 点按重试”/已提交时间；服务器协商的
@@ -181,7 +189,7 @@ flutter test integration_test -d linux
 QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_tests.sh client
 ```
 
-- 默认 `flutter test`：最新严格 runner 为 **498 passed / 8 skipped / exit 0**。新增覆盖
+- 默认 `flutter test`：最新为 **519 passed / 8 skipped / exit 0**。新增覆盖
   1000 条真实分页下发送/接收并发补取无缺口、events/wait limit 边界、原子展示确认/冲突/全组
   拒绝/重启幂等、新 consumer 独立补取、有序图文发送、幂等/冲突、read→receipt→ACK 缺口、
   附件只读元信息、异步下载内容、持久事件、wait 积压/提前到达、用户列表分页/预览/在线状态、
@@ -196,8 +204,17 @@ QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_test
   确定成功后重建未知状态、切会话 dispose 后迟到查询不改状态、精确 operation 关联下其他来源
   同文/同媒体消息不被全局暂存隐藏、未知/明确失败状态文案、重试后再次失败时旧查询不覆盖、
   仍 mounted 时切换对话旧查询不落新页、切换对话时旧 refresh/poll 的成功或错误都不落新页。
-- 严格命令：`QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_tests.sh client`
-  → `RESULT=PASS`（analyze PASS、flutter-test 498 passed / 8 skipped / exit 0、linux-integration 14 passed / exit 0）。
+- DEA-477 按键/剪贴板回归：`chat_composer_shortcuts_test.dart` 覆盖 Enter 只发送一次、Ctrl+Enter
+  换行不发送、IME 组词时 Enter 不发送、空/纯空白不发、长按 Enter 不重复、专用粘贴按钮消失；
+  `chat_clipboard_paste_test.dart` 覆盖 Windows 剪贴板 listing 解析与脚本转义、多文件任意类型
+  （PDF/ZIP/音频/图片）顺序、图片转 PNG、文件夹/空文件/超 32 MiB/不可读的可见提示、Ctrl+V 不自动
+  发送、正文保留、逐项移除、文本粘贴按光标插入；`chat_media_input_test.dart` 增加多 URI 去重与
+  m4a 不误判为视频。
+- 严格命令 `QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_tests.sh client`
+  需要可用的 Linux 显示服务；DEA-477 本轮环境 Xvfb segfault，只实际执行了 `flutter analyze`
+  （`No issues found!`，exit 0）与 `flutter test`（519 passed / 8 skipped，exit 0）；
+  `flutter build linux --debug` 构建成功只证明编译。`linux-integration`（需要显示服务）、
+  Windows/Android 真机与桌面 GUI 运行均 **NOT RUN**。
 - `test/qa_metrics_test.dart` / `qa_session_race_test.dart` 保留独立 QA 的失败回归：
   打开面板后实时缩放/折叠重排、旧会话延迟 401 不得清掉新登录会话。
 - `test/qa_resize_transition_test.dart`、`profile_transition_reflow_test.dart` 保留并覆盖
@@ -248,6 +265,9 @@ QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_test
 
 - 不做 token 过期/刷新；真正重新登录只有主动退出或服务端清理 24h 离线会话后 401。
 - 不做群聊、好友申请/搜索、动态、产品已读回执、跨机器文件传输、附件自动解析。
+- Windows 原生剪贴板读取（PowerShell CF_HDROP/CF_DIB）只做了 listing/脚本/文件收集层单测，
+  真实 Windows 运行时 **NOT RUN**；桌面视频封面仍依赖系统 `ffmpeg`，缺失时会给出可见提示。
+  粘贴入口只处理“文件/图片 + 纯文本”，不读取第三方软件私有格式或仅存在于虚拟剪贴板的对象。
 - Android 真机与 Windows 构建/运行 **NOT RUN**；折叠屏形态为注入 `DisplayFeature` 的
   widget 渲染验证，未在真实折叠设备运行。Android 剪贴板通道已实现，但未在真机验证；
   Linux/Windows 的在线流交给系统播放器，桌面 GUI 实际播放未在本环境人工验收；这两项均

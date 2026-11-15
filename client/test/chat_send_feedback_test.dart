@@ -9,6 +9,7 @@ import 'package:bb_client/services/chat_service.dart';
 import 'package:bb_client/services/client_identity.dart';
 import 'package:bb_client/services/media_source.dart';
 import 'package:bb_client/ui/chat/chat_composer.dart';
+import 'package:bb_client/ui/chat/clipboard_paste.dart';
 import 'package:bb_client/ui/chat/media_actions.dart';
 import 'package:bb_client/ui/chat/message_bubble.dart';
 import 'package:bb_client/ui/chat/pending_send.dart';
@@ -16,6 +17,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/chat_keyboard.dart';
 import 'support/fake_chat_service.dart';
 import 'support/fake_profile_gateway.dart';
 
@@ -57,7 +59,12 @@ class _FakeClipboard implements ClipboardMediaReader {
   final PickedMedia? media;
 
   @override
-  Future<PickedMedia?> read() async => media;
+  Future<ClipboardPaste> read() async {
+    final PickedMedia? single = media;
+    return ClipboardPaste(
+      files: single == null ? const <PickedMedia>[] : <PickedMedia>[single],
+    );
+  }
 }
 
 class _CommitThenFailService extends FakeChatService {
@@ -722,8 +729,7 @@ void main() {
     await harness.pump(tester);
 
     await tester.enterText(find.byKey(ChatComposer.inputKey), '混排正文');
-    await tester.tap(find.byKey(ChatComposer.pasteKey));
-    await tester.pumpAndSettle();
+    await pasteFromClipboard(tester);
     await tester.tap(find.byKey(ChatComposer.sendKey));
     await tester.pump();
     await tester.pump(const Duration(seconds: 3));
@@ -946,8 +952,7 @@ void main() {
     harness.chat.failBody = true;
     await harness.pump(tester);
 
-    await tester.tap(find.byKey(ChatComposer.pasteKey));
-    await tester.pumpAndSettle();
+    await pasteFromClipboard(tester);
     await tester.tap(find.byKey(ChatComposer.sendKey));
     await tester.pump();
     harness.chat.conversations[_bob.account]!.add(
@@ -1380,8 +1385,7 @@ void main() {
             );
             await harness.pump(tester);
             if (media) {
-              await tester.tap(find.byKey(ChatComposer.pasteKey));
-              await tester.pumpAndSettle();
+              await pasteFromClipboard(tester);
               await tester.tap(find.byKey(ChatComposer.sendKey));
               await tester.pump();
             } else {

@@ -1,6 +1,9 @@
-import 'dart:typed_data';
+import 'dart:async';
+import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../app.dart';
 import '../../models/auth_models.dart';
@@ -8,6 +11,7 @@ import '../../models/chat_models.dart';
 import '../../services/chat_service.dart';
 import '../../services/media_source.dart';
 import 'chat_format.dart';
+import 'clipboard_paste.dart';
 import 'media_actions.dart';
 import 'pending_send.dart';
 
@@ -91,7 +95,6 @@ class ChatComposer extends StatefulWidget {
   static const Key sendKey = Key('chat-composer-send');
   static const Key imageKey = Key('chat-composer-image');
   static const Key fileKey = Key('chat-composer-file');
-  static const Key pasteKey = Key('chat-composer-paste');
 
   @override
   State<ChatComposer> createState() => _ChatComposerState();
@@ -104,10 +107,12 @@ class _ChatComposerState extends State<ChatComposer> {
   final List<_DraftAttachment> _attachments = <_DraftAttachment>[];
   List<SendOutcome> _failed = <SendOutcome>[];
   final List<PendingSend> _pending = <PendingSend>[];
+  bool _pasting = false;
 
   @override
   void initState() {
     super.initState();
+    _focus.onKeyEvent = _onKeyEvent;
     widget.controller?._attach(this);
   }
 
@@ -122,6 +127,7 @@ class _ChatComposerState extends State<ChatComposer> {
 
   @override
   void dispose() {
+    _focus.onKeyEvent = null;
     widget.controller?._detach(this);
     _controller.dispose();
     _focus.dispose();
@@ -152,7 +158,10 @@ class _ChatComposerState extends State<ChatComposer> {
         _addBodyImage(picked);
         return;
       }
-      await _addAttachment(picked);
+      final String? problem = await _addAttachment(picked);
+      if (problem != null && mounted) {
+        _snack(problem);
+      }
     } on FormatException catch (error) {
       _snack(error.message);
     } catch (_) {
@@ -160,7 +169,7 @@ class _ChatComposerState extends State<ChatComposer> {
     }
   }
 
-  Future<void> _addAttachment(PickedMedia picked) async {
+  Future<String?> _addAttachment(PickedMedia picked) async {
     final AttachmentKind kind = attachmentKindForMime(picked.mimeType);
     ResolvedMedia? cover;
     if (kind == AttachmentKind.video) {
@@ -170,12 +179,13 @@ class _ChatComposerState extends State<ChatComposer> {
         filename: picked.filename,
       );
       if (cover == null) {
-        _snack('无法从该视频提取封面，请换一个视频');
-        return;
+        return _isDesktop
+            ? '无法从 ${picked.filename} 提取视频封面（桌面需要 ffmpeg）'
+            : '无法从 ${picked.filename} 提取视频封面';
       }
     }
     if (!mounted) {
-      return;
+      return null;
     }
     setState(() {
       _attachments.add(
@@ -201,6 +211,7 @@ class _ChatComposerState extends State<ChatComposer> {
         ),
       );
     });
+    return null;
   }
 
   void _addBodyImage(PickedMedia picked) {
@@ -221,27 +232,145 @@ class _ChatComposerState extends State<ChatComposer> {
     });
   }
 
-  Future<void> _pasteMedia() async {
+  Future<void> _pasteFromClipboard() async {
+    if (!widget.enabled || _pasting) {
+      return;
+    }
+    _pasting = true;
     try {
-      final PickedMedia? picked = await widget.clipboard.read();
+      final ClipboardPaste paste = await widget.clipboard.read();
       if (!mounted) {
         return;
       }
-      if (picked == null) {
-        _snack('剪贴板中没有可用的图片或视频');
+      final List<String> problems = List<String>.of(paste.problems);
+      if (paste.files.isEmpty) {
+        if (problems.isEmpty) {
+          await _pasteText();
+        }
+      } else {
+        for (final PickedMedia picked in paste.files) {
+          // One bad file must not drop the rest of the same paste.
+          try {
+            final String? problem = await _addPasted(picked);
+            if (problem != null) {
+              problems.add(problem);
+            }
+          } on FormatException catch (error) {
+            problems.add(error.message);
+          } catch (_) {
+            problems.add('已跳过 ${picked.filename}：添加失败');
+          }
+        }
+      }
+      if (!mounted) {
         return;
       }
-      if (picked.mimeType.startsWith('image/')) {
-        _addBodyImage(picked);
-      } else if (picked.mimeType.startsWith('video/')) {
-        await _addAttachment(picked);
-      } else {
-        _snack('剪贴板媒体类型不受支持，仅支持图片或视频');
-      }
+      _reportPasteProblems(problems);
+    } on FormatException catch (error) {
+      _snack(error.message);
     } catch (_) {
-      _snack('读取剪贴板媒体失败');
+      _snack('读取剪贴板失败');
+    } finally {
+      _pasting = false;
     }
   }
+
+  /// One pasted file: images keep their place in the ordered body; videos and
+  /// every other file type go through the same attachment preparation as the
+  /// file picker. The returned problem is shown to the user, never swallowed.
+  Future<String?> _addPasted(PickedMedia picked) async {
+    if (picked.bytes.isEmpty) {
+      return '已跳过空文件：${picked.filename}';
+    }
+    if (picked.bytes.length > chatMaxUploadBytes) {
+      return '已跳过超过 32 MiB 的文件：${picked.filename}';
+    }
+    if (picked.mimeType.startsWith('image/')) {
+      _addBodyImage(picked);
+      return null;
+    }
+    return _addAttachment(picked);
+  }
+
+  /// Plain text pastes through the editor, preserving the current selection.
+  Future<void> _pasteText() async {
+    final ClipboardData? data = await Clipboard.getData(Clipboard.kTextPlain);
+    final String? text = data?.text;
+    if (!mounted || text == null || text.isEmpty) {
+      return;
+    }
+    _insertAtSelection(text);
+  }
+
+  void _insertAtSelection(String text) {
+    final TextEditingValue value = _controller.value;
+    final TextSelection selection = value.selection;
+    final int start = selection.isValid ? selection.start : value.text.length;
+    final int end = selection.isValid ? selection.end : value.text.length;
+    _controller.value = TextEditingValue(
+      text: value.text.replaceRange(start, end, text),
+      selection: TextSelection.collapsed(offset: start + text.length),
+    );
+  }
+
+  void _reportPasteProblems(List<String> problems) {
+    if (problems.isEmpty) {
+      return;
+    }
+    _snack(problems.join('；'));
+  }
+
+  /// Enter sends; Ctrl+Enter inserts a newline; the IME owns Enter while a
+  /// composition is active; held keys never submit twice.
+  KeyEventResult _onKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is KeyUpEvent) {
+      return KeyEventResult.ignored;
+    }
+    final HardwareKeyboard keyboard = HardwareKeyboard.instance;
+    final LogicalKeyboardKey key = event.logicalKey;
+    final bool control = keyboard.isControlPressed;
+    final bool alt = keyboard.isAltPressed;
+    final bool meta = keyboard.isMetaPressed;
+    if (event is KeyRepeatEvent) {
+      final bool isSendKey =
+          key == LogicalKeyboardKey.enter ||
+          key == LogicalKeyboardKey.numpadEnter;
+      final bool isPasteKey = key == LogicalKeyboardKey.keyV && control;
+      return isSendKey || isPasteKey
+          ? KeyEventResult.handled
+          : KeyEventResult.ignored;
+    }
+    if (key == LogicalKeyboardKey.keyV &&
+        control &&
+        !alt &&
+        !meta &&
+        !keyboard.isShiftPressed) {
+      unawaited(_pasteFromClipboard());
+      return KeyEventResult.handled;
+    }
+    if (key != LogicalKeyboardKey.enter &&
+        key != LogicalKeyboardKey.numpadEnter) {
+      return KeyEventResult.ignored;
+    }
+    if (control && !alt && !meta) {
+      _insertAtSelection('\n');
+      return KeyEventResult.handled;
+    }
+    if (alt || meta || keyboard.isShiftPressed) {
+      // Shift/Alt+Enter stay with the editor for newline insertion.
+      return KeyEventResult.ignored;
+    }
+    if (_controller.value.composing.isValid) {
+      return KeyEventResult.ignored;
+    }
+    unawaited(_send());
+    return KeyEventResult.handled;
+  }
+
+  bool get _isDesktop =>
+      !kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
+
+  bool get _usesSendShortcut => _isDesktop;
 
   void _commitCurrentText() {
     final String text = _controller.text.trim();
@@ -676,12 +805,6 @@ class _ChatComposerState extends State<ChatComposer> {
                     onPressed: widget.enabled ? _addFile : null,
                     icon: const Icon(Icons.attach_file_rounded),
                   ),
-                  IconButton(
-                    key: ChatComposer.pasteKey,
-                    tooltip: '粘贴图片或视频',
-                    onPressed: widget.enabled ? _pasteMedia : null,
-                    icon: const Icon(Icons.content_paste_rounded),
-                  ),
                   Expanded(
                     child: TextField(
                       key: ChatComposer.inputKey,
@@ -691,10 +814,12 @@ class _ChatComposerState extends State<ChatComposer> {
                       minLines: 1,
                       maxLines: 5,
                       textInputAction: TextInputAction.newline,
-                      decoration: const InputDecoration(
-                        hintText: '输入消息…',
+                      decoration: InputDecoration(
+                        hintText: _usesSendShortcut
+                            ? '输入消息… Enter 发送 · Ctrl+Enter 换行'
+                            : '输入消息…',
                         isDense: true,
-                        contentPadding: EdgeInsets.symmetric(
+                        contentPadding: const EdgeInsets.symmetric(
                           horizontal: AppSpacing.md,
                           vertical: AppSpacing.sm + 4,
                         ),
@@ -702,17 +827,20 @@ class _ChatComposerState extends State<ChatComposer> {
                     ),
                   ),
                   const SizedBox(width: AppSpacing.xs),
-                  SizedBox(
-                    width: 48,
-                    height: 48,
-                    child: FilledButton(
-                      key: ChatComposer.sendKey,
-                      onPressed: widget.enabled ? _send : null,
-                      style: FilledButton.styleFrom(
-                        padding: EdgeInsets.zero,
-                        minimumSize: const Size(48, 48),
+                  Tooltip(
+                    message: _usesSendShortcut ? '发送（Enter）' : '发送',
+                    child: SizedBox(
+                      width: 48,
+                      height: 48,
+                      child: FilledButton(
+                        key: ChatComposer.sendKey,
+                        onPressed: widget.enabled ? _send : null,
+                        style: FilledButton.styleFrom(
+                          padding: EdgeInsets.zero,
+                          minimumSize: const Size(48, 48),
+                        ),
+                        child: const Icon(Icons.arrow_upward_rounded),
                       ),
-                      child: const Icon(Icons.arrow_upward_rounded),
                     ),
                   ),
                 ],
