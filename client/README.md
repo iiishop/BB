@@ -105,9 +105,10 @@ Linux 默认窗口 1180×780，Windows 同样 1180×780。Windows 构建/运行�
   每 30s 读一次 `GET /users` 的 `presence`（服务端在线判定＝session 在 90s 内有过心跳），
   进入会话时立即读一次。因此对方登录/登出后最迟约 30s 反映到顶栏；对方停止心跳但未登出时，
   服务端的 90s 窗口加上一次刷新使离线显示最迟约 120s，这是定时刷新而非即时推送。列表页与
-  单账号刷新在发起时各取一个递增 ticket，旧 ticket 的结果不能覆盖新结果（慢响应晚到也不回退）；
-  离开会话会作废该账号在途读取，重开后只有新读取能写入。读取失败保留最后一次确认值、不伪造
-  离线，恢复后继续更新；收到消息不推断在线。迟到响应不落到新会话或已销毁页面。
+  单账号刷新在发起时各取一个递增 ticket，旧 ticket 的结果不能覆盖新结果（慢响应晚到也不回退）。
+  读取所有权按账号隔离（不是一把全局锁）：一个账号的慢/被放弃请求不会阻塞新会话的首读；离开
+  会话会作废该账号在途读取并释放所有权，重开同一会话立即重读且只接受新结果。读取失败保留最后
+  一次确认值、不伪造离线，恢复后继续更新；收到消息不推断在线。迟到响应不落到新会话或已销毁页面。
 - **历史/并发**：初次加载连续拉取全部分页（不再固定 6×100 截断）；`_fetchedThrough` 只由
   连续服务器页推进，`_displayedMax` 仅表示本地已显示水位，本地发送不推动拉取游标；初始化/3s
   轮询/发送并发时统一按稳定 `id@position` 合并、排序、去重，补取中的新消息不会跳过 601–1000。
@@ -188,7 +189,7 @@ flutter test integration_test -d linux
 QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_tests.sh client
 ```
 
-- 默认 `flutter test`：最新严格 runner 为 **509 passed / 8 skipped / exit 0**。新增覆盖
+- 默认 `flutter test`：最新严格 runner 为 **511 passed / 8 skipped / exit 0**。新增覆盖
   1000 条真实分页下发送/接收并发补取无缺口、events/wait limit 边界、原子展示确认/冲突/全组
   拒绝/重启幂等、新 consumer 独立补取、有序图文发送、幂等/冲突、read→receipt→ACK 缺口、
   附件只读元信息、异步下载内容、持久事件、wait 积压/提前到达、用户列表分页/预览/在线状态、
@@ -206,9 +207,10 @@ QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_test
   已打开会话在线状态随共享来源在 30s 内更新且列表行同步、读取失败保留最后确认值不伪造离线、
   关闭会话后迟到响应不改下一个会话、presenceOf 按账号 keyset 只读目标一行、慢到的旧单账号读取
   不覆盖列表新结果（保持会话与关闭重开两种导航）、旧列表页不覆盖新单账号读取、unwatch 作废
-  在途读取、真实 HTTP 下切换账号后旧账号在途 presence 读取被拒且新账号独立解析同一对端。
+  在途读取、真实 HTTP 下切换账号后旧账号在途 presence 读取被拒且新账号独立解析同一对端、
+  新会话在旧账号请求未完成时立即发起自己的首读、关闭后重开同一会话立即重读且旧响应不覆盖。
 - 严格命令：`QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_tests.sh client`
-  → `RESULT=PASS`（analyze PASS、flutter-test 509 passed / 8 skipped / exit 0、linux-integration 14 passed / exit 0）。
+  → `RESULT=PASS`（analyze PASS、flutter-test 511 passed / 8 skipped / exit 0、linux-integration 14 passed / exit 0）。
 - `test/qa_metrics_test.dart` / `qa_session_race_test.dart` 保留独立 QA 的失败回归：
   打开面板后实时缩放/折叠重排、旧会话延迟 401 不得清掉新登录会话。
 - `test/qa_resize_transition_test.dart`、`profile_transition_reflow_test.dart` 保留并覆盖
