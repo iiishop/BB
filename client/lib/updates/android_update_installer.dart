@@ -99,7 +99,9 @@ class AndroidUpdateInstaller implements UpdateInstaller {
       // The user backed out of the system dialog (or the installer did not
       // complete). Nothing was upgraded, so no pending transaction may survive
       // into the next process.
-      unawaited(_clearMarker());
+      // Completion unlocks install admission. Finish removing this transaction
+      // before listeners may retry and write the next marker.
+      await _clearMarker();
     }
     _events.add(event);
   }

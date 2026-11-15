@@ -273,6 +273,12 @@ void main() {
 
     final AndroidUpdateInstaller instance = installer();
     await instance.availability(); // attach native -> Dart handler
+    // Consumers unlock the shared gate on this event, so cleanup must finish
+    // before it can admit a retry that writes the next transaction marker.
+    bool? markerAtCompletion;
+    final subscription = instance.events.listen((event) {
+      markerAtCompletion = marker.existsSync();
+    });
     await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .handlePlatformMessage(
           AndroidUpdateInstaller.channelName,
@@ -285,7 +291,9 @@ void main() {
           (ByteData? data) {},
         );
     await Future<void>.delayed(Duration.zero);
+    expect(markerAtCompletion, isFalse);
     expect(await marker.exists(), isFalse);
+    await subscription.cancel();
     await instance.dispose();
   });
 
