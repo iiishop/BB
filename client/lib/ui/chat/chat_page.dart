@@ -20,6 +20,7 @@ import 'media_actions.dart';
 import 'media_save.dart';
 import 'media_viewer.dart';
 import 'message_bubble.dart';
+import 'pending_send.dart';
 
 /// One-to-one chat with ordered text/image content and independent attachments.
 class ChatPage extends StatefulWidget {
@@ -32,6 +33,7 @@ class ChatPage extends StatefulWidget {
     this.onMessagesChanged,
     this.saveService,
     this.clipboard = const PlatformClipboardMediaReader(),
+    this.coverExtractor = defaultVideoCoverExtractor,
     this.viewerInlineVideoSupported,
   });
 
@@ -47,6 +49,10 @@ class ChatPage extends StatefulWidget {
 
   /// Clipboard/images seam for tests that exercise the real composer.
   final ClipboardMediaReader clipboard;
+
+  /// Product default is the real ffmpeg/platform extractor; the seam lets
+  /// widget tests exercise the partial-success window with a synthetic cover.
+  final VideoCoverExtractorFn coverExtractor;
 
   /// Test seam: force the viewer's external-player path on unsupported hosts.
   final bool? viewerInlineVideoSupported;
@@ -75,6 +81,43 @@ class _ChatPageState extends State<ChatPage> {
   final Map<String, Uint8List> _localPreviews = <String, Uint8List>{};
   final List<String> _localPreviewOrder = <String>[];
   String? _localPreviewAccount;
+  final ChatComposerController _composerController = ChatComposerController();
+  List<PendingSend> _pending = <PendingSend>[];
+  final Map<String, String> _operationByMessage = <String, String>{};
+
+  /// Identities that were not on screen at the previous build. Only these get
+  /// the entrance animation; history, scroll rebuilds and refresh do not.
+  final Set<String> _animateIdentities = <String>{};
+
+  /// Pending operation ids whose one entrance already played. Scrolling an
+  /// unfinished bubble out and back in must not replay it.
+  final Set<String> _pendingEntered = <String>{};
+
+  /// Operations whose committed message is already in `_messages`. A local
+  /// pending row with the same operation is hidden; other self messages are
+  /// never hidden and render immediately.
+  final Set<String> _committedOperations = <String>{};
+
+  /// Failed operations the server authoritatively reported as not committed.
+  /// Before that (pending/uncertain/error) the row is shown as unconfirmed.
+  final Set<String> _confirmedFailedOperations = <String>{};
+
+  /// Failed operations whose verification is not terminal yet. Used only to
+  /// schedule another lookup on a later poll; it never hides messages.
+  final Set<String> _unresolvedOperations = <String>{};
+
+  /// Monotonic request ticket per operation; an older lookup completion cannot
+  /// mutate a newer one.
+  final Map<String, int> _lookupGeneration = <String, int>{};
+  final Map<String, int> _lookupInFlight = <String, int>{};
+
+  /// Invalidates callbacks captured for a previous peer on this widget.
+  int _pageEpoch = 0;
+
+  /// Owns the shared history-fetch gate. A peer switch abandons the old ticket
+  /// so its finally cannot clear a newer request's _fetching flag.
+  int _historyTicket = 0;
+  int? _activeHistoryTicket;
   static const int _maxLocalPreviewEntries = 8;
   static const int _maxLocalPreviewBytes = 24 * 1024 * 1024;
   bool _loading = true;
@@ -89,6 +132,10 @@ class _ChatPageState extends State<ChatPage> {
   /// fetched window). It must never advance the fetch cursor by itself.
   int _displayedMax = 0;
   bool _fetching = false;
+
+  /// Bumped when the user grabs the list; queued/settling programmatic scrolls
+  /// from before that gesture are abandoned instead of fighting the drag.
+  int _scrollEpoch = 0;
 
   String get _consumerSession =>
       'ui:${widget.chat.selfAccount}:${widget.peer.account}';
@@ -114,6 +161,35 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   @override
+  void didUpdateWidget(covariant ChatPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.peer.account != widget.peer.account) {
+      // Requests captured for the previous conversation must never write into
+      // this page. A real navigation creates a new state; this guard also
+      // covers a parent that reuses the widget with another peer.
+      _pageEpoch += 1;
+      _lookupGeneration.clear();
+      _lookupInFlight.clear();
+      _messages.clear();
+      _pending = <PendingSend>[];
+      _operationByMessage.clear();
+      _committedOperations.clear();
+      _confirmedFailedOperations.clear();
+      _unresolvedOperations.clear();
+      _pendingEntered.clear();
+      _animateIdentities.clear();
+      _fetchedThrough = 0;
+      _displayedMax = 0;
+      _fetching = false;
+      _activeHistoryTicket = null;
+      _historyTicket += 1;
+      _error = null;
+      _loading = true;
+      unawaited(_loadInitial());
+    }
+  }
+
+  @override
   void dispose() {
     _pollTimer?.cancel();
     _avatars
@@ -133,11 +209,34 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
+  int _beginHistoryRequest() {
+    final int ticket = ++_historyTicket;
+    _activeHistoryTicket = ticket;
+    _fetching = true;
+    return ticket;
+  }
+
+  bool _historyRequestCurrent(int ticket, int epoch, String peer) {
+    return mounted &&
+        _activeHistoryTicket == ticket &&
+        _pageEpoch == epoch &&
+        widget.peer.account == peer;
+  }
+
+  void _endHistoryRequest(int ticket) {
+    if (_activeHistoryTicket == ticket) {
+      _fetching = false;
+      _activeHistoryTicket = null;
+    }
+  }
+
   Future<void> _loadInitial() async {
     if (_fetching) {
       return;
     }
-    _fetching = true;
+    final int epoch = _pageEpoch;
+    final String peer = widget.peer.account;
+    final int ticket = _beginHistoryRequest();
     if (mounted) {
       setState(() {
         _loading = true;
@@ -170,18 +269,21 @@ class _ChatPageState extends State<ChatPage> {
           break;
         }
       }
-      if (!mounted) {
+      if (!_historyRequestCurrent(ticket, epoch, peer)) {
         return;
       }
       setState(() {
         _mergeMessages(loaded);
         _fetchedThrough = cursor;
         _loading = false;
+        _animateIdentities.clear();
       });
+      _forgetCommittedPending();
       widget.onMessagesChanged?.call(List<ChatMessage>.unmodifiable(_messages));
-      _scrollToBottom(animate: false);
+      _retryUnresolvedLookups();
+      _scrollToBottom(animate: false, force: true);
     } on AuthFailure catch (failure) {
-      if (!mounted) {
+      if (!_historyRequestCurrent(ticket, epoch, peer)) {
         return;
       }
       setState(() {
@@ -189,7 +291,7 @@ class _ChatPageState extends State<ChatPage> {
         _error = failure.message;
       });
     } catch (_) {
-      if (!mounted) {
+      if (!_historyRequestCurrent(ticket, epoch, peer)) {
         return;
       }
       setState(() {
@@ -197,7 +299,7 @@ class _ChatPageState extends State<ChatPage> {
         _error = '消息加载失败，请稍后重试';
       });
     } finally {
-      _fetching = false;
+      _endHistoryRequest(ticket);
     }
   }
 
@@ -205,7 +307,9 @@ class _ChatPageState extends State<ChatPage> {
     if (_fetching) {
       return;
     }
-    _fetching = true;
+    final int epoch = _pageEpoch;
+    final String peer = widget.peer.account;
+    final int ticket = _beginHistoryRequest();
     try {
       final List<ChatMessage> loaded = <ChatMessage>[];
       int cursor = _fetchedThrough;
@@ -229,23 +333,188 @@ class _ChatPageState extends State<ChatPage> {
           break;
         }
       }
-      if (!mounted) {
+      if (!_historyRequestCurrent(ticket, epoch, peer)) {
         return;
       }
+      final bool wasNearBottom = _isNearBottom;
+      final Set<String> known = _messages
+          .map((ChatMessage message) => message.identity)
+          .toSet();
+      final Set<String> arrived = <String>{
+        for (final ChatMessage message in loaded)
+          if (!known.contains(message.identity)) message.identity,
+      };
       setState(() {
         _mergeMessages(loaded);
         // Only a contiguous server read advances the fetch cursor. Local
         // sends in _onSent never touch this value.
         _fetchedThrough = cursor;
+        _animateIdentities.addAll(arrived);
       });
+      _forgetCommittedPending();
       widget.onMessagesChanged?.call(List<ChatMessage>.unmodifiable(_messages));
-      if (loaded.isNotEmpty) {
-        _scrollToBottom();
+      _retryUnresolvedLookups();
+      if (arrived.isNotEmpty && wasNearBottom) {
+        _scrollToBottom(force: true);
       }
     } catch (_) {
       // Polling is best effort; the explicit refresh keeps the error visible.
     } finally {
-      _fetching = false;
+      _endHistoryRequest(ticket);
+    }
+  }
+
+  String? get _selfAccount {
+    try {
+      return widget.chat.selfAccount;
+    } on AuthFailure {
+      return null;
+    }
+  }
+
+  void _invalidateLookup(String operationId) {
+    _lookupGeneration[operationId] = (_lookupGeneration[operationId] ?? 0) + 1;
+  }
+
+  bool _lookupApplies(
+    String operationId,
+    int generation,
+    String account,
+    String peer,
+    int pageEpoch,
+  ) {
+    return mounted &&
+        _pageEpoch == pageEpoch &&
+        widget.peer.account == peer &&
+        _selfAccount == account &&
+        _lookupGeneration[operationId] == generation &&
+        !_committedOperations.contains(operationId) &&
+        _isFailedPendingLive(operationId);
+  }
+
+  /// Registers an association that is valid for this page's account and pair.
+  /// The service already enforces account/pair scope; this is the display
+  /// scope fence, and it also invalidates any in-flight lookup for the same
+  /// operation because the commit is now definitive.
+  void _recordAssociation(ChatMessage message, String operationId) {
+    final String? self = _selfAccount;
+    if (self == null ||
+        message.senderAccount != self ||
+        message.targetAccount != widget.peer.account) {
+      return;
+    }
+    if (message.operationId != null && message.operationId != operationId) {
+      return;
+    }
+    _operationByMessage[message.identity] = operationId;
+    if (_committedOperations.add(operationId)) {
+      _unresolvedOperations.remove(operationId);
+      _confirmedFailedOperations.remove(operationId);
+      _invalidateLookup(operationId);
+    }
+  }
+
+  bool _isFailedPendingLive(String operationId) {
+    return _pending.any(
+      (PendingSend item) =>
+          item.operationId == operationId &&
+          item.state == SendFeedbackState.failed,
+    );
+  }
+
+  void _retryUnresolvedLookups() {
+    if (_unresolvedOperations.isEmpty) {
+      return;
+    }
+    for (final String operationId in Set<String>.of(_unresolvedOperations)) {
+      if (_lookupInFlight.containsKey(operationId) ||
+          _committedOperations.contains(operationId) ||
+          !_isFailedPendingLive(operationId)) {
+        continue;
+      }
+      unawaited(_resolveFailedOperation(operationId));
+    }
+  }
+
+  /// A client-observed failure is not proof the server rejected the operation.
+  /// Only `GET /operations/{id}` can name the committed message for this exact
+  /// operation; if it can, the local failure row is replaced by that message.
+  /// Every request owns a generation; a completion is only allowed to write
+  /// while its generation, page, account and peer all still match.
+  Future<void> _resolveFailedOperation(String operationId) async {
+    if (!_isFailedPendingLive(operationId) ||
+        _committedOperations.contains(operationId)) {
+      return;
+    }
+    final String? account = _selfAccount;
+    if (account == null) {
+      return;
+    }
+    final String peer = widget.peer.account;
+    final int pageEpoch = _pageEpoch;
+    final int generation = (_lookupGeneration[operationId] ?? 0) + 1;
+    _lookupGeneration[operationId] = generation;
+    _lookupInFlight[operationId] = generation;
+    try {
+      final OperationResult? result = await widget.chat.getOperation(
+        operationId,
+      );
+      if (!_lookupApplies(operationId, generation, account, peer, pageEpoch)) {
+        return;
+      }
+      final ChatMessage? message = result?.message;
+      if (result?.status == OperationStatus.succeeded && message != null) {
+        if (message.senderAccount != account ||
+            message.targetAccount != peer ||
+            (message.operationId != null &&
+                message.operationId != operationId)) {
+          return;
+        }
+        setState(() {
+          _recordAssociation(message, operationId);
+          _mergeMessages(<ChatMessage>[message]);
+          _animateIdentities.remove(message.identity);
+        });
+        widget.onMessagesChanged?.call(
+          List<ChatMessage>.unmodifiable(_messages),
+        );
+        _composerController.forgetCommittedOperation(operationId);
+        _hideFailureSnackBarIfClear();
+      } else if (result == null || result.status == OperationStatus.failed) {
+        // Authoritative "not committed": keep the local failure row, now
+        // labelled as a definite failure rather than an unknown state.
+        setState(() {
+          _unresolvedOperations.remove(operationId);
+          _confirmedFailedOperations.add(operationId);
+        });
+      } else {
+        // pending/uncertain/succeeded-without-message: still unknown, keep the
+        // retry entry and retry the lookup on a later poll.
+        setState(() {
+          _unresolvedOperations.add(operationId);
+          _confirmedFailedOperations.remove(operationId);
+        });
+      }
+    } on AuthFailure {
+      if (_lookupApplies(operationId, generation, account, peer, pageEpoch)) {
+        setState(() {
+          _unresolvedOperations.add(operationId);
+          _confirmedFailedOperations.remove(operationId);
+        });
+      }
+    } catch (_) {
+      if (_lookupApplies(operationId, generation, account, peer, pageEpoch)) {
+        setState(() {
+          _unresolvedOperations.add(operationId);
+          _confirmedFailedOperations.remove(operationId);
+        });
+      }
+    } finally {
+      // Only this request's ticket is cleared. A newer request for the same
+      // operation keeps its own in-flight marker.
+      if (_lookupInFlight[operationId] == generation) {
+        _lookupInFlight.remove(operationId);
+      }
     }
   }
 
@@ -265,6 +534,12 @@ class _ChatPageState extends State<ChatPage> {
         (ChatMessage a, ChatMessage b) => a.position.compareTo(b.position),
       );
     _displayedMax = _messages.isEmpty ? 0 : _messages.last.position;
+    for (final ChatMessage message in _messages) {
+      final String? operationId = message.operationId;
+      if (operationId != null) {
+        _recordAssociation(message, operationId);
+      }
+    }
   }
 
   void _onSent(
@@ -285,28 +560,217 @@ class _ChatPageState extends State<ChatPage> {
     final int before = _displayedMax;
     setState(() {
       _mergeMessages(added);
+      // The committed bubble keeps the pending element (same operation id) and
+      // continues its single entrance. Adding the identities also covers a
+      // send that settled before its first frame was painted.
+      _animateIdentities.addAll(
+        added.map((ChatMessage message) => message.identity),
+      );
     });
+    _forgetCommittedPending();
     widget.onMessagesChanged?.call(List<ChatMessage>.unmodifiable(_messages));
     if (_displayedMax > before) {
+      // A settle is not a new user action: follow only when already near the
+      // end, so a reader who scrolled up meanwhile is not pulled down.
       _scrollToBottom();
     }
   }
 
-  void _scrollToBottom({bool animate = true}) {
+  void _onSentOperations(List<SentOperation> operations) {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      for (final SentOperation operation in operations) {
+        final ChatMessage message = operation.message;
+        if (message.operationId != null &&
+            message.operationId != operation.operationId) {
+          continue;
+        }
+        _recordAssociation(message, operation.operationId);
+      }
+    });
+  }
+
+  void _onPendingChanged(List<PendingSend> pending) {
+    if (!mounted) {
+      return;
+    }
+    final Map<String, SendFeedbackState> previousState =
+        <String, SendFeedbackState>{
+          for (final PendingSend item in _pending) item.operationId: item.state,
+        };
+    final Set<String> live = <String>{
+      for (final PendingSend item in pending) item.operationId,
+    };
+    final Set<String> failedLive = <String>{
+      for (final PendingSend item in pending)
+        if (item.state == SendFeedbackState.failed) item.operationId,
+    };
+    final bool startedSend = pending.any(
+      (PendingSend item) =>
+          item.state == SendFeedbackState.sending &&
+          !previousState.containsKey(item.operationId),
+    );
+    final List<String> retried = <String>[
+      for (final PendingSend item in pending)
+        if (item.state == SendFeedbackState.sending &&
+            previousState[item.operationId] == SendFeedbackState.failed)
+          item.operationId,
+    ];
+    final List<String> newlyFailed = <String>[
+      for (final PendingSend item in pending)
+        if (item.state == SendFeedbackState.failed &&
+            previousState[item.operationId] != SendFeedbackState.failed &&
+            !_committedOperations.contains(item.operationId))
+          item.operationId,
+    ];
+    final List<String> alreadyCommitted = <String>[
+      for (final PendingSend item in pending)
+        if (_committedOperations.contains(item.operationId)) item.operationId,
+    ];
+    setState(() {
+      _pending = List<PendingSend>.of(pending);
+      for (final String operationId in retried) {
+        _invalidateLookup(operationId);
+        _unresolvedOperations.remove(operationId);
+        _confirmedFailedOperations.remove(operationId);
+      }
+      for (final String operationId in live) {
+        if (!failedLive.contains(operationId)) {
+          _confirmedFailedOperations.remove(operationId);
+        }
+      }
+      _pendingEntered.removeWhere(
+        (String operationId) => !live.contains(operationId),
+      );
+      _unresolvedOperations.removeWhere(
+        (String operationId) => !failedLive.contains(operationId),
+      );
+      _confirmedFailedOperations.removeWhere(
+        (String operationId) => !live.contains(operationId),
+      );
+      _lookupGeneration.removeWhere(
+        (String operationId, int _) =>
+            !live.contains(operationId) &&
+            !_committedOperations.contains(operationId),
+      );
+    });
+    if (startedSend) {
+      // A new explicit send reveals its bubble immediately; a failed/retrying
+      // update does not move a reader who is parked in history. No long
+      // animation here, so the user can grab the list without a fight.
+      _scrollToBottom(animate: false, force: true);
+    }
+    if (alreadyCommitted.isNotEmpty) {
+      for (final String operationId in alreadyCommitted.toSet()) {
+        _composerController.forgetCommittedOperation(operationId);
+      }
+      _hideFailureSnackBarIfClear();
+    }
+    if (newlyFailed.isNotEmpty) {
+      for (final String operationId in newlyFailed) {
+        unawaited(_resolveFailedOperation(operationId));
+      }
+    }
+  }
+
+  void _forgetCommittedPending() {
+    final Set<String> operationIds = <String>{
+      for (final PendingSend item in _pending)
+        if (_committedOperations.contains(item.operationId)) item.operationId,
+    };
+    for (final String operationId in operationIds) {
+      _composerController.forgetCommittedOperation(operationId);
+    }
+    if (operationIds.isNotEmpty) {
+      _hideFailureSnackBarIfClear();
+    }
+  }
+
+  void _hideFailureSnackBarIfClear() {
+    if (mounted && !_composerController.canRetry) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    }
+  }
+
+  Uint8List? _previewFor(String mediaId) {
+    for (final PendingSend pending in _pending) {
+      final Uint8List? bytes = pending.imageBytes[mediaId];
+      if (bytes != null) {
+        return bytes;
+      }
+    }
+    return _localPreviewFor(mediaId);
+  }
+
+  /// True when the viewport is close enough to the end that new content may
+  /// follow it. A reader parked in history is never pulled down.
+  bool get _isNearBottom {
+    if (!_scrollController.hasClients) {
+      return true;
+    }
+    final ScrollPosition position = _scrollController.position;
+    return position.maxScrollExtent - position.pixels <= 96;
+  }
+
+  void _scrollToBottom({bool animate = true, bool force = false}) {
+    if (!force && !_isNearBottom) {
+      return;
+    }
+    final int epoch = _scrollEpoch;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_scrollController.hasClients) {
-        return;
-      }
-      final double target = _scrollController.position.maxScrollExtent;
-      if (animate) {
-        _scrollController.animateTo(
-          target,
-          duration: const Duration(milliseconds: 240),
-          curve: Curves.easeOutCubic,
-        );
-      } else {
-        _scrollController.jumpTo(target);
-      }
+      _applyBottomScroll(animate: animate, attempt: 0, epoch: epoch);
+    });
+  }
+
+  bool _onScrollNotification(ScrollNotification notification) {
+    if (notification is ScrollStartNotification &&
+        notification.dragDetails != null) {
+      _scrollEpoch += 1;
+    }
+    return false;
+  }
+
+  /// The list is lazy, so its reported max extent can grow while scrolling
+  /// toward the end. Animate once, then correct any remaining distance with
+  /// cheap jumps so a send really lands on its own bubble.
+  void _applyBottomScroll({
+    required bool animate,
+    required int attempt,
+    required int epoch,
+  }) {
+    if (!mounted || !_scrollController.hasClients || epoch != _scrollEpoch) {
+      return;
+    }
+    final ScrollPosition position = _scrollController.position;
+    final double target = position.maxScrollExtent;
+    final double remaining = target - position.pixels;
+    if (remaining.abs() <= 1) {
+      return;
+    }
+    if (animate && attempt == 0) {
+      _scrollController
+          .animateTo(
+            target,
+            duration: const Duration(milliseconds: 240),
+            curve: Curves.easeOutCubic,
+          )
+          .whenComplete(() {
+            if (mounted &&
+                _scrollController.hasClients &&
+                epoch == _scrollEpoch) {
+              _applyBottomScroll(animate: false, attempt: 1, epoch: epoch);
+            }
+          });
+      return;
+    }
+    if (attempt >= 3) {
+      return;
+    }
+    _scrollController.jumpTo(target);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _applyBottomScroll(animate: false, attempt: attempt + 1, epoch: epoch);
     });
   }
 
@@ -615,10 +1079,15 @@ class _ChatPageState extends State<ChatPage> {
         children: <Widget>[
           Expanded(child: _buildBody()),
           ChatComposer(
+            key: ValueKey<String>('chat-composer-${widget.peer.account}'),
             chat: widget.chat,
             peerAccount: widget.peer.account,
             clipboard: widget.clipboard,
+            coverExtractor: widget.coverExtractor,
+            controller: _composerController,
             onSent: _onSent,
+            onSentOperations: _onSentOperations,
+            onPendingChanged: _onPendingChanged,
           ),
         ],
       ),
@@ -658,7 +1127,10 @@ class _ChatPageState extends State<ChatPage> {
         ),
       );
     }
-    if (_messages.isEmpty) {
+    final bool hasVisiblePending = _pending.any(
+      (PendingSend item) => !_committedOperations.contains(item.operationId),
+    );
+    if (_messages.isEmpty && !hasVisiblePending) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -678,67 +1150,172 @@ class _ChatPageState extends State<ChatPage> {
         ),
       );
     }
+    final List<_TimelineEntry> entries = <_TimelineEntry>[
+      for (final ChatMessage message in _messages)
+        _TimelineEntry(
+          message: message,
+          operationId:
+              message.operationId ?? _operationByMessage[message.identity],
+        ),
+      for (final PendingSend pending in _pending)
+        if (!_committedOperations.contains(pending.operationId))
+          _TimelineEntry(
+            message: pending.message,
+            operationId: pending.operationId,
+            pending: pending,
+          ),
+    ];
+    bool sameRun(int left, int right) {
+      return continuesMessageRun(
+        entries[left].message.senderAccount,
+        entries[left].message.createdAt,
+        entries[right].message.senderAccount,
+        entries[right].message.createdAt,
+      );
+    }
+
     final List<Widget> timeline = <Widget>[];
     DateTime? previous;
-    for (final ChatMessage message in _messages) {
-      if (shouldShowDaySeparator(previous, message.createdAt)) {
-        timeline.add(
-          _DaySeparator(label: formatDaySeparator(message.createdAt)),
-        );
-      } else if (shouldShowGapLabel(previous, message.createdAt)) {
-        timeline.add(
-          Center(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
-              child: Text(
-                formatClockTime(message.createdAt),
-                style: const TextStyle(fontSize: 11, color: AppColors.inkMuted),
+    for (int index = 0; index < entries.length; index += 1) {
+      final _TimelineEntry entry = entries[index];
+      final ChatMessage message = entry.message;
+      final bool committed = entry.pending == null;
+      if (committed) {
+        final DateTime local = message.createdAt.toLocal();
+        if (shouldShowDaySeparator(previous, message.createdAt)) {
+          timeline.add(
+            _DaySeparator(
+              key: ValueKey<String>(
+                'chat-day-${local.year}-${local.month}-${local.day}',
+              ),
+              label: formatDaySeparator(message.createdAt),
+            ),
+          );
+        } else if (shouldShowGapLabel(previous, message.createdAt)) {
+          timeline.add(
+            KeyedSubtree(
+              key: ValueKey<String>('chat-gap-${message.identity}'),
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+                  child: Text(
+                    formatClockTime(message.createdAt),
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: AppColors.inkMuted,
+                    ),
+                  ),
+                ),
               ),
             ),
-          ),
-        );
+          );
+        }
+        previous = message.createdAt;
       }
+      final bool runStart = index == 0 || !sameRun(index - 1, index);
+      final bool runEnd =
+          index == entries.length - 1 || !sameRun(index, index + 1);
       final Attachment? attachment = message.attachment;
+      final String bubbleKey = entry.operationId ?? message.identity;
+      final bool pendingFirstFrame =
+          entry.pending != null && !_pendingEntered.contains(entry.operationId);
+      final SendFeedbackState? displayedSendState = entry.pending?.state;
+      final bool statusUnconfirmed =
+          entry.pending?.state == SendFeedbackState.failed &&
+          !_confirmedFailedOperations.contains(entry.operationId);
+      final Widget bubble = MessageBubble(
+        key: ValueKey<String>('chat-bubble-$bubbleKey'),
+        message: message,
+        selfAccount: widget.chat.selfAccount,
+        peerUsername: widget.peer.username,
+        chat: widget.chat,
+        avatars: _avatars,
+        busy:
+            committed &&
+            attachment != null &&
+            _busyMedia.contains(attachment.mediaId),
+        sendState: displayedSendState,
+        statusUnconfirmed: statusUnconfirmed,
+        onRetry: entry.pending?.state == SendFeedbackState.failed
+            ? () => _composerController.retryFailed(entry.operationId!)
+            : null,
+        showAvatar: runEnd,
+        isRunEnd: runEnd,
+        onSaveAs: committed && attachment != null
+            ? () => _saveAs(attachment)
+            : null,
+        onDownload: committed && attachment != null
+            ? () => _download(attachment)
+            : null,
+        onPlay:
+            committed &&
+                attachment != null &&
+                attachment.kind != AttachmentKind.other
+            ? () => _play(attachment)
+            : null,
+        onOpenMedia: committed ? _openMedia : null,
+        localMediaPreview: _previewFor,
+      );
       timeline.add(
-        MessageBubble(
-          message: message,
-          selfAccount: widget.chat.selfAccount,
-          peerUsername: widget.peer.username,
-          chat: widget.chat,
-          avatars: _avatars,
-          busy: attachment != null && _busyMedia.contains(attachment.mediaId),
-          onSaveAs: attachment == null ? null : () => _saveAs(attachment),
-          onDownload: attachment == null ? null : () => _download(attachment),
-          onPlay: attachment == null || attachment.kind == AttachmentKind.other
-              ? null
-              : () => _play(attachment),
-          onOpenMedia: _openMedia,
-          localMediaPreview: _localPreviewFor,
+        Padding(
+          key: ValueKey<String>('chat-row-$bubbleKey'),
+          padding: EdgeInsets.only(top: runStart ? 10 : 2),
+          child: MessageEntrance(
+            key: ValueKey<String>('chat-entrance-$bubbleKey'),
+            animate: entry.pending != null
+                ? pendingFirstFrame
+                : _animateIdentities.contains(message.identity),
+            child: bubble,
+          ),
         ),
       );
-      previous = message.createdAt;
+    }
+    final Set<String> consumedIdentities = Set<String>.of(_animateIdentities);
+    final Set<String> consumedPending = <String>{
+      for (final _TimelineEntry entry in entries)
+        if (entry.pending != null &&
+            !_pendingEntered.contains(entry.operationId))
+          entry.operationId!,
+    };
+    if (consumedIdentities.isNotEmpty || consumedPending.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _animateIdentities.removeAll(consumedIdentities);
+        _pendingEntered.addAll(consumedPending);
+      });
     }
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 860),
-        child: ListView(
-          key: ChatPage.listKey,
-          controller: _scrollController,
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.md,
-            AppSpacing.md,
-            AppSpacing.md,
-            AppSpacing.lg,
+        child: NotificationListener<ScrollNotification>(
+          onNotification: _onScrollNotification,
+          child: ListView(
+            key: ChatPage.listKey,
+            controller: _scrollController,
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.md,
+              AppSpacing.md,
+              AppSpacing.md,
+              AppSpacing.lg,
+            ),
+            children: timeline,
           ),
-          children: timeline,
         ),
       ),
     );
   }
 }
 
+/// One row in the visible timeline: a committed message or a local pending one.
+class _TimelineEntry {
+  const _TimelineEntry({required this.message, this.operationId, this.pending});
+
+  final ChatMessage message;
+  final String? operationId;
+  final PendingSend? pending;
+}
+
 class _DaySeparator extends StatelessWidget {
-  const _DaySeparator({required this.label});
+  const _DaySeparator({super.key, required this.label});
 
   final String label;
 

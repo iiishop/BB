@@ -75,7 +75,7 @@ class ChatApiClient {
       },
     );
     _requireSuccess(response, const <int>{200});
-    return ChatMessage.fromJson(_decode(response.body));
+    return ChatMessage.fromJson(_decodeMessages(response));
   }
 
   Future<ChatMessage> sendAttachment({
@@ -95,7 +95,7 @@ class ChatApiClient {
       },
     );
     _requireSuccess(response, const <int>{200});
-    return ChatMessage.fromJson(_decode(response.body));
+    return ChatMessage.fromJson(_decodeMessages(response));
   }
 
   /// One page of a pair's history.
@@ -129,7 +129,7 @@ class ChatApiClient {
     );
     final _RawResponse response = await _send('GET', url, token: token);
     _requireSuccess(response, const <int>{200});
-    return MessagePage.fromJson(_decode(response.body));
+    return MessagePage.fromJson(_decodeMessages(response));
   }
 
   /// Existing private conversations, peer-account keyset order.
@@ -144,7 +144,7 @@ class ChatApiClient {
     });
     final _RawResponse response = await _send('GET', url, token: token);
     _requireSuccess(response, const <int>{200});
-    return ConversationRecordPage.fromJson(_decode(response.body));
+    return ConversationRecordPage.fromJson(_decodeMessages(response));
   }
 
   /// Direct message lookup. 404 is the uniform safe miss for absent/forbidden.
@@ -161,7 +161,7 @@ class ChatApiClient {
       return null;
     }
     _requireSuccess(response, const <int>{200});
-    return ChatMessage.fromJson(_decode(response.body));
+    return ChatMessage.fromJson(_decodeMessages(response));
   }
 
   /// Direct context lookup from the same server query layer.
@@ -186,7 +186,7 @@ class ChatApiClient {
       return null;
     }
     _requireSuccess(response, const <int>{200});
-    return MessageContextRecord.fromJson(_decode(response.body));
+    return MessageContextRecord.fromJson(_decodeMessages(response));
   }
 
   /// Returns null on 404 so a lost socket can query before retrying.
@@ -203,7 +203,7 @@ class ChatApiClient {
       return null;
     }
     _requireSuccess(response, const <int>{200});
-    return OperationResult.fromJson(_decode(response.body));
+    return OperationResult.fromJson(_decodeMessages(response));
   }
 
   Future<Attachment> uploadMedia({
@@ -469,6 +469,7 @@ class ChatApiClient {
           .openUrl(method, url)
           .timeout(timeout);
       request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
+      request.headers.set('X-BB-Message-Association', '1');
       if (body != null) {
         request.headers.contentType = contentType ?? ContentType.json;
         request.contentLength = body.length;
@@ -483,6 +484,7 @@ class ChatApiClient {
         response.statusCode,
         raw,
         retryAfterSeconds: int.tryParse(retryAfter ?? ''),
+        association: response.headers.value('X-BB-Message-Association') == '1',
       );
     } on SocketException {
       throw upstreamUnavailable;
@@ -548,6 +550,31 @@ class ChatApiClient {
       return null;
     }
     return int.tryParse(raw.substring(slash + 1).trim());
+  }
+
+  Map<String, dynamic> _decodeMessages(_RawResponse response) {
+    final value = _decode(response.body);
+    // Only a negotiated response can supply association evidence.
+    if (!response.association) {
+      void strip(Object? node) {
+        if (node is Map<String, dynamic>) {
+          if (node.containsKey('sender_account') &&
+              node.containsKey('target_account')) {
+            node.remove('operation_id');
+          }
+          for (final child in node.values) {
+            strip(child);
+          }
+        } else if (node is List) {
+          for (final child in node) {
+            strip(child);
+          }
+        }
+      }
+
+      strip(value);
+    }
+    return value;
   }
 
   Map<String, dynamic> _decode(String raw) {
@@ -646,7 +673,14 @@ class ChatApiClient {
 }
 
 class _RawResponse {
-  const _RawResponse(this.status, this.body, {this.retryAfterSeconds});
+  const _RawResponse(
+    this.status,
+    this.body, {
+    this.retryAfterSeconds,
+    this.association = false,
+  });
+
+  final bool association;
 
   final int status;
   final String body;

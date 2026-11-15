@@ -60,6 +60,44 @@ class FakeChatService extends ChatService {
   final List<String> sentTexts = <String>[];
   final List<int> conversationCalls = <int>[];
   final List<String> mediaBytesCalls = <String>[];
+  final List<String> sendSeeds = <String>[];
+  final List<String> bodyOperationIds = <String>[];
+  int sendCalls = 0;
+
+  /// Blocks [sendComposed] until completed, so tests can observe the local
+  /// "sending" bubble before the server commits.
+  Completer<void>? sendGate;
+
+  /// Blocks the response after the body was appended, while attachments are
+  /// still being handled: the partial-success window.
+  Completer<void>? attachmentGate;
+
+  /// Blocks the response after every item was appended (server accepted) but
+  /// before the caller sees the result.
+  Completer<void>? responseGate;
+
+  /// Per-operation response gates for out-of-order return tests.
+  bool holdResponses = false;
+  final Map<String, Completer<void>> _responseGates =
+      <String, Completer<void>>{};
+
+  /// Answer for the authoritative operation lookup used when a send failed.
+  OperationResult? operationResult;
+  final List<String> operationQueries = <String>[];
+
+  Completer<void> responseGateFor(String seed) {
+    return _responseGates.putIfAbsent(seed, () => Completer<void>());
+  }
+
+  /// Thrown from [sendComposed] after [sendGate] completes.
+  Object? sendFailure;
+
+  /// Returns a failed body outcome instead of committing it.
+  bool failBody = false;
+
+  /// Fails the retry path in [sendBody].
+  bool failBodyRetry = false;
+
   final List<String> previewCalls = <String>[];
   final List<bool> previewThumbnailFlags = <bool>[];
   final List<String> listPreviewCalls = <String>[];
@@ -143,6 +181,16 @@ class FakeChatService extends ChatService {
     String? operationSeed,
   }) async {
     final String seed = operationSeed ?? 'fake-${++_seq}';
+    sendCalls += 1;
+    sendSeeds.add(seed);
+    final Completer<void>? gate = sendGate;
+    if (gate != null) {
+      await gate.future;
+    }
+    final Object? failure = sendFailure;
+    if (failure != null) {
+      throw failure;
+    }
     lastSentBody
       ..clear()
       ..addAll(body);
@@ -154,7 +202,17 @@ class FakeChatService extends ChatService {
       () => <ChatMessage>[],
     );
     SendOutcome? bodyOutcome;
-    if (body.isNotEmpty) {
+    if (body.isNotEmpty && failBody) {
+      bodyOutcome = SendOutcome(
+        operationId: '$seed-b',
+        failure: const AuthFailure(
+          status: 503,
+          code: 'storage_busy',
+          message: '稍后重试',
+        ),
+        part: body,
+      );
+    } else if (body.isNotEmpty) {
       final List<MessagePart> parts = <MessagePart>[];
       for (final OutgoingPart part in body) {
         if (part is OutgoingText) {
@@ -170,6 +228,7 @@ class FakeChatService extends ChatService {
           targetAccount,
           ChatMessageKind.body,
           parts: parts,
+          operationId: '$seed-b',
         );
         bodyOutcome = SendOutcome(
           operationId: '$seed-b',
@@ -177,6 +236,10 @@ class FakeChatService extends ChatService {
           part: body,
         );
       }
+    }
+    final Completer<void>? attachmentGate = this.attachmentGate;
+    if (attachmentGate != null) {
+      await attachmentGate.future;
     }
     final List<SendOutcome> outcomes = <SendOutcome>[];
     for (int i = 0; i < attachments.length; i++) {
@@ -196,6 +259,7 @@ class FakeChatService extends ChatService {
         target,
         targetAccount,
         ChatMessageKind.attachment,
+        operationId: '$seed-a$i',
         attachment: Attachment(
           mediaId: 'fake-media-${++_seq}',
           kind: mime.startsWith('video/')
@@ -217,6 +281,13 @@ class FakeChatService extends ChatService {
         ),
       );
     }
+    final Completer<void>? responseGate = this.responseGate;
+    if (responseGate != null) {
+      await responseGate.future;
+    }
+    if (holdResponses) {
+      await responseGateFor(seed).future;
+    }
     return ComposedSendResult(
       body: bodyOutcome,
       attachments: outcomes,
@@ -230,6 +301,7 @@ class FakeChatService extends ChatService {
     ChatMessageKind kind, {
     List<MessagePart> parts = const <MessagePart>[],
     Attachment? attachment,
+    String? operationId,
   }) {
     final ChatMessage message = ChatMessage(
       id: 'fake-${++_seq}',
@@ -240,9 +312,60 @@ class FakeChatService extends ChatService {
       kind: kind,
       parts: parts,
       attachment: attachment,
+      operationId: operationId,
     );
     list.add(message);
     return message;
+  }
+
+  @override
+  Future<OperationResult?> getOperation(String operationId) async {
+    operationQueries.add(operationId);
+    return operationResult;
+  }
+
+  @override
+  Future<SendOutcome> sendBody({
+    required String targetAccount,
+    required List<OutgoingPart> content,
+    String? operationId,
+    ExpectedIdentity? expectedIdentity,
+  }) async {
+    bodyOperationIds.add(operationId ?? '');
+    if (failBodyRetry) {
+      return SendOutcome(
+        operationId: operationId ?? 'retry',
+        failure: const AuthFailure(
+          status: 503,
+          code: 'storage_busy',
+          message: '稍后重试',
+        ),
+        part: content,
+      );
+    }
+    final List<MessagePart> parts = <MessagePart>[
+      for (final OutgoingPart part in content)
+        if (part is OutgoingText)
+          TextPart(part.text)
+        else if (part is OutgoingImage)
+          ImagePart('fake-image-${++_seq}'),
+    ];
+    final List<ChatMessage> target = conversations.putIfAbsent(
+      targetAccount,
+      () => <ChatMessage>[],
+    );
+    final ChatMessage message = _append(
+      target,
+      targetAccount,
+      ChatMessageKind.body,
+      parts: parts,
+      operationId: operationId,
+    );
+    return SendOutcome(
+      operationId: operationId ?? 'retry',
+      message: message,
+      part: content,
+    );
   }
 
   @override

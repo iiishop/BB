@@ -1,0 +1,20 @@
+{
+  "source": "Sentinel attachment 01a1dd80-64ea-7a35-a567-9df0c393224b",
+  "archive_sha256": "3e4eadaea5a9b3d19d2cf04793253e7d00174de93f9576f65b8ebf08d7709219",
+  "probe_sha": "b2473ec14ab5f372f42f178d613dc542421fff6d",
+  "counts": {
+    "tests": 23,
+    "failures": 14,
+    "errors": 0,
+    "skipped": 0
+  },
+  "recorded_exit_code": 1,
+  "artifact_hashes_verified": true,
+  "patch_files": [
+    "client/review_probes/dea475_association/.gitignore",
+    "client/review_probes/dea475_association/association_test.dart",
+    "client/review_probes/dea475_association/flutter_junit.py",
+    "client/review_probes/dea475_association/scope.md"
+  ],
+  "rerun_by_Forge": false
+}

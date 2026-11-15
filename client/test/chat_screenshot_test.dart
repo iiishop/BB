@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show DisplayFeature, DisplayFeatureState, DisplayFeatureType;
 
@@ -9,6 +10,7 @@ import 'package:bb_client/services/auth_api_client.dart';
 import 'package:bb_client/services/auth_service.dart';
 import 'package:bb_client/services/auth_session.dart';
 import 'package:bb_client/services/heartbeat_controller.dart';
+import 'package:bb_client/ui/chat/chat_composer.dart';
 import 'package:bb_client/ui/chat/chat_page.dart';
 import 'package:bb_client/ui/chat/users_view.dart';
 import 'package:bb_client/ui/home_view.dart';
@@ -274,6 +276,131 @@ void main() {
       'chat-thread-phone.png',
       'chat-thread-wide.png',
       'chat-thread-folded.png',
+    ]) {
+      expect(
+        File('${directory.path}${Platform.pathSeparator}$name').existsSync(),
+        isTrue,
+      );
+    }
+    expect(tester.takeException(), isNull);
+  }, skip: skipReason != null);
+
+  testWidgets('capture local send feedback states (opt-in evidence)', (
+    WidgetTester tester,
+  ) async {
+    if (outputDir == null) {
+      return;
+    }
+    final Directory directory = Directory(outputDir);
+    directory.createSync(recursive: true);
+    if (fontPath != null && File(fontPath).existsSync()) {
+      final Uint8List bytes = File(fontPath).readAsBytesSync();
+      await tester.runAsync(() async {
+        for (final String family in <String>['Roboto', 'Ahem']) {
+          await (FontLoader(family)
+                ..addFont(Future<ByteData>.value(ByteData.view(bytes.buffer))))
+              .load();
+        }
+      });
+    }
+    if (iconFontPath != null && File(iconFontPath).existsSync()) {
+      final Uint8List bytes = File(iconFontPath).readAsBytesSync();
+      await tester.runAsync(() async {
+        await (FontLoader(
+          'MaterialIcons',
+        )..addFont(Future<ByteData>.value(ByteData.view(bytes.buffer)))).load();
+      });
+    }
+    final GlobalKey boundary = GlobalKey();
+    final DateTime now = DateTime.now().toUtc();
+
+    Future<void> pumpChat(FakeChatService chat) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+      await tester.pumpWidget(
+        RepaintBoundary(
+          key: boundary,
+          child: MaterialApp(
+            debugShowCheckedModeBanner: false,
+            theme: _theme(),
+            home: ChatPage(
+              peer: const ChatUser(
+                account: '10000002',
+                username: 'bob',
+                avatarUrl: '/avatars/10000002.png',
+                avatarVersion: 'v-bob',
+                presence: Presence.online,
+              ),
+              chat: chat,
+              profile: FakeProfileGateway(),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> capture(String name) async {
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+      });
+      await tester.pump(const Duration(milliseconds: 100));
+      await expectLater(
+        find.byKey(boundary),
+        matchesGoldenFile('../.qa-artifacts/screenshots/$name'),
+      );
+    }
+
+    final ChatMessage incoming = ChatMessage(
+      id: 's1',
+      position: 1,
+      senderAccount: '10000002',
+      targetAccount: '10000001',
+      createdAt: now.subtract(const Duration(minutes: 2)),
+      kind: ChatMessageKind.body,
+      parts: const <MessagePart>[TextPart('今晚七点见？我先把位置占好。')],
+    );
+    final FakeChatService gated = FakeChatService(
+      self: _self,
+      users: const <ChatUser>[],
+      conversations: <String, List<ChatMessage>>{
+        '10000002': <ChatMessage>[incoming],
+      },
+    );
+    gated.sendGate = Completer<void>();
+    await pumpChat(gated);
+    await tester.enterText(find.byKey(ChatComposer.inputKey), '好，我六点半到。');
+    await tester.tap(find.byKey(ChatComposer.sendKey));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 260));
+    await capture('chat-send-sending-phone.png');
+    gated.sendGate!.complete();
+    await tester.pumpAndSettle();
+    await capture('chat-send-settled-phone.png');
+
+    final FakeChatService failed = FakeChatService(
+      self: _self,
+      users: const <ChatUser>[],
+      conversations: <String, List<ChatMessage>>{
+        '10000002': <ChatMessage>[incoming],
+      },
+    )..failBody = true;
+    await pumpChat(failed);
+    await tester.enterText(find.byKey(ChatComposer.inputKey), '这条会失败');
+    await tester.tap(find.byKey(ChatComposer.sendKey));
+    await tester.pumpAndSettle();
+    // Let the composer's failure snackbar leave; the bubble itself is the
+    // state evidence and avoids test-font fallback in the capture.
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
+    await capture('chat-send-failed-phone.png');
+
+    for (final String name in <String>[
+      'chat-send-sending-phone.png',
+      'chat-send-settled-phone.png',
+      'chat-send-failed-phone.png',
     ]) {
       expect(
         File('${directory.path}${Platform.pathSeparator}$name').existsSync(),

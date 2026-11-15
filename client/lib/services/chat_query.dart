@@ -108,34 +108,58 @@ class ChatQueryService {
   /// Shared account-unread calculation for list and notification metadata.
   /// Callers retain their own owner/identity fence and peer failure policy.
   Future<ConversationSummary> summarizeConversation({
-    required AuthIdentity captured, required ConversationRecord row,
-    required String consumerId, required Set<String> displayed,
+    required AuthIdentity captured,
+    required ConversationRecord row,
+    required String consumerId,
+    required Set<String> displayed,
   }) async {
     _ensureCurrent(captured);
-    final consumed = await ledger.consumedThrough(captured.account, row.peerAccount, consumerId: consumerId);
+    await ledger.observeMessageAssociations(captured.account, [
+      row.lastMessage,
+    ], peerAccount: row.peerAccount);
+    _ensureCurrent(captured);
+    final consumed = await ledger.consumedThrough(
+      captured.account,
+      row.peerAccount,
+      consumerId: consumerId,
+    );
     int unread = 0, position = 0;
     ChatMessage? latestUnread;
     while (position < row.latestPosition) {
-      final history = await api.conversation(token: captured.token, account: row.peerAccount, afterPosition: position, limit: 100);
+      final history = await api.conversation(
+        token: captured.token,
+        account: row.peerAccount,
+        afterPosition: position,
+        limit: 100,
+      );
       _ensureCurrent(captured);
       for (final message in history.items) {
         if (message.position > row.latestPosition) break;
-        if (message.targetAccount == captured.account && !displayed.contains(message.id)) {
-          unread++; latestUnread = message;
+        if (message.targetAccount == captured.account &&
+            !displayed.contains(message.id)) {
+          unread++;
+          latestUnread = message;
         }
       }
       if (history.items.isEmpty || !history.hasMore) break;
-      if (history.nextPosition <= position) throw const FormatException('history cursor did not advance');
+      if (history.nextPosition <= position) {
+        throw const FormatException('history cursor did not advance');
+      }
       position = history.nextPosition;
     }
     _ensureCurrent(captured);
-    return ConversationSummary(peerAccount: row.peerAccount,
+    return ConversationSummary(
+      peerAccount: row.peerAccount,
       conversation: directConversation(captured.account, row.peerAccount),
       displayName: row.displayName ?? row.peerAccount,
-      lastMessage: row.lastMessage, lastActivityAt: row.lastActivityAt,
-      latestPosition: row.latestPosition, consumedThrough: consumed,
+      lastMessage: row.lastMessage,
+      lastActivityAt: row.lastActivityAt,
+      latestPosition: row.latestPosition,
+      consumedThrough: consumed,
       unconsumedPositions: math.max(0, row.latestPosition - consumed),
-      incomingUnread: unread, latestUnread: latestUnread == null ? null : messagePreview(latestUnread));
+      incomingUnread: unread,
+      latestUnread: latestUnread == null ? null : messagePreview(latestUnread),
+    );
   }
 
   ConversationPage _snapshotPage(_ConversationSnapshot snapshot, int limit) {
@@ -170,6 +194,10 @@ class ChatQueryService {
       messageId: messageId,
     );
     _ensureCurrent(captured);
+    if (message != null) {
+      await ledger.observeMessageAssociations(captured.account, [message]);
+      _ensureCurrent(captured);
+    }
     return message;
   }
 
@@ -201,6 +229,12 @@ class ChatQueryService {
     if (record == null) {
       return null;
     }
+    await ledger.observeMessageAssociations(
+      captured.account,
+      record.items,
+      peerAccount: record.peerAccount,
+    );
+    _ensureCurrent(captured);
     return ContextResult(
       items: record.items,
       anchorMessageId: record.anchorMessageId,
@@ -250,6 +284,12 @@ class ChatQueryService {
       afterPosition: afterPosition,
       beforePosition: beforePosition,
       limit: limit,
+    );
+    _ensureCurrent(captured);
+    await ledger.observeMessageAssociations(
+      captured.account,
+      page.items,
+      peerAccount: peerAccount,
     );
     _ensureCurrent(captured);
     final bool backward = beforePosition != null;

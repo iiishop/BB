@@ -23,12 +23,22 @@ from bb_auth_contract.chat import (
     SendMessage,
     UserPage,
 )
+from bb_auth_contract.chat_association import (
+    HEADER,
+    VERSION,
+    AssociatedConversationPage,
+    AssociatedMessage,
+    AssociatedMessageContext,
+    AssociatedMessagePage,
+    AssociatedOperation,
+)
 from bb_auth_contract.chat_query import ConversationPage, MessageContext, MessageId
 from bb_auth_contract.media import THUMB_MIME, MediaVariant
 from fastapi import (
     Depends,
     File,
     Form,
+    Header,
     Query,
     Request,
     UploadFile,
@@ -93,7 +103,7 @@ def readable_media(db, mid, account, peer=None):
     return row
 
 
-def submit(path, account, body, clock):
+def submit(path, account, body, clock, association=False):
     request = body.model_dump()
     digest = hashlib.sha256(
         json.dumps(
@@ -108,11 +118,12 @@ def submit(path, account, body, clock):
         if prior:
             if prior["request_hash"] != digest:
                 fail(409, "conflict")
-            return json.loads(
+            message = json.loads(
                 db.execute(
                     "SELECT payload FROM messages WHERE id=?", (prior["message_id"],)
                 ).fetchone()[0]
             )
+            return chat_queries.project_messages(db, account, [message], association)[0]
         peer_exists(db, account, body.target_account)
         content, attachment = None, None
         if isinstance(body, SendMessage):
@@ -173,7 +184,7 @@ def submit(path, account, body, clock):
                 "INSERT INTO events(account,message_id,peer,position,occurred_at) VALUES (?,?,?,?,?)",
                 (receiver, message["id"], other, position, message["created_at"]),
             )
-        return message
+        return chat_queries.project_messages(db, account, [message], association)[0]
 
 
 def event_page(path, account, after, limit):
@@ -219,16 +230,54 @@ def install(app, path, directory, current_session, clock):
     identity_dep = Depends(current_session)
     errors = {s: {"model": ErrorResponse} for s in (401, 404, 409, 413, 415, 422, 503)}
 
-    @app.post("/messages", response_model=Message, responses=errors)
-    def send(body: SendMessage, identity=identity_dep):
-        return submit(path, identity["account"], body, clock)
+    def association_format(
+        response: Response,
+        version: Annotated[str | None, Header(alias=HEADER)] = None,
+    ):
+        enabled = version == VERSION
+        if enabled:
+            response.headers[HEADER] = VERSION
+        return enabled
 
-    @app.post("/messages/attachments", response_model=Message, responses=errors)
-    def attach(body: SendAttachment, identity=identity_dep):
-        return submit(path, identity["account"], body, clock)
+    association_dep = Depends(association_format)
+    association_responses = {
+        **errors,
+        200: {
+            "headers": {
+                HEADER: {
+                    "description": "Present with value 1 only when association format was negotiated; authorization is unchanged.",
+                    "schema": {"type": "string", "const": VERSION},
+                }
+            }
+        },
+    }
 
-    @app.get("/operations/{operation_id}", response_model=Operation, responses=errors)
-    def operation(operation_id: str, identity=identity_dep):
+    @app.post(
+        "/messages",
+        response_model=Message | AssociatedMessage,
+        responses=association_responses,
+    )
+    def send(body: SendMessage, identity=identity_dep, association=association_dep):
+        return submit(path, identity["account"], body, clock, association)
+
+    @app.post(
+        "/messages/attachments",
+        response_model=Message | AssociatedMessage,
+        responses=association_responses,
+    )
+    def attach(
+        body: SendAttachment, identity=identity_dep, association=association_dep
+    ):
+        return submit(path, identity["account"], body, clock, association)
+
+    @app.get(
+        "/operations/{operation_id}",
+        response_model=Operation | AssociatedOperation,
+        responses=association_responses,
+    )
+    def operation(
+        operation_id: str, identity=identity_dep, association=association_dep
+    ):
         with connection(path) as db:
             row = db.execute(
                 "SELECT m.payload FROM operations o JOIN messages m ON m.id=o.message_id WHERE o.account=? AND o.operation_id=?",
@@ -240,13 +289,15 @@ def install(app, path, directory, current_session, clock):
                 "operation_id": operation_id,
                 "kind": "message",
                 "status": "succeeded",
-                "message": json.loads(row[0]),
+                "message": chat_queries.project_messages(
+                    db, identity["account"], [json.loads(row[0])], association
+                )[0],
             }
 
     @app.get(
         "/conversations/{account}/messages",
-        response_model=MessagePage,
-        responses=errors,
+        response_model=MessagePage | AssociatedMessagePage,
+        responses=association_responses,
     )
     def history(
         account: Account,
@@ -254,38 +305,62 @@ def install(app, path, directory, current_session, clock):
         before_position: int | None = Query(None, ge=1, le=9007199254740991),
         limit: int = Query(50, ge=1, le=100),
         identity=identity_dep,
+        association=association_dep,
     ):
         return chat_queries.history(
-            path, identity["account"], account, after_position, before_position, limit
+            path,
+            identity["account"],
+            account,
+            after_position,
+            before_position,
+            limit,
+            association,
         )
 
-    @app.get("/conversations", response_model=ConversationPage, responses=errors)
+    @app.get(
+        "/conversations",
+        response_model=ConversationPage | AssociatedConversationPage,
+        responses=association_responses,
+    )
     def conversations(
         after_account: str = Query("", pattern=r"^([1-9][0-9]{7})?$"),
         limit: int = Query(50, ge=1, le=100),
         identity=identity_dep,
+        association=association_dep,
     ):
         return chat_queries.conversations(
-            path, identity["account"], after_account, limit
+            path, identity["account"], after_account, limit, association
         )
 
-    @app.get("/messages/{message_id}", response_model=Message, responses=errors)
-    def get_message(message_id: MessageId, identity=identity_dep):
-        return chat_queries.message(path, identity["account"], message_id)
+    @app.get(
+        "/messages/{message_id}",
+        response_model=Message | AssociatedMessage,
+        responses=association_responses,
+    )
+    def get_message(
+        message_id: MessageId, identity=identity_dep, association=association_dep
+    ):
+        return chat_queries.message(path, identity["account"], message_id, association)
 
     @app.get(
         "/messages/{message_id}/context",
-        response_model=MessageContext,
-        responses=errors,
+        response_model=MessageContext | AssociatedMessageContext,
+        responses=association_responses,
     )
     def get_context(
         message_id: MessageId,
         before_limit: int = Query(10, ge=0, le=49),
         after_limit: int = Query(10, ge=0, le=49),
         identity=identity_dep,
+        association=association_dep,
     ):
         return chat_queries.context(
-            path, identity["account"], message_id, before_limit, after_limit
+            path,
+            identity["account"],
+            message_id,
+            before_limit,
+            after_limit,
+            association,
         )
 
     @app.get("/users", response_model=UserPage, responses=errors)
@@ -341,7 +416,10 @@ def install(app, path, directory, current_session, clock):
     @app.get("/events/head", responses=errors)
     def event_head(identity=identity_dep):
         with connection(path) as db:
-            value = db.execute("SELECT COALESCE(MAX(event_id),0) FROM events WHERE account=?", (identity["account"],)).fetchone()[0]
+            value = db.execute(
+                "SELECT COALESCE(MAX(event_id),0) FROM events WHERE account=?",
+                (identity["account"],),
+            ).fetchone()[0]
         return {"event_id": value}
 
     @app.get("/events", response_model=EventPage, responses=errors)

@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -8,6 +9,80 @@ import '../../services/chat_service.dart';
 import '../widgets/profile_avatar.dart';
 import 'chat_avatars.dart';
 import 'chat_format.dart';
+import 'pending_send.dart';
+
+/// Plays the entrance for a genuinely new message.
+///
+/// The flag is computed by the chat page from "this identity was not on screen
+/// before", so history loads, scroll rebuilds, conversation switches and
+/// refreshed pages pass `animate: false` and never replay an old bubble.
+class MessageEntrance extends StatefulWidget {
+  const MessageEntrance({
+    super.key,
+    required this.child,
+    required this.animate,
+    this.duration = const Duration(milliseconds: 240),
+  });
+
+  final Widget child;
+  final bool animate;
+  final Duration duration;
+
+  static const Key animationKey = Key('message-entrance-animation');
+
+  @override
+  State<MessageEntrance> createState() => _MessageEntranceState();
+}
+
+class _MessageEntranceState extends State<MessageEntrance>
+    with SingleTickerProviderStateMixin {
+  AnimationController? _controller;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_controller != null) {
+      return;
+    }
+    final bool reducedMotion =
+        MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    // Decide once per element: a later rebuild (pending -> committed, parent
+    // setState, scroll) must not restart or cancel a running entrance.
+    if (widget.animate && !reducedMotion) {
+      _controller = AnimationController(vsync: this, duration: widget.duration)
+        ..forward();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final AnimationController? controller = _controller;
+    if (controller == null) {
+      return widget.child;
+    }
+    return AnimatedBuilder(
+      key: MessageEntrance.animationKey,
+      animation: controller,
+      child: widget.child,
+      builder: (BuildContext context, Widget? child) {
+        final double value = Curves.easeOutCubic.transform(controller.value);
+        return Opacity(
+          opacity: value,
+          child: Transform.translate(
+            offset: Offset(0, (1 - value) * 6),
+            child: child,
+          ),
+        );
+      },
+    );
+  }
+}
 
 /// One incoming/outgoing chat bubble with ordered text/image content or an
 /// independent attachment card.
@@ -25,6 +100,11 @@ class MessageBubble extends StatelessWidget {
     this.onOpenMedia,
     this.localMediaPreview,
     this.busy = false,
+    this.sendState,
+    this.onRetry,
+    this.statusUnconfirmed = false,
+    this.showAvatar = true,
+    this.isRunEnd = true,
   });
 
   final ChatMessage message;
@@ -41,104 +121,176 @@ class MessageBubble extends StatelessWidget {
   /// Opens the full-screen viewer at this media slot; null disables the tap.
   final void Function(ChatMessage message, int? partIndex)? onOpenMedia;
 
-  /// Already-held bytes for a just-sent image of the current account.
+  /// Already-held bytes for a just-sent or still-pending image of the current
+  /// account.
   final Uint8List? Function(String mediaId)? localMediaPreview;
   final bool busy;
+
+  /// Local only: null means the server committed this message.
+  final SendFeedbackState? sendState;
+  final VoidCallback? onRetry;
+
+  /// A local failure whose authoritative operation lookup is not terminal.
+  /// It keeps the retry entry but must not claim the message was not sent.
+  final bool statusUnconfirmed;
+
+  /// Grouping: only the last bubble of a same-sender run shows the avatar.
+  final bool showAvatar;
+
+  /// Grouping: the sender-side bottom corner tightens at the run end.
+  final bool isRunEnd;
+
+  static const Key sendingKey = Key('chat-bubble-sending');
+  static const Key failedKey = Key('chat-bubble-failed');
 
   bool get mine => message.senderAccount == selfAccount;
 
   @override
   Widget build(BuildContext context) {
+    final bool failed = sendState == SendFeedbackState.failed;
+    final bool unconfirmed = failed && statusUnconfirmed;
+    final bool sending = sendState == SendFeedbackState.sending;
+    final bool interactive = sendState == null;
+    final Color textColor = failed
+        ? AppColors.ink
+        : mine
+        ? AppColors.surface
+        : AppColors.ink;
+    final Color mutedColor = unconfirmed
+        ? AppColors.warning
+        : failed
+        ? AppColors.danger
+        : mine
+        ? AppColors.surface.withValues(alpha: 0.78)
+        : AppColors.inkMuted;
+    final double maxWidth = math.min(
+      340,
+      MediaQuery.sizeOf(context).width * 0.74,
+    );
+
     final Widget bubble = Container(
-      constraints: const BoxConstraints(maxWidth: 340),
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.md,
-        AppSpacing.sm + 2,
-        AppSpacing.md,
-        AppSpacing.sm,
-      ),
+      constraints: BoxConstraints(maxWidth: maxWidth),
+      padding: const EdgeInsets.fromLTRB(14, 9, 14, 8),
       decoration: BoxDecoration(
-        color: mine ? AppColors.accent : AppColors.surface,
+        color: failed
+            ? unconfirmed
+                  ? AppColors.warningSurface
+                  : AppColors.dangerSurface
+            : mine
+            ? AppColors.accent
+            : AppColors.surface,
         borderRadius: BorderRadius.only(
-          topLeft: const Radius.circular(AppRadius.card),
-          topRight: const Radius.circular(AppRadius.card),
-          bottomLeft: Radius.circular(mine ? AppRadius.card : AppSpacing.xs),
-          bottomRight: Radius.circular(mine ? AppSpacing.xs : AppRadius.card),
+          topLeft: const Radius.circular(18),
+          topRight: const Radius.circular(18),
+          bottomLeft: Radius.circular(!mine && isRunEnd ? 6 : 18),
+          bottomRight: Radius.circular(mine && isRunEnd ? 6 : 18),
         ),
-        border: mine ? null : Border.all(color: AppColors.border),
+        border: failed
+            ? Border.all(
+                color: unconfirmed
+                    ? AppColors.warningBorder
+                    : AppColors.dangerBorder,
+              )
+            : mine
+            ? null
+            : Border.all(color: AppColors.border),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          if (message.kind == ChatMessageKind.attachment)
-            _AttachmentCard(
-              message: message,
-              chat: chat,
-              mine: mine,
-              busy: busy,
-              onSaveAs: onSaveAs,
-              onDownload: onDownload,
-              onPlay: onPlay,
-              onOpenMedia: onOpenMedia,
-            )
-          else
-            ..._bodyContent(context),
-          const SizedBox(height: AppSpacing.xs),
-          Align(
-            alignment: Alignment.centerRight,
-            child: Text(
-              formatClockTime(message.createdAt),
-              style: TextStyle(
-                fontSize: 10.5,
-                color: mine
-                    ? AppColors.surface.withValues(alpha: 0.7)
-                    : AppColors.inkMuted,
+      child: Material(
+        type: MaterialType.transparency,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            if (message.kind == ChatMessageKind.attachment)
+              _AttachmentCard(
+                message: message,
+                chat: chat,
+                mine: mine,
+                busy: busy,
+                interactive: interactive,
+                textColor: textColor,
+                mutedColor: mutedColor,
+                localMediaPreview: localMediaPreview,
+                onSaveAs: interactive ? onSaveAs : null,
+                onDownload: interactive ? onDownload : null,
+                onPlay: interactive ? onPlay : null,
+                onOpenMedia: interactive ? onOpenMedia : null,
+              )
+            else
+              ..._bodyContent(context, textColor, interactive),
+            const SizedBox(height: 4),
+            Align(
+              alignment: Alignment.centerRight,
+              child: _StatusSlot(
+                message: message,
+                mine: mine,
+                sending: sending,
+                failed: failed,
+                unconfirmed: unconfirmed,
+                mutedColor: mutedColor,
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
 
     final Widget content = Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.end,
       mainAxisAlignment: mine ? MainAxisAlignment.end : MainAxisAlignment.start,
       children: <Widget>[
         if (!mine) ...<Widget>[
-          _MessageAvatar(
-            avatars: avatars,
-            account: message.senderAccount,
-            semanticLabel: '$peerUsername 的头像',
-          ),
+          _avatarSlot(false),
           const SizedBox(width: AppSpacing.sm),
         ],
         Flexible(
           child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: failed ? onRetry : null,
             onSecondaryTapDown: (TapDownDetails details) =>
                 _showMenu(context, details.globalPosition),
             onLongPressStart: (LongPressStartDetails details) =>
                 _showMenu(context, details.globalPosition),
-            child: bubble,
+            child: Semantics(
+              button: failed,
+              label: failed
+                  ? unconfirmed
+                        ? '消息状态待确认，点按重试'
+                        : '消息未发送，点按重试'
+                  : sending
+                  ? '消息发送中'
+                  : null,
+              child: bubble,
+            ),
           ),
         ),
         if (mine) ...<Widget>[
           const SizedBox(width: AppSpacing.sm),
-          _MessageAvatar(
-            avatars: avatars,
-            account: message.senderAccount,
-            semanticLabel: '我的头像',
-          ),
+          _avatarSlot(true),
         ],
       ],
     );
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
-      child: content,
+    return content;
+  }
+
+  /// A hidden 30px slot keeps consecutive bubbles on one text edge without
+  /// repeating the same avatar for every message in a run.
+  Widget _avatarSlot(bool isMine) {
+    if (!showAvatar) {
+      return const SizedBox(width: 32, height: 32);
+    }
+    return _MessageAvatar(
+      avatars: avatars,
+      account: message.senderAccount,
+      semanticLabel: isMine ? '我的头像' : '$peerUsername 的头像',
     );
   }
 
-  List<Widget> _bodyContent(BuildContext context) {
+  List<Widget> _bodyContent(
+    BuildContext context,
+    Color textColor,
+    bool interactive,
+  ) {
     final List<Widget> children = <Widget>[];
     for (int index = 0; index < message.parts.length; index += 1) {
       final MessagePart part = message.parts[index];
@@ -148,11 +300,7 @@ class MessageBubble extends StatelessWidget {
             padding: const EdgeInsets.symmetric(vertical: 2),
             child: SelectableText(
               part.text,
-              style: TextStyle(
-                fontSize: 15.5,
-                height: 1.45,
-                color: mine ? AppColors.surface : AppColors.ink,
-              ),
+              style: TextStyle(fontSize: 15.5, height: 1.45, color: textColor),
             ),
           ),
         );
@@ -167,7 +315,7 @@ class MessageBubble extends StatelessWidget {
                   ? null
                   : () => onOpenMedia!(message, index),
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(AppRadius.brand),
+                borderRadius: BorderRadius.circular(12),
                 child: _MediaImage(
                   chat: chat,
                   mediaId: part.mediaId,
@@ -221,12 +369,110 @@ class MessageBubble extends StatelessWidget {
   }
 }
 
+/// Time or local send feedback in one fixed-height slot.
+class _StatusSlot extends StatelessWidget {
+  const _StatusSlot({
+    required this.message,
+    required this.mine,
+    required this.sending,
+    required this.failed,
+    required this.unconfirmed,
+    required this.mutedColor,
+  });
+
+  final ChatMessage message;
+  final bool mine;
+  final bool sending;
+  final bool failed;
+  final bool unconfirmed;
+  final Color mutedColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool reducedMotion =
+        MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    final Widget child;
+    if (sending) {
+      child = Row(
+        key: MessageBubble.sendingKey,
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          SizedBox(
+            width: 9,
+            height: 9,
+            child: CircularProgressIndicator(
+              strokeWidth: 1.4,
+              color: mutedColor,
+            ),
+          ),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              '发送中…',
+              style: TextStyle(fontSize: 11, color: mutedColor),
+            ),
+          ),
+        ],
+      );
+    } else if (failed) {
+      final Color color = unconfirmed ? AppColors.warning : AppColors.danger;
+      child = Row(
+        key: MessageBubble.failedKey,
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Icon(
+            unconfirmed
+                ? Icons.help_outline_rounded
+                : Icons.error_outline_rounded,
+            size: 12,
+            color: color,
+          ),
+          const SizedBox(width: 3),
+          Flexible(
+            child: Text(
+              unconfirmed ? '状态待确认 · 点按重试' : '未发送 · 点按重试',
+              style: TextStyle(fontSize: 11, color: color),
+            ),
+          ),
+        ],
+      );
+    } else {
+      child = Text(
+        formatClockTime(message.createdAt),
+        style: TextStyle(fontSize: 11, color: mutedColor),
+      );
+    }
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 14),
+      child: AnimatedSwitcher(
+        duration: reducedMotion
+            ? Duration.zero
+            : const Duration(milliseconds: 150),
+        child: KeyedSubtree(
+          key: ValueKey<String>(
+            sending
+                ? 'sending'
+                : failed
+                ? 'failed'
+                : 'sent',
+          ),
+          child: child,
+        ),
+      ),
+    );
+  }
+}
+
 class _AttachmentCard extends StatelessWidget {
   const _AttachmentCard({
     required this.message,
     required this.chat,
     required this.mine,
     required this.busy,
+    required this.interactive,
+    required this.textColor,
+    required this.mutedColor,
+    this.localMediaPreview,
     this.onSaveAs,
     this.onDownload,
     this.onPlay,
@@ -237,6 +483,10 @@ class _AttachmentCard extends StatelessWidget {
   final ChatService chat;
   final bool mine;
   final bool busy;
+  final bool interactive;
+  final Color textColor;
+  final Color mutedColor;
+  final Uint8List? Function(String mediaId)? localMediaPreview;
   final VoidCallback? onSaveAs;
   final VoidCallback? onDownload;
   final VoidCallback? onPlay;
@@ -245,10 +495,6 @@ class _AttachmentCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final Attachment attachment = message.attachment!;
-    final Color textColor = mine ? AppColors.surface : AppColors.ink;
-    final Color mutedColor = mine
-        ? AppColors.surface.withValues(alpha: 0.75)
-        : AppColors.inkMuted;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
@@ -267,10 +513,13 @@ class _AttachmentCard extends StatelessWidget {
                 alignment: Alignment.center,
                 children: <Widget>[
                   ClipRRect(
-                    borderRadius: BorderRadius.circular(AppRadius.brand),
+                    borderRadius: BorderRadius.circular(12),
                     child: _MediaImage(
                       chat: chat,
                       mediaId: attachment.coverMediaId!,
+                      localBytes: localMediaPreview?.call(
+                        attachment.coverMediaId!,
+                      ),
                       width: 260,
                       height: 150,
                     ),
@@ -293,7 +542,7 @@ class _AttachmentCard extends StatelessWidget {
                         : const Icon(
                             Icons.play_arrow_rounded,
                             color: AppColors.surface,
-                            size: 30,
+                            size: 32,
                           ),
                   ),
                 ],
@@ -347,31 +596,33 @@ class _AttachmentCard extends StatelessWidget {
             ),
           ],
         ),
-        const SizedBox(height: AppSpacing.sm),
-        Wrap(
-          spacing: AppSpacing.xs,
-          children: <Widget>[
-            if (attachment.kind == AttachmentKind.video)
+        if (interactive) ...<Widget>[
+          const SizedBox(height: AppSpacing.sm),
+          Wrap(
+            spacing: AppSpacing.xs,
+            children: <Widget>[
+              if (attachment.kind == AttachmentKind.video)
+                _TinyAction(
+                  icon: Icons.play_arrow_rounded,
+                  label: '播放',
+                  color: mutedColor,
+                  onTap: busy ? null : onPlay,
+                ),
               _TinyAction(
-                icon: Icons.play_arrow_rounded,
-                label: '播放',
+                icon: Icons.download_rounded,
+                label: busy ? '下载中…' : '下载',
                 color: mutedColor,
-                onTap: busy ? null : onPlay,
+                onTap: busy ? null : onDownload,
               ),
-            _TinyAction(
-              icon: Icons.download_rounded,
-              label: busy ? '下载中…' : '下载',
-              color: mutedColor,
-              onTap: busy ? null : onDownload,
-            ),
-            _TinyAction(
-              icon: Icons.save_alt_rounded,
-              label: '另存为',
-              color: mutedColor,
-              onTap: busy ? null : onSaveAs,
-            ),
-          ],
-        ),
+              _TinyAction(
+                icon: Icons.save_alt_rounded,
+                label: '另存为',
+                color: mutedColor,
+                onTap: busy ? null : onSaveAs,
+              ),
+            ],
+          ),
+        ],
       ],
     );
   }
@@ -464,11 +715,10 @@ class _MediaImage extends StatelessWidget {
             height: height,
             fit: height == null ? BoxFit.contain : BoxFit.cover,
             gaplessPlayback: true,
-            errorBuilder: (
-              BuildContext context,
-              Object error,
-              StackTrace? stackTrace,
-            ) => _placeholder(w, h, Icons.broken_image_outlined),
+            errorBuilder:
+                (BuildContext context, Object error, StackTrace? stackTrace) {
+                  return _placeholder(w, h, Icons.broken_image_outlined);
+                },
           );
         }
         if (snapshot.hasError) {

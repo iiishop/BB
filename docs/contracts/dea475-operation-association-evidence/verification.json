@@ -1,0 +1,21 @@
+{
+  "product_baseline_sha": "3a523a888663d7f67bed0951bce2da451b75db00",
+  "run_id": "01a1dd7b-58ae-769c-951d-d3bb3e628b56",
+  "branch": "agent/forge/d3bb3e628b56",
+  "server_junit": {
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "tests": 107
+  },
+  "product_diff_empty": true,
+  "utf8_no_replacement_characters": true,
+  "sha256": {
+    "docs/contracts/dea475-operation-association.md": "dcb581ab2e1bef46f16ac14e0eaab4592f64a466935d728a0e05b6980379824e",
+    "docs/contracts/dea475-operation-association-evidence/sentinel-evidence-check.json": "4ee6e089087a0de7f6c271709b8d6255d9f11c2db89cfac5fde7c95052b8446f",
+    "docs/contracts/dea475-operation-association-evidence/baseline_probe.py": "7a2ec8ba1427f46d178678968cd097833790b6f43970eca144c2a23ccd3042b4",
+    "docs/contracts/dea475-operation-association-evidence/baseline-results.json": "c92e8f92c1cf3b36c733c7c6439daea86ef3976b44a4417579238d47cd4729ed",
+    "docs/contracts/dea475-operation-association-evidence/legacy_parser_probe.dart": "4c667ee422b3ab64b3cf5d80279a41bba4ecdfd672058bef86a7d03ab1ab485d",
+    "docs/contracts/dea475-operation-association-evidence/server-baseline.xml": "0f470ed9ab9d5ac21af9534e30243a3e4137630272f8838dfca54f35fb764444"
+  }
+}

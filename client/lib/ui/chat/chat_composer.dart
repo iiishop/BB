@@ -9,6 +9,41 @@ import '../../services/chat_service.dart';
 import '../../services/media_source.dart';
 import 'chat_format.dart';
 import 'media_actions.dart';
+import 'pending_send.dart';
+
+/// Lets the chat page retry one failed item from its bubble.
+///
+/// The composer still owns the operation plan so a retry reuses the exact same
+/// operation id and cannot double-send.
+class ChatComposerController {
+  _ChatComposerState? _state;
+
+  void _attach(_ChatComposerState state) {
+    _state = state;
+  }
+
+  void _detach(_ChatComposerState state) {
+    if (identical(_state, state)) {
+      _state = null;
+    }
+  }
+
+  bool get canRetry => _state?._failed.isNotEmpty ?? false;
+
+  Future<void> retryFailed(String operationId) async {
+    final _ChatComposerState? state = _state;
+    if (state == null || !state.mounted) {
+      return;
+    }
+    await state._retryOne(operationId);
+  }
+
+  /// The server operation was verified as committed; the local failure entry
+  /// and its retry affordance must disappear.
+  void forgetCommittedOperation(String operationId) {
+    _state?._forgetCommittedOperation(operationId);
+  }
+}
 
 /// Ordered composer: text and images keep their insertion order; videos,
 /// PDFs and other files are independent attachment messages.
@@ -18,6 +53,9 @@ class ChatComposer extends StatefulWidget {
     required this.chat,
     required this.peerAccount,
     required this.onSent,
+    this.onSentOperations,
+    this.onPendingChanged,
+    this.controller,
     this.enabled = true,
     this.clipboard = const PlatformClipboardMediaReader(),
     this.coverExtractor = defaultVideoCoverExtractor,
@@ -33,6 +71,15 @@ class ChatComposer extends StatefulWidget {
     Map<String, Uint8List> localPreviews,
   )
   onSent;
+
+  /// Successful operations paired with the committed messages, so the chat
+  /// page can keep one bubble element from "sending" to "sent".
+  final void Function(List<SentOperation> operations)? onSentOperations;
+
+  /// Snapshot of local bubbles that have not settled yet (sending or failed).
+  final void Function(List<PendingSend> pending)? onPendingChanged;
+
+  final ChatComposerController? controller;
   final bool enabled;
   final ClipboardMediaReader clipboard;
 
@@ -45,7 +92,6 @@ class ChatComposer extends StatefulWidget {
   static const Key imageKey = Key('chat-composer-image');
   static const Key fileKey = Key('chat-composer-file');
   static const Key pasteKey = Key('chat-composer-paste');
-  static const Key retryKey = Key('chat-composer-retry');
 
   @override
   State<ChatComposer> createState() => _ChatComposerState();
@@ -57,10 +103,26 @@ class _ChatComposerState extends State<ChatComposer> {
   final List<_DraftPart> _parts = <_DraftPart>[];
   final List<_DraftAttachment> _attachments = <_DraftAttachment>[];
   List<SendOutcome> _failed = <SendOutcome>[];
-  bool _sending = false;
+  final List<PendingSend> _pending = <PendingSend>[];
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller?._attach(this);
+  }
+
+  @override
+  void didUpdateWidget(covariant ChatComposer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.controller, widget.controller)) {
+      oldWidget.controller?._detach(this);
+      widget.controller?._attach(this);
+    }
+  }
 
   @override
   void dispose() {
+    widget.controller?._detach(this);
     _controller.dispose();
     _focus.dispose();
     super.dispose();
@@ -192,117 +254,354 @@ class _ChatComposerState extends State<ChatComposer> {
   }
 
   Future<void> _send() async {
-    if (_sending || !widget.enabled) {
+    if (!widget.enabled) {
       return;
     }
     _commitCurrentText();
     if (_parts.isEmpty && _attachments.isEmpty) {
       return;
     }
+    final List<_DraftPart> parts = List<_DraftPart>.of(_parts);
+    final List<_DraftAttachment> attachments = List<_DraftAttachment>.of(
+      _attachments,
+    );
+    final String seed = newOperationId('x');
+    final List<PendingSend> pending;
+    try {
+      pending = _buildPending(seed, parts, attachments);
+    } on AuthFailure catch (failure) {
+      _snack(failure.message);
+      return;
+    }
     setState(() {
-      _sending = true;
-      _failed = <SendOutcome>[];
+      _parts.clear();
+      _attachments.clear();
+      _pending.addAll(pending);
     });
+    _emitPending();
     final List<OutgoingPart> body = <OutgoingPart>[
-      for (final _DraftPart part in _parts) part.part,
+      for (final _DraftPart part in parts) part.part,
     ];
-    final List<OutgoingAttachment> attachments = <OutgoingAttachment>[
-      for (final _DraftAttachment item in _attachments) item.attachment,
+    final List<OutgoingAttachment> outgoingAttachments = <OutgoingAttachment>[
+      for (final _DraftAttachment item in attachments) item.attachment,
     ];
     try {
       final ComposedSendResult result = await widget.chat.sendComposed(
         targetAccount: widget.peerAccount,
         body: body,
-        attachments: attachments,
+        attachments: outgoingAttachments,
+        operationSeed: seed,
       );
-      final List<ChatMessage> sent = <ChatMessage>[
-        if (result.body?.succeeded ?? false) result.body!.message!,
-        for (final SendOutcome outcome in result.attachments)
-          if (outcome.succeeded) outcome.message!,
-      ];
-      final List<SendOutcome> failed = <SendOutcome>[
-        if (!(result.body?.succeeded ?? true)) result.body!,
-        for (final SendOutcome outcome in result.attachments)
-          if (!outcome.succeeded) outcome,
-      ];
       if (!mounted) {
         return;
       }
-      setState(() {
-        _sending = false;
-        _parts.clear();
-        _attachments.clear();
-        _failed = failed;
-      });
-      if (sent.isNotEmpty) {
-        widget.onSent(sent, _bodyLocalPreviews(result.body));
+      _applyResult(result);
+    } on AuthFailure catch (failure) {
+      if (!mounted) {
+        return;
       }
-      if (failed.isNotEmpty) {
-        _snack('有 ${failed.length} 项发送失败，可点击重试');
-      }
+      _markSeedFailed(seed, parts, attachments, failure);
+      _snack(failure.message);
     } catch (_) {
       if (!mounted) {
         return;
       }
-      setState(() => _sending = false);
+      _markSeedFailed(
+        seed,
+        parts,
+        attachments,
+        const AuthFailure(
+          status: 0,
+          code: 'send_failed',
+          message: '发送失败，请稍后重试',
+        ),
+      );
       _snack('发送失败，请稍后重试');
     }
   }
 
-  Future<void> _retryFailed() async {
-    if (_sending || _failed.isEmpty) {
+  void _applyResult(ComposedSendResult result) {
+    final List<SendOutcome> outcomes = <SendOutcome>[
+      if (result.body != null) result.body!,
+      ...result.attachments,
+    ];
+    final Set<String> succeededIds = <String>{};
+    final Set<String> failedIds = <String>{};
+    final List<ChatMessage> sent = <ChatMessage>[];
+    final List<SendOutcome> failed = <SendOutcome>[];
+    final List<SentOperation> operations = <SentOperation>[];
+    for (final SendOutcome outcome in outcomes) {
+      final ChatMessage? message = outcome.message;
+      if (message != null) {
+        succeededIds.add(outcome.operationId);
+        sent.add(message);
+        operations.add(
+          SentOperation(operationId: outcome.operationId, message: message),
+        );
+      } else {
+        failedIds.add(outcome.operationId);
+        failed.add(outcome);
+      }
+    }
+    setState(() {
+      _pending.removeWhere(
+        (PendingSend pending) => succeededIds.contains(pending.operationId),
+      );
+      _markPendingFailed(failedIds);
+      // Earlier failures stay retryable when a new message is sent.
+      _failed.addAll(failed);
+    });
+    if (sent.isNotEmpty) {
+      widget.onSent(sent, _bodyLocalPreviews(result.body));
+      widget.onSentOperations?.call(operations);
+    }
+    _emitPending();
+    if (failed.isNotEmpty) {
+      _snack('有 ${failed.length} 项发送失败，可点按气泡重试');
+    }
+  }
+
+  void _markSeedFailed(
+    String seed,
+    List<_DraftPart> parts,
+    List<_DraftAttachment> attachments,
+    AuthFailure failure,
+  ) {
+    final List<SendOutcome> failed = <SendOutcome>[
+      if (parts.isNotEmpty)
+        SendOutcome(
+          operationId: '$seed-b',
+          failure: failure,
+          part: <OutgoingPart>[for (final _DraftPart part in parts) part.part],
+        ),
+      for (int i = 0; i < attachments.length; i += 1)
+        SendOutcome(
+          operationId: '$seed-a$i',
+          failure: failure,
+          attachment: attachments[i].attachment,
+        ),
+    ];
+    setState(() {
+      _failed.addAll(failed);
+      _markPendingFailed(<String>{
+        for (final SendOutcome outcome in failed) outcome.operationId,
+      });
+    });
+    _emitPending();
+  }
+
+  void _markPendingFailed(Set<String> operationIds) {
+    for (int i = 0; i < _pending.length; i += 1) {
+      if (operationIds.contains(_pending[i].operationId)) {
+        _pending[i] = _pending[i].copyWith(state: SendFeedbackState.failed);
+      }
+    }
+  }
+
+  Future<void> _retryOne(String operationId) async {
+    if (!widget.enabled) {
       return;
     }
-    setState(() => _sending = true);
-    final List<ChatMessage> sent = <ChatMessage>[];
-    final List<SendOutcome> remaining = <SendOutcome>[];
-    final Map<String, Uint8List> previews = <String, Uint8List>{};
-    for (final SendOutcome outcome in List<SendOutcome>.from(_failed)) {
-      try {
-        if (outcome.part != null) {
-          final SendOutcome retried = await widget.chat.sendBody(
-            targetAccount: widget.peerAccount,
-            content: outcome.part!,
-            operationId: outcome.operationId,
-          );
-          if (retried.message != null) {
-            sent.add(retried.message!);
-            previews.addAll(_bodyLocalPreviews(retried));
-          }
-        } else if (outcome.attachment != null) {
-          final SendOutcome retried = await widget.chat.sendAttachment(
-            targetAccount: widget.peerAccount,
-            attachment: outcome.attachment!,
-            operationId: outcome.operationId,
-          );
-          if (retried.message != null) {
-            sent.add(retried.message!);
-          }
-        }
-      } on AuthFailure catch (failure) {
-        remaining.add(
-          SendOutcome(
-            operationId: outcome.operationId,
-            failure: failure,
-            part: outcome.part,
-            attachment: outcome.attachment,
-          ),
+    final int index = _failed.indexWhere(
+      (SendOutcome outcome) => outcome.operationId == operationId,
+    );
+    if (index < 0) {
+      return;
+    }
+    final SendOutcome outcome = _failed[index];
+    setState(() {
+      _failed = List<SendOutcome>.of(_failed)..removeAt(index);
+      _setPendingState(operationId, SendFeedbackState.sending);
+    });
+    _emitPending();
+    SendOutcome? retried;
+    try {
+      if (outcome.part != null) {
+        retried = await widget.chat.sendBody(
+          targetAccount: widget.peerAccount,
+          content: outcome.part!,
+          operationId: operationId,
+        );
+      } else if (outcome.attachment != null) {
+        retried = await widget.chat.sendAttachment(
+          targetAccount: widget.peerAccount,
+          attachment: outcome.attachment!,
+          operationId: operationId,
         );
       }
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _failed.add(
+          error is AuthFailure
+              ? SendOutcome(
+                  operationId: operationId,
+                  failure: error,
+                  part: outcome.part,
+                  attachment: outcome.attachment,
+                )
+              : outcome,
+        );
+        _setPendingState(operationId, SendFeedbackState.failed);
+      });
+      _emitPending();
+      _snack(error is AuthFailure ? error.message : '重试失败，请稍后再试');
+      return;
     }
     if (!mounted) {
       return;
     }
+    if (retried == null) {
+      setState(() {
+        _failed.add(outcome);
+        _setPendingState(operationId, SendFeedbackState.failed);
+      });
+      _emitPending();
+      return;
+    }
+    final ChatMessage? message = retried.message;
+    if (message == null) {
+      setState(() {
+        _failed.add(retried!);
+        _setPendingState(operationId, SendFeedbackState.failed);
+      });
+      _emitPending();
+      _snack('重试失败，请稍后再试');
+      return;
+    }
     setState(() {
-      _sending = false;
-      _failed = remaining;
+      _pending.removeWhere(
+        (PendingSend pending) => pending.operationId == operationId,
+      );
     });
-    if (sent.isNotEmpty) {
-      widget.onSent(sent, previews);
+    widget.onSent(<ChatMessage>[message], _bodyLocalPreviews(retried));
+    widget.onSentOperations?.call(<SentOperation>[
+      SentOperation(operationId: operationId, message: message),
+    ]);
+    _emitPending();
+  }
+
+  void _forgetCommittedOperation(String operationId) {
+    final bool hadFailed = _failed.any(
+      (SendOutcome outcome) => outcome.operationId == operationId,
+    );
+    final bool hadPending = _pending.any(
+      (PendingSend item) => item.operationId == operationId,
+    );
+    if (!hadFailed && !hadPending) {
+      return;
     }
-    if (remaining.isNotEmpty) {
-      _snack('仍有 ${remaining.length} 项发送失败');
+    setState(() {
+      _failed.removeWhere(
+        (SendOutcome outcome) => outcome.operationId == operationId,
+      );
+      _pending.removeWhere(
+        (PendingSend item) => item.operationId == operationId,
+      );
+    });
+    if (hadPending) {
+      _emitPending();
     }
+  }
+
+  void _setPendingState(String operationId, SendFeedbackState state) {
+    for (int i = 0; i < _pending.length; i += 1) {
+      if (_pending[i].operationId == operationId) {
+        _pending[i] = _pending[i].copyWith(state: state);
+      }
+    }
+  }
+
+  void _emitPending() {
+    final void Function(List<PendingSend>)? callback = widget.onPendingChanged;
+    if (callback == null) {
+      return;
+    }
+    callback(List<PendingSend>.unmodifiable(_pending));
+  }
+
+  /// Builds one local bubble per outgoing item before any request is sent.
+  /// Media ids are local-only, so a pending image can render from bytes the
+  /// composer already holds without pretending it was uploaded.
+  List<PendingSend> _buildPending(
+    String seed,
+    List<_DraftPart> parts,
+    List<_DraftAttachment> attachments,
+  ) {
+    final String self = widget.chat.selfAccount;
+    final DateTime now = DateTime.now().toUtc();
+    final List<PendingSend> pending = <PendingSend>[];
+    final List<MessagePart> bodyParts = <MessagePart>[];
+    final Map<String, Uint8List> imageBytes = <String, Uint8List>{};
+    for (int index = 0; index < parts.length; index += 1) {
+      final OutgoingPart part = parts[index].part;
+      if (part is OutgoingText) {
+        bodyParts.add(TextPart(part.text));
+      } else if (part is OutgoingImage) {
+        final String mediaId = 'pending:$seed:img$index';
+        bodyParts.add(ImagePart(mediaId));
+        final Uint8List? bytes = parts[index].bytes ?? part.source.bytes;
+        if (bytes != null && bytes.isNotEmpty) {
+          imageBytes[mediaId] = bytes;
+        }
+      }
+    }
+    if (bodyParts.isNotEmpty) {
+      pending.add(
+        PendingSend(
+          operationId: '$seed-b',
+          message: ChatMessage(
+            id: 'pending:$seed-b',
+            position: 0,
+            senderAccount: self,
+            targetAccount: widget.peerAccount,
+            createdAt: now,
+            kind: ChatMessageKind.body,
+            parts: bodyParts,
+          ),
+          state: SendFeedbackState.sending,
+          imageBytes: imageBytes,
+        ),
+      );
+    }
+    for (int index = 0; index < attachments.length; index += 1) {
+      final _DraftAttachment draft = attachments[index];
+      final Uint8List? cover = draft.coverBytes;
+      final String mediaId = 'pending:$seed:att$index';
+      final String? coverId = cover == null
+          ? null
+          : 'pending:$seed:cover$index';
+      pending.add(
+        PendingSend(
+          operationId: '$seed-a$index',
+          message: ChatMessage(
+            id: 'pending:$seed-a$index',
+            position: 0,
+            senderAccount: self,
+            targetAccount: widget.peerAccount,
+            createdAt: now,
+            kind: ChatMessageKind.attachment,
+            attachment: Attachment(
+              mediaId: mediaId,
+              kind: draft.kind,
+              filename: draft.filename,
+              mimeType:
+                  draft.attachment.source.mimeType ??
+                  'application/octet-stream',
+              byteSize: draft.size,
+              coverMediaId: coverId,
+            ),
+          ),
+          state: SendFeedbackState.sending,
+          imageBytes: coverId == null
+              ? const <String, Uint8List>{}
+              : <String, Uint8List>{coverId: cover!},
+        ),
+      );
+    }
+    return pending;
   }
 
   /// Maps committed image blocks back to the bytes the composer still holds.
@@ -361,7 +660,6 @@ class _ChatComposerState extends State<ChatComposer> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              if (_failed.isNotEmpty) _failedBanner(),
               if (hasDraft) _draftStrip(),
               Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
@@ -369,19 +667,19 @@ class _ChatComposerState extends State<ChatComposer> {
                   IconButton(
                     key: ChatComposer.imageKey,
                     tooltip: '图片',
-                    onPressed: _sending ? null : _addImage,
+                    onPressed: widget.enabled ? _addImage : null,
                     icon: const Icon(Icons.image_outlined),
                   ),
                   IconButton(
                     key: ChatComposer.fileKey,
                     tooltip: '附件',
-                    onPressed: _sending ? null : _addFile,
+                    onPressed: widget.enabled ? _addFile : null,
                     icon: const Icon(Icons.attach_file_rounded),
                   ),
                   IconButton(
                     key: ChatComposer.pasteKey,
                     tooltip: '粘贴图片或视频',
-                    onPressed: _sending ? null : _pasteMedia,
+                    onPressed: widget.enabled ? _pasteMedia : null,
                     icon: const Icon(Icons.content_paste_rounded),
                   ),
                   Expanded(
@@ -389,7 +687,7 @@ class _ChatComposerState extends State<ChatComposer> {
                       key: ChatComposer.inputKey,
                       controller: _controller,
                       focusNode: _focus,
-                      enabled: !_sending && widget.enabled,
+                      enabled: widget.enabled,
                       minLines: 1,
                       maxLines: 5,
                       textInputAction: TextInputAction.newline,
@@ -409,21 +707,12 @@ class _ChatComposerState extends State<ChatComposer> {
                     height: 48,
                     child: FilledButton(
                       key: ChatComposer.sendKey,
-                      onPressed: _sending ? null : _send,
+                      onPressed: widget.enabled ? _send : null,
                       style: FilledButton.styleFrom(
                         padding: EdgeInsets.zero,
                         minimumSize: const Size(48, 48),
                       ),
-                      child: _sending
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: AppColors.surface,
-                              ),
-                            )
-                          : const Icon(Icons.arrow_upward_rounded),
+                      child: const Icon(Icons.arrow_upward_rounded),
                     ),
                   ),
                 ],
@@ -431,38 +720,6 @@ class _ChatComposerState extends State<ChatComposer> {
             ],
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _failedBanner() {
-    return Container(
-      margin: const EdgeInsets.only(bottom: AppSpacing.sm),
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.sm,
-        vertical: AppSpacing.xs,
-      ),
-      decoration: BoxDecoration(
-        color: AppColors.dangerSurface,
-        borderRadius: BorderRadius.circular(AppRadius.brand),
-        border: Border.all(color: AppColors.dangerBorder),
-      ),
-      child: Row(
-        children: <Widget>[
-          const Icon(Icons.error_outline, size: 18, color: AppColors.danger),
-          const SizedBox(width: AppSpacing.xs),
-          Expanded(
-            child: Text(
-              '${_failed.length} 项未发送，重试不会重发已成功项',
-              style: const TextStyle(fontSize: 12.5, color: AppColors.danger),
-            ),
-          ),
-          TextButton(
-            key: ChatComposer.retryKey,
-            onPressed: _sending ? null : _retryFailed,
-            child: const Text('重试'),
-          ),
-        ],
       ),
     );
   }
@@ -503,6 +760,10 @@ class _ChatComposerState extends State<ChatComposer> {
               height: 56,
               fit: BoxFit.cover,
               gaplessPlayback: true,
+              errorBuilder:
+                  (BuildContext context, Object error, StackTrace? stack) {
+                    return const SizedBox(width: 56, height: 56);
+                  },
             ),
           );
     return Padding(
