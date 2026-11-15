@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 
 import '../../app.dart';
 import '../../models/space_models.dart';
+import '../../services/profile_service.dart';
+import 'space_avatars.dart';
 import 'space_compose_page.dart';
 import 'space_controller.dart';
 import 'space_detail_controller.dart';
@@ -26,6 +28,7 @@ class SpacePage extends StatefulWidget {
     super.key,
     required this.gateway,
     required this.store,
+    this.profile,
     this.onSessionExpired,
     this.pollInterval = const Duration(seconds: 20),
     this.autoPoll = true,
@@ -33,6 +36,10 @@ class SpacePage extends StatefulWidget {
 
   final SpaceGateway gateway;
   final SpaceLocalStore store;
+
+  /// Existing authorized avatar entry. When absent, author avatars keep the
+  /// deterministic initials (standalone widget tests, profile-less clients).
+  final ProfileGateway? profile;
   final VoidCallback? onSessionExpired;
   final Duration? pollInterval;
   final bool autoPoll;
@@ -54,10 +61,15 @@ class SpacePage extends StatefulWidget {
 class _SpacePageState extends State<SpacePage> {
   late final SpaceController _space;
   final ScrollController _feedScroll = ScrollController();
+  SpaceAvatarStore? _avatars;
 
   @override
   void initState() {
     super.initState();
+    final ProfileGateway? profile = widget.profile;
+    if (profile != null) {
+      _avatars = SpaceAvatarStore(profile: profile);
+    }
     _space = SpaceController(
       gateway: widget.gateway,
       store: widget.store,
@@ -75,6 +87,7 @@ class _SpacePageState extends State<SpacePage> {
     _space.removeListener(_onChanged);
     _feedScroll.dispose();
     _space.dispose();
+    _avatars?.dispose();
     super.dispose();
   }
 
@@ -194,7 +207,7 @@ class _SpacePageState extends State<SpacePage> {
       );
     }
 
-    return PopScope(
+    final Widget page = PopScope(
       canPop: !_space.detailOpen && _space.section == SpaceSection.feed,
       onPopInvokedWithResult: (bool didPop, Object? result) {
         if (didPop) {
@@ -212,6 +225,11 @@ class _SpacePageState extends State<SpacePage> {
         child: SpaceOcclusion(layout: layout, child: content),
       ),
     );
+    final SpaceAvatarStore? avatars = _avatars;
+    if (avatars == null) {
+      return page;
+    }
+    return SpaceAvatarScope(store: avatars, child: page);
   }
 
   Widget _detailPane(SpaceLayout layout, {required Key key}) {

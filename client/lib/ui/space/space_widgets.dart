@@ -5,18 +5,28 @@ import 'package:flutter/material.dart';
 import '../../app.dart';
 import '../../models/space_models.dart';
 import '../chat/chat_format.dart';
+import 'space_avatars.dart';
 import 'space_format.dart';
 import 'space_image_viewer.dart';
 
-/// Deterministic placeholder avatar. Real avatar bytes are a Profile concern;
-/// Space keeps the author identity visible without inventing a second avatar
-/// transport.
-class SpaceAvatar extends StatelessWidget {
+/// Author avatar from the authorized Profile entry, with deterministic initials
+/// only as the loading/failure placeholder.
+///
+/// `SpaceAuthor.avatarUrl` is the server's `/avatars/{account}.png`; Space does
+/// not fetch that path itself because the existing `ProfileGateway` owns the
+/// token, ETag revalidation and shared avatar cache. Without a scope (e.g. a
+/// standalone widget test) or with an empty `avatarUrl` the initials are final.
+class SpaceAvatar extends StatefulWidget {
   const SpaceAvatar({super.key, required this.author, this.size = 40});
 
   final SpaceAuthor author;
   final double size;
 
+  @override
+  State<SpaceAvatar> createState() => _SpaceAvatarState();
+}
+
+class _SpaceAvatarState extends State<SpaceAvatar> {
   static const List<Color> _palette = <Color>[
     Color(0xFF0E6F68),
     Color(0xFF7A4E00),
@@ -25,31 +35,80 @@ class SpaceAvatar extends StatelessWidget {
     Color(0xFF4A6B2A),
   ];
 
+  SpaceAvatarStore? _store;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _store = SpaceAvatarScope.maybeOf(context);
+    _requestAvatar();
+  }
+
+  @override
+  void didUpdateWidget(covariant SpaceAvatar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.author.account != widget.author.account ||
+        oldWidget.author.avatarUrl != widget.author.avatarUrl) {
+      _requestAvatar();
+    }
+  }
+
+  void _requestAvatar() {
+    if (widget.author.avatarUrl.isEmpty) {
+      return;
+    }
+    _store?.ensureLoaded(widget.author.account);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final int hash = author.account.codeUnits.fold<int>(
+    final Uint8List? bytes = _store?.bytesFor(widget.author.account);
+    final Widget avatar = bytes == null || bytes.isEmpty
+        ? _initials()
+        : ClipOval(
+            child: SizedBox(
+              width: widget.size,
+              height: widget.size,
+              child: Image.memory(
+                bytes,
+                width: widget.size,
+                height: widget.size,
+                fit: BoxFit.cover,
+                gaplessPlayback: true,
+                filterQuality: FilterQuality.medium,
+                errorBuilder:
+                    (BuildContext context, Object error, StackTrace? stack) =>
+                        _initials(),
+              ),
+            ),
+          );
+    return Semantics(
+      label: '${widget.author.username}的头像',
+      child: avatar,
+    );
+  }
+
+  Widget _initials() {
+    final int hash = widget.author.account.codeUnits.fold<int>(
       0,
       (int a, int b) => a + b,
     );
     final Color color = _palette[hash % _palette.length];
-    return Semantics(
-      label: '${author.username}的头像',
-      child: Container(
-        width: size,
-        height: size,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.14),
-          shape: BoxShape.circle,
-          border: Border.all(color: color.withValues(alpha: 0.24)),
-        ),
-        child: Text(
-          initialsOf(author.username),
-          style: TextStyle(
-            color: color,
-            fontSize: size * 0.34,
-            fontWeight: FontWeight.w700,
-          ),
+    return Container(
+      width: widget.size,
+      height: widget.size,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.14),
+        shape: BoxShape.circle,
+        border: Border.all(color: color.withValues(alpha: 0.24)),
+      ),
+      child: Text(
+        initialsOf(widget.author.username),
+        style: TextStyle(
+          color: color,
+          fontSize: widget.size * 0.34,
+          fontWeight: FontWeight.w700,
         ),
       ),
     );

@@ -113,4 +113,26 @@ NOT RUN / retained gaps: Android and Windows runtime, a physical fold device,
 real DSH plugin lifecycle and model vision (Forge/sibling scope), network
 WebSocket push (locked server lacks a Uvicorn WebSocket backend; HTTP replay is
 the authoritative path), multi-device concurrent editing, real screen readers
-and IMEs, real avatar photos (initial-letter placeholders are used).
+and IMEs, a real user-uploaded avatar photo (the avatar path is covered with
+fixture PNG bytes; the server's identicon/upload endpoint is Forge's test
+scope).
+
+## Avatar fix after integration (follow-up to `63b16f6`)
+
+Forge found that `SpaceAvatar` always rendered initials and ignored
+`SpaceAuthor.avatarUrl`. The follow-up keeps the existing authorized Profile
+entry: every card/comment/people row asks `ProfileGateway.loadAvatar(account:)`
+once per page visit, which owns the token, ETag revalidation and shared avatar
+cache. `SpaceAvatar` shows `Image.memory` from those bytes and keeps the
+deterministic initials only while loading or after a failed fetch. No new wire
+contract, avatar transport or persistent cache was added; Forge's
+`space_service.dart`/DTOs are untouched.
+
+- `flutter analyze` — clean.
+- `flutter test` — 683 passed, 12 skipped (previous 678 + 5 avatar regressions).
+- Focused Space widget/state tests — 59 passed.
+- New `test/space_avatar_test.dart`: real bytes replace initials and are
+  requested once per account; empty `avatarUrl` and a failed fetch keep
+  initials without a retry loop; the likes sheet reuses the page's store; a
+  `SpacePage` without a profile gateway keeps initials.
+- Raw logs: `docs/evidence/dea481-client/avatar-fix/`.
