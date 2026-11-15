@@ -268,6 +268,19 @@ def extract_and_recheck(
     }
 
 
+def remove_tree(path: Path) -> None:
+    """Best-effort recursive delete; Windows may briefly lock a just-run .exe."""
+    for _ in range(10):
+        try:
+            shutil.rmtree(path)
+            return
+        except FileNotFoundError:
+            return
+        except PermissionError:
+            time.sleep(0.5)
+    shutil.rmtree(path, ignore_errors=True)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bundle", required=True)
@@ -292,8 +305,11 @@ def main(argv: list[str] | None = None) -> int:
         archive_report = inspect_zip(zip_path)
         log.append(f"archive: {json.dumps(archive_report, ensure_ascii=False)}")
 
-        with tempfile.TemporaryDirectory() as temporary:
+        temporary = tempfile.mkdtemp(prefix="bb-windows-recheck-")
+        try:
             extracted = extract_and_recheck(zip_path, temporary)
+        finally:
+            remove_tree(Path(temporary))
         log.append(f"extracted recheck: {json.dumps(extracted, ensure_ascii=False)}")
 
         sums = out / "SHA256SUMS.txt"

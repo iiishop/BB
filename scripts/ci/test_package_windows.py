@@ -141,6 +141,17 @@ class ZipTests(unittest.TestCase):
             self.assertEqual(result["smoke"]["status"], "NOT_RUN")
 
 
+class CleanupTests(unittest.TestCase):
+    def test_remove_tree_deletes_and_tolerates_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            target = Path(temporary) / "BB 测试 包"
+            (target / "ffmpeg").mkdir(parents=True)
+            (target / "ffmpeg" / "ffmpeg.exe").write_bytes(b"MZ")
+            pkg.remove_tree(target)
+            self.assertFalse(target.exists())
+            pkg.remove_tree(target)
+
+
 class CleanPathTests(unittest.TestCase):
     def test_clean_env_replaces_path(self) -> None:
         env = pkg.build_clean_env({"PATH": "/does/not/matter", "KEEP": "yes"})
