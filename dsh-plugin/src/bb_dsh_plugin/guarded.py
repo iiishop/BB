@@ -7,11 +7,13 @@ import base64
 import json
 
 import httpx
-from bb_auth_contract import ContractError, structural_error
+from bb_auth_contract import ContractError, space, structural_error
 from bb_auth_contract import chat_v2 as v2
 from bb_auth_contract.profile import PROFILE_TOOLS, parse_profile_tool
 from mcp.types import CallToolResult, ImageContent, TextContent
 from pydantic import TypeAdapter, ValidationError, create_model
+
+from .space_tools import SPACE_ERRORS, SPACE_TOOLS
 
 INTERNAL = {
     "notification_changes",
@@ -56,12 +58,17 @@ class GuardedTransport:
             raise ValueError("Invalid local consumer binding configuration") from None
 
     async def call(self, operation, payload):
-        path, request, response_model, status, _ = v2.BUSINESS[operation]
+        if operation in SPACE_TOOLS:
+            action = operation.removeprefix('space_')
+            path, request, response_model, status = ('/v2/space/' + action,
+                space.LOCAL_REQUESTS[action], space.LOCAL_RESPONSES[action], 200)
+        else:
+            path, request, response_model, status, _ = v2.BUSINESS[operation]
         try:
             body = request.model_validate(
                 {**payload, "expected_identity": self.identity}
             ).model_dump(
-                exclude_none=operation not in PROFILE_TOOLS,
+                exclude_none=operation not in PROFILE_TOOLS and operation not in SPACE_TOOLS,
                 exclude_unset=operation in PROFILE_TOOLS,
             )
         except ValidationError as error:
@@ -93,10 +100,9 @@ class GuardedTransport:
                     raise ContractError(409, "stale_identity", "响应身份已失效")
                 return parsed["result"]
             error = v2.ErrorEnvelope.model_validate(response.json()).error
-            if (
-                error.code not in v2.ERRORS
-                or v2.ERRORS[error.code][0] != response.status_code
-            ):
+            expected_status = (SPACE_ERRORS.get(error.code) if operation in SPACE_TOOLS
+                               else v2.ERRORS.get(error.code, (None,))[0])
+            if expected_status != response.status_code:
                 raise ValueError("unexpected error status")
             # No upstream text/field echo: it may contain local capabilities or credentials.
             raise ContractError(response.status_code, error.code, error.code)

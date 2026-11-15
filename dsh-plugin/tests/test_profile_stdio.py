@@ -6,12 +6,12 @@ import threading
 from datetime import timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from bb_dsh_plugin.guarded import TOOL_MODELS
+from bb_dsh_plugin.space_tools import SPACE_TOOLS
 from guarded_fixture import IDENTITY, OWNER
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from test_profile_contract import PNG
-
-from bb_dsh_plugin.guarded import TOOL_MODELS
 
 
 async def test_six_profile_tools_via_stdio_without_credentials(tmp_path):
@@ -85,7 +85,7 @@ async def test_six_profile_tools_via_stdio_without_credentials(tmp_path):
         ):
             await session.initialize()
             tools = (await session.list_tools()).tools
-            assert {tool.name for tool in tools} == set(TOOL_MODELS) | {
+            assert {tool.name for tool in tools} == set(TOOL_MODELS) | set(SPACE_TOOLS) | {
                 "register_account",
                 "login_account",
             }
