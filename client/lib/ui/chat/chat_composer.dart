@@ -170,7 +170,8 @@ class _ChatComposerState extends State<ChatComposer> {
   }
 
   Future<String?> _addAttachment(PickedMedia picked) async {
-    final AttachmentKind kind = attachmentKindForMime(picked.mimeType);
+    AttachmentKind kind = attachmentKindForMime(picked.mimeType);
+    String mimeType = picked.mimeType;
     ResolvedMedia? cover;
     if (kind == AttachmentKind.video) {
       cover = await widget.coverExtractor(
@@ -179,9 +180,17 @@ class _ChatComposerState extends State<ChatComposer> {
         filename: picked.filename,
       );
       if (cover == null) {
-        return _isDesktop
-            ? '无法从 ${picked.filename} 提取视频封面（桌面需要 ffmpeg）'
-            : '无法从 ${picked.filename} 提取视频封面';
+        // A MIME that claims video but carries no video track (audio-only
+        // webm/mp4) must stay sendable as the contract's generic file, not be
+        // blocked by the server's video-cover requirement.
+        if (hasVideoTrackInContainer(picked.bytes) == false) {
+          kind = AttachmentKind.other;
+          mimeType = 'application/octet-stream';
+        } else {
+          return _isDesktop
+              ? '无法从 ${picked.filename} 提取视频封面（桌面需要 ffmpeg）'
+              : '无法从 ${picked.filename} 提取视频封面';
+        }
       }
     }
     if (!mounted) {
@@ -194,7 +203,7 @@ class _ChatComposerState extends State<ChatComposer> {
             source: MediaSource(
               bytes: picked.bytes,
               filename: picked.filename,
-              mimeType: picked.mimeType,
+              mimeType: mimeType,
             ),
             cover: cover == null
                 ? null

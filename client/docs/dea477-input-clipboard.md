@@ -63,9 +63,9 @@ Windows runner 没有剪贴板插件，本轮用系统自带 PowerShell（不安
 - 未改共享契约。`chat.py` 的 `Media.media_type` 已含 `document`/`other`；
   `MIMES` 白名单外（zip、其他二进制、m4a 等）由客户端以 `application/octet-stream` 发送并落到
   `other`，`document` 覆盖 pdf/text。
-- 服务端只把 `audio/mpeg`、`audio/wav` 归为音频；其他音频容器（如 m4a）按普通文件 `other`
-  发送。这是现有契约的能力边界，不是本轮客户端缩窄；若产品要求更多音频类型按音频渲染，需要
-  服务端扩充 `MIMES`。
+- 服务端只把 `audio/mpeg`、`audio/wav` 归为音频；其他音频容器（如 m4a、audio-only webm/mp4）
+  按普通文件 `other` 发送。这是现有契约的能力边界，不是本轮客户端缩窄；若产品要求更多音频类型
+  按音频渲染，需要服务端扩充 `MIMES`。
 - 未发现需要修改服务端的真实缺口。
 
 ## 6. 测试与证据
@@ -85,11 +85,45 @@ segfault，因此 Linux 桌面窗口/集成测试 NOT RUN。
 | 命令 | 结果 |
 | --- | --- |
 | `flutter analyze` | `No issues found!`，exit 0 |
-| `flutter test` | 519 passed / 8 skipped，exit 0（基线 498 passed / 8 skipped） |
-| `flutter test test/chat_composer_shortcuts_test.dart test/chat_clipboard_paste_test.dart` | 19 passed，exit 0 |
+| `flutter test` | 527 passed / 8 skipped，exit 0（基线 498 passed / 8 skipped） |
+| `flutter test test/chat_clipboard_paste_test.dart test/chat_media_input_test.dart` | 27 passed，exit 0 |
 | `flutter test test/chat_media_input_test.dart test/chat_send_feedback_test.dart test/chat_local_media_preview_test.dart` | 57 passed，exit 0 |
 | `flutter build linux --debug` | 构建成功 exit 0（只证明编译，不代表窗口/运行） |
 
 未测：Windows 运行时（PowerShell CF_HDROP/CF_DIB、真实 Ctrl+V、资源管理器多选）、Linux 桌面
 GUI/集成测试、Android 真机、Windows 构建。上述剪贴板逻辑仅有 listing/脚本/文件收集/组件层
 单测与 Linux widget test 证明，不能替代真实 Windows 验收。
+
+## 7. 返工：audio-only WebM（Sentinel 反例）
+
+Sentinel 复验确认的验收缺陷：合法纯音频 WebM（Opus，无视频轨）被 `sniffMime` 的 EBML magic
+一律判为 `video/webm`，随后 `ChatComposer::_addAttachment` 强制要求封面帧，导致文件无法进入
+待发送区。修复不是按文件名特判，而是按容器真实轨道分类：
+
+- `media_source.dart` 新增 `hasVideoTrackInContainer(bytes)`：对 Matroska/WebM（EBML）解析
+  `Segment → Tracks → TrackEntry → TrackType`（1 = video）；对 ISO-BMFF（ftyp）解析
+  `moov → trak → mdia → hdlr`，`vide` 才算视频。容器未知/截断/损坏时返回 null，保持原 magic
+  分类，不靠猜测放宽。
+- `sniffMime` 仅在没有视频轨时把 mp4/webm 归为 `application/octet-stream`（契约 `other`）；
+  有视频轨保持 `video/mp4`/`video/webm`。
+- 准备规则再加一层防御：若某个来源仍声明 `video/*` 但取封面失败且容器确实无视频轨，
+  `_addAttachment` 降级为 `other` 并以 `application/octet-stream` 发送，不再卡住发送。
+  真实视频取封面失败仍给原有可见错误。
+
+修前/修后（同一临时行为探针：Windows 文件列表 seam 读真实 `test/fixtures/media/audio-only.webm`
+→ Ctrl+V → 期望草稿中出现文件名）：
+
+| 树 | 结果 |
+| --- | --- |
+| 上一候选 `4140984` | exit 1：`Found 0 widgets with text "audio-only.webm"`，文件未进入待发送区 |
+| 本次修复 | exit 0：1 passed；文件名出现、无“提取视频封面”错误、可发送为 `application/octet-stream` |
+
+Sentinel 的 `review/dea477/paste_probe_test.dart` 中 audio 用例把“出现提取封面错误”也写成断言，
+修复后该断言按设计失败；其 3 个异步安全性场景在修复后仍通过。对应期望行为已移植进默认
+`test/chat_clipboard_paste_test.dart`（无错误、可移除、可发送），并补充：
+`audio-only webm` 轨道检测、`audio-only mp4`（isom 音频）轨道检测、真实 video webm/mp4 仍为视频、
+以及 `video/*` 声明但无视频轨时降级为 `other` 的准备规则回归。
+
+本轮 `flutter test` 527 passed / 8 skipped / exit 0；`flutter analyze` clean；
+`flutter build linux --debug` 成功。Windows 原生验收、Linux 桌面 GUI/集成、Android 仍为
+**NOT RUN**（Windows runtime offline；本机 Xvfb segfault）。

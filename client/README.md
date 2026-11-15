@@ -127,7 +127,8 @@ Linux 默认窗口 1180×780，Windows 同样 1180×780。Windows 构建/运行�
   ClipData content URI 图片/视频。图片进入正文，视频（真实封面）与音频/PDF/ZIP/其他普通文件
   进入独立附件；多文件保持剪贴板顺序进入附件组（图片按序进入正文）、可逐项删除、不自动发送。文件不存在/是文件夹/为空/
   超过 32 MiB 时给出可见提示，不静默丢弃；未知类型以 `application/octet-stream` 走契约的
-  `other`。iOS 无本轮 runner，未接入。
+  `other`。webm/mp4 按容器真实轨道分类：只有音轨的“音频版 webm/mp4”不会进入视频封面流程，
+  以普通文件 `other` 发送；容器无法解析时保持原 magic 分类。iOS 无本轮 runner，未接入。
 - **在线播放**：附件到达只取封面；点击播放时才启动 `127.0.0.1` 随机 token 的 loopback 流代理，
   按播放器 Range 向带 Bearer 的 `/media/{id}` 透传，不预下载原文件。Android/iOS 用
   `VideoPlayerController.networkUrl` 在线播放；桌面把流 URL 交给系统播放器并保留“停止/取消”
@@ -189,7 +190,7 @@ flutter test integration_test -d linux
 QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_tests.sh client
 ```
 
-- 默认 `flutter test`：最新为 **519 passed / 8 skipped / exit 0**。新增覆盖
+- 默认 `flutter test`：最新为 **527 passed / 8 skipped / exit 0**。新增覆盖
   1000 条真实分页下发送/接收并发补取无缺口、events/wait limit 边界、原子展示确认/冲突/全组
   拒绝/重启幂等、新 consumer 独立补取、有序图文发送、幂等/冲突、read→receipt→ACK 缺口、
   附件只读元信息、异步下载内容、持久事件、wait 积压/提前到达、用户列表分页/预览/在线状态、
@@ -208,11 +209,14 @@ QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_test
   换行不发送、IME 组词时 Enter 不发送、空/纯空白不发、长按 Enter 不重复、专用粘贴按钮消失；
   `chat_clipboard_paste_test.dart` 覆盖 Windows 剪贴板 listing 解析与脚本转义、多文件任意类型
   （PDF/ZIP/音频/图片）顺序、图片转 PNG、文件夹/空文件/超 32 MiB/不可读的可见提示、Ctrl+V 不自动
-  发送、正文保留、逐项移除、文本粘贴按光标插入；`chat_media_input_test.dart` 增加多 URI 去重与
-  m4a 不误判为视频。
+  发送、正文保留、逐项移除、文本粘贴按光标插入；异步粘贴还覆盖延迟读取保留编辑/合并重叠请求、
+  读取中发送后迟到文件不自动发送、dispose 后迟到结果不抛错。音频反例：真实 audio-only WebM
+  （Opus、无视频轨）经 Windows 文件列表 seam + Ctrl+V 进入准备链路后保持可取消、可发送，
+  准备规则在“声明 video 但无视频轨”时降级为 `application/octet-stream`。`chat_media_input_test.dart`
+  增加多 URI 去重、m4a 不误判、真实 audio-only webm/mp4 轨道检测与 video webm/mp4 保持视频。
 - 严格命令 `QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_tests.sh client`
   需要可用的 Linux 显示服务；DEA-477 本轮环境 Xvfb segfault，只实际执行了 `flutter analyze`
-  （`No issues found!`，exit 0）与 `flutter test`（519 passed / 8 skipped，exit 0）；
+  （`No issues found!`，exit 0）与 `flutter test`（527 passed / 8 skipped，exit 0）；
   `flutter build linux --debug` 构建成功只证明编译。`linux-integration`（需要显示服务）、
   Windows/Android 真机与桌面 GUI 运行均 **NOT RUN**。
 - `test/qa_metrics_test.dart` / `qa_session_race_test.dart` 保留独立 QA 的失败回归：

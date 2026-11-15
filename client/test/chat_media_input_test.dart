@@ -37,6 +37,9 @@ void main() {
   late Uint8List videoBytes;
   late String videoPath;
   late ResolvedMedia realCover;
+  late Uint8List videoWebmBytes;
+  late Uint8List audioOnlyMp4Bytes;
+  late Uint8List audioOnlyWebmBytes;
 
   setUpAll(() async {
     root = await Directory.systemTemp.createTemp('bb-media-input-');
@@ -55,6 +58,42 @@ void main() {
     ]);
     expect(result.exitCode, 0, reason: 'ffmpeg fixture: ${result.stderr}');
     videoBytes = await File(videoPath).readAsBytes();
+    final String webmPath = '${root.path}/clip.webm';
+    final ProcessResult webmResult = await Process.run('ffmpeg', <String>[
+      '-y',
+      '-f',
+      'lavfi',
+      '-i',
+      'color=c=teal:s=64x64:d=1',
+      '-c:v',
+      'libvpx',
+      '-f',
+      'webm',
+      webmPath,
+    ]);
+    expect(webmResult.exitCode, 0, reason: 'ffmpeg webm: ${webmResult.stderr}');
+    videoWebmBytes = await File(webmPath).readAsBytes();
+    final String audioMp4Path = '${root.path}/audio-only.mp4';
+    final ProcessResult audioResult = await Process.run('ffmpeg', <String>[
+      '-y',
+      '-f',
+      'lavfi',
+      '-i',
+      'sine=frequency=440:duration=0.5',
+      '-c:a',
+      'aac',
+      '-f',
+      'mp4',
+      audioMp4Path,
+    ]);
+    expect(
+      audioResult.exitCode,
+      0,
+      reason: 'ffmpeg audio fixture: ${audioResult.stderr}',
+    );
+    audioOnlyMp4Bytes = await File(audioMp4Path).readAsBytes();
+    audioOnlyWebmBytes = await File('test/fixtures/media/audio-only.webm')
+        .readAsBytes();
     final ResolvedMedia? cover = await MediaActions.extractVideoCover(
       path: videoPath,
       bytes: videoBytes,
@@ -115,6 +154,29 @@ void main() {
       '/tmp/a.png',
       '/tmp/b.zip',
     ]);
+  });
+
+  test('video containers stay video and have a real video track', () {
+    expect(hasVideoTrackInContainer(videoBytes), isTrue);
+    expect(sniffMime(videoBytes, 'clip.mp4'), 'video/mp4');
+    expect(hasVideoTrackInContainer(videoWebmBytes), isTrue);
+    expect(sniffMime(videoWebmBytes, 'clip.webm'), 'video/webm');
+  });
+
+  test('audio-only webm is a generic attachment, not a cover-less video', () {
+    expect(hasVideoTrackInContainer(audioOnlyWebmBytes), isFalse);
+    expect(
+      sniffMime(audioOnlyWebmBytes, 'audio-only.webm'),
+      'application/octet-stream',
+    );
+  });
+
+  test('audio-only mp4 is detected from its track list, not its brand', () {
+    expect(hasVideoTrackInContainer(audioOnlyMp4Bytes), isFalse);
+    expect(
+      sniffMime(audioOnlyMp4Bytes, 'audio-only.mp4'),
+      'application/octet-stream',
+    );
   });
 
   test('audio-only mp4 containers stay generic files, not video', () {

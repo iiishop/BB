@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -21,6 +22,23 @@ const String _peer = '10000002';
 final Uint8List _png = base64Decode(
   'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR4nGP8z8Dwn4GBgYGJAQoAHxcCAk+Uzr4AAAAASUVORK5CYII=',
 );
+
+class _DeferredClipboard implements ClipboardMediaReader {
+  final Completer<ClipboardPaste> pending = Completer<ClipboardPaste>();
+  int calls = 0;
+
+  @override
+  Future<ClipboardPaste> read() {
+    calls += 1;
+    return pending.future;
+  }
+
+  void complete(ClipboardPaste paste) {
+    if (!pending.isCompleted) {
+      pending.complete(paste);
+    }
+  }
+}
 
 class _FakePasteClipboard implements ClipboardMediaReader {
   _FakePasteClipboard(this.paste);
@@ -415,6 +433,47 @@ void main() {
       await tester.pump();
     });
 
+    testWidgets('a video MIME without a video track still attaches', (
+      WidgetTester tester,
+    ) async {
+      final Uint8List bytes = File('test/fixtures/media/audio-only.webm')
+          .readAsBytesSync();
+      final _FakePasteClipboard clipboard = _FakePasteClipboard(
+        ClipboardPaste(
+          files: <PickedMedia>[
+            PickedMedia(
+              bytes: bytes,
+              filename: 'voice.webm',
+              mimeType: 'video/webm',
+            ),
+          ],
+        ),
+      );
+      final FakeChatService chat = await _pumpComposer(
+        tester,
+        clipboard,
+        coverExtractor: ({
+          String? path,
+          required Uint8List bytes,
+          required String filename,
+        }) async => null,
+      );
+
+      await pasteFromClipboard(tester);
+
+      expect(find.textContaining('提取视频封面'), findsNothing);
+      expect(find.text('voice.webm'), findsOneWidget);
+      await tester.tap(find.byKey(ChatComposer.sendKey));
+      await tester.pumpAndSettle();
+      expect(chat.lastSentAttachments, hasLength(1));
+      expect(
+        chat.lastSentAttachments.single.source.mimeType,
+        'application/octet-stream',
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+    });
+
     testWidgets('skipped clipboard entries are visible next to valid files', (
       WidgetTester tester,
     ) async {
@@ -525,6 +584,125 @@ void main() {
       await tester.pump();
     });
   });
+  group('async paste safety', () {
+    testWidgets('late clipboard keeps edits and coalesces overlapping Ctrl+V', (
+      WidgetTester tester,
+    ) async {
+      final _DeferredClipboard clipboard = _DeferredClipboard();
+      final FakeChatService chat = await _pumpComposer(tester, clipboard);
+      await tester.enterText(find.byKey(ChatComposer.inputKey), 'before');
+
+      await pasteFromClipboard(tester);
+      await sendPasteShortcut(tester);
+      await tester.enterText(find.byKey(ChatComposer.inputKey), 'after');
+      clipboard.complete(
+        ClipboardPaste(files: <PickedMedia>[_binaryAttachment()]),
+      );
+      await tester.pumpAndSettle();
+
+      expect(clipboard.calls, 1, reason: 'overlapping Ctrl+V coalesces');
+      expect(find.text('pending.bin'), findsOneWidget);
+      expect(chat.sendCalls, 0, reason: 'late paste must not auto-send');
+      await tester.tap(find.byKey(ChatComposer.sendKey));
+      await tester.pumpAndSettle();
+      expect(chat.sentTexts, <String>['after']);
+      expect(chat.lastSentAttachments, hasLength(1));
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+    });
+
+    testWidgets('sending during a clipboard read leaves the late file out', (
+      WidgetTester tester,
+    ) async {
+      final _DeferredClipboard clipboard = _DeferredClipboard();
+      final FakeChatService chat = await _pumpComposer(tester, clipboard);
+      await tester.enterText(find.byKey(ChatComposer.inputKey), 'first');
+      await pasteFromClipboard(tester);
+      await tester.tap(find.byKey(ChatComposer.sendKey));
+      await tester.pumpAndSettle();
+      expect(chat.sendCalls, 1);
+
+      clipboard.complete(
+        ClipboardPaste(files: <PickedMedia>[_binaryAttachment()]),
+      );
+      await tester.pumpAndSettle();
+      expect(chat.sendCalls, 1, reason: 'late file must not auto-send');
+      expect(find.text('pending.bin'), findsOneWidget);
+
+      await tester.tap(find.byKey(ChatComposer.sendKey));
+      await tester.pumpAndSettle();
+      expect(chat.sendCalls, 2);
+      expect(chat.lastSentAttachments.single.source.filename, 'pending.bin');
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+    });
+
+    testWidgets('late clipboard after disposal neither sends nor throws', (
+      WidgetTester tester,
+    ) async {
+      final _DeferredClipboard clipboard = _DeferredClipboard();
+      final FakeChatService chat = await _pumpComposer(tester, clipboard);
+      await pasteFromClipboard(tester);
+      await tester.pumpWidget(const SizedBox.shrink());
+      clipboard.complete(
+        ClipboardPaste(files: <PickedMedia>[_binaryAttachment()]),
+      );
+      await tester.pumpAndSettle();
+      expect(chat.sendCalls, 0);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+      'audio-only WebM from a clipboard file list stays a sendable attachment',
+      (WidgetTester tester) async {
+        final File file = File('test/fixtures/media/audio-only.webm').absolute;
+        expect(file.existsSync(), isTrue);
+        final Uint8List bytes = file.readAsBytesSync();
+        expect(hasVideoTrackInContainer(bytes), isFalse);
+        expect(sniffMime(bytes, 'audio-only.webm'), 'application/octet-stream');
+        final WindowsClipboardMediaReader reader = WindowsClipboardMediaReader(
+          runner: (String script, String outputPath) async {
+            await File(outputPath).writeAsString('FILE\t${file.path}');
+            return true;
+          },
+        );
+        final ClipboardPaste? paste = await tester.runAsync(reader.read);
+        expect(paste, isNotNull);
+        expect(paste!.files, hasLength(1));
+        expect(paste.files.single.bytes, bytes);
+
+        final _DeferredClipboard clipboard = _DeferredClipboard();
+        final FakeChatService chat = await _pumpComposer(tester, clipboard);
+        await pasteFromClipboard(tester);
+        clipboard.complete(paste);
+        await tester.pumpAndSettle();
+
+        expect(chat.sendCalls, 0, reason: 'paste must not auto-send');
+        expect(find.textContaining('提取视频封面'), findsNothing);
+        expect(find.text('audio-only.webm'), findsOneWidget);
+        await tester.tap(find.byKey(ChatComposer.sendKey));
+        await tester.pumpAndSettle();
+        expect(chat.sendCalls, 1);
+        expect(
+          chat.lastSentAttachments.single.source.filename,
+          'audio-only.webm',
+        );
+        expect(
+          chat.lastSentAttachments.single.source.mimeType,
+          'application/octet-stream',
+        );
+        expect(chat.lastSentAttachments.single.cover, isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pump();
+      },
+    );
+  });
 }
+
+PickedMedia _binaryAttachment() => PickedMedia(
+  bytes: Uint8List.fromList(<int>[1, 2, 3]),
+  filename: 'pending.bin',
+  mimeType: 'application/octet-stream',
+);
 
 Future<bool> _failingProbe(String script, String outputPath) async => false;
