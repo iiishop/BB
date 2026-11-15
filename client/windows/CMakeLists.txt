@@ -93,9 +93,10 @@ endif()
 # 运行时从应用可执行文件所在目录解析 ffmpeg/ffmpeg.exe，不依赖 PATH 或当前工作目录。
 set(BUNDLED_FFMPEG_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ffmpeg")
 if(EXISTS "${BUNDLED_FFMPEG_DIR}/ffmpeg.exe")
-  foreach(required "ffmpeg.exe" "FFMPEG-LICENSE.txt" "FFMPEG-NOTICE.txt")
+  foreach(required "ffmpeg.exe" "FFMPEG-LICENSE.txt" "FFMPEG-LGPLv3.txt"
+      "FFMPEG-GPLv3.txt" "ZLIB-LICENSE.txt" "FFMPEG-NOTICE.txt" "BUILD-MANIFEST.txt")
     if(NOT EXISTS "${BUNDLED_FFMPEG_DIR}/${required}")
-      message(FATAL_ERROR "内置 FFmpeg 缺少 ${required}：重新运行 python scripts/ci/fetch_ffmpeg_windows.py --dest client/windows/ffmpeg")
+      message(FATAL_ERROR "内置 FFmpeg 缺少 ${required}：重新运行 scripts/ci/fetch_ffmpeg_sources.py + scripts/ci/build_ffmpeg_windows.sh")
     endif()
   endforeach()
   install(DIRECTORY "${BUNDLED_FFMPEG_DIR}/"
@@ -104,7 +105,11 @@ if(EXISTS "${BUNDLED_FFMPEG_DIR}/ffmpeg.exe")
     FILES_MATCHING
       PATTERN "ffmpeg.exe"
       PATTERN "FFMPEG-LICENSE.txt"
-      PATTERN "FFMPEG-NOTICE.txt")
+      PATTERN "FFMPEG-LGPLv3.txt"
+      PATTERN "FFMPEG-GPLv3.txt"
+      PATTERN "ZLIB-LICENSE.txt"
+      PATTERN "FFMPEG-NOTICE.txt"
+      PATTERN "BUILD-MANIFEST.txt")
   message(STATUS "Bundling FFmpeg from ${BUNDLED_FFMPEG_DIR}")
 elseif(CMAKE_BUILD_TYPE STREQUAL "Release")
   message(FATAL_ERROR "Release 构建必须自带 FFmpeg：先运行 python scripts/ci/fetch_ffmpeg_windows.py --dest client/windows/ffmpeg")
