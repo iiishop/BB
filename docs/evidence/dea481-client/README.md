@@ -8,7 +8,7 @@ Owner: Muse. Task: DEA-483, client part of the approved DEA-481 Space revision 1
   `client/lib/services/space*`, ledger/local-router and its docs). The client
   branch is based on that commit; Forge remains the sole integrator of PR #35.
 - Candidate branch: `agent/muse/dea-481-client` (pushed from the run worktree).
-- Verification SHA: `de0da8b` (the code/test tree all commands above ran on).
+- Verification SHA: `d3856e3` (the code/test tree all commands above ran on).
   The branch head appends this manifest/SHA note only; code and tests are
   unchanged by that documentation commit.
 - Run directory: `dea-483-17449a6f2dc1/workdir/BB-client`; scope: `ui/space/`,
@@ -30,8 +30,8 @@ or production profile.
 | Check | Command | Result | Raw log |
 | --- | --- | --- | --- |
 | Analyzer | `flutter analyze` | exit 0, no issues | `logs/analyze.log`, `logs/analyze.exit` |
-| Full client suite | `flutter test` | exit 0, **676 passed, 12 skipped**, 25 s | `logs/flutter-test-all.log`, `logs/flutter-test-all.exit` |
-| Focused Space tests | `flutter test test/space_smoke_test.dart test/space_contract_fixtures_test.dart test/space_controller_test.dart test/space_feed_test.dart test/space_detail_test.dart test/space_compose_test.dart test/space_notifications_test.dart test/space_shell_test.dart` | exit 0, **52 passed**, 4 s | `logs/space-widget-tests.log`, `logs/space-widget.exit` |
+| Full client suite | `flutter test` | exit 0, **678 passed, 12 skipped**, 25 s | `logs/flutter-test-all.log`, `logs/flutter-test-all.exit` |
+| Focused Space tests | `flutter test test/space_smoke_test.dart test/space_contract_fixtures_test.dart test/space_controller_test.dart test/space_feed_test.dart test/space_detail_test.dart test/space_compose_test.dart test/space_notifications_test.dart test/space_shell_test.dart` | exit 0, **54 passed**, 4 s | `logs/space-widget-tests.log`, `logs/space-widget.exit` |
 | Real HTTP path | `BB_SPACE_API_BASE=http://127.0.0.1:8765 flutter test test/space_real_api_test.dart` | exit 0, **1 passed** | `logs/space-real-api.log`, `logs/space-real-api.exit` |
 | Rendered screenshots | opt-in screenshot test with Noto CJK + MaterialIcons fonts | exit 0, **2 passed**, 10 files | `logs/space-screenshots.log`, `.exit` |
 | Linux release build | `flutter build linux --release` | succeeded (`build/linux/x64/release/bundle/bb_mobile`) | `logs/build-linux.log` |
@@ -78,6 +78,11 @@ Observed in the real client:
 
 The 1024×768 run is a resized Linux window plus a simulated width; it is **not**
 a physical fold device. Android/Windows runtime and a real hinge remain NOT RUN.
+The Xvfb display used for the final run was `:100` (a stale `:99` lock was
+avoided); window captures are direct `import -window <id>` PNGs. The two viewer
+captures (`real-viewer-phone/fold.png`) were taken on the earlier `de0da8b`
+build; the viewer code is unchanged in the final commit (which only changed
+draft operation-ID retention and a publish-failure banner).
 
 ## Screenshots
 
