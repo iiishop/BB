@@ -6,21 +6,24 @@ import 'update_ui_state.dart';
 
 /// Settings surface for client self-update.
 ///
-/// Presentation only: every action is a callback supplied by the integration
-/// layer that owns the shared update contract. No widget here starts a network
-/// request, writes a file or launches the installer by itself, which keeps the
-/// "one update at a time", checksum and draft/in-flight gates in one place.
+/// Presentation only: every action is a callback supplied by
+/// [UpdateSettingsHost], which maps Forge's shared update contract. No widget
+/// here starts a network request, writes a file or launches the installer by
+/// itself, which keeps the "one update at a time", checksum and draft/in-flight
+/// gates in one place.
 class UpdateSettingsPage extends StatelessWidget {
   const UpdateSettingsPage({
     super.key,
     required this.state,
     this.onCheck,
-    this.onDownloadAndInstall,
+    this.onDownload,
+    this.onInstall,
     this.onCancelDownload,
     this.onRetry,
     this.onOpenInstallPermissionSettings,
     this.onResumeSystemInstaller,
     this.onReviewPendingWork,
+    this.onOpenLink,
   });
 
   final UpdateUiState state;
@@ -28,11 +31,14 @@ class UpdateSettingsPage extends StatelessWidget {
   /// Start/retry a manual check. Also used by the idle and up-to-date phases.
   final VoidCallback? onCheck;
 
-  /// Download the fixed target release asset, verify it, then install.
-  final VoidCallback? onDownloadAndInstall;
+  /// Download the pinned release asset and verify it; installation is separate.
+  final VoidCallback? onDownload;
+
+  /// Start the install transaction after the file is verified.
+  final VoidCallback? onInstall;
   final VoidCallback? onCancelDownload;
 
-  /// Retry the failed step (check, download or install) after a visible error.
+  /// Retry the failed step (check or download) after a visible error.
   final VoidCallback? onRetry;
 
   /// Open the Android "install unknown apps" screen for this app.
@@ -46,8 +52,13 @@ class UpdateSettingsPage extends StatelessWidget {
   /// paused. Optional: the notice is still complete without it.
   final VoidCallback? onReviewPendingWork;
 
+  /// Called with an `https` target after the user explicitly asks to open a
+  /// link in the release body. The host asks for confirmation first.
+  final void Function(String url)? onOpenLink;
+
   static const Key checkButtonKey = Key('update-check');
   static const Key downloadButtonKey = Key('update-download');
+  static const Key installButtonKey = Key('update-install');
   static const Key cancelButtonKey = Key('update-cancel');
   static const Key retryButtonKey = Key('update-retry');
   static const Key permissionButtonKey = Key('update-permission');
@@ -59,6 +70,7 @@ class UpdateSettingsPage extends StatelessWidget {
   static const Key errorKey = Key('update-error');
   static const Key blockedKey = Key('update-blocked');
   static const Key upToDateKey = Key('update-up-to-date');
+  static const Key readyKey = Key('update-ready');
   static const Key installedKey = Key('update-installed');
   static const Key unsupportedKey = Key('update-unsupported');
 
@@ -107,29 +119,33 @@ class UpdateSettingsPage extends StatelessWidget {
 
   Widget _body(BuildContext context) {
     return switch (state.phase) {
-      UpdateUiPhase.idle => _Idle(
-        onCheck: onCheck,
-        onDownloadAndInstall: onDownloadAndInstall,
-      ),
-      UpdateUiPhase.checking => _Checking(),
+      UpdateUiPhase.idle => _Idle(onCheck: onCheck),
+      UpdateUiPhase.checking => const _Checking(),
       UpdateUiPhase.upToDate => _UpToDate(onCheck: onCheck),
       UpdateUiPhase.available => _Available(
         state: state,
-        onDownloadAndInstall: onDownloadAndInstall,
+        onDownload: onDownload,
+        onOpenLink: onOpenLink,
       ),
       UpdateUiPhase.downloading => _Downloading(
         state: state,
         onCancelDownload: onCancelDownload,
       ),
       UpdateUiPhase.verifying => _Verifying(state: state),
+      UpdateUiPhase.ready => _Ready(
+        state: state,
+        onInstall: onInstall,
+        onOpenLink: onOpenLink,
+      ),
       UpdateUiPhase.permissionRequired => _PermissionRequired(
         onOpenInstallPermissionSettings: onOpenInstallPermissionSettings,
+        onInstall: onInstall,
       ),
       UpdateUiPhase.installing => _Installing(
         state: state,
         onResumeSystemInstaller: onResumeSystemInstaller,
       ),
-      UpdateUiPhase.installed => _Installed(state: state),
+      UpdateUiPhase.installed => _Installed(state: state, onCheck: onCheck),
       UpdateUiPhase.failed => _Failed(state: state, onRetry: onRetry),
       UpdateUiPhase.blocked => _Blocked(
         state: state,
@@ -141,10 +157,9 @@ class UpdateSettingsPage extends StatelessWidget {
 }
 
 class _Idle extends StatelessWidget {
-  const _Idle({this.onCheck, this.onDownloadAndInstall});
+  const _Idle({this.onCheck});
 
   final VoidCallback? onCheck;
-  final VoidCallback? onDownloadAndInstall;
 
   @override
   Widget build(BuildContext context) {
@@ -162,14 +177,6 @@ class _Idle extends StatelessWidget {
           onPressed: onCheck,
           child: const Text('检查更新'),
         ),
-        if (onDownloadAndInstall != null) ...<Widget>[
-          const SizedBox(height: AppSpacing.sm),
-          TextButton(
-            key: UpdateSettingsPage.downloadButtonKey,
-            onPressed: onDownloadAndInstall,
-            child: const Text('下载并安装更新'),
-          ),
-        ],
       ],
     );
   }
@@ -228,11 +235,32 @@ class _UpToDate extends StatelessWidget {
   }
 }
 
-class _Available extends StatelessWidget {
-  const _Available({required this.state, this.onDownloadAndInstall});
+class _ReleaseBody extends StatelessWidget {
+  const _ReleaseBody({required this.state, this.onOpenLink});
 
   final UpdateUiState state;
-  final VoidCallback? onDownloadAndInstall;
+  final void Function(String url)? onOpenLink;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadius.card),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: ReleaseNotesView(body: state.releaseNotes, onOpenLink: onOpenLink),
+    );
+  }
+}
+
+class _Available extends StatelessWidget {
+  const _Available({required this.state, this.onDownload, this.onOpenLink});
+
+  final UpdateUiState state;
+  final VoidCallback? onDownload;
+  final void Function(String url)? onOpenLink;
 
   @override
   Widget build(BuildContext context) {
@@ -264,24 +292,16 @@ class _Available extends StatelessWidget {
         const SizedBox(height: AppSpacing.sm),
         Text('更新说明来自该 Release 的原始正文，未经过改写。', style: text.bodySmall),
         const SizedBox(height: AppSpacing.sm),
-        Container(
-          padding: const EdgeInsets.all(AppSpacing.md),
-          decoration: BoxDecoration(
-            color: AppColors.surface,
-            borderRadius: BorderRadius.circular(AppRadius.card),
-            border: Border.all(color: AppColors.border),
-          ),
-          child: ReleaseNotesView(body: state.releaseNotes),
-        ),
+        _ReleaseBody(state: state, onOpenLink: onOpenLink),
         const SizedBox(height: AppSpacing.md),
         FilledButton.icon(
           key: UpdateSettingsPage.downloadButtonKey,
-          onPressed: onDownloadAndInstall,
+          onPressed: onDownload,
           icon: const Icon(Icons.download_rounded, size: 18),
-          label: const Text('下载并安装'),
+          label: const Text('下载更新'),
         ),
         const SizedBox(height: AppSpacing.xs),
-        Text('下载完成并校验通过后才会打开系统安装界面；不会静默下载或自动退出。', style: text.bodySmall),
+        Text('下载完成并校验通过后才会出现安装按钮；不会静默下载或自动退出。', style: text.bodySmall),
       ],
     );
   }
@@ -344,16 +364,68 @@ class _Verifying extends StatelessWidget {
         const SizedBox(height: AppSpacing.sm),
         Text('正在校验下载完整性…', style: text.titleMedium),
         const SizedBox(height: AppSpacing.xs),
-        Text('校验和缺失或不匹配时不会进入安装。', style: text.bodySmall),
+        Text('校验和缺失或不匹配时不会出现安装入口。', style: text.bodySmall),
+      ],
+    );
+  }
+}
+
+class _Ready extends StatelessWidget {
+  const _Ready({required this.state, this.onInstall, this.onOpenLink});
+
+  final UpdateUiState state;
+  final VoidCallback? onInstall;
+  final void Function(String url)? onOpenLink;
+
+  @override
+  Widget build(BuildContext context) {
+    final TextTheme text = Theme.of(context).textTheme;
+    return _Panel(
+      highlight: true,
+      children: <Widget>[
+        Row(
+          key: UpdateSettingsPage.readyKey,
+          children: <Widget>[
+            const Icon(
+              Icons.verified_outlined,
+              color: AppColors.success,
+              size: 20,
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: Text(
+                state.latestVersion == null
+                    ? '更新已下载并通过校验'
+                    : '${state.latestVersion} 已下载并通过校验',
+                style: text.titleMedium,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        _ReleaseBody(state: state, onOpenLink: onOpenLink),
+        const SizedBox(height: AppSpacing.md),
+        FilledButton.icon(
+          key: UpdateSettingsPage.installButtonKey,
+          onPressed: onInstall,
+          icon: const Icon(Icons.system_update, size: 18),
+          label: const Text('安装更新'),
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Text('安装由系统安装界面完成；BB 不会静默安装，也不会卸载当前应用。', style: text.bodySmall),
       ],
     );
   }
 }
 
 class _PermissionRequired extends StatelessWidget {
-  const _PermissionRequired({this.onOpenInstallPermissionSettings});
+  const _PermissionRequired({
+    this.onOpenInstallPermissionSettings,
+    this.onInstall,
+  });
 
   final VoidCallback? onOpenInstallPermissionSettings;
+  final VoidCallback? onInstall;
 
   @override
   Widget build(BuildContext context) {
@@ -375,7 +447,7 @@ class _PermissionRequired extends StatelessWidget {
         const SizedBox(height: AppSpacing.sm),
         Text(
           'Android 要求在此来源安装应用前由你授予“安装未知应用”权限。'
-          '授权后回到这里即可继续；取消该授权不会安装任何东西。',
+          '授权后回到这里点击“重试安装”；取消该授权不会安装任何东西。',
           style: text.bodyMedium,
         ),
         const SizedBox(height: AppSpacing.md),
@@ -383,6 +455,12 @@ class _PermissionRequired extends StatelessWidget {
           key: UpdateSettingsPage.permissionButtonKey,
           onPressed: onOpenInstallPermissionSettings,
           child: const Text('打开安装权限设置'),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        OutlinedButton(
+          key: UpdateSettingsPage.installButtonKey,
+          onPressed: onInstall,
+          child: const Text('重试安装'),
         ),
       ],
     );
@@ -422,9 +500,10 @@ class _Installing extends StatelessWidget {
 }
 
 class _Installed extends StatelessWidget {
-  const _Installed({required this.state});
+  const _Installed({required this.state, this.onCheck});
 
   final UpdateUiState state;
+  final VoidCallback? onCheck;
 
   @override
   Widget build(BuildContext context) {
@@ -451,7 +530,16 @@ class _Installed extends StatelessWidget {
           ],
         ),
         const SizedBox(height: AppSpacing.sm),
-        Text('重新打开应用后运行的就是新版本。', style: text.bodySmall),
+        Text(
+          '当前运行版本 ${state.currentVersion}。重新打开应用后运行的就是新版本。',
+          style: text.bodySmall,
+        ),
+        const SizedBox(height: AppSpacing.md),
+        OutlinedButton(
+          key: UpdateSettingsPage.checkButtonKey,
+          onPressed: onCheck,
+          child: const Text('重新检查'),
+        ),
       ],
     );
   }
@@ -523,6 +611,8 @@ class _Blocked extends StatelessWidget {
                   '更新不会自行丢弃或替你取消这些操作。',
           style: text.bodyMedium,
         ),
+        const SizedBox(height: AppSpacing.xs),
+        Text('更新包已下载并通过校验，处理完成后即可继续安装。', style: text.bodySmall),
         if (onReviewPendingWork != null) ...<Widget>[
           const SizedBox(height: AppSpacing.md),
           OutlinedButton(

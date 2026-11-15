@@ -66,11 +66,16 @@ class ProfilePanelResult {
     this.changed = false,
     this.signedOut = false,
     this.logout,
+    this.openSettings = false,
   });
 
   final bool changed;
   final bool signedOut;
   final LogoutResult? logout;
+
+  /// The user asked for the settings surface; the host opens it after the panel
+  /// closes so the update page is not stacked behind a dialog.
+  final bool openSettings;
 }
 
 /// Opens the Profile panel in the right presentation for this viewport.
@@ -352,6 +357,7 @@ class ProfilePanel extends StatefulWidget {
   static const Key avatarButtonKey = Key('profile-avatar-button');
   static const Key removeAvatarKey = Key('profile-remove-avatar');
   static const Key logoutButtonKey = Key('profile-logout');
+  static const Key settingsButtonKey = Key('profile-settings');
   static const Key otherProfileKey = Key('profile-other-account');
   static const Key errorKey = Key('profile-error');
 
@@ -752,6 +758,20 @@ class _ProfilePanelState extends State<ProfilePanel> {
             ),
           ),
           const SizedBox(height: AppSpacing.lg),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              key: ProfilePanel.settingsButtonKey,
+              onPressed: _busy
+                  ? null
+                  : () =>
+                        Navigator.of(context)
+                            .pop(const ProfilePanelResult(openSettings: true)),
+              icon: const Icon(Icons.settings_outlined, size: 18),
+              label: const Text('设置'),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
           OutlinedButton.icon(
             key: ProfilePanel.logoutButtonKey,
             onPressed: _busy ? null : _logout,

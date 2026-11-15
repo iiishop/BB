@@ -1,7 +1,13 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+
+import 'release_policy.dart';
+import 'update_contract.dart';
 
 /// Android hand-off to the system package installer (DEA-479).
 ///
@@ -19,18 +25,44 @@ import 'package:flutter/services.dart';
 /// bypasses an Android permission: the downloaded file is validated, then
 /// served through the app's FileProvider to the system installer, which still
 /// asks the user to confirm.
-class AndroidUpdateInstaller {
-  AndroidUpdateInstaller({MethodChannel? channel, TargetPlatform? platform})
-    : _channel = channel ?? const MethodChannel(channelName),
-      _platform = platform ?? defaultTargetPlatform;
+///
+/// It is also the contract's [UpdateInstaller]: [platformInfo] reports the
+/// actually installed version/ABI, [install] rehashes the verified file before
+/// handing it to the system installer, and [recoverPendingInstall] resolves an
+/// install that outlived this process (the Flutter isolate is replaced when the
+/// APK is upgraded) instead of trusting a lost in-memory result.
+class AndroidUpdateInstaller implements UpdateInstaller {
+  AndroidUpdateInstaller({
+    MethodChannel? channel,
+    TargetPlatform? platform,
+    Directory? cacheDirectory,
+  }) : _channel = channel ?? const MethodChannel(channelName),
+       _platform = platform ?? defaultTargetPlatform {
+    _cacheDirectory = cacheDirectory;
+  }
 
   static const String channelName = 'bb/update_install';
+
+  /// Records one in-flight install so the next process can tell whether the
+  /// upgrade actually happened.
+  static const String markerFileName = 'dea479-pending-install.json';
+
+  /// ABI names that the release pipeline publishes APKs for.
+  static const List<String> releaseAbis = <String>[
+    'arm64-v8a',
+    'armeabi-v7a',
+    'x86_64',
+  ];
 
   /// Native -> Dart method carrying installer/permission results.
   static const String eventMethod = 'updateEvent';
 
   final MethodChannel _channel;
   final TargetPlatform _platform;
+
+  /// Process-scoped cache directory holding the controller's staging files and
+  /// the pending-install marker. Required for [install] on a real device.
+  late final Directory? _cacheDirectory;
   final StreamController<AndroidInstallEvent> _events =
       StreamController<AndroidInstallEvent>.broadcast();
   bool _handlerAttached = false;
@@ -58,7 +90,18 @@ class AndroidUpdateInstaller {
     if (arguments is! Map) {
       return;
     }
-    _events.add(AndroidInstallEvent.fromChannel(arguments));
+    final AndroidInstallEvent event = AndroidInstallEvent.fromChannel(
+      arguments,
+    );
+    if (event.type == ApkInstallEventType.installResult &&
+        (event.outcome == ApkInstallOutcome.cancelled ||
+            event.outcome == ApkInstallOutcome.unverified)) {
+      // The user backed out of the system dialog (or the installer did not
+      // complete). Nothing was upgraded, so no pending transaction may survive
+      // into the next process.
+      unawaited(_clearMarker());
+    }
+    _events.add(event);
   }
 
   /// Whether the system installer can be reached right now.
@@ -97,8 +140,8 @@ class AndroidUpdateInstaller {
   /// The path must already be inside this app's own cache/files directory; the
   /// native side rejects anything else. A `launched` result means the installer
   /// UI is open and the user has not decided yet — the outcome arrives on
-  /// [events] (or through [takeLastEvent] after a restart).
-  Future<AndroidInstallLaunch> install(String stagedApkPath) async {
+  /// [events] (or through [takeLastEvent] while the process lives).
+  Future<AndroidInstallLaunch> launchInstaller(String stagedApkPath) async {
     if (!isSupported) {
       return const AndroidInstallLaunch(
         status: ApkInstallLaunchStatus.unsupported,
@@ -173,6 +216,272 @@ class AndroidUpdateInstaller {
     }
   }
 
+  /// Contract entry: the actually installed version/build and precise ABI.
+  @override
+  Future<UpdatePlatformInfo> platformInfo() async {
+    if (!isSupported) {
+      throw StateError('此更新安装器仅支持 Android。');
+    }
+    final AndroidInstallAvailability info = await availability();
+    if (info.status != ApkInstallAvailability.ready &&
+        info.status != ApkInstallAvailability.permissionRequired) {
+      throw StateError('无法读取当前安装版本，请稍后重试。');
+    }
+    final String? version = info.versionName;
+    final int? build = info.versionCode;
+    if (version == null || build == null) {
+      throw StateError('系统未返回应用版本信息，无法检查更新。');
+    }
+    final String? abi = releaseAbis
+        .where(info.supportedAbis.contains)
+        .firstOrNull;
+    if (abi == null) {
+      throw StateError('此设备的 CPU 架构暂不支持自动更新，请按发布页手动安装。');
+    }
+    return UpdatePlatformInfo(
+      os: 'android',
+      architecture: abi,
+      version: version,
+      buildNumber: build,
+    );
+  }
+
+  /// Contract entry: revalidate the verified APK, record the transaction, then
+  /// hand it to the system installer.
+  ///
+  /// Only `launched` counts as a handoff. A permission prompt is reported so the
+  /// controller can ask the user to grant it and retry explicitly; a refused or
+  /// unreadable APK throws a readable error and never opens the installer.
+  @override
+  Future<UpdateInstallResult> install(VerifiedUpdate update) async {
+    if (!isSupported) {
+      throw StateError('此更新安装器仅支持 Android。');
+    }
+    final Directory? directory = _cacheDirectory;
+    if (directory == null) {
+      throw StateError('未配置更新缓存目录，无法安装。');
+    }
+    final File file = update.file;
+    if (!await file.exists()) {
+      throw StateError('安装包已不存在，请重新下载。');
+    }
+    if (await file.length() != update.release.asset.size) {
+      throw StateError('安装包长度与 Release 不一致，请重新下载。');
+    }
+    final String digest = (await sha256.bind(file.openRead()).first).toString();
+    if (digest != update.sha256) {
+      throw StateError('安装包校验失败，请重新下载。');
+    }
+    final File marker = await _writeMarker(directory, update);
+    final AndroidInstallLaunch launch = await launchInstaller(file.path);
+    switch (launch.status) {
+      case ApkInstallLaunchStatus.launched:
+        return UpdateInstallResult.installerOpened;
+      case ApkInstallLaunchStatus.permissionRequired:
+        // Nothing was handed to the installer yet: do not leave a transaction
+        // that the next process would report as an unfinished upgrade.
+        await _deleteQuietly(marker);
+        return UpdateInstallResult.permissionRequired;
+      default:
+        await _deleteQuietly(marker);
+        throw StateError(_launchFailure(launch));
+    }
+  }
+
+  /// Opens an https link in the user's browser. Only called after the user
+  /// confirmed the exact target in the update surface.
+  Future<bool> openExternalUrl(String url) async {
+    final Uri? uri = Uri.tryParse(url);
+    if (!isSupported ||
+        uri == null ||
+        uri.scheme != 'https' ||
+        uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty) {
+      return false;
+    }
+    try {
+      return await _channel.invokeMethod<bool>(
+            'openExternalUrl',
+            <String, Object?>{'url': uri.toString()},
+          ) ??
+          false;
+    } on PlatformException {
+      return false;
+    } on MissingPluginException {
+      return false;
+    }
+  }
+
+  /// Resolves an install that was handed to the system installer before this
+  /// process was replaced.
+  ///
+  /// Returns `null` when no transaction is recorded or the installed version
+  /// cannot be read yet (the marker is kept for the next launch). Otherwise the
+  /// marker and the staged APK are removed and the outcome is final: either the
+  /// installed build reached the target, or the upgrade did not happen.
+  Future<AndroidInstallRecovery?> recoverPendingInstall() async {
+    final Directory? directory = _cacheDirectory;
+    if (!isSupported || directory == null) {
+      return null;
+    }
+    final File marker = File(_markerPath(directory));
+    if (!await marker.exists()) {
+      return null;
+    }
+    Map<String, dynamic> data;
+    try {
+      final Object? decoded = jsonDecode(await marker.readAsString());
+      if (decoded is! Map<String, dynamic>) {
+        await _deleteQuietly(marker);
+        return null;
+      }
+      data = decoded;
+    } on FormatException {
+      await _deleteQuietly(marker);
+      return null;
+    }
+    final String? targetVersion = data['target_version'] as String?;
+    if (targetVersion == null) {
+      await _deleteQuietly(marker);
+      return null;
+    }
+    AndroidInstallAvailability installed;
+    try {
+      installed = await availability();
+    } catch (_) {
+      return null;
+    }
+    final int? build = installed.versionCode;
+    final String? version = installed.versionName;
+    if (build == null || version == null) {
+      return null;
+    }
+    final AndroidInstallRecovery recovery = AndroidInstallRecovery(
+      outcome: _reachedVersion(version, targetVersion)
+          ? AndroidInstallRecoveryOutcome.installed
+          : AndroidInstallRecoveryOutcome.notInstalled,
+      targetVersion: targetVersion,
+      installedVersion: version,
+      installedBuildNumber: build,
+    );
+    await _deleteQuietly(marker);
+    await _deleteStagedFile(data['file'] as String?);
+    return recovery;
+  }
+
+  File _markerPathFile(Directory directory) =>
+      File('${directory.path}${Platform.pathSeparator}$markerFileName');
+
+  String _markerPath(Directory directory) => _markerPathFile(directory).path;
+
+  Future<File> _writeMarker(Directory directory, VerifiedUpdate update) async {
+    try {
+      await directory.create(recursive: true);
+      final File marker = _markerPathFile(directory);
+      await marker.writeAsString(
+        jsonEncode(<String, Object?>{
+          'target_version': update.release.version,
+          'asset_name': update.release.asset.name,
+          'file': update.file.path,
+          'sha256': update.sha256,
+          'started_at': DateTime.now().toUtc().toIso8601String(),
+        }),
+        flush: true,
+      );
+      return marker;
+    } on FileSystemException {
+      throw StateError('无法记录安装事务，已停止安装。');
+    }
+  }
+
+  /// True when the running version reached the version the previous process
+  /// handed to the installer. Release tags are SemVer, so a plain equality is
+  /// the common case; a newer installed version also proves the handoff
+  /// completed.
+  bool _reachedVersion(String installed, String target) {
+    if (installed == target) {
+      return true;
+    }
+    try {
+      return ReleaseVersion.parse(installed)
+              .compareTo(ReleaseVersion.parse(target)) >=
+          0;
+    } on FormatException {
+      return false;
+    }
+  }
+
+  Future<void> _clearMarker() async {
+    final Directory? directory = _cacheDirectory;
+    if (directory == null) {
+      return;
+    }
+    await _deleteQuietly(File(_markerPath(directory)));
+  }
+
+  Future<void> _deleteStagedFile(String? path) async {
+    if (path == null || path.isEmpty) {
+      return;
+    }
+    final Directory? directory = _cacheDirectory;
+    final File file = File(path);
+    try {
+      if (await file.exists()) {
+        await file.delete();
+      }
+      final Directory parent = file.parent;
+      if (directory != null &&
+          parent.path.startsWith(directory.path + Platform.pathSeparator) &&
+          parent.path
+              .split(Platform.pathSeparator)
+              .last
+              .startsWith('update-')) {
+        if (await parent.exists()) {
+          await parent.delete(recursive: true);
+        }
+      }
+    } on FileSystemException {
+      // Stale cache is not a reason to fail the recovery report.
+    }
+  }
+
+  Future<void> _deleteQuietly(File file) async {
+    try {
+      if (await file.exists()) {
+        await file.delete();
+      }
+    } on FileSystemException {
+      // ignore: best-effort cleanup
+    }
+  }
+
+  String _launchFailure(AndroidInstallLaunch launch) {
+    return switch (launch.status) {
+      ApkInstallLaunchStatus.rejected => _rejectionMessage(launch.rejection),
+      ApkInstallLaunchStatus.unsupported =>
+        launch.reason == 'no_package_installer'
+            ? '系统没有可用的安装器，无法安装更新。'
+            : '当前设备不支持安装更新。',
+      _ => launch.message ?? '安装器未能打开，请重试。',
+    };
+  }
+
+  String _rejectionMessage(ApkInstallRejection rejection) {
+    return switch (rejection) {
+      ApkInstallRejection.missingFile => '安装包已不存在，请重新下载。',
+      ApkInstallRejection.notApk => '下载的文件不是 APK 安装包。',
+      ApkInstallRejection.outsideAppStorage => '安装包不在应用私有目录，已拒绝安装。',
+      ApkInstallRejection.emptyFile => '安装包为空，请重新下载。',
+      ApkInstallRejection.unreadableApk => '安装包已损坏，请重新下载。',
+      ApkInstallRejection.packageMismatch => '该安装包不属于 BB，已拒绝安装。',
+      ApkInstallRejection.versionNotNewer => '该安装包版本不高于当前版本，已拒绝安装。',
+      ApkInstallRejection.signerUnavailable => '无法读取签名信息，已拒绝安装。',
+      ApkInstallRejection.signerMismatch => '安装包签名与当前应用不一致，已拒绝安装。',
+      ApkInstallRejection.abiUnsupported => '该安装包不适用于本机 CPU 架构，已拒绝安装。',
+      ApkInstallRejection.unknown => '安装包未通过校验，已拒绝安装。',
+    };
+  }
+
   Future<void> dispose() async {
     _handlerAttached = false;
     if (isSupported) {
@@ -180,6 +489,30 @@ class AndroidUpdateInstaller {
     }
     await _events.close();
   }
+}
+
+/// What happened to an install transaction recorded before this process.
+enum AndroidInstallRecoveryOutcome { installed, notInstalled }
+
+@immutable
+class AndroidInstallRecovery {
+  const AndroidInstallRecovery({
+    required this.outcome,
+    required this.targetVersion,
+    required this.installedVersion,
+    required this.installedBuildNumber,
+  });
+
+  final AndroidInstallRecoveryOutcome outcome;
+
+  /// Version the previous process handed to the system installer.
+  final String targetVersion;
+
+  /// Version actually installed when this process started.
+  final String installedVersion;
+  final int installedBuildNumber;
+
+  bool get installed => outcome == AndroidInstallRecoveryOutcome.installed;
 }
 
 /// Install environment as reported by the native side.

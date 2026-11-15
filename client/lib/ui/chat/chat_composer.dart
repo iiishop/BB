@@ -3,16 +3,19 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
 import '../../app.dart';
 import '../../models/auth_models.dart';
 import '../../models/chat_models.dart';
 import '../../services/chat_service.dart';
+import '../../services/install_safety_gate.dart';
 import '../../services/media_source.dart';
 import 'chat_format.dart';
 import 'clipboard_paste.dart';
 import 'media_actions.dart';
+import 'chat_drafts.dart';
 import 'pending_send.dart';
 
 /// Lets the chat page retry one failed item from its bubble.
@@ -96,6 +99,9 @@ class ChatComposer extends StatefulWidget {
   static const Key imageKey = Key('chat-composer-image');
   static const Key fileKey = Key('chat-composer-file');
 
+  /// Blocks editing while an update install transaction is admitted.
+  static const Key safetyGateKey = Key('chat-composer-safety-gate');
+
   @override
   State<ChatComposer> createState() => _ChatComposerState();
 }
@@ -103,8 +109,8 @@ class ChatComposer extends StatefulWidget {
 class _ChatComposerState extends State<ChatComposer> {
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focus = FocusNode();
-  final List<_DraftPart> _parts = <_DraftPart>[];
-  final List<_DraftAttachment> _attachments = <_DraftAttachment>[];
+  final List<ChatDraftPart> _parts = <ChatDraftPart>[];
+  final List<ChatDraftAttachment> _attachments = <ChatDraftAttachment>[];
   List<SendOutcome> _failed = <SendOutcome>[];
   final List<PendingSend> _pending = <PendingSend>[];
   bool _pasting = false;
@@ -114,6 +120,17 @@ class _ChatComposerState extends State<ChatComposer> {
     super.initState();
     _focus.onKeyEvent = _onKeyEvent;
     widget.controller?._attach(this);
+    final ChatDraft? stored = ChatDrafts.instance.read(
+      widget.chat,
+      widget.peerAccount,
+    );
+    if (stored != null) {
+      _controller.text = stored.text;
+      _parts.addAll(stored.parts);
+      _attachments.addAll(stored.attachments);
+    }
+    _controller.addListener(_persistDraft);
+    InstallSafetyGate.instance.addListener(_onSafetyGateChanged);
   }
 
   @override
@@ -129,9 +146,38 @@ class _ChatComposerState extends State<ChatComposer> {
   void dispose() {
     _focus.onKeyEvent = null;
     widget.controller?._detach(this);
+    InstallSafetyGate.instance.removeListener(_onSafetyGateChanged);
+    // Route teardown keeps unsaved content: the draft store keeps the text and
+    // staged media and the safety gate stays blocked until it is sent or
+    // explicitly cleared. Never clear here just to leave the page.
+    _persistDraft();
+    _controller.removeListener(_persistDraft);
     _controller.dispose();
     _focus.dispose();
     super.dispose();
+  }
+
+  void _persistDraft() {
+    ChatDrafts.instance.write(
+      widget.chat,
+      widget.peerAccount,
+      ChatDraft(
+        text: _controller.text,
+        parts: List<ChatDraftPart>.of(_parts),
+        attachments: List<ChatDraftAttachment>.of(_attachments),
+      ),
+    );
+  }
+
+  void _onSafetyGateChanged() {
+    if (!mounted ||
+        SchedulerBinding.instance.schedulerPhase ==
+            SchedulerPhase.persistentCallbacks) {
+      // The gate can change while the tree is locked (route teardown persisting
+      // the draft); no rebuild is needed in that phase.
+      return;
+    }
+    setState(() {});
   }
 
   Future<void> _addImage() async {
@@ -198,7 +244,7 @@ class _ChatComposerState extends State<ChatComposer> {
     }
     setState(() {
       _attachments.add(
-        _DraftAttachment(
+        ChatDraftAttachment(
           attachment: OutgoingAttachment(
             source: MediaSource(
               bytes: picked.bytes,
@@ -220,6 +266,7 @@ class _ChatComposerState extends State<ChatComposer> {
         ),
       );
     });
+    _persistDraft();
     return null;
   }
 
@@ -227,7 +274,7 @@ class _ChatComposerState extends State<ChatComposer> {
     _commitCurrentText();
     setState(() {
       _parts.add(
-        _DraftPart(
+        ChatDraftPart(
           OutgoingImage(
             MediaSource(
               bytes: picked.bytes,
@@ -239,6 +286,7 @@ class _ChatComposerState extends State<ChatComposer> {
         ),
       );
     });
+    _persistDraft();
   }
 
   Future<void> _pasteFromClipboard() async {
@@ -387,7 +435,7 @@ class _ChatComposerState extends State<ChatComposer> {
       _controller.clear();
       return;
     }
-    _parts.add(_DraftPart(OutgoingText(text)));
+    _parts.add(ChatDraftPart(OutgoingText(text)));
     _controller.clear();
   }
 
@@ -399,8 +447,8 @@ class _ChatComposerState extends State<ChatComposer> {
     if (_parts.isEmpty && _attachments.isEmpty) {
       return;
     }
-    final List<_DraftPart> parts = List<_DraftPart>.of(_parts);
-    final List<_DraftAttachment> attachments = List<_DraftAttachment>.of(
+    final List<ChatDraftPart> parts = List<ChatDraftPart>.of(_parts);
+    final List<ChatDraftAttachment> attachments = List<ChatDraftAttachment>.of(
       _attachments,
     );
     final String seed = newOperationId('x');
@@ -416,12 +464,14 @@ class _ChatComposerState extends State<ChatComposer> {
       _attachments.clear();
       _pending.addAll(pending);
     });
+    // The draft became an operation; only a durable clear is allowed here.
+    ChatDrafts.instance.clear(widget.chat, widget.peerAccount);
     _emitPending();
     final List<OutgoingPart> body = <OutgoingPart>[
-      for (final _DraftPart part in parts) part.part,
+      for (final ChatDraftPart part in parts) part.part,
     ];
     final List<OutgoingAttachment> outgoingAttachments = <OutgoingAttachment>[
-      for (final _DraftAttachment item in attachments) item.attachment,
+      for (final ChatDraftAttachment item in attachments) item.attachment,
     ];
     try {
       final ComposedSendResult result = await widget.chat.sendComposed(
@@ -501,8 +551,8 @@ class _ChatComposerState extends State<ChatComposer> {
 
   void _markSeedFailed(
     String seed,
-    List<_DraftPart> parts,
-    List<_DraftAttachment> attachments,
+    List<ChatDraftPart> parts,
+    List<ChatDraftAttachment> attachments,
     AuthFailure failure,
   ) {
     final List<SendOutcome> failed = <SendOutcome>[
@@ -510,7 +560,9 @@ class _ChatComposerState extends State<ChatComposer> {
         SendOutcome(
           operationId: '$seed-b',
           failure: failure,
-          part: <OutgoingPart>[for (final _DraftPart part in parts) part.part],
+          part: <OutgoingPart>[
+            for (final ChatDraftPart part in parts) part.part,
+          ],
         ),
       for (int i = 0; i < attachments.length; i += 1)
         SendOutcome(
@@ -665,8 +717,8 @@ class _ChatComposerState extends State<ChatComposer> {
   /// composer already holds without pretending it was uploaded.
   List<PendingSend> _buildPending(
     String seed,
-    List<_DraftPart> parts,
-    List<_DraftAttachment> attachments,
+    List<ChatDraftPart> parts,
+    List<ChatDraftAttachment> attachments,
   ) {
     final String self = widget.chat.selfAccount;
     final DateTime now = DateTime.now().toUtc();
@@ -705,7 +757,7 @@ class _ChatComposerState extends State<ChatComposer> {
       );
     }
     for (int index = 0; index < attachments.length; index += 1) {
-      final _DraftAttachment draft = attachments[index];
+      final ChatDraftAttachment draft = attachments[index];
       final Uint8List? cover = draft.coverBytes;
       final String mediaId = 'pending:$seed:att$index';
       final String? coverId = cover == null
@@ -781,80 +833,84 @@ class _ChatComposerState extends State<ChatComposer> {
   @override
   Widget build(BuildContext context) {
     final bool hasDraft = _parts.isNotEmpty || _attachments.isNotEmpty;
-    return Container(
-      decoration: const BoxDecoration(
-        color: AppColors.surface,
-        border: Border(top: BorderSide(color: AppColors.border)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.md,
-            AppSpacing.sm,
-            AppSpacing.sm,
-            AppSpacing.sm,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              if (hasDraft) _draftStrip(),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: <Widget>[
-                  IconButton(
-                    key: ChatComposer.imageKey,
-                    tooltip: '图片',
-                    onPressed: widget.enabled ? _addImage : null,
-                    icon: const Icon(Icons.image_outlined),
-                  ),
-                  IconButton(
-                    key: ChatComposer.fileKey,
-                    tooltip: '附件',
-                    onPressed: widget.enabled ? _addFile : null,
-                    icon: const Icon(Icons.attach_file_rounded),
-                  ),
-                  Expanded(
-                    child: TextField(
-                      key: ChatComposer.inputKey,
-                      controller: _controller,
-                      focusNode: _focus,
-                      enabled: widget.enabled,
-                      minLines: 1,
-                      maxLines: 5,
-                      textInputAction: TextInputAction.newline,
-                      decoration: InputDecoration(
-                        hintText: _usesSendShortcut
-                            ? '输入消息… Enter 发送，Ctrl+Enter 换行'
-                            : '输入消息…',
-                        isDense: true,
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: AppSpacing.md,
-                          vertical: AppSpacing.sm + 4,
+    return IgnorePointer(
+      key: ChatComposer.safetyGateKey,
+      ignoring: InstallSafetyGate.instance.installing,
+      child: Container(
+        decoration: const BoxDecoration(
+          color: AppColors.surface,
+          border: Border(top: BorderSide(color: AppColors.border)),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.md,
+              AppSpacing.sm,
+              AppSpacing.sm,
+              AppSpacing.sm,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                if (hasDraft) _draftStrip(),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: <Widget>[
+                    IconButton(
+                      key: ChatComposer.imageKey,
+                      tooltip: '图片',
+                      onPressed: widget.enabled ? _addImage : null,
+                      icon: const Icon(Icons.image_outlined),
+                    ),
+                    IconButton(
+                      key: ChatComposer.fileKey,
+                      tooltip: '附件',
+                      onPressed: widget.enabled ? _addFile : null,
+                      icon: const Icon(Icons.attach_file_rounded),
+                    ),
+                    Expanded(
+                      child: TextField(
+                        key: ChatComposer.inputKey,
+                        controller: _controller,
+                        focusNode: _focus,
+                        enabled: widget.enabled,
+                        minLines: 1,
+                        maxLines: 5,
+                        textInputAction: TextInputAction.newline,
+                        decoration: InputDecoration(
+                          hintText: _usesSendShortcut
+                              ? '输入消息… Enter 发送，Ctrl+Enter 换行'
+                              : '输入消息…',
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: AppSpacing.md,
+                            vertical: AppSpacing.sm + 4,
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: AppSpacing.xs),
-                  Tooltip(
-                    message: _usesSendShortcut ? '发送（Enter）' : '发送',
-                    child: SizedBox(
-                      width: 48,
-                      height: 48,
-                      child: FilledButton(
-                        key: ChatComposer.sendKey,
-                        onPressed: widget.enabled ? _send : null,
-                        style: FilledButton.styleFrom(
-                          padding: EdgeInsets.zero,
-                          minimumSize: const Size(48, 48),
+                    const SizedBox(width: AppSpacing.xs),
+                    Tooltip(
+                      message: _usesSendShortcut ? '发送（Enter）' : '发送',
+                      child: SizedBox(
+                        width: 48,
+                        height: 48,
+                        child: FilledButton(
+                          key: ChatComposer.sendKey,
+                          onPressed: widget.enabled ? _send : null,
+                          style: FilledButton.styleFrom(
+                            padding: EdgeInsets.zero,
+                            minimumSize: const Size(48, 48),
+                          ),
+                          child: const Icon(Icons.arrow_upward_rounded),
                         ),
-                        child: const Icon(Icons.arrow_upward_rounded),
                       ),
                     ),
-                  ),
-                ],
-              ),
-            ],
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -876,7 +932,7 @@ class _ChatComposerState extends State<ChatComposer> {
     );
   }
 
-  Widget _partChip(int index, _DraftPart part) {
+  Widget _partChip(int index, ChatDraftPart part) {
     final Widget content = part.bytes == null
         ? Container(
             constraints: const BoxConstraints(maxWidth: 180),
@@ -921,7 +977,10 @@ class _ChatComposerState extends State<ChatComposer> {
             right: -6,
             top: -6,
             child: InkWell(
-              onTap: () => setState(() => _parts.removeAt(index)),
+              onTap: () {
+                setState(() => _parts.removeAt(index));
+                _persistDraft();
+              },
               child: Container(
                 width: 18,
                 height: 18,
@@ -942,7 +1001,7 @@ class _ChatComposerState extends State<ChatComposer> {
     );
   }
 
-  Widget _attachmentChip(int index, _DraftAttachment attachment) {
+  Widget _attachmentChip(int index, ChatDraftAttachment attachment) {
     return Padding(
       padding: const EdgeInsets.only(right: AppSpacing.sm),
       child: Stack(
@@ -1012,7 +1071,10 @@ class _ChatComposerState extends State<ChatComposer> {
             right: -6,
             top: -6,
             child: InkWell(
-              onTap: () => setState(() => _attachments.removeAt(index)),
+              onTap: () {
+                setState(() => _attachments.removeAt(index));
+                _persistDraft();
+              },
               child: Container(
                 width: 18,
                 height: 18,
@@ -1032,27 +1094,4 @@ class _ChatComposerState extends State<ChatComposer> {
       ),
     );
   }
-}
-
-class _DraftPart {
-  const _DraftPart(this.part, {this.bytes});
-
-  final OutgoingPart part;
-  final Uint8List? bytes;
-}
-
-class _DraftAttachment {
-  const _DraftAttachment({
-    required this.attachment,
-    required this.filename,
-    required this.size,
-    required this.kind,
-    this.coverBytes,
-  });
-
-  final OutgoingAttachment attachment;
-  final String filename;
-  final int size;
-  final AttachmentKind kind;
-  final Uint8List? coverBytes;
 }

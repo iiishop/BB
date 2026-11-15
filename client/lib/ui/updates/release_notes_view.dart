@@ -19,6 +19,7 @@ class ReleaseNotesView extends StatelessWidget {
     super.key,
     required this.body,
     this.emptyPlaceholder = '此版本未提供更新说明',
+    this.onOpenLink,
   });
 
   /// Raw `release.body` exactly as GitHub returned it.
@@ -27,6 +28,10 @@ class ReleaseNotesView extends StatelessWidget {
   /// Shown when the release body is empty or whitespace only. The client must
   /// not invent notes for a release that has none.
   final String emptyPlaceholder;
+
+  /// Supplied by the host: called with an `https` target only after the user
+  /// explicitly taps the link. When null the link is inert text (no gesture).
+  final void Function(String url)? onOpenLink;
 
   static const String emptyKey = 'update-release-notes-empty';
 
@@ -321,20 +326,43 @@ class ReleaseNotesView extends StatelessWidget {
         }
         flushLiteral();
         final String label = _plainText(link.group(1)!);
-        spans.add(
-          TextSpan(
-            text: label,
-            style: base.copyWith(
-              color: AppColors.accentDeep,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
+        final TextStyle labelStyle = base.copyWith(
+          color: AppColors.accentDeep,
+          fontWeight: FontWeight.w600,
         );
-        if (target != label) {
+        final TextStyle targetStyle = base.copyWith(
+          color: AppColors.inkMuted,
+          fontSize: 12.5,
+        );
+        final void Function(String url)? opener = onOpenLink;
+        if (opener == null) {
+          spans.add(TextSpan(text: label, style: labelStyle));
+          if (target != label) {
+            spans.add(TextSpan(text: '（$target）', style: targetStyle));
+          }
+        } else {
+          // Only an explicit tap reaches the host, which confirms the exact
+          // target before opening it in the browser.
           spans.add(
-            TextSpan(
-              text: '（$target）',
-              style: base.copyWith(color: AppColors.inkMuted, fontSize: 12.5),
+            WidgetSpan(
+              alignment: PlaceholderAlignment.middle,
+              child: InkWell(
+                onTap: () => opener(target),
+                borderRadius: BorderRadius.circular(4),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 2),
+                  child: Text.rich(
+                    TextSpan(
+                      children: <InlineSpan>[
+                        TextSpan(text: label, style: labelStyle),
+                        if (target != label)
+                          TextSpan(text: '（$target）', style: targetStyle),
+                      ],
+                    ),
+                    style: base,
+                  ),
+                ),
+              ),
             ),
           );
         }

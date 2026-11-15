@@ -14,6 +14,8 @@ import '../services/profile_service.dart';
 import '../models/chat_models.dart';
 import 'chat/chat_page.dart';
 import 'chat/users_view.dart';
+import 'updates/update_scope.dart';
+import 'updates/update_settings_host.dart';
 import 'profile/profile_panel.dart';
 import 'widgets/profile_avatar.dart';
 
@@ -148,9 +150,26 @@ class _HomeViewState extends State<HomeView> {
       widget.onSignedOut(result!.logout);
       return;
     }
+    if (result?.openSettings ?? false) {
+      await _openSettings();
+      if (!mounted) {
+        return;
+      }
+    }
     // A barrier dismissal also returns null; reload anyway so edits made just
     // before closing can never leave the home surface stale.
     await _load();
+  }
+
+  Future<void> _openSettings() async {
+    final UpdateScopeData? updates = UpdateScope.maybeOf(context);
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) =>
+            updates?.buildSettingsPage() ??
+            const UpdateSettingsHost.unsupported(),
+      ),
+    );
   }
 
   void _openChat(ChatUser user) {

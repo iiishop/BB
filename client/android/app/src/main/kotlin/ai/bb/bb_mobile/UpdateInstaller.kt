@@ -50,6 +50,9 @@ internal class UpdateInstaller(
                     "availability" -> result.success(availability())
                     "installApk" -> result.success(install(call.argument<String>("path")))
                     "openInstallPermissionSettings" -> result.success(openInstallPermissionSettings())
+                    "openExternalUrl" -> result.success(
+                        openExternalUrl(call.argument<String>("url")),
+                    )
                     "takeLastEvent" -> {
                         val event = lastEvent
                         lastEvent = null
@@ -116,6 +119,24 @@ internal class UpdateInstaller(
 
     private fun installedPackage(): PackageInfo =
         activity.packageManager.getPackageInfo(activity.packageName, 0)
+
+    /**
+     * Opens an https target explicitly confirmed by the user in the update UI.
+     * Other schemes are refused here as well, so the Dart side cannot be the
+     * only guard.
+     */
+    private fun openExternalUrl(url: String?): Boolean {
+        val uri = url?.let { android.net.Uri.parse(it) } ?: return false
+        if (uri.scheme != "https" || uri.host.isNullOrBlank() || uri.userInfo != null) {
+            return false
+        }
+        return try {
+            activity.startActivity(Intent(Intent.ACTION_VIEW, uri))
+            true
+        } catch (_: ActivityNotFoundException) {
+            false
+        }
+    }
 
     private fun openInstallPermissionSettings(): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {

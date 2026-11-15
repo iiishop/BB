@@ -74,7 +74,7 @@ void main() {
       UpdateUiState state,
       Size size, {
       VoidCallback? onCheck,
-      VoidCallback? onDownloadAndInstall,
+      VoidCallback? onDownload,
       VoidCallback? onCancelDownload,
       VoidCallback? onRetry,
       VoidCallback? onOpenInstallPermissionSettings,
@@ -96,7 +96,7 @@ void main() {
           home: UpdateSettingsPage(
             state: state,
             onCheck: onCheck,
-            onDownloadAndInstall: onDownloadAndInstall,
+            onDownload: onDownload,
             onCancelDownload: onCancelDownload,
             onRetry: onRetry,
             onOpenInstallPermissionSettings: onOpenInstallPermissionSettings,
@@ -131,7 +131,7 @@ void main() {
       ),
       phone,
       onCheck: () {},
-      onDownloadAndInstall: () {},
+      onDownload: () {},
     );
     await capture('update-available-phone.png');
 
@@ -192,7 +192,7 @@ void main() {
       ),
       wide,
       onCheck: () {},
-      onDownloadAndInstall: () {},
+      onDownload: () {},
     );
     await capture('update-available-wide.png');
   }, skip: skipReason != null);

@@ -19,18 +19,24 @@ import 'services/profile_api_client.dart';
 import 'services/profile_service.dart';
 import 'services/server_address_store.dart';
 import 'services/session_store.dart';
+import 'ui/chat/chat_drafts.dart';
 import 'ui/server_setup_page.dart';
 import 'ui/server_settings_scope.dart';
+import 'ui/updates/update_scope.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   final File sessionFile = await _resolveSessionFile();
+  // The update stack lives above the authentication/server-address services so
+  // one process owns exactly one controller and one startup check.
   runApp(
-    BbRoot(
-      sessionFile: sessionFile,
-      addressStore: ServerAddressStore(_serverAddressFile(sessionFile)),
-      compiledAddress: compiledServerAddress(),
+    UpdateScope(
+      child: BbRoot(
+        sessionFile: sessionFile,
+        addressStore: ServerAddressStore(_serverAddressFile(sessionFile)),
+        compiledAddress: compiledServerAddress(),
+      ),
     ),
   );
 }
@@ -152,9 +158,7 @@ class _BbRootState extends State<BbRoot> {
         title: 'BB',
         debugShowCheckedModeBanner: false,
         theme: buildAppTheme(),
-        home: const Scaffold(
-          body: Center(child: CircularProgressIndicator()),
-        ),
+        home: const Scaffold(body: Center(child: CircularProgressIndicator())),
       );
     }
     return MaterialApp(
@@ -165,7 +169,9 @@ class _BbRootState extends State<BbRoot> {
         initialAddress: _address,
         changing: _address != null,
         onSubmit: _connect,
-        onCancel: _address == null ? null : () => setState(() => _changing = false),
+        onCancel: _address == null
+            ? null
+            : () => setState(() => _changing = false),
       ),
     );
   }
@@ -219,6 +225,9 @@ class _AppServices {
 
   Future<void> dispose() async {
     heartbeat.stop();
+    // Drafts belong to this session's services; dropping them here is an
+    // explicit server switch/logout, not a route change.
+    ChatDrafts.instance.clearSession(chat);
     await chat.dispose();
   }
 }
@@ -251,9 +260,7 @@ Future<void> _resetCredentialState(File sessionFile) async {
 String chatLedgerFileName() => 'chat-ledger.json';
 
 File _serverAddressFile(File sessionFile) {
-  return File(
-    '${sessionFile.parent.path}${Platform.pathSeparator}server.json',
-  );
+  return File('${sessionFile.parent.path}${Platform.pathSeparator}server.json');
 }
 
 /// Session file location.

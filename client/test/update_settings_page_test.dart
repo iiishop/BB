@@ -10,7 +10,7 @@ void main() {
     WidgetTester tester,
     UpdateUiState state, {
     VoidCallback? onCheck,
-    VoidCallback? onDownloadAndInstall,
+    VoidCallback? onDownload,
     VoidCallback? onCancelDownload,
     VoidCallback? onRetry,
     VoidCallback? onOpenInstallPermissionSettings,
@@ -28,7 +28,7 @@ void main() {
         home: UpdateSettingsPage(
           state: state,
           onCheck: onCheck,
-          onDownloadAndInstall: onDownloadAndInstall,
+          onDownload: onDownload,
           onCancelDownload: onCancelDownload,
           onRetry: onRetry,
           onOpenInstallPermissionSettings: onOpenInstallPermissionSettings,
@@ -95,7 +95,7 @@ void main() {
         latestVersion: '0.1.0+3',
         releaseNotes: '## 更新内容\n- 新增自更新\n',
       ),
-      onDownloadAndInstall: () => downloads += 1,
+      onDownload: () => downloads += 1,
     );
 
     expect(find.byKey(UpdateSettingsPage.latestVersionKey), findsOneWidget);
@@ -115,7 +115,7 @@ void main() {
         latestVersion: '0.1.0+3',
         releaseNotes: '',
       ),
-      onDownloadAndInstall: () {},
+      onDownload: () {},
     );
 
     expect(find.text('此版本未提供更新说明'), findsOneWidget);
@@ -173,7 +173,7 @@ void main() {
         phase: UpdateUiPhase.verifying,
         latestVersion: '0.1.0+3',
       ),
-      onDownloadAndInstall: () {},
+      onDownload: () {},
     );
 
     expect(find.text('正在校验下载完整性…'), findsOneWidget);
@@ -301,7 +301,7 @@ void main() {
         latestVersion: '0.1.0+3',
         releaseNotes: '## 更新内容\n- 新增自更新\n',
       ),
-      onDownloadAndInstall: () {},
+      onDownload: () {},
       size: const Size(1440, 900),
     );
 

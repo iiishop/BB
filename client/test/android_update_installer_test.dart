@@ -33,7 +33,9 @@ void main() {
 
     final AndroidInstallAvailability availability = await installer
         .availability();
-    final AndroidInstallLaunch launch = await installer.install('/tmp/bb.apk');
+    final AndroidInstallLaunch launch = await installer.launchInstaller(
+      '/tmp/bb.apk',
+    );
     final bool opened = await installer.openInstallPermissionSettings();
 
     expect(availability.status, ApkInstallAvailability.unsupported);
@@ -123,7 +125,7 @@ void main() {
       platform: TargetPlatform.android,
     );
 
-    final AndroidInstallLaunch launch = await installer.install(
+    final AndroidInstallLaunch launch = await installer.launchInstaller(
       '/data/user/0/ai.bb.bb_mobile/cache/updates/bb.apk',
     );
 
@@ -150,7 +152,9 @@ void main() {
       platform: TargetPlatform.android,
     );
 
-    final AndroidInstallLaunch launch = await installer.install('/tmp/bb.apk');
+    final AndroidInstallLaunch launch = await installer.launchInstaller(
+      '/tmp/bb.apk',
+    );
     expect(launch.status, ApkInstallLaunchStatus.permissionRequired);
     expect(launch.reason, 'unknown_sources_disabled');
     await installer.dispose();
@@ -182,7 +186,7 @@ void main() {
         channel: channel,
         platform: TargetPlatform.android,
       );
-      final AndroidInstallLaunch launch = await installer.install(
+      final AndroidInstallLaunch launch = await installer.launchInstaller(
         '/tmp/bb.apk',
       );
       expect(launch.status, ApkInstallLaunchStatus.rejected, reason: entry.key);
@@ -202,7 +206,7 @@ void main() {
       platform: TargetPlatform.android,
     );
     expect(
-      (await installer.install('/tmp/bb.apk')).rejection,
+      (await installer.launchInstaller('/tmp/bb.apk')).rejection,
       ApkInstallRejection.unknown,
     );
     await installer.dispose();

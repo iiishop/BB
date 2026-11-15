@@ -30,6 +30,9 @@ enum UpdateUiPhase {
   /// Bytes are complete; the checksum is being verified before install.
   verifying,
 
+  /// Downloaded and verified; the user can start the install explicitly.
+  ready,
+
   /// Android requires the "install unknown apps" grant for this app.
   permissionRequired,
 
