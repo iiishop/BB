@@ -5,6 +5,8 @@ import 'dart:typed_data';
 import 'package:bb_client/models/auth_models.dart';
 import 'package:bb_client/models/chat_models.dart';
 import 'package:bb_client/ui/chat/chat_page.dart';
+import 'package:bb_client/services/chat_service.dart';
+import 'package:bb_client/services/client_identity.dart';
 import 'package:bb_client/services/media_source.dart';
 import 'package:bb_client/ui/chat/chat_composer.dart';
 import 'package:bb_client/ui/chat/media_actions.dart';
@@ -55,6 +57,91 @@ class _FakeClipboard implements ClipboardMediaReader {
 
   @override
   Future<PickedMedia?> read() async => media;
+}
+
+class _CommitThenFailService extends FakeChatService {
+  _CommitThenFailService({this.lookupGate, this.failLookup = false})
+    : super(
+        self: _self,
+        users: const <ChatUser>[_bob],
+        conversations: <String, List<ChatMessage>>{
+          _bob.account: <ChatMessage>[_message(1)],
+        },
+      );
+
+  final Completer<void>? lookupGate;
+  final bool failLookup;
+  ComposedSendResult? committed;
+  bool retryReturnsCommitted = false;
+
+  @override
+  Future<ComposedSendResult> sendComposed({
+    required String targetAccount,
+    required List<OutgoingPart> body,
+    required List<OutgoingAttachment> attachments,
+    String? operationSeed,
+  }) async {
+    committed = await super.sendComposed(
+      targetAccount: targetAccount,
+      body: body,
+      attachments: attachments,
+      operationSeed: operationSeed,
+    );
+    throw const AuthFailure(
+      status: 502,
+      code: 'gateway_failed',
+      message: 'response lost',
+    );
+  }
+
+  @override
+  Future<OperationResult?> getOperation(String operationId) async {
+    operationQueries.add(operationId);
+    final Completer<void>? gate = lookupGate;
+    if (gate != null) {
+      await gate.future;
+    }
+    if (failLookup) {
+      throw const AuthFailure(
+        status: 502,
+        code: 'gateway_failed',
+        message: 'lookup unavailable',
+      );
+    }
+    final ChatMessage? message = committed?.body?.message;
+    if (message == null) {
+      return null;
+    }
+    return OperationResult(
+      operationId: operationId,
+      kind: 'message',
+      status: OperationStatus.succeeded,
+      message: message,
+    );
+  }
+
+  @override
+  Future<SendOutcome> sendBody({
+    required String targetAccount,
+    required List<OutgoingPart> content,
+    String? operationId,
+    ExpectedIdentity? expectedIdentity,
+  }) async {
+    final ChatMessage? message = committed?.body?.message;
+    if (retryReturnsCommitted && message != null) {
+      return SendOutcome(
+        operationId: operationId ?? 'retry',
+        message: message,
+        part: content,
+      );
+    }
+    return super.sendBody(
+      targetAccount: targetAccount,
+      content: content,
+      operationId: operationId,
+      expectedIdentity: expectedIdentity,
+    );
+  }
 }
 
 class _Harness {
@@ -765,6 +852,106 @@ void main() {
       hasLength(1),
       reason: 'the operation id, not similar content, proves the message',
     );
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final bool refresh in <bool>[false, true]) {
+    testWidgets(
+      'an accepted send stays one bubble while its failed-operation lookup is '
+      'in flight (${refresh ? 'refresh' : 'poll'})',
+      (WidgetTester tester) async {
+        final _CommitThenFailService service = _CommitThenFailService(
+          lookupGate: Completer<void>(),
+        );
+        final _Harness harness = _Harness(service: service);
+        await harness.pump(tester);
+
+        await harness.send(tester, 'committed response lost');
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+
+        if (refresh) {
+          await tester.tap(find.byKey(ChatPage.refreshKey));
+          await tester.pump();
+        } else {
+          await tester.pump(const Duration(seconds: 3));
+          await tester.pump();
+          await tester.pump(const Duration(seconds: 3));
+        }
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+
+        expect(
+          find.descendant(
+            of: find.byType(MessageBubble),
+            matching: find.text('committed response lost'),
+          ),
+          findsOneWidget,
+          reason: 'the lookup window must not render accepted + failure twice',
+        );
+        expect(find.byKey(MessageBubble.failedKey), findsOneWidget);
+
+        service.lookupGate!.complete();
+        await tester.pumpAndSettle();
+        expect(
+          find.descendant(
+            of: find.byType(MessageBubble),
+            matching: find.text('committed response lost'),
+          ),
+          findsOneWidget,
+        );
+        expect(find.byKey(MessageBubble.failedKey), findsNothing);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  testWidgets('a failed operation lookup keeps the failure retryable and '
+      'releases the held message', (WidgetTester tester) async {
+    final _CommitThenFailService service = _CommitThenFailService(
+      failLookup: true,
+    );
+    final _Harness harness = _Harness(service: service);
+    await harness.pump(tester);
+
+    await harness.send(tester, 'lookup unavailable');
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump();
+
+    expect(find.byKey(MessageBubble.failedKey), findsOneWidget);
+    expect(find.text('lookup unavailable'), findsNWidgets(2));
+    service.retryReturnsCommitted = true;
+    await tester.tap(find.byKey(MessageBubble.failedKey));
+    await tester.pumpAndSettle();
+    expect(find.byKey(MessageBubble.failedKey), findsNothing);
+    expect(find.text('lookup unavailable'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('retry can settle while the operation lookup is still in flight '
+      'without a duplicate', (WidgetTester tester) async {
+    final _CommitThenFailService service = _CommitThenFailService(
+      lookupGate: Completer<void>(),
+    )..retryReturnsCommitted = true;
+    final _Harness harness = _Harness(service: service);
+    await harness.pump(tester);
+
+    await harness.send(tester, 'retry during lookup');
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byKey(MessageBubble.failedKey), findsOneWidget);
+
+    await tester.tap(find.byKey(MessageBubble.failedKey));
+    await tester.pumpAndSettle();
+    expect(find.byKey(MessageBubble.failedKey), findsNothing);
+    expect(find.text('retry during lookup'), findsOneWidget);
+
+    service.lookupGate!.complete();
+    await tester.pumpAndSettle();
+    expect(find.text('retry during lookup'), findsOneWidget);
+    expect(find.byType(MessageBubble), findsNWidgets(2));
     expect(tester.takeException(), isNull);
   });
 

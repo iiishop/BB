@@ -312,6 +312,12 @@ class _ChatPageState extends State<ChatPage> {
     (PendingSend item) => item.state == SendFeedbackState.sending,
   );
 
+  /// A failed send whose authoritative operation lookup is still running is
+  /// not settled yet either: the committed message must stay held until that
+  /// lookup either binds it or proves it is a different operation.
+  bool get _shouldHoldSelfMessages =>
+      _hasSendingPending || _resolvingOperations.isNotEmpty;
+
   /// While a send is in flight, self-authored messages read from history are
   /// held instead of rendered. A local pending row plus the same accepted
   /// message would otherwise show one server fact twice, and comparing text
@@ -321,7 +327,7 @@ class _ChatPageState extends State<ChatPage> {
     final List<ChatMessage> visible = <ChatMessage>[];
     final Map<String, ChatMessage> held = <String, ChatMessage>{};
     final String? self = _selfAccount;
-    final bool hold = _hasSendingPending;
+    final bool hold = _shouldHoldSelfMessages;
     for (final ChatMessage message in incoming) {
       if (known.contains(message.identity) ||
           _heldSelfMessages.containsKey(message.identity)) {
@@ -398,7 +404,7 @@ class _ChatPageState extends State<ChatPage> {
       // A failed verification is not evidence of success.
     } finally {
       _resolvingOperations.remove(operationId);
-      if (!_hasSendingPending && _resolvingOperations.isEmpty) {
+      if (!_shouldHoldSelfMessages) {
         _flushHeldSelfMessages();
       }
     }
@@ -508,7 +514,7 @@ class _ChatPageState extends State<ChatPage> {
       for (final String operationId in newlyFailed) {
         unawaited(_resolveFailedOperation(operationId));
       }
-    } else if (!_hasSendingPending && _resolvingOperations.isEmpty) {
+    } else if (!_shouldHoldSelfMessages) {
       _flushHeldSelfMessages();
     }
   }
