@@ -35,6 +35,7 @@ class WindowsUpdaterTests(unittest.TestCase):
         source = cls.base / "Fixture.cs"
         source.write_text('''using System; using System.Threading;
 class Fixture { static void Main(string[] args) {
+  if (Array.IndexOf(args, "--hold") >= 0) Thread.Sleep(30000);
   foreach (var arg in args) if (arg.StartsWith("--bb-update-ready=")) {
     using (var e = EventWaitHandle.OpenExisting(arg.Substring(18))) e.Set();
   }
@@ -94,9 +95,13 @@ class Fixture { static void Main(string[] args) {
             path = ctypes.create_unicode_buffer(32768)
             size = wintypes.DWORD(len(path))
             if not kernel.QueryFullProcessImageNameW(handle, 0, path, ctypes.byref(size)):
-                if kernel.WaitForSingleObject(handle, 0) == 0:
+                error = ctypes.get_last_error()
+                # During process teardown image queries can already be denied
+                # before the process handle is signalled. Join that exit; do
+                # not kill an unverified live process or suppress a real denial.
+                if kernel.WaitForSingleObject(handle, 10000) == 0:
                     return
-                raise ctypes.WinError(ctypes.get_last_error())
+                raise ctypes.WinError(error)
             self.assertTrue(os.path.samefile(path.value, self.old / "bb_client.exe"), path.value)
             if not kernel.TerminateProcess(handle, 0) and kernel.WaitForSingleObject(handle, 10000) != 0:
                 raise ctypes.WinError(ctypes.get_last_error())
@@ -215,6 +220,46 @@ class Fixture { static void Main(string[] args) {
         self.assert_old()
         result = self.run_update()
         self.assertEqual(result[0], 0, result)
+
+    def test_cleanup_joins_exit_after_image_query_is_denied(self):
+        import ctypes
+        from ctypes import wintypes
+        from unittest.mock import patch
+
+        # Force the observed interval: the process is alive at the first wait,
+        # its image query is denied, then it exits. No random scheduling loop.
+        app = subprocess.Popen([str(self.old / "bb_client.exe"), "--hold"])
+        self.transaction.mkdir()
+        (self.transaction / "launched.pid").write_text(str(app.pid))
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        wait = kernel.WaitForSingleObject
+        wait.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        wait.restype = wintypes.DWORD
+        query_calls = []
+
+        def exiting_image_query(handle, flags, path, size):
+            query_calls.append(handle)
+            ctypes.set_last_error(5)
+            return 0
+
+        def finish_exit_on_join(handle, timeout):
+            if query_calls:
+                if timeout == 0:
+                    return 258  # Still tearing down: WAIT_TIMEOUT.
+                app.terminate()
+            return wait(handle, timeout)
+
+        kernel.QueryFullProcessImageNameW = exiting_image_query
+        kernel.WaitForSingleObject = finish_exit_on_join
+        try:
+            with patch("ctypes.WinDLL", return_value=kernel):
+                self.stop_fixture_app()
+            self.assertEqual(len(query_calls), 1)
+            self.assertIsNotNone(app.poll(), "cleanup returned before fixture exit")
+        finally:
+            if app.poll() is None:
+                app.terminate()
+            app.wait(timeout=10)
 
     def test_hash_mismatch_leaves_old_untouched(self):
         result = self.run_update(digest="0" * 64)
