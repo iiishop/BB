@@ -128,6 +128,7 @@ flutter test             # 651 passed / 9 skipped / exit 0
    `sha256-c18ba32d6d6340ff89e0e9d6813021b87189d8dcf2828bbe9e792a34329ce5e0`，
    `GET /avatars/<account>.png` 返回 841 字节（截图 `gui-62-applied.png`）。
 5. 关闭资料面板再打开：仍显示新头像，读取行为无回退（截图 `gui-63-reopened.png`）。
+   该流程在 QA P2 修复后的候选上重跑一次，结果同上。
 6. 不可读路径显示“无法读取该本机路径”，应用不会上传（截图 `gui-12-native-dialog.png`；
    该次为合成按键截断路径，正好验证不可读分支）。
 
@@ -136,10 +137,11 @@ flutter test             # 651 passed / 9 skipped / exit 0
 | 目标 | 命令 | 结果 |
 |---|---|---|
 | Linux | `flutter build linux --debug` | 成功，`build/linux/x64/debug/bundle/bb_mobile` |
-| Android | `flutter build apk --debug` | 成功，`app-debug.apk` 162,218,492 bytes，sha256 `c5c483946b422b064ce5ad7b1fbb81d02ac37970ed8b51652d9edd2eed706dfa` |
+| Android | `flutter build apk --debug` | 成功，`app-debug.apk` 181,808,231 bytes，sha256 `fcd9f56f33dfe9218859a4dd11b9ba6de2ee69e7ea2ee2ac97f025527faf8f80` |
+| Android（分 ABI，已签名可安装） | `flutter build apk --release --split-per-abi` | 成功，arm64 20,838,230 bytes，sha256 `87938ce198b6297cdee933b381b14d1b54c39beb1b860eae72a00f6865e1d633`（debug keystore 签名，可安装、不可上架） |
 
-Android 构建日志中 Kotlin daemon 因只读 `~/.local/share` 无法启动，Gradle 回退 in-process
-编译后成功（非本次代码问题）。
+以上构建在 QA P2 修复后的候选上重跑。Android 构建日志中 Kotlin daemon 因只读
+`~/.local/share` 无法启动，Gradle 回退 in-process 编译后成功（非本次代码问题）。
 
 ## NOT RUN / BLOCKED
 
