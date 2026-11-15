@@ -6,8 +6,27 @@ name: Windows test package
 on:
   pull_request:
     paths:
-      - 'client/**'
-      - 'scripts/ci/**'
+      # Actual Windows payload + shared Dart code/dependencies. Keep assets
+      # covered when pubspec adds them; unrelated platform/docs/QA changes stay cheap.
+      - 'client/lib/**'
+      - 'client/assets/**'
+      - 'client/windows/**'
+      - 'client/pubspec.*'
+      - 'client/.metadata'
+      - 'client/analysis_options.yaml'
+      - 'client/test/ffmpeg_tool_test.dart'
+      - 'client/test/chat_clipboard_paste_test.dart'
+      - 'client/test/support/**'
+      - 'client/test/fixtures/**'
+      - 'scripts/ci/build_ffmpeg_windows.sh'
+      - 'scripts/ci/fetch_ffmpeg_sources.py'
+      - 'scripts/ci/ffmpeg_pins.py'
+      - 'scripts/ci/package_windows.py'
+      - 'scripts/ci/ffmpeg_cache.py'
+      - 'scripts/ci/test_*ffmpeg*.py'
+      - 'scripts/ci/test_package_windows.py'
+      - 'scripts/ci/test_windows_workflow.py'
+      - 'scripts/ci/fixtures/**'
       - '.github/workflows/windows-test-package.yml'
   workflow_dispatch:
 
@@ -17,6 +36,7 @@ concurrency:
 
 permissions:
   contents: read
+  actions: read  # Discover only exact-input caches in this ref, never another PR.
 
 jobs:
   windows-test-package:
@@ -51,10 +71,25 @@ jobs:
           $cmd = Get-Command ffmpeg -ErrorAction SilentlyContinue
           if ($cmd) { "SYSTEM_FFMPEG=$($cmd.Source)" } else { "SYSTEM_FFMPEG=none" }
 
+      - name: Resolve FFmpeg cache inputs and toolchain snapshot
+        id: ffmpeg-inputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/ci/ffmpeg_cache.py plan
+
+      - name: Restore exact FFmpeg dependency cache
+        id: ffmpeg-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: client/windows/ffmpeg
+          key: ${{ steps.ffmpeg-inputs.outputs.key }}
+
       - name: 下载并校验固定源码（FFmpeg / zlib）
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
         run: python scripts/ci/fetch_ffmpeg_sources.py --dest .ffmpeg-src
 
       - uses: msys2/setup-msys2@v2
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
         with:
           msystem: MINGW64
           update: true
@@ -64,18 +99,20 @@ jobs:
             make
 
       - name: 从固定源码构建最小 FFmpeg（仅解码 + PNG 封面）
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
         shell: msys2 {0}
         env:
           BB_GIT_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
         run: bash scripts/ci/build_ffmpeg_windows.sh --sources .ffmpeg-src --dest client/windows/ffmpeg
 
-      - name: 读取内置 FFmpeg 构建 hash（供打包入口强校验）
+      - name: Verify FFmpeg tree, manifest, licenses and executable hash
         id: ffmpeg
-        shell: pwsh
-        run: |
-          $line = Select-String -Path client/windows/ffmpeg/BUILD-MANIFEST.txt -Pattern '^ffmpeg_exe_sha256=' | Select-Object -First 1
-          $sha = $line.Line.Split('=', 2)[1]
-          "sha=$sha" | Out-File -Encoding utf8 -Append $env:GITHUB_OUTPUT
+        env:
+          CACHE_HIT: ${{ steps.ffmpeg-cache.outputs.cache-hit }}
+          CACHE_KEY: ${{ steps.ffmpeg-inputs.outputs.key }}
+          CACHE_PREFIX: ${{ steps.ffmpeg-inputs.outputs.prefix }}
+          TOOLCHAIN_DIGEST: ${{ steps.ffmpeg-inputs.outputs.toolchain }}
+        run: python scripts/ci/ffmpeg_cache.py verify
 
       - name: Windows release 构建（Release 缺少内置 FFmpeg 会直接失败）
         working-directory: client
@@ -120,6 +157,14 @@ jobs:
           print("zip:", name, "sha256:", digest)
           print("bundled ffmpeg:", smoke["ffmpeg_version"])
           EOF
+
+      # Save only after the unchanged final bundle + extracted ZIP smoke passed.
+      - name: Save verified FFmpeg dependency cache
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: client/windows/ffmpeg
+          key: ${{ steps.ffmpeg.outputs.save_key }}
 
       - name: 上传 Windows 测试包
         uses: actions/upload-artifact@v4
