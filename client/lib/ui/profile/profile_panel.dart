@@ -1102,12 +1102,26 @@ class _AvatarSourceDialogState extends State<_AvatarSourceDialog> {
   String? _previewedPath;
   Uint8List? _galleryBytes;
   String? _galleryName;
-  bool _reading = false;
-  bool _picking = false;
   Timer? _debounceTimer;
 
-  /// Guards async preview reads so a late result from an older path cannot
-  /// replace the state of the current one.
+  /// In-flight preview/validation reads. The preview spinner shows while this
+  /// is non-zero, and every read releases exactly one unit in `finally` — even
+  /// when a source switch or a newer edit made its result stale. Busy state is
+  /// owned by the operation that started it, never by the invalidation path
+  /// (DEA-482 QA: a stale pick left the picker disabled forever).
+  int _pendingReads = 0;
+
+  /// In-flight platform picks plus their validation, counted for the same
+  /// ownership reason as [_pendingReads].
+  int _pendingPicks = 0;
+
+  bool get _reading => _pendingReads > 0;
+
+  bool get _picking => _pendingPicks > 0;
+
+  /// Guards async result delivery so a late result from an older path cannot
+  /// replace the state of the current one. It deliberately does not own any
+  /// busy flag; see [_pendingReads]/[_pendingPicks].
   int _readToken = 0;
 
   bool get _isPathKind => _kind == _AvatarSourceKind.path;
@@ -1149,7 +1163,6 @@ class _AvatarSourceDialogState extends State<_AvatarSourceDialog> {
       _previewedPath = null;
       _galleryBytes = null;
       _galleryName = null;
-      _reading = false;
     });
   }
 
@@ -1162,7 +1175,6 @@ class _AvatarSourceDialogState extends State<_AvatarSourceDialog> {
     if (path.isEmpty) {
       _readToken += 1;
       setState(() {
-        _reading = false;
         _previewBytes = null;
         _previewedPath = null;
         _previewError = null;
@@ -1178,7 +1190,7 @@ class _AvatarSourceDialogState extends State<_AvatarSourceDialog> {
   Future<void> _loadPathPreview(String path) async {
     final int token = ++_readToken;
     setState(() {
-      _reading = true;
+      _pendingReads += 1;
       _previewError = null;
     });
     try {
@@ -1187,7 +1199,6 @@ class _AvatarSourceDialogState extends State<_AvatarSourceDialog> {
         return;
       }
       setState(() {
-        _reading = false;
         _previewBytes = bytes;
         _previewedPath = path;
       });
@@ -1196,11 +1207,14 @@ class _AvatarSourceDialogState extends State<_AvatarSourceDialog> {
         return;
       }
       setState(() {
-        _reading = false;
         _previewBytes = null;
         _previewedPath = null;
         _previewError = _errorMessage(error);
       });
+    } finally {
+      if (mounted) {
+        setState(() => _pendingReads -= 1);
+      }
     }
   }
 
@@ -1219,32 +1233,42 @@ class _AvatarSourceDialogState extends State<_AvatarSourceDialog> {
       return;
     }
     setState(() {
-      _picking = true;
+      _pendingPicks += 1;
       _error = null;
     });
-    AvatarPick? pick;
     try {
-      pick = await widget.picker.pickImage();
-    } catch (_) {
-      if (!mounted) {
+      final AvatarPick? pick = await _requestPick();
+      if (pick == null || !mounted) {
+        // Cancelling the system dialog keeps the typed path, the preview and
+        // the current avatar untouched.
         return;
       }
-      setState(() {
-        _picking = false;
-        _error = widget.galleryMode ? '无法打开系统相册，请稍后重试' : '无法打开系统文件选择器，请稍后重试';
-      });
-      return;
+      await _applyPick(pick);
+    } finally {
+      // Runs for cancel, stale results and failures alike: the operation that
+      // started the busy state always releases it.
+      if (mounted) {
+        setState(() => _pendingPicks -= 1);
+      }
     }
-    if (!mounted) {
-      return;
+  }
+
+  Future<AvatarPick?> _requestPick() async {
+    try {
+      return await widget.picker.pickImage();
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _error = widget.galleryMode
+              ? '无法打开系统相册，请稍后重试'
+              : '无法打开系统文件选择器，请稍后重试';
+        });
+      }
+      return null;
     }
-    if (pick == null) {
-      // Cancelling the system dialog keeps the typed path, the preview and the
-      // current avatar untouched.
-      setState(() => _picking = false);
-      return;
-    }
-    final AvatarPick selected = pick;
+  }
+
+  Future<void> _applyPick(AvatarPick selected) async {
     final int token = ++_readToken;
     try {
       // The platform picked this file, but its bytes still go through the same
@@ -1259,7 +1283,6 @@ class _AvatarSourceDialogState extends State<_AvatarSourceDialog> {
         return;
       }
       setState(() {
-        _picking = false;
         _error = null;
         _previewError = null;
         _previewBytes = bytes;
@@ -1286,7 +1309,6 @@ class _AvatarSourceDialogState extends State<_AvatarSourceDialog> {
         return;
       }
       setState(() {
-        _picking = false;
         _previewBytes = null;
         _previewedPath = null;
         _galleryBytes = null;
@@ -1334,7 +1356,7 @@ class _AvatarSourceDialogState extends State<_AvatarSourceDialog> {
     }
     final int token = ++_readToken;
     setState(() {
-      _reading = true;
+      _pendingReads += 1;
       _error = null;
     });
     try {
@@ -1343,7 +1365,6 @@ class _AvatarSourceDialogState extends State<_AvatarSourceDialog> {
         return;
       }
       setState(() {
-        _reading = false;
         _previewBytes = bytes;
         _previewedPath = path;
         _previewError = null;
@@ -1355,11 +1376,14 @@ class _AvatarSourceDialogState extends State<_AvatarSourceDialog> {
         return;
       }
       setState(() {
-        _reading = false;
         _previewBytes = null;
         _previewedPath = null;
         _previewError = _errorMessage(error);
       });
+    } finally {
+      if (mounted) {
+        setState(() => _pendingReads -= 1);
+      }
     }
   }
 
