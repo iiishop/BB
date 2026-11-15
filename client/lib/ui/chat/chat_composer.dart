@@ -37,6 +37,12 @@ class ChatComposerController {
     }
     await state._retryOne(operationId);
   }
+
+  /// The server operation was verified as committed; the local failure entry
+  /// and its retry affordance must disappear.
+  void forgetCommittedOperation(String operationId) {
+    _state?._forgetCommittedOperation(operationId);
+  }
 }
 
 /// Ordered composer: text and images keep their insertion order; videos,
@@ -475,6 +481,29 @@ class _ChatComposerState extends State<ChatComposer> {
       SentOperation(operationId: operationId, message: message),
     ]);
     _emitPending();
+  }
+
+  void _forgetCommittedOperation(String operationId) {
+    final bool hadFailed = _failed.any(
+      (SendOutcome outcome) => outcome.operationId == operationId,
+    );
+    final bool hadPending = _pending.any(
+      (PendingSend item) => item.operationId == operationId,
+    );
+    if (!hadFailed && !hadPending) {
+      return;
+    }
+    setState(() {
+      _failed.removeWhere(
+        (SendOutcome outcome) => outcome.operationId == operationId,
+      );
+      _pending.removeWhere(
+        (PendingSend item) => item.operationId == operationId,
+      );
+    });
+    if (hadPending) {
+      _emitPending();
+    }
   }
 
   void _setPendingState(String operationId, SendFeedbackState state) {

@@ -346,6 +346,8 @@ void main() {
     await harness.send(tester, 'accepted before response');
     await tester.pump(const Duration(seconds: 3));
     await tester.pump();
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
 
     expect(find.text('accepted before response'), findsOneWidget);
@@ -568,6 +570,201 @@ void main() {
       reason: 'the same operation must keep the actual entrance State',
     );
     expect(find.text('昨天'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final bool refresh in <bool>[false, true]) {
+    testWidgets(
+      'another operation with identical text cannot hide a local failure '
+      '(${refresh ? 'refresh' : 'poll'})',
+      (WidgetTester tester) async {
+        final _Harness harness = _Harness(thread: <ChatMessage>[_message(1)]);
+        harness.chat.sendGate = Completer<void>();
+        harness.chat.failBody = true;
+        await harness.pump(tester);
+
+        await harness.send(tester, 'same text');
+        // Another client/session successfully sent the same text. The local
+        // request has not been accepted and will fail.
+        harness.chat.conversations[_bob.account]!.add(
+          _message(
+            2,
+            sender: _self.account,
+            text: 'same text',
+            at: DateTime.now().toUtc(),
+          ),
+        );
+        if (refresh) {
+          await tester.tap(find.byKey(ChatPage.refreshKey));
+          await tester.pump();
+        } else {
+          await tester.pump(const Duration(seconds: 3));
+        }
+        await tester.pump();
+
+        harness.chat.sendGate!.complete();
+        await tester.pumpAndSettle();
+
+        final List<MessageBubble> bubbles = tester
+            .widgetList<MessageBubble>(find.byType(MessageBubble))
+            .toList();
+        expect(
+          bubbles.where(
+            (MessageBubble bubble) =>
+                bubble.sendState == SendFeedbackState.failed,
+          ),
+          hasLength(1),
+          reason: 'another operation cannot erase the local failure',
+        );
+        expect(find.byKey(MessageBubble.failedKey), findsOneWidget);
+        expect(
+          harness.chat.operationQueries,
+          hasLength(1),
+          reason: 'the failed operation is verified by its own id',
+        );
+
+        harness.chat.failBody = false;
+        await tester.tap(find.byKey(MessageBubble.failedKey));
+        await tester.pumpAndSettle();
+        expect(find.byKey(MessageBubble.failedKey), findsNothing);
+        expect(
+          harness.chat.conversations[_bob.account]!.length,
+          3,
+          reason: 'other message + retried local message both exist',
+        );
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  testWidgets('another operation with identical image cannot hide a local '
+      'failure', (WidgetTester tester) async {
+    final _Harness harness = _Harness(
+      service: FakeChatService(
+        self: _self,
+        users: const <ChatUser>[_bob],
+        conversations: <String, List<ChatMessage>>{
+          _bob.account: <ChatMessage>[_message(1)],
+        },
+      ),
+      clipboard: _FakeClipboard(
+        PickedMedia(
+          bytes: base64Decode(_tinyPng),
+          filename: 'same.png',
+          mimeType: 'image/png',
+        ),
+      ),
+    );
+    harness.chat.sendGate = Completer<void>();
+    harness.chat.failBody = true;
+    await harness.pump(tester);
+
+    await tester.tap(find.byKey(ChatComposer.pasteKey));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(ChatComposer.sendKey));
+    await tester.pump();
+    harness.chat.conversations[_bob.account]!.add(
+      ChatMessage(
+        id: 'other-image',
+        position: 2,
+        senderAccount: _self.account,
+        targetAccount: _bob.account,
+        createdAt: DateTime.now().toUtc(),
+        kind: ChatMessageKind.body,
+        parts: const <MessagePart>[ImagePart('other-media-id')],
+      ),
+    );
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump();
+    harness.chat.sendGate!.complete();
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(MessageBubble.failedKey), findsOneWidget);
+    expect(
+      tester
+          .widgetList<MessageBubble>(find.byType(MessageBubble))
+          .where(
+            (MessageBubble bubble) =>
+                bubble.sendState == SendFeedbackState.failed,
+          ),
+      hasLength(1),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('two sends may return out of order without duplicates or lost '
+      'operations', (WidgetTester tester) async {
+    final FakeChatService service = FakeChatService(
+      self: _self,
+      users: const <ChatUser>[_bob],
+      conversations: <String, List<ChatMessage>>{
+        _bob.account: <ChatMessage>[_message(1)],
+      },
+    )..holdResponses = true;
+    final _Harness harness = _Harness(service: service);
+    await harness.pump(tester);
+
+    await harness.send(tester, 'first in flight');
+    await tester.pump();
+    final String firstSeed = service.sendSeeds.single;
+    await harness.send(tester, 'second in flight');
+    await tester.pump();
+    final String secondSeed = service.sendSeeds.last;
+    expect(secondSeed, isNot(firstSeed));
+
+    // The later request settles first.
+    service.responseGateFor(secondSeed).complete();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    service.responseGateFor(firstSeed).complete();
+    await tester.pumpAndSettle();
+
+    expect(find.text('first in flight'), findsOneWidget);
+    expect(find.text('second in flight'), findsOneWidget);
+    expect(find.byType(MessageBubble), findsNWidgets(3));
+    expect(find.byKey(MessageBubble.sendingKey), findsNothing);
+    expect(find.byKey(MessageBubble.failedKey), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a failed response is reconciled by the operation record, not '
+      'by message content', (WidgetTester tester) async {
+    final FakeChatService service = FakeChatService(
+      self: _self,
+      users: const <ChatUser>[_bob],
+      conversations: <String, List<ChatMessage>>{
+        _bob.account: <ChatMessage>[_message(1)],
+      },
+    );
+    final ChatMessage committed = _message(
+      2,
+      sender: _self.account,
+      text: 'server committed',
+      at: DateTime.now().toUtc(),
+    );
+    service.operationResult = OperationResult(
+      operationId: 'seed-b',
+      kind: 'message',
+      status: OperationStatus.succeeded,
+      message: committed,
+    );
+    service.sendGate = Completer<void>();
+    service.failBody = true;
+    final _Harness harness = _Harness(service: service);
+    await harness.pump(tester);
+
+    await harness.send(tester, 'local failure');
+    await tester.pump();
+    service.sendGate!.complete();
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(MessageBubble.failedKey), findsNothing);
+    expect(find.text('server committed'), findsOneWidget);
+    expect(
+      service.operationQueries,
+      hasLength(1),
+      reason: 'the operation id, not similar content, proves the message',
+    );
     expect(tester.takeException(), isNull);
   });
 

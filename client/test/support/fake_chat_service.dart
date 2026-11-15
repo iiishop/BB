@@ -76,6 +76,19 @@ class FakeChatService extends ChatService {
   /// before the caller sees the result.
   Completer<void>? responseGate;
 
+  /// Per-operation response gates for out-of-order return tests.
+  bool holdResponses = false;
+  final Map<String, Completer<void>> _responseGates =
+      <String, Completer<void>>{};
+
+  /// Answer for the authoritative operation lookup used when a send failed.
+  OperationResult? operationResult;
+  final List<String> operationQueries = <String>[];
+
+  Completer<void> responseGateFor(String seed) {
+    return _responseGates.putIfAbsent(seed, () => Completer<void>());
+  }
+
   /// Thrown from [sendComposed] after [sendGate] completes.
   Object? sendFailure;
 
@@ -270,6 +283,9 @@ class FakeChatService extends ChatService {
     if (responseGate != null) {
       await responseGate.future;
     }
+    if (holdResponses) {
+      await responseGateFor(seed).future;
+    }
     return ComposedSendResult(
       body: bodyOutcome,
       attachments: outcomes,
@@ -296,6 +312,12 @@ class FakeChatService extends ChatService {
     );
     list.add(message);
     return message;
+  }
+
+  @override
+  Future<OperationResult?> getOperation(String operationId) async {
+    operationQueries.add(operationId);
+    return operationResult;
   }
 
   @override

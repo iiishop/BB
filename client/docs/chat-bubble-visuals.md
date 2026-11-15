@@ -78,17 +78,27 @@
 
 ## Sentinel 复验修复（revision 2）
 
-1. **已接受但响应延迟时重复气泡**：轮询先读到的本人消息按“发送者/目标/kind/正文段类型与
-   文本/附件 kind+文件名+大小”、发送前位置下限和 5 分钟窗口与未决 operation 对账；对账后
-   隐藏本地行，已提交行继续显示“发送中…”直到响应落地。`_loadInitial`（刷新/媒体重载）走同一
-   对账；正文已提交、附件仍在途的部分成功也按各自 operation 独立对账。对账仅用于展示，
-   不写入共享状态，不改变幂等、身份或消息事实。
+1. **已接受但响应延迟时重复气泡**：不再按内容/时间猜测 operation。发送在途时，轮询或刷新
+   读到的本人消息先暂存、不渲染；本地 pending 行保留。失败时以
+   `GET /operations/{operation_id}`（现有权威接口）核对该 operation 是否 succeeded 及其
+   message：只有该记录能证明消息归属。确认成功则绑定该 message 到 operation id 并移除本地
+   失败/重试；否则释放暂存消息（它们属于其他 operation/设备），保留失败气泡与重试入口。
+   同一 operation 的重复观察按 `id@position` 去重。该查询只读，不改契约、不写共享状态。
 2. **异步失败抢走历史位置**：只有“新的 sending operation”出现时才强制显示自己的气泡，且
    立即 jump 不播放滚动动画；失败、重试、成功回执只在距底 96px 内跟随。用户开始拖动列表会
    使排队中的程序化滚动失效（epoch），不再与手势抢位置。
 3. **pending→committed 重建 entrance State**：ListView 的直接子节点（日期分隔、时间分隔、
    消息行）都带上稳定 key，消息行以 operation id 为 key。跨日期插入分隔时同一 operation
    复用同一 `MessageEntrance` State；回归测试直接比较实际 State 对象，而非嵌套 key。
+
+## Sentinel 复验修复（revision 3）
+
+- **误配**：上一版内容/时间启发式会让另一 operation 的同文/同媒体消息吞掉本地失败。现改为
+  “在途暂存 + `GET /operations/{id}` 权威关联”，不比较正文、媒体 id 或时间。覆盖 poll 与
+  refresh 两条入口；同文、同媒体、乱序返回、真实同 operation 重复观察都有回归。
+- **验证**：Sentinel `review_probes` 两套共 5 例通过；现有测试入口新增 5 例（同文 poll/refresh、
+  同媒体、乱序返回、失败但 operation 已提交）。新增查询只读，未扩展接口。
+- 视觉层级、动效参数与布局代码未改；最终 SHA 的静态前后截图与动态证据见 issue 评论。
 
 ## 用户返稿记录
 

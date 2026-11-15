@@ -93,15 +93,17 @@ class _ChatPageState extends State<ChatPage> {
   /// unfinished bubble out and back in must not replay it.
   final Set<String> _pendingEntered = <String>{};
 
-  /// Pending operation ids whose accepted message was already read by the
-  /// poll. Their local row is hidden and the committed row carries the send
-  /// state until the response settles, so one server fact is one bubble.
-  final Set<String> _matchedPending = <String>{};
+  /// Self-authored messages read while a send is in flight. They are held
+  /// back until the operation settles: content and time cannot prove which
+  /// operation a message belongs to, so only the operation record may do it.
+  final Map<String, ChatMessage> _heldSelfMessages = <String, ChatMessage>{};
 
-  /// Highest server position when each local operation started. Only messages
-  /// after that point may reconcile with it, so an older identical message is
-  /// never mistaken for the local echo.
-  final Map<String, int> _pendingFloor = <String, int>{};
+  /// Failed operations currently being verified against `GET /operations`.
+  final Set<String> _resolvingOperations = <String>{};
+
+  /// Failed operations the server confirmed as committed. Their local failure
+  /// row is hidden because the committed message is the truth.
+  final Set<String> _resolvedOperations = <String>{};
   static const int _maxLocalPreviewEntries = 8;
   static const int _maxLocalPreviewBytes = 24 * 1024 * 1024;
   bool _loading = true;
@@ -207,14 +209,14 @@ class _ChatPageState extends State<ChatPage> {
       final Set<String> known = _messages
           .map((ChatMessage message) => message.identity)
           .toSet();
-      final Map<String, String> reconciled = _reconcilePending(loaded, known);
+      final ({List<ChatMessage> visible, Map<String, ChatMessage> held}) split =
+          _splitSelfMessages(loaded, known);
       setState(() {
-        _mergeMessages(loaded);
+        _mergeMessages(split.visible);
+        _heldSelfMessages.addAll(split.held);
         _fetchedThrough = cursor;
         _loading = false;
         _animateIdentities.clear();
-        _operationByMessage.addAll(reconciled);
-        _matchedPending.addAll(reconciled.values);
       });
       widget.onMessagesChanged?.call(List<ChatMessage>.unmodifiable(_messages));
       _scrollToBottom(animate: false, force: true);
@@ -274,19 +276,18 @@ class _ChatPageState extends State<ChatPage> {
       final Set<String> known = _messages
           .map((ChatMessage message) => message.identity)
           .toSet();
+      final ({List<ChatMessage> visible, Map<String, ChatMessage> held}) split =
+          _splitSelfMessages(loaded, known);
       final Set<String> arrived = <String>{
-        for (final ChatMessage message in loaded)
-          if (!known.contains(message.identity)) message.identity,
+        for (final ChatMessage message in split.visible) message.identity,
       };
-      final Map<String, String> reconciled = _reconcilePending(loaded, known);
       setState(() {
-        _mergeMessages(loaded);
+        _mergeMessages(split.visible);
+        _heldSelfMessages.addAll(split.held);
         // Only a contiguous server read advances the fetch cursor. Local
         // sends in _onSent never touch this value.
         _fetchedThrough = cursor;
         _animateIdentities.addAll(arrived);
-        _operationByMessage.addAll(reconciled);
-        _matchedPending.addAll(reconciled.values);
       });
       widget.onMessagesChanged?.call(List<ChatMessage>.unmodifiable(_messages));
       if (arrived.isNotEmpty && wasNearBottom) {
@@ -299,86 +300,108 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
-  /// Binds a polled self message to a local pending operation when the server
-  /// accepted it but the HTTP response is still in flight. This is the only
-  /// point where both facts are visible at once; hiding the local row here
-  /// keeps exactly one bubble per accepted message and keeps the committed
-  /// row keyed by the same operation id.
-  Map<String, String> _reconcilePending(
-    Iterable<ChatMessage> loaded,
-    Set<String> known,
-  ) {
-    final Map<String, String> matches = <String, String>{};
-    final Set<String> claimed = <String>{};
-    for (final ChatMessage message in loaded) {
-      if (known.contains(message.identity)) {
-        continue;
-      }
-      for (final PendingSend pending in _pending) {
-        final String operationId = pending.operationId;
-        if (_matchedPending.contains(operationId) ||
-            claimed.contains(operationId)) {
-          continue;
-        }
-        if (_pendingMatchesMessage(message, pending)) {
-          matches[message.identity] = operationId;
-          claimed.add(operationId);
-          break;
-        }
-      }
+  String? get _selfAccount {
+    try {
+      return widget.chat.selfAccount;
+    } on AuthFailure {
+      return null;
     }
-    return matches;
   }
 
-  /// Presentation-level reconciliation, not identity: text and part order must
-  /// match, image media ids may differ because the upload happens server side,
-  /// and an attachment must agree on type, name and size. A five-minute window
-  /// and the position floor keep an older identical message out.
-  bool _pendingMatchesMessage(ChatMessage message, PendingSend pending) {
-    final int? floor = _pendingFloor[pending.operationId];
-    if (floor != null && message.position <= floor) {
-      return false;
-    }
-    if (message.senderAccount != widget.chat.selfAccount ||
-        message.targetAccount != widget.peer.account) {
-      return false;
-    }
-    if (message.createdAt.difference(pending.message.createdAt).abs() >
-        const Duration(minutes: 5)) {
-      return false;
-    }
-    if (message.kind != pending.message.kind) {
-      return false;
-    }
-    if (message.kind == ChatMessageKind.body) {
-      final List<MessagePart> actual = message.parts;
-      final List<MessagePart> local = pending.message.parts;
-      if (actual.length != local.length) {
-        return false;
+  bool get _hasSendingPending => _pending.any(
+    (PendingSend item) => item.state == SendFeedbackState.sending,
+  );
+
+  /// While a send is in flight, self-authored messages read from history are
+  /// held instead of rendered. A local pending row plus the same accepted
+  /// message would otherwise show one server fact twice, and comparing text
+  /// or timestamps cannot prove operation ownership.
+  ({List<ChatMessage> visible, Map<String, ChatMessage> held})
+  _splitSelfMessages(Iterable<ChatMessage> incoming, Set<String> known) {
+    final List<ChatMessage> visible = <ChatMessage>[];
+    final Map<String, ChatMessage> held = <String, ChatMessage>{};
+    final String? self = _selfAccount;
+    final bool hold = _hasSendingPending;
+    for (final ChatMessage message in incoming) {
+      if (known.contains(message.identity) ||
+          _heldSelfMessages.containsKey(message.identity)) {
+        continue;
       }
-      for (int index = 0; index < actual.length; index += 1) {
-        final MessagePart a = actual[index];
-        final MessagePart b = local[index];
-        if (a is TextPart && b is TextPart) {
-          if (a.text != b.text) {
-            return false;
-          }
-        } else if (a is ImagePart && b is ImagePart) {
-          continue;
-        } else {
-          return false;
-        }
+      if (hold && self != null && message.senderAccount == self) {
+        held[message.identity] = message;
+      } else {
+        visible.add(message);
       }
-      return true;
     }
-    final Attachment? actual = message.attachment;
-    final Attachment? local = pending.message.attachment;
-    if (actual == null || local == null) {
-      return false;
+    return (visible: visible, held: held);
+  }
+
+  /// Renders held self messages once no send is in flight. Identities already
+  /// committed by the send response are skipped, so the same server message
+  /// never appears twice.
+  void _flushHeldSelfMessages() {
+    if (!mounted || _heldSelfMessages.isEmpty) {
+      return;
     }
-    return actual.kind == local.kind &&
-        actual.filename == local.filename &&
-        actual.byteSize == local.byteSize;
+    final Set<String> known = _messages
+        .map((ChatMessage message) => message.identity)
+        .toSet();
+    final List<ChatMessage> visible = <ChatMessage>[
+      for (final ChatMessage message in _heldSelfMessages.values)
+        if (known.add(message.identity)) message,
+    ];
+    _heldSelfMessages.clear();
+    if (visible.isEmpty) {
+      return;
+    }
+    setState(() {
+      _mergeMessages(visible);
+      _animateIdentities.addAll(
+        visible.map((ChatMessage message) => message.identity),
+      );
+    });
+    widget.onMessagesChanged?.call(List<ChatMessage>.unmodifiable(_messages));
+  }
+
+  /// A client-observed failure is not proof the server rejected the operation.
+  /// Only `GET /operations/{id}` can name the committed message for this exact
+  /// operation; if it can, the local failure row is replaced by that message.
+  Future<void> _resolveFailedOperation(String operationId) async {
+    if (_resolvedOperations.contains(operationId) ||
+        !_resolvingOperations.add(operationId)) {
+      return;
+    }
+    try {
+      final OperationResult? result = await widget.chat.getOperation(
+        operationId,
+      );
+      if (!mounted) {
+        return;
+      }
+      final ChatMessage? message = result?.message;
+      if (result?.status == OperationStatus.succeeded && message != null) {
+        setState(() {
+          _resolvedOperations.add(operationId);
+          _operationByMessage[message.identity] = operationId;
+          _heldSelfMessages.remove(message.identity);
+          _mergeMessages(<ChatMessage>[message]);
+          _animateIdentities.remove(message.identity);
+        });
+        widget.onMessagesChanged?.call(
+          List<ChatMessage>.unmodifiable(_messages),
+        );
+        _composerController.forgetCommittedOperation(operationId);
+      }
+    } on AuthFailure {
+      // Keep the honest local failure and its retry entry.
+    } catch (_) {
+      // A failed verification is not evidence of success.
+    } finally {
+      _resolvingOperations.remove(operationId);
+      if (!_hasSendingPending && _resolvingOperations.isEmpty) {
+        _flushHeldSelfMessages();
+      }
+    }
   }
 
   /// Merge by stable message identity and keep the displayed order. Existing
@@ -447,29 +470,31 @@ class _ChatPageState extends State<ChatPage> {
     if (!mounted) {
       return;
     }
-    final Set<String> previous = <String>{
-      for (final PendingSend item in _pending) item.operationId,
-    };
+    final Map<String, SendFeedbackState> previousState =
+        <String, SendFeedbackState>{
+          for (final PendingSend item in _pending) item.operationId: item.state,
+        };
     final Set<String> live = <String>{
       for (final PendingSend item in pending) item.operationId,
     };
     final bool startedSend = pending.any(
       (PendingSend item) =>
           item.state == SendFeedbackState.sending &&
-          !previous.contains(item.operationId),
+          !previousState.containsKey(item.operationId),
     );
+    final List<String> newlyFailed = <String>[
+      for (final PendingSend item in pending)
+        if (item.state == SendFeedbackState.failed &&
+            previousState[item.operationId] != SendFeedbackState.failed &&
+            !_resolvedOperations.contains(item.operationId))
+          item.operationId,
+    ];
     setState(() {
       _pending = List<PendingSend>.of(pending);
-      for (final String operationId in live) {
-        _pendingFloor.putIfAbsent(operationId, () => _displayedMax);
-      }
-      _pendingFloor.removeWhere(
-        (String operationId, int _) => !live.contains(operationId),
-      );
       _pendingEntered.removeWhere(
         (String operationId) => !live.contains(operationId),
       );
-      _matchedPending.removeWhere(
+      _resolvedOperations.removeWhere(
         (String operationId) => !live.contains(operationId),
       );
     });
@@ -478,6 +503,13 @@ class _ChatPageState extends State<ChatPage> {
       // update does not move a reader who is parked in history. No long
       // animation here, so the user can grab the list without a fight.
       _scrollToBottom(animate: false, force: true);
+    }
+    if (newlyFailed.isNotEmpty) {
+      for (final String operationId in newlyFailed) {
+        unawaited(_resolveFailedOperation(operationId));
+      }
+    } else if (!_hasSendingPending && _resolvingOperations.isEmpty) {
+      _flushHeldSelfMessages();
     }
   }
 
@@ -940,7 +972,7 @@ class _ChatPageState extends State<ChatPage> {
           operationId: _operationByMessage[message.identity],
         ),
       for (final PendingSend pending in _pending)
-        if (!_matchedPending.contains(pending.operationId))
+        if (!_resolvedOperations.contains(pending.operationId))
           _TimelineEntry(
             message: pending.message,
             operationId: pending.operationId,
