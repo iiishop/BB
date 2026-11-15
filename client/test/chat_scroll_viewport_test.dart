@@ -218,12 +218,12 @@ void main() {
                           matching: find.byWidgetPredicate(
                             (Widget w) =>
                                 w is CustomPaint &&
-                                w.painter is ScrollbarPainter,
+                                w.foregroundPainter is ScrollbarPainter,
                           ),
                         )
                         .first,
                   )
-                  .painter!
+                  .foregroundPainter!
               as ScrollbarPainter;
       final Rect rect = tester.getRect(scrollbar);
       final double x = size.width - 6;
