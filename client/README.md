@@ -128,9 +128,11 @@ Linux 默认窗口 1180×780，Windows 同样 1180×780。Windows 构建/运行�
   输入区图片/文件/粘贴与草稿顺序；手机 390×844、桌面 1440×900、折叠 1024×768 均无溢出。
 - **气泡与发送反馈**：同发送者 5 分钟 run 只在最后一个气泡显示头像，18px/6px 方向圆角，
   气泡宽度 `min(340, 74% 视口)`；发送点击后立即出现本地气泡，状态为“发送中…”/“未发送 ·
-  点按重试”/已提交时间，重试复用同一 operation id；入场动画只给真正的新消息，历史/刷新/
-  滚动不重播，`MediaQuery.disableAnimations` 时跳过；用户停在历史时轮询新消息不强制拉底。
-  设计与参数见 `docs/chat-bubble-visuals.md`。
+  点按重试”/“状态待确认 · 点按重试”/已提交时间；服务器协商的
+  `ChatMessage.operationId` 只用于本人、本对话的同 operation 合并，其他来源的已提交消息立即
+  显示；无关联、不同 operation 或对端消息不参与本地回显匹配。重试复用同一 operation id；
+  入场动画只给真正的新消息，历史/刷新/滚动不重播，`MediaQuery.disableAnimations` 时跳过；
+  用户停在历史时轮询新消息不强制拉底。设计与参数见 `docs/chat-bubble-visuals.md`。
 
 ## 本地控制接口（给 dsh-plugin）
 
@@ -179,7 +181,7 @@ flutter test integration_test -d linux
 QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_tests.sh client
 ```
 
-- 默认 `flutter test`：最新严格 runner 为 **451 passed / 8 skipped / exit 0**。新增覆盖
+- 默认 `flutter test`：最新严格 runner 为 **494 passed / 8 skipped / exit 0**。新增覆盖
   1000 条真实分页下发送/接收并发补取无缺口、events/wait limit 边界、原子展示确认/冲突/全组
   拒绝/重启幂等、新 consumer 独立补取、有序图文发送、幂等/冲突、read→receipt→ACK 缺口、
   附件只读元信息、异步下载内容、持久事件、wait 积压/提前到达、用户列表分页/预览/在线状态、
@@ -191,9 +193,11 @@ QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_test
   两条发送乱序返回、失败后由 `GET /operations/{id}` 确认已提交、operation 查询在途期间
   poll/refresh 不重复、查询失败与 pending/uncertain 保持未知并保留暂存与重试、后续轮询重查
   恢复、重试与查询交错、1.6 倍文字下时间/发送中/失败状态行完整可读、迟到查询不能在重试
-  确定成功后重建未知状态、切会话 dispose 后迟到查询不改状态。
+  确定成功后重建未知状态、切会话 dispose 后迟到查询不改状态、精确 operation 关联下其他来源
+  同文/同媒体消息不被全局暂存隐藏、未知/明确失败状态文案、重试后再次失败时旧查询不覆盖、
+  仍 mounted 时切换对话旧查询不落新页。
 - 严格命令：`QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_tests.sh client`
-  → `RESULT=PASS`（analyze PASS、flutter-test 451 passed / 8 skipped / exit 0、linux-integration 14 passed / exit 0）。
+  → `RESULT=PASS`（analyze PASS、flutter-test 494 passed / 8 skipped / exit 0、linux-integration 14 passed / exit 0）。
 - `test/qa_metrics_test.dart` / `qa_session_race_test.dart` 保留独立 QA 的失败回归：
   打开面板后实时缩放/折叠重排、旧会话延迟 401 不得清掉新登录会话。
 - `test/qa_resize_transition_test.dart`、`profile_transition_reflow_test.dart` 保留并覆盖

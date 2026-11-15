@@ -760,6 +760,10 @@ class _ChatComposerState extends State<ChatComposer> {
               height: 56,
               fit: BoxFit.cover,
               gaplessPlayback: true,
+              errorBuilder:
+                  (BuildContext context, Object error, StackTrace? stack) {
+                    return const SizedBox(width: 56, height: 56);
+                  },
             ),
           );
     return Padding(

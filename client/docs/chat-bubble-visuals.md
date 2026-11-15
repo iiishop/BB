@@ -168,6 +168,27 @@
 `association_test.dart` 的 2 个 late lookup 用例通过，13 个“无关 B 可见性”红例保留（10 pass /
 13 fail，exit 1，符合修前边界）。未改 models/services，未交终验。
 
+## R8 阶段 B：精确 operation 关联（revision 9）
+
+集成 Forge `bf665db` + `5fdd65f` 后，UI 只按 `ChatMessage.operationId` 合并本人、当前对话的
+同一 operation。
+
+- **删除**：`_heldSelfMessages`、`_shouldHoldSelfMessages`、`_splitSelfMessages`、
+  `_flushHeldSelfMessages` 及所有全局释放/隐藏路径。poll/refresh 读到什么就显示什么；只有
+  已提交消息带有的 operation 关联才隐藏同 operation 的本地 pending 行。
+- **稳定身份**：pending 与 committed 共用 operation id 作为气泡/入场 key；提交消息直接显示
+  时间；不同 operation 的同文/同媒体消息各自独立，不再误配。
+- **未知/失败**：lookup 返回 null/failed 才显示“未发送”；pending/uncertain/网络错误显示
+  “状态待确认 · 点按重试”；成功关联后移除失败与重试。查询错误不冒充明确未提交。
+- **scope/ticket**：lookup 捕获 account、peer、page epoch、operation generation；返回时全部
+  匹配才可写。重试/再次失败推进 generation；旧查询完成只清理自己的 in-flight 记录。peer
+  变化会清空页面待确认状态并重建，旧查询不能写入新对话。finally 不释放其他请求。
+- **兼容**：按 R8-D1，完整行为仅要求配套新客户端＋新服务端；新客户端不兼容旧服务端。默认
+  旧 JSON、本地 v2 外部格式与 consumer 隔离由 Forge 保持，未改 DSH/服务端契约。
+- **回归**：Sentinel `b2473ec` 的 23 项行为断言（发送在途、查询 error/pending/uncertain、
+  failed/absent 对照、同文/同媒体、poll/refresh、迟到查询）在集成候选上 **23 passed**；
+  永久 `chat_send_feedback_test.dart` 45 例覆盖同集及 ticket/peer/未知文案。全量见 README。
+
 ## 用户返稿记录
 
 | 日期 | 意见 | 修改 | 适用场景 |

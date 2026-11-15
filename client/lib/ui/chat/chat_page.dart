@@ -93,22 +93,26 @@ class _ChatPageState extends State<ChatPage> {
   /// unfinished bubble out and back in must not replay it.
   final Set<String> _pendingEntered = <String>{};
 
-  /// Self-authored messages read while a send is in flight. They are held
-  /// back until the operation settles: content and time cannot prove which
-  /// operation a message belongs to, so only the operation record may do it.
-  final Map<String, ChatMessage> _heldSelfMessages = <String, ChatMessage>{};
+  /// Operations whose committed message is already in `_messages`. A local
+  /// pending row with the same operation is hidden; other self messages are
+  /// never hidden and render immediately.
+  final Set<String> _committedOperations = <String>{};
 
-  /// Failed operations currently being verified against `GET /operations`.
-  final Set<String> _resolvingOperations = <String>{};
+  /// Failed operations the server authoritatively reported as not committed.
+  /// Before that (pending/uncertain/error) the row is shown as unconfirmed.
+  final Set<String> _confirmedFailedOperations = <String>{};
 
-  /// Failed operations the server confirmed as committed. Their local failure
-  /// row is hidden because the committed message is the truth.
-  final Set<String> _resolvedOperations = <String>{};
-
-  /// Failed operations whose verification could not be completed (transport
-  /// or server error). Their send result is unknown, so self messages stay
-  /// held and the failure/retry row remains; a later poll retries the lookup.
+  /// Failed operations whose verification is not terminal yet. Used only to
+  /// schedule another lookup on a later poll; it never hides messages.
   final Set<String> _unresolvedOperations = <String>{};
+
+  /// Monotonic request ticket per operation; an older lookup completion cannot
+  /// mutate a newer one.
+  final Map<String, int> _lookupGeneration = <String, int>{};
+  final Map<String, int> _lookupInFlight = <String, int>{};
+
+  /// Invalidates callbacks captured for a previous peer on this widget.
+  int _pageEpoch = 0;
   static const int _maxLocalPreviewEntries = 8;
   static const int _maxLocalPreviewBytes = 24 * 1024 * 1024;
   bool _loading = true;
@@ -149,6 +153,33 @@ class _ChatPageState extends State<ChatPage> {
         unawaited(_pollNew());
       }
     });
+  }
+
+  @override
+  void didUpdateWidget(covariant ChatPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.peer.account != widget.peer.account) {
+      // Requests captured for the previous conversation must never write into
+      // this page. A real navigation creates a new state; this guard also
+      // covers a parent that reuses the widget with another peer.
+      _pageEpoch += 1;
+      _lookupGeneration.clear();
+      _lookupInFlight.clear();
+      _messages.clear();
+      _pending = <PendingSend>[];
+      _operationByMessage.clear();
+      _committedOperations.clear();
+      _confirmedFailedOperations.clear();
+      _unresolvedOperations.clear();
+      _pendingEntered.clear();
+      _animateIdentities.clear();
+      _fetchedThrough = 0;
+      _displayedMax = 0;
+      _fetching = false;
+      _error = null;
+      _loading = true;
+      unawaited(_loadInitial());
+    }
   }
 
   @override
@@ -211,18 +242,13 @@ class _ChatPageState extends State<ChatPage> {
       if (!mounted) {
         return;
       }
-      final Set<String> known = _messages
-          .map((ChatMessage message) => message.identity)
-          .toSet();
-      final ({List<ChatMessage> visible, Map<String, ChatMessage> held}) split =
-          _splitSelfMessages(loaded, known);
       setState(() {
-        _mergeMessages(split.visible);
-        _heldSelfMessages.addAll(split.held);
+        _mergeMessages(loaded);
         _fetchedThrough = cursor;
         _loading = false;
         _animateIdentities.clear();
       });
+      _forgetCommittedPending();
       widget.onMessagesChanged?.call(List<ChatMessage>.unmodifiable(_messages));
       _retryUnresolvedLookups();
       _scrollToBottom(animate: false, force: true);
@@ -282,19 +308,18 @@ class _ChatPageState extends State<ChatPage> {
       final Set<String> known = _messages
           .map((ChatMessage message) => message.identity)
           .toSet();
-      final ({List<ChatMessage> visible, Map<String, ChatMessage> held}) split =
-          _splitSelfMessages(loaded, known);
       final Set<String> arrived = <String>{
-        for (final ChatMessage message in split.visible) message.identity,
+        for (final ChatMessage message in loaded)
+          if (!known.contains(message.identity)) message.identity,
       };
       setState(() {
-        _mergeMessages(split.visible);
-        _heldSelfMessages.addAll(split.held);
+        _mergeMessages(loaded);
         // Only a contiguous server read advances the fetch cursor. Local
         // sends in _onSent never touch this value.
         _fetchedThrough = cursor;
         _animateIdentities.addAll(arrived);
       });
+      _forgetCommittedPending();
       widget.onMessagesChanged?.call(List<ChatMessage>.unmodifiable(_messages));
       _retryUnresolvedLookups();
       if (arrived.isNotEmpty && wasNearBottom) {
@@ -315,67 +340,46 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
-  bool get _hasSendingPending => _pending.any(
-    (PendingSend item) => item.state == SendFeedbackState.sending,
-  );
-
-  /// A failed send whose authoritative operation lookup is still running is
-  /// not settled yet either: the committed message must stay held until that
-  /// lookup either binds it or proves it is a different operation.
-  bool get _shouldHoldSelfMessages =>
-      _hasSendingPending ||
-      _resolvingOperations.isNotEmpty ||
-      _unresolvedOperations.isNotEmpty;
-
-  /// While a send is in flight, self-authored messages read from history are
-  /// held instead of rendered. A local pending row plus the same accepted
-  /// message would otherwise show one server fact twice, and comparing text
-  /// or timestamps cannot prove operation ownership.
-  ({List<ChatMessage> visible, Map<String, ChatMessage> held})
-  _splitSelfMessages(Iterable<ChatMessage> incoming, Set<String> known) {
-    final List<ChatMessage> visible = <ChatMessage>[];
-    final Map<String, ChatMessage> held = <String, ChatMessage>{};
-    final String? self = _selfAccount;
-    final bool hold = _shouldHoldSelfMessages;
-    for (final ChatMessage message in incoming) {
-      if (known.contains(message.identity) ||
-          _heldSelfMessages.containsKey(message.identity)) {
-        continue;
-      }
-      if (hold && self != null && message.senderAccount == self) {
-        held[message.identity] = message;
-      } else {
-        visible.add(message);
-      }
-    }
-    return (visible: visible, held: held);
+  void _invalidateLookup(String operationId) {
+    _lookupGeneration[operationId] = (_lookupGeneration[operationId] ?? 0) + 1;
   }
 
-  /// Renders held self messages once no send is in flight. Identities already
-  /// committed by the send response are skipped, so the same server message
-  /// never appears twice.
-  void _flushHeldSelfMessages() {
-    if (!mounted || _heldSelfMessages.isEmpty) {
+  bool _lookupApplies(
+    String operationId,
+    int generation,
+    String account,
+    String peer,
+    int pageEpoch,
+  ) {
+    return mounted &&
+        _pageEpoch == pageEpoch &&
+        widget.peer.account == peer &&
+        _selfAccount == account &&
+        _lookupGeneration[operationId] == generation &&
+        !_committedOperations.contains(operationId) &&
+        _isFailedPendingLive(operationId);
+  }
+
+  /// Registers an association that is valid for this page's account and pair.
+  /// The service already enforces account/pair scope; this is the display
+  /// scope fence, and it also invalidates any in-flight lookup for the same
+  /// operation because the commit is now definitive.
+  void _recordAssociation(ChatMessage message, String operationId) {
+    final String? self = _selfAccount;
+    if (self == null ||
+        message.senderAccount != self ||
+        message.targetAccount != widget.peer.account) {
       return;
     }
-    final Set<String> known = _messages
-        .map((ChatMessage message) => message.identity)
-        .toSet();
-    final List<ChatMessage> visible = <ChatMessage>[
-      for (final ChatMessage message in _heldSelfMessages.values)
-        if (known.add(message.identity)) message,
-    ];
-    _heldSelfMessages.clear();
-    if (visible.isEmpty) {
+    if (message.operationId != null && message.operationId != operationId) {
       return;
     }
-    setState(() {
-      _mergeMessages(visible);
-      _animateIdentities.addAll(
-        visible.map((ChatMessage message) => message.identity),
-      );
-    });
-    widget.onMessagesChanged?.call(List<ChatMessage>.unmodifiable(_messages));
+    _operationByMessage[message.identity] = operationId;
+    if (_committedOperations.add(operationId)) {
+      _unresolvedOperations.remove(operationId);
+      _confirmedFailedOperations.remove(operationId);
+      _invalidateLookup(operationId);
+    }
   }
 
   bool _isFailedPendingLive(String operationId) {
@@ -391,41 +395,51 @@ class _ChatPageState extends State<ChatPage> {
       return;
     }
     for (final String operationId in Set<String>.of(_unresolvedOperations)) {
-      if (!_resolvingOperations.contains(operationId) &&
-          !_resolvedOperations.contains(operationId)) {
-        unawaited(_resolveFailedOperation(operationId));
+      if (_lookupInFlight.containsKey(operationId) ||
+          _committedOperations.contains(operationId) ||
+          !_isFailedPendingLive(operationId)) {
+        continue;
       }
+      unawaited(_resolveFailedOperation(operationId));
     }
   }
 
   /// A client-observed failure is not proof the server rejected the operation.
   /// Only `GET /operations/{id}` can name the committed message for this exact
   /// operation; if it can, the local failure row is replaced by that message.
+  /// Every request owns a generation; a completion is only allowed to write
+  /// while its generation, page, account and peer all still match.
   Future<void> _resolveFailedOperation(String operationId) async {
-    if (_resolvedOperations.contains(operationId) ||
-        !_resolvingOperations.add(operationId)) {
+    if (!_isFailedPendingLive(operationId) ||
+        _committedOperations.contains(operationId)) {
       return;
     }
+    final String? account = _selfAccount;
+    if (account == null) {
+      return;
+    }
+    final String peer = widget.peer.account;
+    final int pageEpoch = _pageEpoch;
+    final int generation = (_lookupGeneration[operationId] ?? 0) + 1;
+    _lookupGeneration[operationId] = generation;
+    _lookupInFlight[operationId] = generation;
     try {
       final OperationResult? result = await widget.chat.getOperation(
         operationId,
       );
-      if (!mounted) {
-        return;
-      }
-      // A lookup from an earlier unresolved phase is stale once the operation
-      // has been retried or removed. It must not recreate unknown state or
-      // downgrade a definitive commit that already settled.
-      if (!_isFailedPendingLive(operationId)) {
+      if (!_lookupApplies(operationId, generation, account, peer, pageEpoch)) {
         return;
       }
       final ChatMessage? message = result?.message;
       if (result?.status == OperationStatus.succeeded && message != null) {
+        if (message.senderAccount != account ||
+            message.targetAccount != peer ||
+            (message.operationId != null &&
+                message.operationId != operationId)) {
+          return;
+        }
         setState(() {
-          _resolvedOperations.add(operationId);
-          _unresolvedOperations.remove(operationId);
-          _operationByMessage[message.identity] = operationId;
-          _heldSelfMessages.remove(message.identity);
+          _recordAssociation(message, operationId);
           _mergeMessages(<ChatMessage>[message]);
           _animateIdentities.remove(message.identity);
         });
@@ -433,40 +447,41 @@ class _ChatPageState extends State<ChatPage> {
           List<ChatMessage>.unmodifiable(_messages),
         );
         _composerController.forgetCommittedOperation(operationId);
+        _hideFailureSnackBarIfClear();
       } else if (result == null || result.status == OperationStatus.failed) {
-        // Only a terminal not-found/failed answer means the operation did not
-        // commit; any held self message then belongs to another operation.
+        // Authoritative "not committed": keep the local failure row, now
+        // labelled as a definite failure rather than an unknown state.
         setState(() {
           _unresolvedOperations.remove(operationId);
+          _confirmedFailedOperations.add(operationId);
         });
       } else {
-        // pending/uncertain (including a temporary remote 404 behind a local
-        // uncertain record) is not proof of absence. Keep the message held
-        // and retry the operation lookup on later polls.
-        if (_isFailedPendingLive(operationId)) {
-          setState(() {
-            _unresolvedOperations.add(operationId);
-          });
-        }
-      }
-    } on AuthFailure {
-      // Unknown is not failed: hold accepted self messages and keep retry.
-      // A late error for an operation that already settled is ignored.
-      if (mounted && _isFailedPendingLive(operationId)) {
+        // pending/uncertain/succeeded-without-message: still unknown, keep the
+        // retry entry and retry the lookup on a later poll.
         setState(() {
           _unresolvedOperations.add(operationId);
+          _confirmedFailedOperations.remove(operationId);
+        });
+      }
+    } on AuthFailure {
+      if (_lookupApplies(operationId, generation, account, peer, pageEpoch)) {
+        setState(() {
+          _unresolvedOperations.add(operationId);
+          _confirmedFailedOperations.remove(operationId);
         });
       }
     } catch (_) {
-      if (mounted && _isFailedPendingLive(operationId)) {
+      if (_lookupApplies(operationId, generation, account, peer, pageEpoch)) {
         setState(() {
           _unresolvedOperations.add(operationId);
+          _confirmedFailedOperations.remove(operationId);
         });
       }
     } finally {
-      _resolvingOperations.remove(operationId);
-      if (!_shouldHoldSelfMessages) {
-        _flushHeldSelfMessages();
+      // Only this request's ticket is cleared. A newer request for the same
+      // operation keeps its own in-flight marker.
+      if (_lookupInFlight[operationId] == generation) {
+        _lookupInFlight.remove(operationId);
       }
     }
   }
@@ -487,6 +502,12 @@ class _ChatPageState extends State<ChatPage> {
         (ChatMessage a, ChatMessage b) => a.position.compareTo(b.position),
       );
     _displayedMax = _messages.isEmpty ? 0 : _messages.last.position;
+    for (final ChatMessage message in _messages) {
+      final String? operationId = message.operationId;
+      if (operationId != null) {
+        _recordAssociation(message, operationId);
+      }
+    }
   }
 
   void _onSent(
@@ -514,6 +535,7 @@ class _ChatPageState extends State<ChatPage> {
         added.map((ChatMessage message) => message.identity),
       );
     });
+    _forgetCommittedPending();
     widget.onMessagesChanged?.call(List<ChatMessage>.unmodifiable(_messages));
     if (_displayedMax > before) {
       // A settle is not a new user action: follow only when already near the
@@ -528,7 +550,12 @@ class _ChatPageState extends State<ChatPage> {
     }
     setState(() {
       for (final SentOperation operation in operations) {
-        _operationByMessage[operation.message.identity] = operation.operationId;
+        final ChatMessage message = operation.message;
+        if (message.operationId != null &&
+            message.operationId != operation.operationId) {
+          continue;
+        }
+        _recordAssociation(message, operation.operationId);
       }
     });
   }
@@ -553,23 +580,48 @@ class _ChatPageState extends State<ChatPage> {
           item.state == SendFeedbackState.sending &&
           !previousState.containsKey(item.operationId),
     );
+    final List<String> retried = <String>[
+      for (final PendingSend item in pending)
+        if (item.state == SendFeedbackState.sending &&
+            previousState[item.operationId] == SendFeedbackState.failed)
+          item.operationId,
+    ];
     final List<String> newlyFailed = <String>[
       for (final PendingSend item in pending)
         if (item.state == SendFeedbackState.failed &&
             previousState[item.operationId] != SendFeedbackState.failed &&
-            !_resolvedOperations.contains(item.operationId))
+            !_committedOperations.contains(item.operationId))
           item.operationId,
+    ];
+    final List<String> alreadyCommitted = <String>[
+      for (final PendingSend item in pending)
+        if (_committedOperations.contains(item.operationId)) item.operationId,
     ];
     setState(() {
       _pending = List<PendingSend>.of(pending);
+      for (final String operationId in retried) {
+        _invalidateLookup(operationId);
+        _unresolvedOperations.remove(operationId);
+        _confirmedFailedOperations.remove(operationId);
+      }
+      for (final String operationId in live) {
+        if (!failedLive.contains(operationId)) {
+          _confirmedFailedOperations.remove(operationId);
+        }
+      }
       _pendingEntered.removeWhere(
-        (String operationId) => !live.contains(operationId),
-      );
-      _resolvedOperations.removeWhere(
         (String operationId) => !live.contains(operationId),
       );
       _unresolvedOperations.removeWhere(
         (String operationId) => !failedLive.contains(operationId),
+      );
+      _confirmedFailedOperations.removeWhere(
+        (String operationId) => !live.contains(operationId),
+      );
+      _lookupGeneration.removeWhere(
+        (String operationId, int _) =>
+            !live.contains(operationId) &&
+            !_committedOperations.contains(operationId),
       );
     });
     if (startedSend) {
@@ -578,12 +630,35 @@ class _ChatPageState extends State<ChatPage> {
       // animation here, so the user can grab the list without a fight.
       _scrollToBottom(animate: false, force: true);
     }
+    if (alreadyCommitted.isNotEmpty) {
+      for (final String operationId in alreadyCommitted.toSet()) {
+        _composerController.forgetCommittedOperation(operationId);
+      }
+      _hideFailureSnackBarIfClear();
+    }
     if (newlyFailed.isNotEmpty) {
       for (final String operationId in newlyFailed) {
         unawaited(_resolveFailedOperation(operationId));
       }
-    } else if (!_shouldHoldSelfMessages) {
-      _flushHeldSelfMessages();
+    }
+  }
+
+  void _forgetCommittedPending() {
+    final Set<String> operationIds = <String>{
+      for (final PendingSend item in _pending)
+        if (_committedOperations.contains(item.operationId)) item.operationId,
+    };
+    for (final String operationId in operationIds) {
+      _composerController.forgetCommittedOperation(operationId);
+    }
+    if (operationIds.isNotEmpty) {
+      _hideFailureSnackBarIfClear();
+    }
+  }
+
+  void _hideFailureSnackBarIfClear() {
+    if (mounted && !_composerController.canRetry) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
     }
   }
 
@@ -972,6 +1047,7 @@ class _ChatPageState extends State<ChatPage> {
         children: <Widget>[
           Expanded(child: _buildBody()),
           ChatComposer(
+            key: ValueKey<String>('chat-composer-${widget.peer.account}'),
             chat: widget.chat,
             peerAccount: widget.peer.account,
             clipboard: widget.clipboard,
@@ -1019,7 +1095,10 @@ class _ChatPageState extends State<ChatPage> {
         ),
       );
     }
-    if (_messages.isEmpty && _pending.isEmpty) {
+    final bool hasVisiblePending = _pending.any(
+      (PendingSend item) => !_committedOperations.contains(item.operationId),
+    );
+    if (_messages.isEmpty && !hasVisiblePending) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -1043,20 +1122,17 @@ class _ChatPageState extends State<ChatPage> {
       for (final ChatMessage message in _messages)
         _TimelineEntry(
           message: message,
-          operationId: _operationByMessage[message.identity],
+          operationId:
+              message.operationId ?? _operationByMessage[message.identity],
         ),
       for (final PendingSend pending in _pending)
-        if (!_resolvedOperations.contains(pending.operationId))
+        if (!_committedOperations.contains(pending.operationId))
           _TimelineEntry(
             message: pending.message,
             operationId: pending.operationId,
             pending: pending,
           ),
     ];
-    final Map<String, SendFeedbackState> pendingState =
-        <String, SendFeedbackState>{
-          for (final PendingSend item in _pending) item.operationId: item.state,
-        };
     bool sameRun(int left, int right) {
       return continuesMessageRun(
         entries[left].message.senderAccount,
@@ -1111,12 +1187,10 @@ class _ChatPageState extends State<ChatPage> {
       final String bubbleKey = entry.operationId ?? message.identity;
       final bool pendingFirstFrame =
           entry.pending != null && !_pendingEntered.contains(entry.operationId);
-      final SendFeedbackState? displayedSendState = entry.pending != null
-          ? entry.pending!.state
-          : entry.operationId != null &&
-                pendingState[entry.operationId] == SendFeedbackState.sending
-          ? SendFeedbackState.sending
-          : null;
+      final SendFeedbackState? displayedSendState = entry.pending?.state;
+      final bool statusUnconfirmed =
+          entry.pending?.state == SendFeedbackState.failed &&
+          !_confirmedFailedOperations.contains(entry.operationId);
       final Widget bubble = MessageBubble(
         key: ValueKey<String>('chat-bubble-$bubbleKey'),
         message: message,
@@ -1129,6 +1203,7 @@ class _ChatPageState extends State<ChatPage> {
             attachment != null &&
             _busyMedia.contains(attachment.mediaId),
         sendState: displayedSendState,
+        statusUnconfirmed: statusUnconfirmed,
         onRetry: entry.pending?.state == SendFeedbackState.failed
             ? () => _composerController.retryFailed(entry.operationId!)
             : null,

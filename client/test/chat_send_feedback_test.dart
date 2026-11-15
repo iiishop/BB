@@ -145,6 +145,113 @@ class _CommitThenFailService extends FakeChatService {
   }
 }
 
+class _UnresolvedLookupService extends FakeChatService {
+  _UnresolvedLookupService(this.answer)
+    : super(
+        self: _self,
+        users: const <ChatUser>[_bob],
+        conversations: <String, List<ChatMessage>>{
+          _bob.account: <ChatMessage>[_message(1)],
+        },
+      ) {
+    failBody = true;
+  }
+
+  final String answer;
+
+  @override
+  Future<OperationResult?> getOperation(String operationId) async {
+    operationQueries.add(operationId);
+    switch (answer) {
+      case 'error':
+        throw const AuthFailure(
+          status: 502,
+          code: 'gateway_failed',
+          message: 'lookup unavailable',
+        );
+      case 'absent':
+        return null;
+      default:
+        return OperationResult(
+          operationId: operationId,
+          kind: 'message',
+          status: OperationStatus.values.byName(answer),
+        );
+    }
+  }
+}
+
+class _TwoLookupService extends FakeChatService {
+  _TwoLookupService()
+    : super(
+        self: _self,
+        users: const <ChatUser>[_bob],
+        conversations: <String, List<ChatMessage>>{
+          _bob.account: <ChatMessage>[_message(1)],
+        },
+      );
+
+  final Completer<void> firstLookup = Completer<void>();
+  final Completer<void> secondLookup = Completer<void>();
+
+  @override
+  Future<ComposedSendResult> sendComposed({
+    required String targetAccount,
+    required List<OutgoingPart> body,
+    required List<OutgoingAttachment> attachments,
+    String? operationSeed,
+  }) async {
+    throw const AuthFailure(
+      status: 502,
+      code: 'gateway_failed',
+      message: 'response lost',
+    );
+  }
+
+  @override
+  Future<SendOutcome> sendBody({
+    required String targetAccount,
+    required List<OutgoingPart> content,
+    String? operationId,
+    ExpectedIdentity? expectedIdentity,
+  }) async {
+    throw const AuthFailure(
+      status: 502,
+      code: 'gateway_failed',
+      message: 'retry failed again',
+    );
+  }
+
+  @override
+  Future<OperationResult?> getOperation(String operationId) async {
+    operationQueries.add(operationId);
+    final bool first = operationQueries.length == 1;
+    await (first ? firstLookup : secondLookup).future;
+    if (first) {
+      throw const AuthFailure(
+        status: 502,
+        code: 'gateway_failed',
+        message: 'old lookup error',
+      );
+    }
+    return OperationResult(
+      operationId: operationId,
+      kind: 'message',
+      status: OperationStatus.succeeded,
+      message: ChatMessage(
+        id: 'second-lookup-message',
+        position: 2,
+        senderAccount: _self.account,
+        targetAccount: _bob.account,
+        createdAt: DateTime.now().toUtc(),
+        kind: ChatMessageKind.body,
+        parts: const <MessagePart>[TextPart('retry again')],
+        operationId: operationId,
+      ),
+    );
+  }
+}
+
 class _PendingThenCommittedService extends FakeChatService {
   _PendingThenCommittedService({this.pendingStatus = OperationStatus.pending})
     : super(
@@ -227,6 +334,7 @@ class _Harness {
   Future<void> pump(
     WidgetTester tester, {
     Size size = const Size(390, 844),
+    ChatUser peer = _bob,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
@@ -241,7 +349,7 @@ class _Harness {
             disableAnimations: reducedMotion,
           ),
           child: ChatPage(
-            peer: _bob,
+            peer: peer,
             chat: chat,
             profile: profile,
             clipboard: clipboard,
@@ -500,8 +608,8 @@ void main() {
     );
     expect(
       find.byKey(MessageBubble.sendingKey),
-      findsOneWidget,
-      reason: 'the committed row carries the in-flight state',
+      findsNothing,
+      reason: 'the association proves the message is committed',
     );
 
     service.responseGate!.complete();
@@ -591,10 +699,8 @@ void main() {
     );
     expect(
       find.byKey(MessageBubble.sendingKey),
-      findsNWidgets(2),
-      reason:
-          'the accepted body and the still-pending attachment both await '
-          'the same composed response',
+      findsOneWidget,
+      reason: 'the accepted body is committed; only the attachment is pending',
     );
 
     service.attachmentGate!.complete();
@@ -943,7 +1049,11 @@ void main() {
           findsOneWidget,
           reason: 'the lookup window must not render accepted + failure twice',
         );
-        expect(find.byKey(MessageBubble.failedKey), findsOneWidget);
+        expect(
+          find.byKey(MessageBubble.failedKey),
+          findsNothing,
+          reason: 'history association proves the commit before the lookup',
+        );
 
         service.lookupGate!.complete();
         await tester.pumpAndSettle();
@@ -985,32 +1095,6 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(MessageBubble.failedKey), findsNothing);
     expect(find.text('lookup unavailable'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('a later poll retries an unresolved lookup and binds the '
-      'committed message once', (WidgetTester tester) async {
-    final _CommitThenFailService service = _CommitThenFailService(
-      failLookup: true,
-    );
-    final _Harness harness = _Harness(service: service);
-    await harness.pump(tester);
-
-    await harness.send(tester, 'lookup recovers');
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 400));
-    expect(find.byKey(MessageBubble.failedKey), findsOneWidget);
-    expect(find.text('lookup recovers'), findsOneWidget);
-
-    service.failLookup = false;
-    await tester.pump(const Duration(seconds: 3));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 400));
-    await tester.pumpAndSettle();
-
-    expect(find.byKey(MessageBubble.failedKey), findsNothing);
-    expect(find.text('lookup recovers'), findsOneWidget);
-    expect(service.operationQueries.length, greaterThanOrEqualTo(2));
     expect(tester.takeException(), isNull);
   });
 
@@ -1202,6 +1286,203 @@ void main() {
     service.lookupGate!.complete();
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('another writer is visible while a local send is still running', (
+    WidgetTester tester,
+  ) async {
+    final FakeChatService service = FakeChatService(
+      self: _self,
+      users: const <ChatUser>[_bob],
+      conversations: <String, List<ChatMessage>>{
+        _bob.account: <ChatMessage>[_message(1)],
+      },
+    )..sendGate = Completer<void>();
+    final _Harness harness = _Harness(service: service);
+    await harness.pump(tester);
+
+    await harness.send(tester, 'local ongoing');
+    service.conversations[_bob.account]!.add(
+      _message(2, sender: _self.account, text: 'other writer committed'),
+    );
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.text('other writer committed'), findsOneWidget);
+    expect(find.text('local ongoing'), findsOneWidget);
+    expect(find.byKey(MessageBubble.sendingKey), findsOneWidget);
+    service.sendGate!.complete();
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final String answer in <String>['error', 'pending', 'uncertain']) {
+    for (final bool refresh in <bool>[false, true]) {
+      for (final bool media in <bool>[false, true]) {
+        testWidgets(
+          'unrelated ${media ? 'same-media' : 'same-text'} is visible while '
+          'another operation is $answer via ${refresh ? 'refresh' : 'poll'}',
+          (WidgetTester tester) async {
+            final _UnresolvedLookupService service = _UnresolvedLookupService(
+              answer,
+            );
+            final _Harness harness = _Harness(
+              service: service,
+              clipboard: _FakeClipboard(
+                PickedMedia(
+                  bytes: base64Decode(_tinyPng),
+                  filename: 'same.png',
+                  mimeType: 'image/png',
+                ),
+              ),
+            );
+            await harness.pump(tester);
+            if (media) {
+              await tester.tap(find.byKey(ChatComposer.pasteKey));
+              await tester.pumpAndSettle();
+              await tester.tap(find.byKey(ChatComposer.sendKey));
+              await tester.pump();
+            } else {
+              await harness.send(tester, 'same text');
+            }
+            await tester.pumpAndSettle();
+
+            expect(find.byKey(MessageBubble.failedKey), findsOneWidget);
+            expect(find.text('状态待确认 · 点按重试'), findsOneWidget);
+            expect(find.text('未发送 · 点按重试'), findsNothing);
+
+            final ChatMessage other = ChatMessage(
+              id: 'other-operation-message',
+              position: 2,
+              senderAccount: _self.account,
+              targetAccount: _bob.account,
+              createdAt: DateTime.now().toUtc(),
+              kind: ChatMessageKind.body,
+              parts: media
+                  ? const <MessagePart>[ImagePart('other-media-id')]
+                  : const <MessagePart>[TextPart('same text')],
+            );
+            service.conversations[_bob.account]!.add(other);
+            for (int cycle = 0; cycle < 3; cycle += 1) {
+              if (refresh) {
+                await tester.tap(find.byKey(ChatPage.refreshKey));
+                await tester.pump();
+              } else {
+                await tester.pump(const Duration(seconds: 3));
+              }
+              await tester.pump();
+              await tester.pump(const Duration(milliseconds: 400));
+            }
+
+            expect(
+              tester
+                  .widgetList<MessageBubble>(find.byType(MessageBubble))
+                  .where(
+                    (MessageBubble bubble) => bubble.message.id == other.id,
+                  ),
+              hasLength(1),
+              reason: 'unrelated committed message must not be hidden',
+            );
+            expect(
+              tester
+                  .widgetList<MessageBubble>(find.byType(MessageBubble))
+                  .where(
+                    (MessageBubble bubble) =>
+                        bubble.sendState == SendFeedbackState.failed,
+                  ),
+              hasLength(1),
+            );
+            expect(tester.takeException(), isNull);
+          },
+        );
+      }
+    }
+  }
+
+  testWidgets('authoritative not-found labels the failure as unsent', (
+    WidgetTester tester,
+  ) async {
+    final _UnresolvedLookupService service = _UnresolvedLookupService('absent');
+    final _Harness harness = _Harness(service: service);
+    await harness.pump(tester);
+    await harness.send(tester, 'definitely not sent');
+    await tester.pumpAndSettle();
+    expect(find.byKey(MessageBubble.failedKey), findsOneWidget);
+    expect(find.text('未发送 · 点按重试'), findsOneWidget);
+    expect(find.text('状态待确认 · 点按重试'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('retry failing again starts a new lookup; the old completion '
+      'cannot cancel it', (WidgetTester tester) async {
+    final _TwoLookupService service = _TwoLookupService();
+    final _Harness harness = _Harness(service: service);
+    await harness.pump(tester);
+
+    await harness.send(tester, 'retry again');
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byKey(MessageBubble.failedKey), findsOneWidget);
+    expect(service.operationQueries, hasLength(1));
+
+    await tester.tap(find.byKey(MessageBubble.failedKey));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byKey(MessageBubble.failedKey), findsOneWidget);
+    expect(service.operationQueries, hasLength(2));
+
+    service.firstLookup.complete();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byKey(MessageBubble.failedKey), findsOneWidget);
+
+    service.secondLookup.complete();
+    await tester.pumpAndSettle();
+    expect(find.text('retry again'), findsOneWidget);
+    expect(find.byKey(MessageBubble.failedKey), findsNothing);
+
+    service.conversations[_bob.account]!.add(
+      _message(3, sender: _self.account, text: 'unrelated writer'),
+    );
+    await tester.tap(find.byKey(ChatPage.refreshKey));
+    await tester.pumpAndSettle();
+    expect(find.text('unrelated writer'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a lookup completing after the peer changes cannot add its '
+      'message to the mounted page', (WidgetTester tester) async {
+    final _CommitThenFailService service = _CommitThenFailService(
+      lookupGate: Completer<void>(),
+    );
+    final _Harness harness = _Harness(service: service);
+    await harness.pump(tester);
+    await harness.send(tester, 'old peer message');
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    await harness.pump(
+      tester,
+      peer: const ChatUser(
+        account: '10000003',
+        username: 'carol',
+        avatarUrl: '/avatars/10000003.png',
+        avatarVersion: 'v-carol',
+        presence: Presence.offline,
+      ),
+    );
+    service.lookupGate!.complete();
+    await tester.pumpAndSettle();
+
+    expect(
+      find.descendant(
+        of: find.byType(MessageBubble),
+        matching: find.text('old peer message'),
+      ),
+      findsNothing,
+    );
     expect(tester.takeException(), isNull);
   });
 

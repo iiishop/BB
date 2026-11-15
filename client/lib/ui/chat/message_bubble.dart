@@ -102,6 +102,7 @@ class MessageBubble extends StatelessWidget {
     this.busy = false,
     this.sendState,
     this.onRetry,
+    this.statusUnconfirmed = false,
     this.showAvatar = true,
     this.isRunEnd = true,
   });
@@ -129,6 +130,10 @@ class MessageBubble extends StatelessWidget {
   final SendFeedbackState? sendState;
   final VoidCallback? onRetry;
 
+  /// A local failure whose authoritative operation lookup is not terminal.
+  /// It keeps the retry entry but must not claim the message was not sent.
+  final bool statusUnconfirmed;
+
   /// Grouping: only the last bubble of a same-sender run shows the avatar.
   final bool showAvatar;
 
@@ -143,6 +148,7 @@ class MessageBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool failed = sendState == SendFeedbackState.failed;
+    final bool unconfirmed = failed && statusUnconfirmed;
     final bool sending = sendState == SendFeedbackState.sending;
     final bool interactive = sendState == null;
     final Color textColor = failed
@@ -150,7 +156,9 @@ class MessageBubble extends StatelessWidget {
         : mine
         ? AppColors.surface
         : AppColors.ink;
-    final Color mutedColor = failed
+    final Color mutedColor = unconfirmed
+        ? AppColors.warning
+        : failed
         ? AppColors.danger
         : mine
         ? AppColors.surface.withValues(alpha: 0.78)
@@ -165,7 +173,9 @@ class MessageBubble extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(14, 9, 14, 8),
       decoration: BoxDecoration(
         color: failed
-            ? AppColors.dangerSurface
+            ? unconfirmed
+                  ? AppColors.warningSurface
+                  : AppColors.dangerSurface
             : mine
             ? AppColors.accent
             : AppColors.surface,
@@ -176,7 +186,11 @@ class MessageBubble extends StatelessWidget {
           bottomRight: Radius.circular(mine && isRunEnd ? 6 : 18),
         ),
         border: failed
-            ? Border.all(color: AppColors.dangerBorder)
+            ? Border.all(
+                color: unconfirmed
+                    ? AppColors.warningBorder
+                    : AppColors.dangerBorder,
+              )
             : mine
             ? null
             : Border.all(color: AppColors.border),
@@ -212,6 +226,7 @@ class MessageBubble extends StatelessWidget {
                 mine: mine,
                 sending: sending,
                 failed: failed,
+                unconfirmed: unconfirmed,
                 mutedColor: mutedColor,
               ),
             ),
@@ -239,7 +254,9 @@ class MessageBubble extends StatelessWidget {
             child: Semantics(
               button: failed,
               label: failed
-                  ? '消息未发送，点按重试'
+                  ? unconfirmed
+                        ? '消息状态待确认，点按重试'
+                        : '消息未发送，点按重试'
                   : sending
                   ? '消息发送中'
                   : null,
@@ -359,6 +376,7 @@ class _StatusSlot extends StatelessWidget {
     required this.mine,
     required this.sending,
     required this.failed,
+    required this.unconfirmed,
     required this.mutedColor,
   });
 
@@ -366,6 +384,7 @@ class _StatusSlot extends StatelessWidget {
   final bool mine;
   final bool sending;
   final bool failed;
+  final bool unconfirmed;
   final Color mutedColor;
 
   @override
@@ -396,16 +415,23 @@ class _StatusSlot extends StatelessWidget {
         ],
       );
     } else if (failed) {
+      final Color color = unconfirmed ? AppColors.warning : AppColors.danger;
       child = Row(
         key: MessageBubble.failedKey,
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          Icon(Icons.error_outline_rounded, size: 12, color: AppColors.danger),
+          Icon(
+            unconfirmed
+                ? Icons.help_outline_rounded
+                : Icons.error_outline_rounded,
+            size: 12,
+            color: color,
+          ),
           const SizedBox(width: 3),
-          const Flexible(
+          Flexible(
             child: Text(
-              '未发送 · 点按重试',
-              style: TextStyle(fontSize: 11, color: AppColors.danger),
+              unconfirmed ? '状态待确认 · 点按重试' : '未发送 · 点按重试',
+              style: TextStyle(fontSize: 11, color: color),
             ),
           ),
         ],
@@ -689,11 +715,10 @@ class _MediaImage extends StatelessWidget {
             height: height,
             fit: height == null ? BoxFit.contain : BoxFit.cover,
             gaplessPlayback: true,
-            errorBuilder: (
-              BuildContext context,
-              Object error,
-              StackTrace? stackTrace,
-            ) => _placeholder(w, h, Icons.broken_image_outlined),
+            errorBuilder:
+                (BuildContext context, Object error, StackTrace? stackTrace) {
+                  return _placeholder(w, h, Icons.broken_image_outlined);
+                },
           );
         }
         if (snapshot.hasError) {

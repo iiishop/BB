@@ -228,6 +228,7 @@ class FakeChatService extends ChatService {
           targetAccount,
           ChatMessageKind.body,
           parts: parts,
+          operationId: '$seed-b',
         );
         bodyOutcome = SendOutcome(
           operationId: '$seed-b',
@@ -258,6 +259,7 @@ class FakeChatService extends ChatService {
         target,
         targetAccount,
         ChatMessageKind.attachment,
+        operationId: '$seed-a$i',
         attachment: Attachment(
           mediaId: 'fake-media-${++_seq}',
           kind: mime.startsWith('video/')
@@ -299,6 +301,7 @@ class FakeChatService extends ChatService {
     ChatMessageKind kind, {
     List<MessagePart> parts = const <MessagePart>[],
     Attachment? attachment,
+    String? operationId,
   }) {
     final ChatMessage message = ChatMessage(
       id: 'fake-${++_seq}',
@@ -309,6 +312,7 @@ class FakeChatService extends ChatService {
       kind: kind,
       parts: parts,
       attachment: attachment,
+      operationId: operationId,
     );
     list.add(message);
     return message;
@@ -355,6 +359,7 @@ class FakeChatService extends ChatService {
       targetAccount,
       ChatMessageKind.body,
       parts: parts,
+      operationId: operationId,
     );
     return SendOutcome(
       operationId: operationId ?? 'retry',
