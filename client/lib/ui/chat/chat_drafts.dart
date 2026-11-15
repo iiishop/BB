@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../../models/chat_models.dart';
 import '../../services/chat_service.dart';
 import '../../services/install_safety_gate.dart';
+import 'pending_send.dart';
 
 /// One unsaved composer part: text or an image kept in insertion order.
 @immutable
@@ -38,14 +39,22 @@ class ChatDraft {
     this.text = '',
     this.parts = const <ChatDraftPart>[],
     this.attachments = const <ChatDraftAttachment>[],
+    this.pending = const <PendingSend>[],
+    this.failed = const <SendOutcome>[],
   });
 
+  final List<PendingSend> pending;
+  final List<SendOutcome> failed;
   final String text;
   final List<ChatDraftPart> parts;
   final List<ChatDraftAttachment> attachments;
 
   bool get isEmpty =>
-      text.trim().isEmpty && parts.isEmpty && attachments.isEmpty;
+      text.isEmpty &&
+      parts.isEmpty &&
+      attachments.isEmpty &&
+      pending.isEmpty &&
+      failed.isEmpty;
 
   bool get isNotEmpty => !isEmpty;
 
@@ -57,6 +66,7 @@ class ChatDraft {
     if (parts.isNotEmpty) {
       items.add('未发送的图片');
     }
+    if (pending.isNotEmpty || failed.isNotEmpty) items.add('待完成或待重试的发送');
     if (attachments.isNotEmpty) {
       items.add('未发送的附件');
     }
@@ -76,17 +86,28 @@ class ChatDrafts {
 
   static final ChatDrafts instance = ChatDrafts._();
 
-  final Map<Object, Map<String, _PeerDraft>> _sessions =
-      Map<Object, Map<String, _PeerDraft>>.identity();
+  final Map<(Object, String?), Map<String, _PeerDraft>> _sessions = {};
+
+  (Object, String?) key(Object session) => session is ChatService
+      ? (session, session.session.user?.account)
+      : (session, null);
+
+  bool hasSession(Object session) => _sessions.entries.any(
+    (e) =>
+        identical(e.key.$1, session) &&
+        e.value.values.any((p) => p.draft.isNotEmpty),
+  );
 
   ChatDraft? read(Object session, String peer) {
-    final _PeerDraft? entry = _sessions[session]?[peer];
+    final _PeerDraft? entry =
+        _sessions[session is (Object, String?) ? session : key(session)]?[peer];
     return entry == null || entry.draft.isEmpty ? null : entry.draft;
   }
 
   void write(Object session, String peer, ChatDraft draft) {
-    final Map<String, _PeerDraft> peers = _sessions[session] ??=
-        <String, _PeerDraft>{};
+    final Map<String, _PeerDraft> peers =
+        _sessions[session is (Object, String?) ? session : key(session)] ??=
+            <String, _PeerDraft>{};
     final _PeerDraft entry = peers[peer] ??= _PeerDraft();
     entry.draft = draft;
     InstallSafetyGate.instance.setBlocker(
@@ -96,7 +117,8 @@ class ChatDrafts {
   }
 
   void clear(Object session, String peer) {
-    final _PeerDraft? entry = _sessions[session]?[peer];
+    final _PeerDraft? entry =
+        _sessions[session is (Object, String?) ? session : key(session)]?[peer];
     if (entry == null) {
       return;
     }
@@ -104,10 +126,12 @@ class ChatDrafts {
     InstallSafetyGate.instance.setBlocker(entry.owner, null);
   }
 
-  /// Called when the whole service stack goes away (server switch/logout), not
-  /// when a chat route closes.
+  /// Explicit discard/test cleanup only. Service or route disposal must not
+  /// call this: teardown is not user consent to lose unsaved data.
   void clearSession(Object session) {
-    final Map<String, _PeerDraft>? peers = _sessions.remove(session);
+    final Map<String, _PeerDraft>? peers = _sessions.remove(
+      session is (Object, String?) ? session : key(session),
+    );
     if (peers == null) {
       return;
     }
@@ -117,8 +141,7 @@ class ChatDrafts {
     }
   }
 
-  /// Clears every session's draft and gate blocker. Tests only: production
-  /// clears one session when its service stack is disposed.
+  /// Clears every session's draft and gate blocker. Tests only.
   @visibleForTesting
   void resetForTest() {
     for (final Map<String, _PeerDraft> peers in _sessions.values) {

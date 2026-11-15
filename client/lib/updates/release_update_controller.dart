@@ -25,6 +25,7 @@ class ReleaseUpdateController extends UpdateController {
   UpdateSnapshot _snapshot = const UpdateSnapshot();
   bool _started = false;
   bool _working = false;
+  ({bool installed, String? message})? _platformCompletion;
   bool _disposed = false;
   bool _cancelled = false;
   ReleaseClient? _client;
@@ -59,7 +60,7 @@ class ReleaseUpdateController extends UpdateController {
 
   @override
   Future<void> check() async {
-    if (_working || snapshot.busy || _disposed) return;
+    if (_working || safetyGate.installing || snapshot.busy || _disposed) return;
     _working = true;
     _cancelled = false;
     _verified = null;
@@ -92,7 +93,12 @@ class ReleaseUpdateController extends UpdateController {
   @override
   Future<void> download() async {
     final release = snapshot.release;
-    if (_working || snapshot.busy || release == null || _disposed) return;
+    if (_working ||
+        safetyGate.installing ||
+        snapshot.busy ||
+        release == null ||
+        _disposed)
+      return;
     _working = true;
     _cancelled = false;
     _verified = null;
@@ -155,8 +161,14 @@ class ReleaseUpdateController extends UpdateController {
   @override
   Future<void> install() async {
     final verified = _verified;
-    if (_working || snapshot.busy || verified == null || _disposed) return;
+    if (_working ||
+        safetyGate.installing ||
+        snapshot.busy ||
+        verified == null ||
+        _disposed)
+      return;
     _working = true;
+    _platformCompletion = null;
     var acquired = false;
     try {
       safetyGate.acquire();
@@ -174,12 +186,39 @@ class ReleaseUpdateController extends UpdateController {
             ? UpdatePhase.permissionRequired
             : UpdatePhase.installerOpened,
       );
+      if (result == UpdateInstallResult.installerOpened) {
+        // Android can replace the process while its system dialog is open.
+        // Keep admission locked until a native terminal result or cold restart.
+        acquired = false;
+        final completion = _platformCompletion;
+        if (completion != null) {
+          finishPlatformInstall(
+            installed: completion.installed,
+            message: completion.message,
+          );
+        }
+      }
     } catch (error) {
       _failure(error);
     } finally {
       if (acquired) safetyGate.release();
       _working = false;
     }
+  }
+
+  /// Native completion belongs to the process-scoped adapter, not a route.
+  /// A result delivered during launch is applied once handoff is confirmed.
+  void finishPlatformInstall({required bool installed, String? message}) {
+    if (snapshot.phase == UpdatePhase.installing) {
+      _platformCompletion = (installed: installed, message: message);
+      return;
+    }
+    if (snapshot.phase != UpdatePhase.installerOpened) return;
+    _emit(
+      installed ? UpdatePhase.installed : UpdatePhase.failed,
+      message: message ?? (installed ? '更新已安装。' : '安装未完成，旧应用已保留，可重试。'),
+    );
+    safetyGate.release();
   }
 
   void _failure(Object error) {

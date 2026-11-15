@@ -180,6 +180,7 @@ internal class UpdateInstaller(
                 }
                 val intent = Intent(Intent.ACTION_VIEW).apply {
                     setDataAndType(uri, APK_MIME)
+                    putExtra(Intent.EXTRA_RETURN_RESULT, true)
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
                 pendingVersionCode = check.versionCode

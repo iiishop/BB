@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:bb_client/updates/android_update_installer.dart';
 import 'package:bb_client/updates/update_contract.dart';
@@ -87,6 +88,20 @@ void main() {
     if (await cache.exists()) {
       await cache.delete(recursive: true);
     }
+  });
+
+  test('recovery never deletes files outside its staging directory', () async {
+    final outside = await Directory.systemTemp.createTemp('bb-user-data-');
+    addTearDown(() => outside.delete(recursive: true));
+    final userFile = File('${outside.path}/session.json');
+    await userFile.writeAsString('user data');
+    await File('${cache.path}/${AndroidUpdateInstaller.markerFileName}')
+        .writeAsString(
+          jsonEncode({'target_version': '0.1.0', 'file': userFile.path}),
+        );
+    mock((call) async => availability(version: '0.1.0', build: 3));
+    await installer().recoverPendingInstall();
+    expect(await userFile.exists(), isTrue);
   });
 
   test('platformInfo 使用实际安装版本与首个受支持 ABI', () async {

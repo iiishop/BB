@@ -291,7 +291,14 @@ void main() {
       await controller.install();
       expect(installer.installs, 1);
       expect(controller.snapshot.phase, UpdatePhase.installerOpened);
+      expect(controller.safetyGate.installing, isTrue);
+      await expectLater(
+        controller.safetyGate.protect(() async {}),
+        throwsStateError,
+      );
+      controller.finishPlatformInstall(installed: false);
       expect(controller.safetyGate.installing, isFalse);
+      expect(controller.snapshot.phase, UpdatePhase.failed);
     });
     test(
       'wrong hash, truncated body and foreign redirect never reach installer',

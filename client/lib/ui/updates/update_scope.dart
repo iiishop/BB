@@ -57,7 +57,7 @@ class UpdateScopeData {
   final UpdateController? controller;
   final AndroidUpdateInstaller? androidInstaller;
   final AndroidInstallRecovery? recovery;
-  final ExternalLinkOpener linkOpener;
+  final ExternalLinkOpener? linkOpener;
 
   /// Builds the settings route for this process. Unsupported hosts get the
   /// explanatory page instead of a dead or duplicated updater.
@@ -79,6 +79,7 @@ class _UpdateScopeState extends State<UpdateScope> {
   UpdateController? _controller;
   AndroidUpdateInstaller? _androidInstaller;
   AndroidInstallRecovery? _recovery;
+  StreamSubscription<AndroidInstallEvent>? _installEvents;
   final ExternalLinkOpener _linkOpener = const PlatformExternalLinkOpener();
 
   @override
@@ -128,6 +129,15 @@ class _UpdateScopeState extends State<UpdateScope> {
       _controller?.dispose();
       return;
     }
+    if (_androidInstaller != null && _controller is ReleaseUpdateController) {
+      _installEvents = _androidInstaller!.events.listen((event) {
+        if (event.type == ApkInstallEventType.installResult) {
+          (_controller! as ReleaseUpdateController).finishPlatformInstall(
+            installed: event.outcome == ApkInstallOutcome.installed,
+          );
+        }
+      });
+    }
     setState(() {});
     final UpdateController? controller = _controller;
     if (controller != null) {
@@ -139,6 +149,7 @@ class _UpdateScopeState extends State<UpdateScope> {
 
   @override
   void dispose() {
+    unawaited(_installEvents?.cancel());
     _controller?.dispose();
     _androidInstaller?.dispose();
     super.dispose();
@@ -151,7 +162,7 @@ class _UpdateScopeState extends State<UpdateScope> {
         controller: _controller,
         androidInstaller: _androidInstaller,
         recovery: _recovery,
-        linkOpener: _linkOpener,
+        linkOpener: _androidInstaller == null ? _linkOpener : null,
       ),
       child: widget.child,
     );

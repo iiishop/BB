@@ -424,21 +424,28 @@ class AndroidUpdateInstaller implements UpdateInstaller {
       return;
     }
     final Directory? directory = _cacheDirectory;
+    if (directory == null) return;
     final File file = File(path);
     try {
-      if (await file.exists()) {
-        await file.delete();
+      // A recovery marker is data, not ownership authority. Resolve both the
+      // file and parent to reject traversal and linked staging directories.
+      if (!await file.exists()) return;
+      final root = await directory.resolveSymbolicLinks();
+      final resolved = await file.resolveSymbolicLinks();
+      if (!resolved.startsWith('$root${Platform.pathSeparator}') ||
+          !resolved.toLowerCase().endsWith('.apk')) {
+        return;
       }
-      final Directory parent = file.parent;
-      if (directory != null &&
-          parent.path.startsWith(directory.path + Platform.pathSeparator) &&
-          parent.path
+      final parent = file.parent;
+      if (await parent.resolveSymbolicLinks() != parent.absolute.path) return;
+      await file.delete();
+      // Remove only an empty owned staging directory, never unrelated files.
+      if (parent.path
               .split(Platform.pathSeparator)
               .last
-              .startsWith('update-')) {
-        if (await parent.exists()) {
-          await parent.delete(recursive: true);
-        }
+              .startsWith('update-') &&
+          await parent.list().isEmpty) {
+        await parent.delete();
       }
     } on FileSystemException {
       // Stale cache is not a reason to fail the recovery report.

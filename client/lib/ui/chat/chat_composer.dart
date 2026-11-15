@@ -114,20 +114,29 @@ class _ChatComposerState extends State<ChatComposer> {
   List<SendOutcome> _failed = <SendOutcome>[];
   final List<PendingSend> _pending = <PendingSend>[];
   bool _pasting = false;
+  late final Object _draftSession;
+  final Set<String> _ownedOperations = <String>{};
 
   @override
   void initState() {
     super.initState();
+    _draftSession = ChatDrafts.instance.key(widget.chat);
     _focus.onKeyEvent = _onKeyEvent;
     widget.controller?._attach(this);
     final ChatDraft? stored = ChatDrafts.instance.read(
-      widget.chat,
+      _draftSession,
       widget.peerAccount,
     );
     if (stored != null) {
       _controller.text = stored.text;
       _parts.addAll(stored.parts);
       _attachments.addAll(stored.attachments);
+      _pending.addAll(stored.pending);
+      _failed.addAll(stored.failed);
+      _ownedOperations.addAll(_pending.map((p) => p.operationId));
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _emitPending();
+      });
     }
     _controller.addListener(_persistDraft);
     InstallSafetyGate.instance.addListener(_onSafetyGateChanged);
@@ -158,15 +167,41 @@ class _ChatComposerState extends State<ChatComposer> {
   }
 
   void _persistDraft() {
+    final stored = !mounted
+        ? ChatDrafts.instance.read(_draftSession, widget.peerAccount)
+        : null;
     ChatDrafts.instance.write(
-      widget.chat,
+      _draftSession,
       widget.peerAccount,
       ChatDraft(
-        text: _controller.text,
-        parts: List<ChatDraftPart>.of(_parts),
-        attachments: List<ChatDraftAttachment>.of(_attachments),
+        text: stored?.text ?? _controller.text,
+        parts: stored?.parts ?? List<ChatDraftPart>.of(_parts),
+        attachments:
+            stored?.attachments ?? List<ChatDraftAttachment>.of(_attachments),
+        pending: [
+          if (stored != null)
+            ...stored.pending.where(
+              (p) => !_ownedOperations.contains(p.operationId),
+            ),
+          ..._pending,
+        ],
+        failed: [
+          if (stored != null)
+            ...stored.failed.where(
+              (p) => !_ownedOperations.contains(p.operationId),
+            ),
+          ..._failed,
+        ],
       ),
     );
+  }
+
+  void _change(VoidCallback action) {
+    if (mounted) {
+      setState(action);
+    } else {
+      action();
+    }
   }
 
   void _onSafetyGateChanged() {
@@ -177,10 +212,13 @@ class _ChatComposerState extends State<ChatComposer> {
       // the draft); no rebuild is needed in that phase.
       return;
     }
-    setState(() {});
+    _change(() {});
   }
 
-  Future<void> _addImage() async {
+  Future<void> _addImage() =>
+      InstallSafetyGate.instance.protect(_addImagePrepared);
+
+  Future<void> _addImagePrepared() async {
     try {
       final PickedMedia? picked = await MediaActions.pick(MediaPickKind.image);
       if (picked == null || !mounted) {
@@ -194,7 +232,10 @@ class _ChatComposerState extends State<ChatComposer> {
     }
   }
 
-  Future<void> _addFile() async {
+  Future<void> _addFile() =>
+      InstallSafetyGate.instance.protect(_addFilePrepared);
+
+  Future<void> _addFilePrepared() async {
     try {
       final PickedMedia? picked = await MediaActions.pick(MediaPickKind.file);
       if (picked == null || !mounted) {
@@ -242,7 +283,7 @@ class _ChatComposerState extends State<ChatComposer> {
     if (!mounted) {
       return null;
     }
-    setState(() {
+    _change(() {
       _attachments.add(
         ChatDraftAttachment(
           attachment: OutgoingAttachment(
@@ -272,7 +313,7 @@ class _ChatComposerState extends State<ChatComposer> {
 
   void _addBodyImage(PickedMedia picked) {
     _commitCurrentText();
-    setState(() {
+    _change(() {
       _parts.add(
         ChatDraftPart(
           OutgoingImage(
@@ -289,7 +330,10 @@ class _ChatComposerState extends State<ChatComposer> {
     _persistDraft();
   }
 
-  Future<void> _pasteFromClipboard() async {
+  Future<void> _pasteFromClipboard() =>
+      InstallSafetyGate.instance.protect(_pasteFromClipboardPrepared);
+
+  Future<void> _pasteFromClipboardPrepared() async {
     if (!widget.enabled || _pasting) {
       return;
     }
@@ -350,7 +394,10 @@ class _ChatComposerState extends State<ChatComposer> {
   }
 
   /// Plain text pastes through the editor, preserving the current selection.
-  Future<void> _pasteText() async {
+  Future<void> _pasteText() =>
+      InstallSafetyGate.instance.protect(_pasteTextPrepared);
+
+  Future<void> _pasteTextPrepared() async {
     final ClipboardData? data = await Clipboard.getData(Clipboard.kTextPlain);
     final String? text = data?.text;
     if (!mounted || text == null || text.isEmpty) {
@@ -440,7 +487,7 @@ class _ChatComposerState extends State<ChatComposer> {
   }
 
   Future<void> _send() async {
-    if (!widget.enabled) {
+    if (!widget.enabled || InstallSafetyGate.instance.installing) {
       return;
     }
     _commitCurrentText();
@@ -459,13 +506,14 @@ class _ChatComposerState extends State<ChatComposer> {
       _snack(failure.message);
       return;
     }
-    setState(() {
+    _change(() {
       _parts.clear();
       _attachments.clear();
       _pending.addAll(pending);
     });
-    // The draft became an operation; only a durable clear is allowed here.
-    ChatDrafts.instance.clear(widget.chat, widget.peerAccount);
+    _ownedOperations.addAll(pending.map((p) => p.operationId));
+    // Retain retryable content in the same draft owner until confirmed.
+    _persistDraft();
     _emitPending();
     final List<OutgoingPart> body = <OutgoingPart>[
       for (final ChatDraftPart part in parts) part.part,
@@ -480,20 +528,11 @@ class _ChatComposerState extends State<ChatComposer> {
         attachments: outgoingAttachments,
         operationSeed: seed,
       );
-      if (!mounted) {
-        return;
-      }
       _applyResult(result);
     } on AuthFailure catch (failure) {
-      if (!mounted) {
-        return;
-      }
       _markSeedFailed(seed, parts, attachments, failure);
       _snack(failure.message);
     } catch (_) {
-      if (!mounted) {
-        return;
-      }
       _markSeedFailed(
         seed,
         parts,
@@ -531,7 +570,7 @@ class _ChatComposerState extends State<ChatComposer> {
         failed.add(outcome);
       }
     }
-    setState(() {
+    _change(() {
       _pending.removeWhere(
         (PendingSend pending) => succeededIds.contains(pending.operationId),
       );
@@ -539,7 +578,7 @@ class _ChatComposerState extends State<ChatComposer> {
       // Earlier failures stay retryable when a new message is sent.
       _failed.addAll(failed);
     });
-    if (sent.isNotEmpty) {
+    if (mounted && sent.isNotEmpty) {
       widget.onSent(sent, _bodyLocalPreviews(result.body));
       widget.onSentOperations?.call(operations);
     }
@@ -571,7 +610,7 @@ class _ChatComposerState extends State<ChatComposer> {
           attachment: attachments[i].attachment,
         ),
     ];
-    setState(() {
+    _change(() {
       _failed.addAll(failed);
       _markPendingFailed(<String>{
         for (final SendOutcome outcome in failed) outcome.operationId,
@@ -589,7 +628,7 @@ class _ChatComposerState extends State<ChatComposer> {
   }
 
   Future<void> _retryOne(String operationId) async {
-    if (!widget.enabled) {
+    if (!widget.enabled || InstallSafetyGate.instance.installing) {
       return;
     }
     final int index = _failed.indexWhere(
@@ -599,7 +638,7 @@ class _ChatComposerState extends State<ChatComposer> {
       return;
     }
     final SendOutcome outcome = _failed[index];
-    setState(() {
+    _change(() {
       _failed = List<SendOutcome>.of(_failed)..removeAt(index);
       _setPendingState(operationId, SendFeedbackState.sending);
     });
@@ -620,10 +659,7 @@ class _ChatComposerState extends State<ChatComposer> {
         );
       }
     } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
+      _change(() {
         _failed.add(
           error is AuthFailure
               ? SendOutcome(
@@ -640,11 +676,8 @@ class _ChatComposerState extends State<ChatComposer> {
       _snack(error is AuthFailure ? error.message : '重试失败，请稍后再试');
       return;
     }
-    if (!mounted) {
-      return;
-    }
     if (retried == null) {
-      setState(() {
+      _change(() {
         _failed.add(outcome);
         _setPendingState(operationId, SendFeedbackState.failed);
       });
@@ -653,7 +686,7 @@ class _ChatComposerState extends State<ChatComposer> {
     }
     final ChatMessage? message = retried.message;
     if (message == null) {
-      setState(() {
+      _change(() {
         _failed.add(retried!);
         _setPendingState(operationId, SendFeedbackState.failed);
       });
@@ -661,15 +694,46 @@ class _ChatComposerState extends State<ChatComposer> {
       _snack('重试失败，请稍后再试');
       return;
     }
-    setState(() {
+    _change(() {
       _pending.removeWhere(
         (PendingSend pending) => pending.operationId == operationId,
       );
     });
-    widget.onSent(<ChatMessage>[message], _bodyLocalPreviews(retried));
-    widget.onSentOperations?.call(<SentOperation>[
-      SentOperation(operationId: operationId, message: message),
-    ]);
+    if (mounted) {
+      widget.onSent(<ChatMessage>[message], _bodyLocalPreviews(retried));
+    }
+    if (mounted) {
+      widget.onSentOperations?.call(<SentOperation>[
+        SentOperation(operationId: operationId, message: message),
+      ]);
+    }
+    _emitPending();
+  }
+
+  Future<void> _discardFailed() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('清除失败发送的本机内容？'),
+        content: const Text('仅移除本机重试内容，不会撤回服务器可能已收到的消息。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('保留'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('清除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final ids = _failed.map((f) => f.operationId).toSet();
+    _change(() {
+      _failed.clear();
+      _pending.removeWhere((p) => ids.contains(p.operationId));
+    });
     _emitPending();
   }
 
@@ -683,7 +747,7 @@ class _ChatComposerState extends State<ChatComposer> {
     if (!hadFailed && !hadPending) {
       return;
     }
-    setState(() {
+    _change(() {
       _failed.removeWhere(
         (SendOutcome outcome) => outcome.operationId == operationId,
       );
@@ -705,6 +769,8 @@ class _ChatComposerState extends State<ChatComposer> {
   }
 
   void _emitPending() {
+    _persistDraft();
+    if (!mounted) return;
     final void Function(List<PendingSend>)? callback = widget.onPendingChanged;
     if (callback == null) {
       return;
@@ -854,6 +920,11 @@ class _ChatComposerState extends State<ChatComposer> {
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
                 if (hasDraft) _draftStrip(),
+                if (_failed.isNotEmpty)
+                  TextButton(
+                    onPressed: _discardFailed,
+                    child: const Text('清除失败项'),
+                  ),
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: <Widget>[
@@ -874,7 +945,9 @@ class _ChatComposerState extends State<ChatComposer> {
                         key: ChatComposer.inputKey,
                         controller: _controller,
                         focusNode: _focus,
-                        enabled: widget.enabled,
+                        enabled:
+                            widget.enabled &&
+                            !InstallSafetyGate.instance.installing,
                         minLines: 1,
                         maxLines: 5,
                         textInputAction: TextInputAction.newline,
@@ -978,7 +1051,7 @@ class _ChatComposerState extends State<ChatComposer> {
             top: -6,
             child: InkWell(
               onTap: () {
-                setState(() => _parts.removeAt(index));
+                _change(() => _parts.removeAt(index));
                 _persistDraft();
               },
               child: Container(
@@ -1072,7 +1145,7 @@ class _ChatComposerState extends State<ChatComposer> {
             top: -6,
             child: InkWell(
               onTap: () {
-                setState(() => _attachments.removeAt(index));
+                _change(() => _attachments.removeAt(index));
                 _persistDraft();
               },
               child: Container(

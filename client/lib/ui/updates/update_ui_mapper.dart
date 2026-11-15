@@ -42,6 +42,7 @@ UpdateUiState mapUpdateSnapshot({
       UpdatePhase.idle => UpdateUiPhase.idle,
       UpdatePhase.checking => UpdateUiPhase.checking,
       UpdatePhase.current => UpdateUiPhase.upToDate,
+      UpdatePhase.installed => UpdateUiPhase.installed,
       UpdatePhase.available => UpdateUiPhase.available,
       UpdatePhase.downloading => UpdateUiPhase.downloading,
       UpdatePhase.verifying => UpdateUiPhase.verifying,

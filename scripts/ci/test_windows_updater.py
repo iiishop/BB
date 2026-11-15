@@ -23,6 +23,7 @@ class WindowsUpdaterTests(unittest.TestCase):
         archives = list(Path(os.environ["BB_UPDATER_PACKAGE_DIR"]).glob("*.zip"))
         if len(archives) != 1:
             raise AssertionError("expected exactly one packaged ZIP")
+        cls.package_archive = archives[0]
         cls.helper = cls.base / "bb_updater.exe"
         with zipfile.ZipFile(archives[0]) as archive:
             data = archive.read("bb_updater.exe")
@@ -86,6 +87,7 @@ class Fixture { static void Main(string[] args) {
         parent = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(100)"])
         try:
             env = dict(os.environ)
+            env["BB_SESSION_FILE"] = str(self.basecase / "isolated-data/session.json")
             env["PATH"] = str(Path(os.environ["SystemRoot"]) / "System32")
             env.pop("BB_UPDATE_FAULT", None)
             env.pop("BB_UPDATE_CRASH", None)
@@ -121,6 +123,32 @@ class Fixture { static void Main(string[] args) {
     def assert_old(self):
         self.assertEqual((self.old / "bb-build.json").read_text(), "old")
         self.assertEqual((self.old / "用户文件.txt").read_text(encoding="utf-8"), "user data")
+
+    def test_packaged_flutter_first_frame_commits_real_payload(self):
+        # This case runs the actual ZIP's Flutter EXE/DLL/data/FFmpeg payload;
+        # the other cases use a fast GUI fixture to isolate transaction faults.
+        shutil.rmtree(self.old)
+        shutil.rmtree(self.new)
+        with zipfile.ZipFile(self.package_archive) as archive:
+            archive.extractall(self.old)
+            archive.extractall(self.new)
+        (self.old / "用户文件.txt").write_text("user data", encoding="utf-8")
+        self.zip_new()
+        try:
+            result = self.run_update()
+            self.assertEqual(result[0], 0, result)
+            self.assertEqual((self.transaction / "state").read_text(), "committed")
+            self.assertEqual((self.old / "用户文件.txt").read_text(encoding="utf-8"), "user data")
+        finally:
+            pid_file = self.transaction / "launched.pid"
+            if pid_file.exists():
+                app_pid = int(pid_file.read_text())
+                # Only terminate our recorded child, after checking its full
+                # executable path belongs to this isolated fixture directory.
+                subprocess.run(["powershell.exe", "-NoProfile", "-Command",
+                    "$p = Get-Process -Id " + str(app_pid) + " -ErrorAction SilentlyContinue; "
+                    "if ($p -and $p.Path -eq $env:BB_FIXTURE_EXE) { $p | Stop-Process -Force; $p.WaitForExit() }"],
+                    env={**os.environ, "BB_FIXTURE_EXE": str(self.old / "bb_client.exe")}, check=True, timeout=20)
 
     def test_success_keeps_backup_and_unknown_user_files(self):
         result = self.run_update()

@@ -17,6 +17,7 @@ enum UpdatePhase {
   installing,
   permissionRequired,
   installerOpened,
+  installed,
   cancelled,
   failed,
   unsupported,

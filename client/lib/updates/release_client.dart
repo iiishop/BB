@@ -37,7 +37,10 @@ class ReleaseClient {
       request.headers.set(HttpHeaders.userAgentHeader, 'BB-client-updater');
       request.headers.set(HttpHeaders.acceptEncodingHeader, 'identity');
       if (asset) {
-        request.headers.set(HttpHeaders.acceptHeader, 'application/octet-stream');
+        request.headers.set(
+          HttpHeaders.acceptHeader,
+          'application/octet-stream',
+        );
       } else {
         request.headers.set(
           HttpHeaders.acceptHeader,
@@ -95,7 +98,16 @@ class ReleaseClient {
 
   Future<String> checksums(UpdateAsset asset) async {
     if (asset.size > 1024 * 1024) throw StateError('SHA256SUMS 过大。');
-    final bytes = await _bytes(await _get(Uri.https('api.github.com', '/repos/iiishop/BB/releases/assets/${asset.id}'), asset: true), 1024 * 1024);
+    final bytes = await _bytes(
+      await _get(
+        Uri.https(
+          'api.github.com',
+          '/repos/iiishop/BB/releases/assets/${asset.id}',
+        ),
+        asset: true,
+      ),
+      1024 * 1024,
+    );
     if (bytes.length != asset.size) throw StateError('SHA256SUMS 下载不完整。');
     return utf8.decode(bytes);
   }
@@ -108,7 +120,13 @@ class ReleaseClient {
     if (asset.size > 2 * 1024 * 1024 * 1024) {
       throw StateError('安装包超过 2 GiB 限制。');
     }
-    final response = await _get(Uri.https('api.github.com', '/repos/iiishop/BB/releases/assets/${asset.id}'), asset: true);
+    final response = await _get(
+      Uri.https(
+        'api.github.com',
+        '/repos/iiishop/BB/releases/assets/${asset.id}',
+      ),
+      asset: true,
+    );
     if (response.contentLength >= 0 && response.contentLength != asset.size) {
       throw StateError('安装包长度与 Release 不一致。');
     }

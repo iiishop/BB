@@ -59,7 +59,8 @@ file(TO_CMAKE_PATH "$ENV{WINDIR}/Microsoft.NET/Framework64/v4.0.30319/csc.exe" F
 add_custom_command(OUTPUT "${UPDATER_EXE}"
   COMMAND "${FRAMEWORK_CSC}" /nologo /warnaserror /target:exe
     /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll
-    "/out:${UPDATER_EXE}" "${CMAKE_CURRENT_SOURCE_DIR}/updater/Updater.cs"
+    "/out:${UPDATER_EXE}" Updater.cs
+  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/updater"
   DEPENDS "updater/Updater.cs" VERBATIM)
 add_custom_target(bb_updater ALL DEPENDS "${UPDATER_EXE}")
 set(BB_UPDATE_ARCH "unsupported")

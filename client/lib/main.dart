@@ -111,6 +111,9 @@ class _BbRootState extends State<BbRoot> {
   Future<void> _connect(Uri address) async {
     final _AppServices? previous = _services;
     final bool changed = address != _address;
+    if (previous != null && ChatDrafts.instance.hasSession(previous.chat)) {
+      throw StateError('请先发送或清空聊天草稿，再切换服务器。');
+    }
     if (previous != null) {
       setState(() => _loading = true);
       _services = null;
@@ -225,9 +228,8 @@ class _AppServices {
 
   Future<void> dispose() async {
     heartbeat.stop();
-    // Drafts belong to this session's services; dropping them here is an
-    // explicit server switch/logout, not a route change.
-    ChatDrafts.instance.clearSession(chat);
+    // Teardown is not consent to discard unsaved content. Server changes are
+    // refused above while drafts exist; account drafts remain isolated.
     await chat.dispose();
   }
 }

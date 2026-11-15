@@ -131,6 +131,7 @@ internal static class Updater {
             start.UseShellExecute = false; start.WorkingDirectory = root;
             start.Arguments = healthCheck ? "--bb-update-ready=" + token : "";
             using (var app = Process.Start(start)) {
+                File.WriteAllText(Path.Combine(transaction, "launched.pid"), app.Id.ToString());
                 if (healthCheck && !ready.WaitOne(TimeSpan.FromSeconds(30))) {
                     if (!app.HasExited) { app.Kill(); app.WaitForExit(10000); }
                     throw new IOException("Updated app did not render its first frame; restored old installation.");

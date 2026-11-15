@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:bb_client/app.dart';
 import 'package:bb_client/models/auth_models.dart';
 import 'package:bb_client/models/chat_models.dart';
@@ -81,6 +83,67 @@ void main() {
         .controller!
         .text;
   }
+
+  test(
+    'drafts from account A never appear under account B on the same service',
+    () {
+      ChatDrafts.instance.write(
+        chat,
+        _peer,
+        const ChatDraft(text: 'private A'),
+      );
+      chat.session.establish(
+        token: 'b-token',
+        user: const AuthUser(account: '10000003', username: 'B'),
+      );
+      expect(ChatDrafts.instance.read(chat, _peer), isNull);
+      expect(gate.blockers, isNotEmpty);
+      chat.session.establish(token: 'a-token', user: _self);
+      expect(ChatDrafts.instance.read(chat, _peer)?.text, 'private A');
+    },
+  );
+
+  testWidgets(
+    'failed send survives route teardown and keeps installation blocked',
+    (tester) async {
+      chat.failBody = true;
+      await pumpComposer(tester);
+      await tester.enterText(find.byKey(ChatComposer.inputKey), 'retry me');
+      await tester.tap(find.byKey(ChatComposer.sendKey));
+      await tester.pumpAndSettle();
+      expect(ChatDrafts.instance.read(chat, _peer)!.failed, hasLength(1));
+      await pumpUpdateHost(tester);
+      expect(find.byKey(UpdateSettingsPage.installButtonKey), findsNothing);
+      await pumpComposer(tester);
+      expect(ChatDrafts.instance.read(chat, _peer)!.pending, hasLength(1));
+      await tester.tap(find.text('清除失败项'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('保留'));
+      await tester.pumpAndSettle();
+      expect(gate.blockers, isNotEmpty);
+      await tester.tap(find.text('清除失败项'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('清除'));
+      await tester.pumpAndSettle();
+      expect(gate.blockers, isEmpty);
+    },
+  );
+
+  testWidgets(
+    'send completing after route teardown releases only its own blocker',
+    (tester) async {
+      chat.sendGate = Completer<void>();
+      await pumpComposer(tester);
+      await tester.enterText(find.byKey(ChatComposer.inputKey), 'in flight');
+      await tester.tap(find.byKey(ChatComposer.sendKey));
+      await tester.pump();
+      await pumpUpdateHost(tester);
+      expect(gate.blockers, isNotEmpty);
+      chat.sendGate!.complete();
+      await tester.pumpAndSettle();
+      expect(gate.blockers, isEmpty);
+    },
+  );
 
   testWidgets('离开聊天页后草稿不丢，更新页仍阻止安装；重新进入聊天恢复草稿', (WidgetTester tester) async {
     await pumpComposer(tester);

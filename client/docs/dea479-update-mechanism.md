@@ -119,9 +119,22 @@ collisions. This proves native helper behavior, not Flutter GUI device behavior.
 Linux reports these native tests as NOT RUN. Native logs remain in CI; no new
 CI job or dependency installation is added for this suite.
 
-After Muse's fixed SHA is integrated, run the existing full Flutter runner and
-the Windows artifact on an actual Windows desktop; exercise explicit installation
-with drafts/in-flight media present and absent. Android build, intent/permission
-tests and user device install remain separately attributed to that adapter.
-Final candidate and artifacts are handed to Orion for automated_qa; this branch
-alone is not a completed integrated feature.
+Muse's wiring is integrated at `88c8b7d`. The root constructs one controller,
+settings consume it, and Android reconciles pending installation on startup.
+The same `chat_drafts.dart` source now keeps drafts and retryable sends by
+service/account, including after route disposal. Server switching refuses
+unsaved work; service teardown cannot clear it. Failed send content has an
+explicit confirmation before local discard (it never claims to retract a
+possibly committed server message). Media preparation is admitted through the
+same safety gate. Android keeps admission locked until its native terminal
+result, including when the installer is backgrounded. `finishPlatformInstall`
+is the concrete controller's native completion seam; recovery remains in the
+Android adapter. Recovery cleanup accepts only canonical APKs below its own
+staging root and removes only empty staging directories.
+
+Windows CI also launches the actual packaged Flutter payload in an isolated
+old/new install, checks its first-frame event and retained user file, and stops
+only the recorded fixture process. Failure-boundary cases retain their small
+GUI fixture for determinism. The build invokes the Framework compiler from the
+source directory, avoiding its handling of forward-slash absolute source paths.
+Native UI/device operation beyond this CI test remains separately reported.

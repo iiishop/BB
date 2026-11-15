@@ -22,10 +22,10 @@ class PlatformExternalLinkOpener implements ExternalLinkOpener {
       if (Platform.isWindows) {
         // Argument array, not a shell string. This is the documented Windows
         // URL handler for the default browser.
-        result = await Process.run('rundll32', <String>[
-          'url.dll,FileProtocolHandler',
-          uri.toString(),
-        ]);
+        result = await Process.run(
+          '${Platform.environment['SystemRoot'] ?? r'C:\Windows'}\\System32\\rundll32.exe',
+          <String>['url.dll,FileProtocolHandler', uri.toString()],
+        );
       } else if (Platform.isLinux) {
         result = await Process.run('xdg-open', <String>[uri.toString()]);
       } else if (Platform.isMacOS) {
