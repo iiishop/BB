@@ -91,6 +91,11 @@ class _UsersListViewState extends State<UsersListView> {
         }
       });
     }
+    // Reserve the presence ordering ticket before the request starts: a page
+    // that started earlier must not overwrite a targeted read that started
+    // later and already confirmed a value.
+    final PresenceDirectory? presence = widget.presence;
+    final int? observation = presence?.beginObservation();
     try {
       final UserPage page = await widget.chat.listUsers(
         afterAccount: reset ? '' : (_nextCursor ?? ''),
@@ -119,8 +124,9 @@ class _UsersListViewState extends State<UsersListView> {
         _error = null;
       });
       // One fresh server page is authoritative for the accounts it contains;
-      // share it so an open conversation cannot keep a stale header.
-      widget.presence?.seed(page.items);
+      // share it so an open conversation cannot keep a stale header. The
+      // ticket makes a page that started before a newer targeted read lose.
+      presence?.seed(page.items, observation: observation);
     } on AuthFailure catch (failure) {
       if (!mounted) {
         return;
