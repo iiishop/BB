@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
@@ -26,10 +27,15 @@ class PickedSpaceImage {
 }
 
 class PendingDraftImage {
-  PendingDraftImage({required this.filename, required this.bytes});
+  PendingDraftImage({
+    required this.filename,
+    required this.bytes,
+    required this.operationId,
+  });
 
   final String filename;
   final Uint8List bytes;
+  final String operationId;
   String? error;
   bool uploading = false;
 
@@ -62,6 +68,7 @@ class SpaceComposeController extends ChangeNotifier {
 
   DraftSavePhase phase = DraftSavePhase.creating;
   String? error;
+  String? publishError;
   String? publishedPostId;
   SpacePost? reference;
 
@@ -76,6 +83,13 @@ class SpaceComposeController extends ChangeNotifier {
   bool _saving = false;
   int _counter = 0;
   bool _disposed = false;
+  String? _createOpId;
+  String? _saveOpId;
+  String? _saveSignature;
+  String? _publishOpId;
+  int? _publishVersion;
+  String? _discardOpId;
+  int? _discardVersion;
 
   String? get id => _id;
   int? get version => _version;
@@ -124,8 +138,9 @@ class SpaceComposeController extends ChangeNotifier {
       if (draftId != null) {
         draft = await gateway.getDraft(draftId!);
       } else {
+        _createOpId ??= _opId;
         final SpaceOperation created = await gateway.createDraft(
-          operationId: _opId,
+          operationId: _createOpId!,
           text: local?.text ?? '',
           referenceId: referenceId,
         );
@@ -152,9 +167,19 @@ class SpaceComposeController extends ChangeNotifier {
       _order = buffered?.dirty == true
           ? _mergeOrder(buffered!.imageIds, draft.images)
           : draft.images.map((SpaceImage i) => i.imageId).toList();
-      phase = buffered?.dirty == true
-          ? DraftSavePhase.dirty
-          : DraftSavePhase.saved;
+      final List<String> serverOrder = draft.images
+          .map((SpaceImage i) => i.imageId)
+          .toList();
+      final bool contentMatchesServer =
+          buffered?.dirty != true ||
+          (buffered!.text == draft.text &&
+              _sameOrder(buffered.imageIds, serverOrder));
+      phase = contentMatchesServer
+          ? DraftSavePhase.saved
+          : DraftSavePhase.dirty;
+      if (contentMatchesServer) {
+        _persist(dirty: false);
+      }
       _persist(dirty: phase == DraftSavePhase.dirty);
       _notify();
       if (phase == DraftSavePhase.dirty) {
@@ -184,6 +209,22 @@ class SpaceComposeController extends ChangeNotifier {
       _persist(dirty: true);
       _notify();
     }
+  }
+
+  bool _sameOrder(List<String> preferred, List<String> server) {
+    final List<String> merged = <String>[
+      ...preferred.where(server.contains),
+      ...server.where((String id) => !preferred.contains(id)),
+    ];
+    if (merged.length != server.length) {
+      return false;
+    }
+    for (int i = 0; i < merged.length; i++) {
+      if (merged[i] != server[i]) {
+        return false;
+      }
+    }
+    return true;
   }
 
   List<String> _mergeOrder(List<String> preferred, List<SpaceImage> server) {
@@ -218,6 +259,16 @@ class SpaceComposeController extends ChangeNotifier {
     });
   }
 
+  /// Retry the step that failed: draft creation has no version yet, otherwise
+  /// the current unsynced edit is retried with its retained operation ID.
+  Future<void> retry() async {
+    if (_id == null) {
+      await start();
+    } else {
+      await saveNow();
+    }
+  }
+
   Future<void> saveNow() async {
     final String? id = _id;
     final int? version = _version;
@@ -229,11 +280,21 @@ class SpaceComposeController extends ChangeNotifier {
     }
     _saving = true;
     phase = DraftSavePhase.saving;
+    final String signature = jsonEncode(<Object?>[
+      id,
+      version,
+      text.text,
+      _order,
+    ]);
+    if (_saveSignature != signature) {
+      _saveSignature = signature;
+      _saveOpId = _opId;
+    }
     _notify();
     try {
       final SpaceOperation operation = await gateway.updateDraft(
         draftId: id,
-        operationId: _opId,
+        operationId: _saveOpId!,
         expectedVersion: version,
         text: text.text,
         referenceId: referenceId,
@@ -243,7 +304,21 @@ class SpaceComposeController extends ChangeNotifier {
       _serverText = text.text;
       phase = DraftSavePhase.saved;
       error = null;
+      _saveOpId = null;
+      _saveSignature = null;
       _persist(dirty: false);
+      // The receipt carries identity/version only; re-read the draft to keep
+      // displayed facts on the server's copy.
+      try {
+        final SpaceDraft confirmed = await gateway.getDraft(id);
+        _version = confirmed.version;
+        _serverText = confirmed.text;
+        _images = List<SpaceImage>.of(confirmed.images);
+        _order = confirmed.images.map((SpaceImage i) => i.imageId).toList();
+      } catch (_) {
+        // The mutation already committed; a failed confirmation read must not
+        // present the save as failed.
+      }
     } on AuthFailure catch (failure) {
       if (failure.code == 'version_conflict') {
         phase = DraftSavePhase.conflict;
@@ -326,6 +401,7 @@ class SpaceComposeController extends ChangeNotifier {
     final PendingDraftImage item = PendingDraftImage(
       filename: picked.filename,
       bytes: picked.bytes,
+      operationId: _opId,
     );
     pending.add(item);
     _notify();
@@ -387,7 +463,7 @@ class SpaceComposeController extends ChangeNotifier {
     try {
       final SpaceOperation operation = await gateway.addImage(
         draftId: id,
-        operationId: _opId,
+        operationId: item.operationId,
         expectedVersion: version,
         filename: item.filename,
         bytes: item.bytes,
@@ -490,17 +566,24 @@ class SpaceComposeController extends ChangeNotifier {
       return false;
     }
     _debounce?.cancel();
+    if (_publishOpId == null || _publishVersion != version) {
+      _publishOpId = _opId;
+      _publishVersion = version;
+    }
     try {
       final SpaceOperation operation = await gateway.publishDraft(
         draftId: id,
-        operationId: _opId,
+        operationId: _publishOpId!,
         expectedVersion: version,
       );
       publishedPostId = operation.resourceId;
+      _publishOpId = null;
+      _publishVersion = null;
+      publishError = null;
       store.deleteDraft(id);
       return publishedPostId != null;
     } on AuthFailure catch (failure) {
-      error = spaceErrorText(failure);
+      publishError = spaceErrorText(failure);
       if (failure.code == 'version_conflict') {
         phase = DraftSavePhase.conflict;
       }
@@ -508,7 +591,7 @@ class SpaceComposeController extends ChangeNotifier {
       _notify();
       return false;
     } catch (failure) {
-      error = spaceErrorText(failure);
+      publishError = spaceErrorText(failure);
       _persist(dirty: true);
       _notify();
       return false;
@@ -521,10 +604,14 @@ class SpaceComposeController extends ChangeNotifier {
     if (id == null || version == null) {
       return false;
     }
+    if (_discardOpId == null || _discardVersion != version) {
+      _discardOpId = _opId;
+      _discardVersion = version;
+    }
     try {
       await gateway.deleteDraft(
         draftId: id,
-        operationId: _opId,
+        operationId: _discardOpId!,
         expectedVersion: version,
       );
       store.deleteDraft(id);

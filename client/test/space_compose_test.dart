@@ -184,16 +184,23 @@ void main() {
     expect(find.text('离线：仅保存在本机'), findsOneWidget);
     expect(gateway.drafts[draftId]!.text, '');
     expect(harness.store.draft(draftId)!.text, '离线时写下的内容');
+    await tester.tap(find.text('重试保存'));
+    await tester.pumpAndSettle();
+    expect(gateway.updateOperationIds.length, 2);
+    expect(gateway.updateOperationIds.first, gateway.updateOperationIds.last);
+    expect(find.text('已保存到服务器'), findsOneWidget);
 
     // Close and reopen the same draft: the unsynced text is still there.
     await tester.tap(find.byKey(SpaceComposePage.closeKey));
     await tester.pumpAndSettle();
     await harness.pump(tester, draftId: draftId);
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
     final TextField reopened = tester.widget<TextField>(
       find.byKey(SpaceComposePage.textKey),
     );
     expect(reopened.controller!.text, '离线时写下的内容');
-    expect(find.text('有未保存的修改'), findsOneWidget);
+    expect(find.text('已保存到服务器'), findsOneWidget);
     expect(harness.store.draft(draftId)!.text, '离线时写下的内容');
   });
 
@@ -244,6 +251,11 @@ void main() {
     await tester.tap(find.byKey(const Key('space-compose-retry-retry.png')));
     await tester.pumpAndSettle();
     expect(find.text('上传失败'), findsNothing);
+    expect(gateway.addImageOperationIds.length, 2);
+    expect(
+      gateway.addImageOperationIds.first,
+      gateway.addImageOperationIds.last,
+    );
     expect(
       tester
           .widget<FilledButton>(find.byKey(SpaceComposePage.publishKey))
@@ -251,6 +263,50 @@ void main() {
       isNotNull,
     );
   });
+
+  testWidgets('draft creation retries with the same operation id', (
+    WidgetTester tester,
+  ) async {
+    final FakeSpaceGateway gateway = FakeSpaceGateway();
+    final ComposeHarness harness = ComposeHarness(gateway);
+    gateway.failNext('create_draft', upstreamUnavailable);
+    await harness.pump(tester);
+    expect(find.text('离线：仅保存在本机'), findsOneWidget);
+    await tester.tap(find.text('重试保存'));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+    expect(gateway.createDraftOperationIds.length, 2);
+    expect(
+      gateway.createDraftOperationIds.first,
+      gateway.createDraftOperationIds.last,
+    );
+    expect(gateway.drafts, hasLength(1));
+    expect(find.text('已保存到服务器'), findsOneWidget);
+  });
+
+  testWidgets(
+    'publish retries with the same operation id after an unknown result',
+    (WidgetTester tester) async {
+      final FakeSpaceGateway gateway = FakeSpaceGateway();
+      final ComposeHarness harness = ComposeHarness(gateway);
+      await harness.pump(tester);
+      await harness.type(tester, '发布重试');
+      gateway.failNext('publish_draft', upstreamUnavailable);
+      await tester.tap(find.byKey(SpaceComposePage.publishKey));
+      await tester.pumpAndSettle();
+      expect(harness.popped, isNull);
+      expect(find.textContaining('无法连接服务器'), findsWidgets);
+      await tester.tap(find.byKey(SpaceComposePage.publishKey));
+      await tester.pumpAndSettle();
+      expect(harness.popped, isNotNull);
+      expect(gateway.publishOperationIds.length, 2);
+      expect(
+        gateway.publishOperationIds.first,
+        gateway.publishOperationIds.last,
+      );
+    },
+  );
 
   testWidgets('discard deletes the draft and its local buffer', (
     WidgetTester tester,

@@ -59,6 +59,11 @@ class FakeSpaceGateway implements SpaceGateway {
   final List<List<SpaceAckVersion>> ackCalls = <List<SpaceAckVersion>>[];
   final List<({String postId, String? replyToId, String text})> commentCalls =
       <({String postId, String? replyToId, String text})>[];
+  final List<String> createDraftOperationIds = <String>[];
+  final List<String> updateOperationIds = <String>[];
+  final List<String> addImageOperationIds = <String>[];
+  final List<String> publishOperationIds = <String>[];
+  final List<String> deleteDraftOperationIds = <String>[];
   final List<({String postId, bool liked})> likeCalls =
       <({String postId, bool liked})>[];
   final List<String> imageVariants = <String>[];
@@ -226,6 +231,7 @@ class FakeSpaceGateway implements SpaceGateway {
     String text = '',
     String? referenceId,
   }) async {
+    createDraftOperationIds.add(operationId);
     _record('create_draft');
     final String id = 'draft-$_next';
     drafts[id] = spaceDraft(
@@ -261,6 +267,7 @@ class FakeSpaceGateway implements SpaceGateway {
     String? referenceId,
     required List<String> imageIds,
   }) async {
+    updateOperationIds.add(operationId);
     _record('update_draft');
     final SpaceDraft draft = await getDraft(draftId);
     if (draft.version != expectedVersion) {
@@ -297,6 +304,7 @@ class FakeSpaceGateway implements SpaceGateway {
     required String filename,
     required List<int> bytes,
   }) async {
+    addImageOperationIds.add(operationId);
     _record('add_image');
     final SpaceDraft draft = await getDraft(draftId);
     if (draft.version != expectedVersion) {
@@ -334,6 +342,7 @@ class FakeSpaceGateway implements SpaceGateway {
     required String operationId,
     required int expectedVersion,
   }) async {
+    publishOperationIds.add(operationId);
     _record('publish_draft');
     final SpaceDraft draft = await getDraft(draftId);
     if (draft.version != expectedVersion) {
@@ -370,6 +379,7 @@ class FakeSpaceGateway implements SpaceGateway {
     required String operationId,
     required int expectedVersion,
   }) async {
+    deleteDraftOperationIds.add(operationId);
     _record('delete_draft');
     final SpaceDraft draft = await getDraft(draftId);
     if (draft.version != expectedVersion) {

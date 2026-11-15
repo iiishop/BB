@@ -251,7 +251,7 @@ class _SpaceComposePageState extends State<SpaceComposePage> {
         background: AppColors.warningSurface,
         icon: Icons.cloud_off_rounded,
         actionLabel: '重试保存',
-        onAction: _compose.saveNow,
+        onAction: _compose.retry,
       ),
       DraftSavePhase.failed => SpaceInlineBanner(
         message: _compose.error ?? '保存失败',
@@ -259,7 +259,7 @@ class _SpaceComposePageState extends State<SpaceComposePage> {
         background: AppColors.dangerSurface,
         icon: Icons.error_outline_rounded,
         actionLabel: '重试',
-        onAction: _compose.saveNow,
+        onAction: _compose.retry,
       ),
       DraftSavePhase.creating ||
       DraftSavePhase.saving ||
@@ -269,6 +269,14 @@ class _SpaceComposePageState extends State<SpaceComposePage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
+        if (_compose.publishError != null)
+          SpaceInlineBanner(
+            key: const Key('space-compose-publish-error'),
+            message: _compose.publishError!,
+            tone: AppColors.danger,
+            background: AppColors.dangerSurface,
+            icon: Icons.error_outline_rounded,
+          ),
         ?banner,
         Padding(
           padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
