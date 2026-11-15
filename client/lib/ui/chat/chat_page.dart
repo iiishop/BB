@@ -20,6 +20,7 @@ import 'media_actions.dart';
 import 'media_save.dart';
 import 'media_viewer.dart';
 import 'message_bubble.dart';
+import 'pending_send.dart';
 
 /// One-to-one chat with ordered text/image content and independent attachments.
 class ChatPage extends StatefulWidget {
@@ -75,6 +76,17 @@ class _ChatPageState extends State<ChatPage> {
   final Map<String, Uint8List> _localPreviews = <String, Uint8List>{};
   final List<String> _localPreviewOrder = <String>[];
   String? _localPreviewAccount;
+  final ChatComposerController _composerController = ChatComposerController();
+  List<PendingSend> _pending = <PendingSend>[];
+  final Map<String, String> _operationByMessage = <String, String>{};
+
+  /// Identities that were not on screen at the previous build. Only these get
+  /// the entrance animation; history, scroll rebuilds and refresh do not.
+  final Set<String> _animateIdentities = <String>{};
+
+  /// Pending operation ids whose one entrance already played. Scrolling an
+  /// unfinished bubble out and back in must not replay it.
+  final Set<String> _pendingEntered = <String>{};
   static const int _maxLocalPreviewEntries = 8;
   static const int _maxLocalPreviewBytes = 24 * 1024 * 1024;
   bool _loading = true;
@@ -177,9 +189,10 @@ class _ChatPageState extends State<ChatPage> {
         _mergeMessages(loaded);
         _fetchedThrough = cursor;
         _loading = false;
+        _animateIdentities.clear();
       });
       widget.onMessagesChanged?.call(List<ChatMessage>.unmodifiable(_messages));
-      _scrollToBottom(animate: false);
+      _scrollToBottom(animate: false, force: true);
     } on AuthFailure catch (failure) {
       if (!mounted) {
         return;
@@ -232,15 +245,24 @@ class _ChatPageState extends State<ChatPage> {
       if (!mounted) {
         return;
       }
+      final bool wasNearBottom = _isNearBottom;
+      final Set<String> known = _messages
+          .map((ChatMessage message) => message.identity)
+          .toSet();
+      final Set<String> arrived = <String>{
+        for (final ChatMessage message in loaded)
+          if (!known.contains(message.identity)) message.identity,
+      };
       setState(() {
         _mergeMessages(loaded);
         // Only a contiguous server read advances the fetch cursor. Local
         // sends in _onSent never touch this value.
         _fetchedThrough = cursor;
+        _animateIdentities.addAll(arrived);
       });
       widget.onMessagesChanged?.call(List<ChatMessage>.unmodifiable(_messages));
-      if (loaded.isNotEmpty) {
-        _scrollToBottom();
+      if (arrived.isNotEmpty && wasNearBottom) {
+        _scrollToBottom(force: true);
       }
     } catch (_) {
       // Polling is best effort; the explicit refresh keeps the error visible.
@@ -285,28 +307,112 @@ class _ChatPageState extends State<ChatPage> {
     final int before = _displayedMax;
     setState(() {
       _mergeMessages(added);
+      // The committed bubble keeps the pending element (same operation id) and
+      // continues its single entrance. Adding the identities also covers a
+      // send that settled before its first frame was painted.
+      _animateIdentities.addAll(
+        added.map((ChatMessage message) => message.identity),
+      );
     });
     widget.onMessagesChanged?.call(List<ChatMessage>.unmodifiable(_messages));
     if (_displayedMax > before) {
-      _scrollToBottom();
+      _scrollToBottom(force: true);
     }
   }
 
-  void _scrollToBottom({bool animate = true}) {
+  void _onSentOperations(List<SentOperation> operations) {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      for (final SentOperation operation in operations) {
+        _operationByMessage[operation.message.identity] = operation.operationId;
+      }
+    });
+  }
+
+  void _onPendingChanged(List<PendingSend> pending) {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _pending = List<PendingSend>.of(pending);
+      final Set<String> live = <String>{
+        for (final PendingSend item in pending) item.operationId,
+      };
+      _pendingEntered.removeWhere(
+        (String operationId) => !live.contains(operationId),
+      );
+    });
+    if (pending.isNotEmpty) {
+      // Sending is an explicit user action: show the local bubble even when
+      // the reader was up in history.
+      _scrollToBottom(force: true);
+    }
+  }
+
+  Uint8List? _previewFor(String mediaId) {
+    for (final PendingSend pending in _pending) {
+      final Uint8List? bytes = pending.imageBytes[mediaId];
+      if (bytes != null) {
+        return bytes;
+      }
+    }
+    return _localPreviewFor(mediaId);
+  }
+
+  /// True when the viewport is close enough to the end that new content may
+  /// follow it. A reader parked in history is never pulled down.
+  bool get _isNearBottom {
+    if (!_scrollController.hasClients) {
+      return true;
+    }
+    final ScrollPosition position = _scrollController.position;
+    return position.maxScrollExtent - position.pixels <= 96;
+  }
+
+  void _scrollToBottom({bool animate = true, bool force = false}) {
+    if (!force && !_isNearBottom) {
+      return;
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_scrollController.hasClients) {
-        return;
-      }
-      final double target = _scrollController.position.maxScrollExtent;
-      if (animate) {
-        _scrollController.animateTo(
-          target,
-          duration: const Duration(milliseconds: 240),
-          curve: Curves.easeOutCubic,
-        );
-      } else {
-        _scrollController.jumpTo(target);
-      }
+      _applyBottomScroll(animate: animate, attempt: 0);
+    });
+  }
+
+  /// The list is lazy, so its reported max extent can grow while scrolling
+  /// toward the end. Animate once, then correct any remaining distance with
+  /// cheap jumps so a send really lands on its own bubble.
+  void _applyBottomScroll({required bool animate, required int attempt}) {
+    if (!mounted || !_scrollController.hasClients) {
+      return;
+    }
+    final ScrollPosition position = _scrollController.position;
+    final double target = position.maxScrollExtent;
+    final double remaining = target - position.pixels;
+    if (remaining.abs() <= 1) {
+      return;
+    }
+    if (animate && attempt == 0) {
+      _scrollController
+          .animateTo(
+            target,
+            duration: const Duration(milliseconds: 240),
+            curve: Curves.easeOutCubic,
+          )
+          .whenComplete(() {
+            if (mounted && _scrollController.hasClients) {
+              _applyBottomScroll(animate: false, attempt: 1);
+            }
+          });
+      return;
+    }
+    if (attempt >= 3) {
+      return;
+    }
+    _scrollController.jumpTo(target);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _applyBottomScroll(animate: false, attempt: attempt + 1);
     });
   }
 
@@ -618,7 +724,10 @@ class _ChatPageState extends State<ChatPage> {
             chat: widget.chat,
             peerAccount: widget.peer.account,
             clipboard: widget.clipboard,
+            controller: _composerController,
             onSent: _onSent,
+            onSentOperations: _onSentOperations,
+            onPendingChanged: _onPendingChanged,
           ),
         ],
       ),
@@ -658,7 +767,7 @@ class _ChatPageState extends State<ChatPage> {
         ),
       );
     }
-    if (_messages.isEmpty) {
+    if (_messages.isEmpty && _pending.isEmpty) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -678,45 +787,121 @@ class _ChatPageState extends State<ChatPage> {
         ),
       );
     }
+    final List<_TimelineEntry> entries = <_TimelineEntry>[
+      for (final ChatMessage message in _messages)
+        _TimelineEntry(
+          message: message,
+          operationId: _operationByMessage[message.identity],
+        ),
+      for (final PendingSend pending in _pending)
+        _TimelineEntry(
+          message: pending.message,
+          operationId: pending.operationId,
+          pending: pending,
+        ),
+    ];
+    bool sameRun(int left, int right) {
+      return continuesMessageRun(
+        entries[left].message.senderAccount,
+        entries[left].message.createdAt,
+        entries[right].message.senderAccount,
+        entries[right].message.createdAt,
+      );
+    }
+
     final List<Widget> timeline = <Widget>[];
     DateTime? previous;
-    for (final ChatMessage message in _messages) {
-      if (shouldShowDaySeparator(previous, message.createdAt)) {
-        timeline.add(
-          _DaySeparator(label: formatDaySeparator(message.createdAt)),
-        );
-      } else if (shouldShowGapLabel(previous, message.createdAt)) {
-        timeline.add(
-          Center(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
-              child: Text(
-                formatClockTime(message.createdAt),
-                style: const TextStyle(fontSize: 11, color: AppColors.inkMuted),
+    for (int index = 0; index < entries.length; index += 1) {
+      final _TimelineEntry entry = entries[index];
+      final ChatMessage message = entry.message;
+      final bool committed = entry.pending == null;
+      if (committed) {
+        if (shouldShowDaySeparator(previous, message.createdAt)) {
+          timeline.add(
+            _DaySeparator(label: formatDaySeparator(message.createdAt)),
+          );
+        } else if (shouldShowGapLabel(previous, message.createdAt)) {
+          timeline.add(
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+                child: Text(
+                  formatClockTime(message.createdAt),
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: AppColors.inkMuted,
+                  ),
+                ),
               ),
             ),
-          ),
-        );
+          );
+        }
+        previous = message.createdAt;
       }
+      final bool runStart = index == 0 || !sameRun(index - 1, index);
+      final bool runEnd =
+          index == entries.length - 1 || !sameRun(index, index + 1);
       final Attachment? attachment = message.attachment;
+      final String bubbleKey = entry.operationId ?? message.identity;
+      final bool pendingFirstFrame =
+          entry.pending != null && !_pendingEntered.contains(entry.operationId);
+      final Widget bubble = MessageBubble(
+        key: ValueKey<String>('chat-bubble-$bubbleKey'),
+        message: message,
+        selfAccount: widget.chat.selfAccount,
+        peerUsername: widget.peer.username,
+        chat: widget.chat,
+        avatars: _avatars,
+        busy:
+            committed &&
+            attachment != null &&
+            _busyMedia.contains(attachment.mediaId),
+        sendState: entry.pending?.state,
+        onRetry: entry.pending?.state == SendFeedbackState.failed
+            ? () => _composerController.retryFailed(entry.operationId!)
+            : null,
+        showAvatar: runEnd,
+        isRunEnd: runEnd,
+        onSaveAs: committed && attachment != null
+            ? () => _saveAs(attachment)
+            : null,
+        onDownload: committed && attachment != null
+            ? () => _download(attachment)
+            : null,
+        onPlay:
+            committed &&
+                attachment != null &&
+                attachment.kind != AttachmentKind.other
+            ? () => _play(attachment)
+            : null,
+        onOpenMedia: committed ? _openMedia : null,
+        localMediaPreview: _previewFor,
+      );
       timeline.add(
-        MessageBubble(
-          message: message,
-          selfAccount: widget.chat.selfAccount,
-          peerUsername: widget.peer.username,
-          chat: widget.chat,
-          avatars: _avatars,
-          busy: attachment != null && _busyMedia.contains(attachment.mediaId),
-          onSaveAs: attachment == null ? null : () => _saveAs(attachment),
-          onDownload: attachment == null ? null : () => _download(attachment),
-          onPlay: attachment == null || attachment.kind == AttachmentKind.other
-              ? null
-              : () => _play(attachment),
-          onOpenMedia: _openMedia,
-          localMediaPreview: _localPreviewFor,
+        Padding(
+          padding: EdgeInsets.only(top: runStart ? 10 : 2),
+          child: MessageEntrance(
+            key: ValueKey<String>('chat-entrance-$bubbleKey'),
+            animate: entry.pending != null
+                ? pendingFirstFrame
+                : _animateIdentities.contains(message.identity),
+            child: bubble,
+          ),
         ),
       );
-      previous = message.createdAt;
+    }
+    final Set<String> consumedIdentities = Set<String>.of(_animateIdentities);
+    final Set<String> consumedPending = <String>{
+      for (final _TimelineEntry entry in entries)
+        if (entry.pending != null &&
+            !_pendingEntered.contains(entry.operationId))
+          entry.operationId!,
+    };
+    if (consumedIdentities.isNotEmpty || consumedPending.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _animateIdentities.removeAll(consumedIdentities);
+        _pendingEntered.addAll(consumedPending);
+      });
     }
     return Center(
       child: ConstrainedBox(
@@ -735,6 +920,15 @@ class _ChatPageState extends State<ChatPage> {
       ),
     );
   }
+}
+
+/// One row in the visible timeline: a committed message or a local pending one.
+class _TimelineEntry {
+  const _TimelineEntry({required this.message, this.operationId, this.pending});
+
+  final ChatMessage message;
+  final String? operationId;
+  final PendingSend? pending;
 }
 
 class _DaySeparator extends StatelessWidget {

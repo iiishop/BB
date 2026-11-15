@@ -1,0 +1,323 @@
+import 'dart:async';
+
+import 'package:bb_client/models/auth_models.dart';
+import 'package:bb_client/models/chat_models.dart';
+import 'package:bb_client/ui/chat/chat_page.dart';
+import 'package:bb_client/ui/chat/chat_composer.dart';
+import 'package:bb_client/ui/chat/message_bubble.dart';
+import 'package:bb_client/ui/chat/pending_send.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+import 'support/fake_chat_service.dart';
+import 'support/fake_profile_gateway.dart';
+
+const AuthUser _self = AuthUser(account: '10000001', username: 'alice');
+const ChatUser _bob = ChatUser(
+  account: '10000002',
+  username: 'bob',
+  avatarUrl: '/avatars/10000002.png',
+  avatarVersion: 'v-bob',
+  presence: Presence.online,
+);
+
+ChatMessage _message(
+  int position, {
+  String sender = '10000002',
+  String text = '消息',
+  DateTime? at,
+  ChatMessageKind kind = ChatMessageKind.body,
+  Attachment? attachment,
+}) {
+  return ChatMessage(
+    id: 'm$position',
+    position: position,
+    senderAccount: sender,
+    targetAccount: sender == _self.account ? '10000002' : _self.account,
+    createdAt:
+        at ?? DateTime.utc(2026, 1, 1, 12).add(Duration(minutes: position)),
+    kind: kind,
+    parts: kind == ChatMessageKind.body
+        ? <MessagePart>[TextPart(text)]
+        : const <MessagePart>[],
+    attachment: attachment,
+  );
+}
+
+class _Harness {
+  _Harness({
+    List<ChatMessage>? thread,
+    this.textScale = 1,
+    this.reducedMotion = false,
+  }) : chat = FakeChatService(
+         self: _self,
+         users: const <ChatUser>[_bob],
+         conversations: <String, List<ChatMessage>>{
+           _bob.account: thread ?? <ChatMessage>[],
+         },
+       ),
+       profile = FakeProfileGateway();
+
+  final FakeChatService chat;
+  final FakeProfileGateway profile;
+  final double textScale;
+  final bool reducedMotion;
+
+  Future<void> pump(
+    WidgetTester tester, {
+    Size size = const Size(390, 844),
+  }) async {
+    tester.view.physicalSize = size;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MediaQuery(
+          data: MediaQueryData(
+            size: size,
+            textScaler: TextScaler.linear(textScale),
+            disableAnimations: reducedMotion,
+          ),
+          child: ChatPage(peer: _bob, chat: chat, profile: profile),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+  }
+
+  Future<void> send(WidgetTester tester, String text) async {
+    await tester.enterText(find.byKey(ChatComposer.inputKey), text);
+    await tester.tap(find.byKey(ChatComposer.sendKey));
+    await tester.pump();
+  }
+}
+
+void main() {
+  testWidgets('a send shows one local bubble before the server commits, then '
+      'the same identity settles without a duplicate or re-entry', (
+    WidgetTester tester,
+  ) async {
+    final _Harness harness = _Harness(thread: <ChatMessage>[_message(1)]);
+    harness.chat.sendGate = Completer<void>();
+    await harness.pump(tester);
+
+    await harness.send(tester, '马上到');
+    await tester.pump();
+
+    expect(find.text('马上到'), findsOneWidget, reason: 'local echo is immediate');
+    expect(find.byKey(MessageBubble.sendingKey), findsOneWidget);
+    final MessageBubble sendingBubble = tester.widget<MessageBubble>(
+      find.byType(MessageBubble).last,
+    );
+    expect(sendingBubble.sendState, SendFeedbackState.sending);
+    expect(
+      tester.widget<MessageEntrance>(find.byType(MessageEntrance).last).animate,
+      isTrue,
+      reason: 'a new local bubble enters once',
+    );
+
+    harness.chat.sendGate!.complete();
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(MessageBubble.sendingKey), findsNothing);
+    expect(find.text('马上到'), findsOneWidget);
+    expect(
+      find.byType(MessageBubble),
+      findsNWidgets(2),
+      reason: 'the pending bubble was replaced, not duplicated',
+    );
+    expect(
+      find.descendant(
+        of: find.byType(MessageEntrance).last,
+        matching: find.byKey(MessageEntrance.animationKey),
+      ),
+      findsOneWidget,
+      reason: 'the sent bubble kept its one entrance animation',
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a failed send keeps the bubble and retries the same operation '
+      'id without a second send', (WidgetTester tester) async {
+    final _Harness harness = _Harness(thread: <ChatMessage>[_message(1)]);
+    harness.chat.failBody = true;
+    await harness.pump(tester);
+
+    await harness.send(tester, '发不出去');
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(MessageBubble.failedKey), findsOneWidget);
+    expect(find.text('未发送 · 点按重试'), findsOneWidget);
+    expect(find.text('发不出去'), findsOneWidget);
+    expect(harness.chat.sendCalls, 1);
+
+    harness.chat.failBody = false;
+    await tester.tap(find.byKey(MessageBubble.failedKey));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(MessageBubble.failedKey), findsNothing);
+    expect(find.text('发不出去'), findsOneWidget);
+    expect(
+      harness.chat.sendCalls,
+      1,
+      reason: 'retry reuses the operation instead of composing a second send',
+    );
+    expect(harness.chat.bodyOperationIds, <String>[
+      '${harness.chat.sendSeeds.single}-b',
+    ], reason: 'retry keeps the exact stable operation id');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('entrance plays only for messages that were not on screen', (
+    WidgetTester tester,
+  ) async {
+    final _Harness harness = _Harness(thread: <ChatMessage>[_message(1)]);
+    await harness.pump(tester);
+
+    expect(
+      tester
+          .widgetList<MessageEntrance>(find.byType(MessageEntrance))
+          .where((MessageEntrance entrance) => entrance.animate),
+      isEmpty,
+      reason: 'history load must not animate',
+    );
+
+    harness.chat.conversations[_bob.account]!.add(_message(2, text: '刚到的新消息'));
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump();
+    await tester.pump();
+
+    final Iterable<MessageEntrance> animating = tester
+        .widgetList<MessageEntrance>(find.byType(MessageEntrance))
+        .where((MessageEntrance entrance) => entrance.animate);
+    expect(animating, hasLength(1));
+    expect(
+      tester.widget<MessageEntrance>(find.byType(MessageEntrance).last).animate,
+      isTrue,
+    );
+
+    // Refresh rebuilds from history: nothing may replay as new.
+    await tester.tap(find.byKey(ChatPage.refreshKey));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widgetList<MessageEntrance>(find.byType(MessageEntrance))
+          .where((MessageEntrance entrance) => entrance.animate),
+      isEmpty,
+      reason: 'refresh and history rebuilds are not new messages',
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('system reduce-motion keeps the new message without entrance', (
+    WidgetTester tester,
+  ) async {
+    final _Harness harness = _Harness(
+      thread: <ChatMessage>[_message(1)],
+      reducedMotion: true,
+    );
+    await harness.pump(tester);
+    harness.chat.conversations[_bob.account]!.add(_message(2, text: '减少动画'));
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('减少动画'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(MessageEntrance),
+        matching: find.byKey(MessageEntrance.animationKey),
+      ),
+      findsNothing,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('incoming messages do not pull a history reader down, a send '
+      'still reveals its own bubble', (WidgetTester tester) async {
+    final List<ChatMessage> thread = <ChatMessage>[
+      for (int position = 1; position <= 40; position += 1)
+        _message(position, text: '历史 $position'),
+    ];
+    final _Harness harness = _Harness(thread: thread);
+    await harness.pump(tester);
+
+    final ScrollController controller = tester
+        .widget<ListView>(find.byKey(ChatPage.listKey))
+        .controller!;
+    await tester.drag(find.byKey(ChatPage.listKey), const Offset(0, 700));
+    await tester.pumpAndSettle();
+    final double parked = controller.offset;
+    expect(
+      controller.position.maxScrollExtent - parked,
+      greaterThan(96),
+      reason: 'the reader is parked in history',
+    );
+
+    harness.chat.conversations[_bob.account]!.add(_message(41, text: '不该拉到底部'));
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump();
+    await tester.pump();
+    expect(controller.offset, parked, reason: 'incoming message must not yank');
+
+    await tester.enterText(find.byKey(ChatComposer.inputKey), '我自己发一条');
+    await tester.pump();
+    await tester.tap(find.byKey(ChatComposer.sendKey));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pumpAndSettle();
+    await tester.pump();
+    expect(
+      controller.position.maxScrollExtent - controller.offset,
+      lessThan(1),
+      reason: 'an explicit send reveals the local bubble',
+    );
+    expect(find.text('我自己发一条'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('two sends in flight stay independent and both commit once', (
+    WidgetTester tester,
+  ) async {
+    final _Harness harness = _Harness(thread: <ChatMessage>[_message(1)]);
+    harness.chat.sendGate = Completer<void>();
+    await harness.pump(tester);
+
+    await harness.send(tester, '第一条');
+    await tester.pump();
+    await harness.send(tester, '第二条');
+    await tester.pump();
+
+    expect(find.text('第一条'), findsOneWidget);
+    expect(find.text('第二条'), findsOneWidget);
+    expect(find.byKey(MessageBubble.sendingKey), findsNWidgets(2));
+
+    harness.chat.sendGate!.complete();
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(MessageBubble.sendingKey), findsNothing);
+    expect(find.text('第一条'), findsOneWidget);
+    expect(find.text('第二条'), findsOneWidget);
+    expect(harness.chat.sendCalls, 2);
+    expect(harness.chat.sendSeeds.toSet(), hasLength(2));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'phone/desktop and large text keep long bubbles without overflow',
+    (WidgetTester tester) async {
+      final String longText = '很长的一条消息 ' * 40;
+      final List<ChatMessage> thread = <ChatMessage>[
+        _message(1, text: longText),
+        _message(2, sender: _self.account, text: '好的，收到。'),
+      ];
+      final _Harness harness = _Harness(thread: thread, textScale: 1.6);
+      await harness.pump(tester, size: const Size(390, 844));
+      expect(tester.takeException(), isNull);
+
+      await harness.pump(tester, size: const Size(1440, 900));
+      expect(tester.takeException(), isNull);
+    },
+  );
+}

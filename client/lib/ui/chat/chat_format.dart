@@ -61,11 +61,37 @@ bool shouldShowDaySeparator(DateTime? previous, DateTime current) {
   return a.year != b.year || a.month != b.month || a.day != b.day;
 }
 
+/// A run is a set of consecutive bubbles from one sender inside this window.
+/// It drives avatar grouping and the 12px/3px vertical rhythm; it is a
+/// presentation rule only, never a message fact.
+const Duration chatMessageRunWindow = Duration(minutes: 5);
+
 bool shouldShowGapLabel(DateTime? previous, DateTime current) {
   if (previous == null) {
     return false;
   }
-  return current.difference(previous).abs() >= const Duration(minutes: 5);
+  return current.difference(previous).abs() >= chatMessageRunWindow;
+}
+
+/// Whether [current] continues the run opened by [previous].
+bool continuesMessageRun(
+  String? previousSender,
+  DateTime? previousTime,
+  String sender,
+  DateTime current,
+) {
+  if (previousSender == null || previousTime == null) {
+    return false;
+  }
+  if (previousSender != sender) {
+    return false;
+  }
+  final DateTime a = previousTime.toLocal();
+  final DateTime b = current.toLocal();
+  if (a.year != b.year || a.month != b.month || a.day != b.day) {
+    return false;
+  }
+  return current.difference(previousTime).abs() < chatMessageRunWindow;
 }
 
 String formatBytes(int bytes) {
