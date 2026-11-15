@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
+import 'dart:math' as math;
+import 'dart:ui' show DisplayFeature;
 
 import 'package:flutter/material.dart';
 
@@ -17,6 +19,9 @@ import 'chat/users_view.dart';
 import 'updates/update_scope.dart';
 import 'updates/update_settings_host.dart';
 import 'profile/profile_panel.dart';
+import 'space/space_gateway.dart';
+import 'space/space_local_store.dart';
+import 'space/space_page.dart';
 import 'widgets/profile_avatar.dart';
 
 /// Signed-in home surface for STEP-2.
@@ -35,6 +40,7 @@ class HomeView extends StatefulWidget {
     required this.onSignedOut,
     required this.onSessionExpired,
     this.chat,
+    this.space,
   });
 
   final AuthUser user;
@@ -45,6 +51,7 @@ class HomeView extends StatefulWidget {
   /// STEP-3 chat service. When present the signed-in home is the registered
   /// user list; when null the STEP-2 profile-only home is kept.
   final ChatService? chat;
+  final SpaceGateway? space;
   final void Function(LogoutResult? result) onSignedOut;
   final void Function() onSessionExpired;
 
@@ -53,12 +60,17 @@ class HomeView extends StatefulWidget {
   static const Key greetingKey = Key('home-greeting');
   static const Key signatureKey = Key('home-signature');
   static const Key errorKey = Key('home-profile-error');
+  static const Key navChatKey = Key('home-nav-chat');
+  static const Key navSpaceKey = Key('home-nav-space');
+  static const Key railAvatarKey = Key('home-rail-avatar');
+  static const double railWidth = 92;
 
   @override
   State<HomeView> createState() => _HomeViewState();
 }
 
 class _HomeViewState extends State<HomeView> {
+  int _section = 0;
   Profile? _profile;
   Uint8List? _avatar;
   bool _loading = true;
@@ -191,6 +203,14 @@ class _HomeViewState extends State<HomeView> {
 
   @override
   Widget build(BuildContext context) {
+    final SpaceGateway? space = widget.space;
+    if (space == null) {
+      return _chatScaffold(context);
+    }
+    return _appScaffold(context, space);
+  }
+
+  Widget _chatScaffold(BuildContext context) {
     final TextTheme text = Theme.of(context).textTheme;
     final bool reconnecting =
         widget.heartbeat.phase == HeartbeatPhase.reconnecting;
@@ -340,6 +360,206 @@ class _HomeViewState extends State<HomeView> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  /// Signed-in shell when Space is available. Chat keeps its existing surface;
+  /// Space is a sibling tab, so switching never rebuilds either state tree.
+  Widget _appScaffold(BuildContext context, SpaceGateway space) {
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final bool compact = constraints.maxWidth < 720;
+        final Widget pages = IndexedStack(
+          index: _section,
+          children: <Widget>[
+            _chatScaffold(context),
+            _spacePage(
+              context,
+              space,
+              railWidth: compact ? 0 : HomeView.railWidth,
+            ),
+          ],
+        );
+        return Scaffold(
+          backgroundColor: AppColors.paper,
+          body: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              SizedBox(
+                width: compact ? 0 : HomeView.railWidth,
+                child: compact ? null : _rail(context),
+              ),
+              Expanded(child: pages),
+            ],
+          ),
+          bottomNavigationBar: compact
+              ? NavigationBar(
+                  selectedIndex: _section,
+                  onDestinationSelected: (int index) =>
+                      setState(() => _section = index),
+                  destinations: const <NavigationDestination>[
+                    NavigationDestination(
+                      key: HomeView.navChatKey,
+                      icon: Icon(Icons.chat_bubble_outline_rounded),
+                      selectedIcon: Icon(Icons.chat_bubble_rounded),
+                      label: '聊天',
+                    ),
+                    NavigationDestination(
+                      key: HomeView.navSpaceKey,
+                      icon: Icon(Icons.public_outlined),
+                      selectedIcon: Icon(Icons.public_rounded),
+                      label: 'BB空间',
+                    ),
+                  ],
+                )
+              : null,
+        );
+      },
+    );
+  }
+
+  /// The rail consumes [railWidth] screen pixels. Shift the Space media
+  /// rectangle so a hinge stays a real pane boundary instead of drifting by
+  /// the navigation width.
+  Widget _spacePage(
+    BuildContext context,
+    SpaceGateway space, {
+    required double railWidth,
+  }) {
+    return Builder(
+      builder: (BuildContext context) {
+        final MediaQueryData media = MediaQuery.of(context);
+        final Size size = media.size;
+        return MediaQuery(
+          data: media.copyWith(
+            size: Size(math.max(size.width - railWidth, 0), size.height),
+            displayFeatures: <DisplayFeature>[
+              for (final DisplayFeature feature in media.displayFeatures)
+                DisplayFeature(
+                  bounds: feature.bounds.translate(-railWidth, 0),
+                  type: feature.type,
+                  state: feature.state,
+                ),
+            ],
+          ),
+          child: SafeArea(
+            child: SpacePage(
+              key: ValueKey<String>('space-${space.scopeKey}'),
+              gateway: space,
+              store: SpaceLocalStore.shared(scopeKey: space.scopeKey),
+              onSessionExpired: widget.onSessionExpired,
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _rail(BuildContext context) {
+    final TextTheme text = Theme.of(context).textTheme;
+    return Container(
+      width: 92,
+      decoration: const BoxDecoration(
+        color: AppColors.surface,
+        border: Border(right: BorderSide(color: AppColors.border)),
+      ),
+      child: SafeArea(
+        child: Column(
+          children: <Widget>[
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
+              child: Text(
+                'BB',
+                style: text.labelLarge?.copyWith(
+                  color: AppColors.accentDeep,
+                  letterSpacing: 1.6,
+                  fontSize: 18,
+                ),
+              ),
+            ),
+            _RailButton(
+              key: HomeView.navChatKey,
+              icon: _section == 0
+                  ? Icons.chat_bubble_rounded
+                  : Icons.chat_bubble_outline_rounded,
+              label: '聊天',
+              selected: _section == 0,
+              onTap: () => setState(() => _section = 0),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            _RailButton(
+              key: HomeView.navSpaceKey,
+              icon: _section == 1
+                  ? Icons.public_rounded
+                  : Icons.public_outlined,
+              label: 'BB空间',
+              selected: _section == 1,
+              onTap: () => setState(() => _section = 1),
+            ),
+            const Spacer(),
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.md),
+              child: ProfileAvatar(
+                key: HomeView.railAvatarKey,
+                bytes: _avatar,
+                size: 48,
+                loading: _loading && _avatar == null,
+                onTap: _openProfile,
+                semanticLabel: '打开个人资料',
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RailButton extends StatelessWidget {
+  const _RailButton({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color color = selected ? AppColors.accentDeep : AppColors.inkMuted;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadius.brand),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+          decoration: BoxDecoration(
+            color: selected ? AppColors.accentSoft : Colors.transparent,
+            borderRadius: BorderRadius.circular(AppRadius.brand),
+          ),
+          child: Column(
+            children: <Widget>[
+              Icon(icon, color: color, size: 22),
+              const SizedBox(height: 2),
+              Text(
+                label,
+                style: TextStyle(
+                  color: color,
+                  fontSize: 11.5,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
