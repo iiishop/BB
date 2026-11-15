@@ -66,6 +66,18 @@ ThemeData buildAppTheme() {
         outlineVariant: AppColors.border,
       );
   final TextTheme base = ThemeData.light().textTheme;
+  // Button labels inherit the text theme family explicitly. Leaving the family
+  // unset makes the label fall back to the platform default, which diverges
+  // from every other surface (and renders tofu in widget-test evidence).
+  final TextStyle buttonLabel = (base.labelLarge ?? const TextStyle()).copyWith(
+    fontSize: 16,
+    fontWeight: FontWeight.w600,
+    letterSpacing: 0.1,
+  );
+  final TextStyle outlinedButtonLabel = (base.labelLarge ?? const TextStyle())
+      .copyWith(fontSize: 15.5, fontWeight: FontWeight.w600);
+  final TextStyle textButtonLabel = (base.labelLarge ?? const TextStyle())
+      .copyWith(fontSize: 14.5, fontWeight: FontWeight.w600);
   final OutlineInputBorder idleBorder = OutlineInputBorder(
     borderRadius: BorderRadius.circular(AppRadius.field),
     borderSide: const BorderSide(color: AppColors.border),
@@ -180,11 +192,7 @@ ThemeData buildAppTheme() {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppRadius.button),
         ),
-        textStyle: const TextStyle(
-          fontSize: 16,
-          fontWeight: FontWeight.w600,
-          letterSpacing: 0.1,
-        ),
+        textStyle: buttonLabel,
       ),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
@@ -195,14 +203,14 @@ ThemeData buildAppTheme() {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppRadius.button),
         ),
-        textStyle: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w600),
+        textStyle: outlinedButtonLabel,
       ),
     ),
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
         foregroundColor: AppColors.accent,
         minimumSize: const Size(48, 48),
-        textStyle: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600),
+        textStyle: textButtonLabel,
       ),
     ),
     snackBarTheme: SnackBarThemeData(

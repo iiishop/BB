@@ -9,6 +9,10 @@
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28"/>
+    <!-- DEA-479 self-update: the downloaded APK is handed to the system
+         package installer, which still owns the user confirmation and the
+         "install unknown apps" grant. No silent install is attempted. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
     <!-- Self-hosted BB servers are usually a LAN address on plain HTTP, and
          Android blocks cleartext by default from API 28 on. HTTPS stays the
          recommended path for anything reachable from the internet; this only
@@ -40,6 +44,17 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- Serves the staged APK to the system installer with a one-shot
+             read grant; a file:// URI would be rejected on API 24+. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.updates"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/update_paths" />
+        </provider>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

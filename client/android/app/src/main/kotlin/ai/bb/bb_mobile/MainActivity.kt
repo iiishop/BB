@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.ClipboardManager
 import android.content.ContentValues
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
@@ -34,6 +35,7 @@ class MainActivity : FlutterActivity() {
 
     private var pendingGallerySave: PendingGallerySave? = null
     private var pendingGalleryResult: MethodChannel.Result? = null
+    private var updateInstaller: UpdateInstaller? = null
 
     private companion object {
         const val GALLERY_PERMISSION_REQUEST = 4711
@@ -41,6 +43,14 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        // DEA-479 self-update: only the install hand-off lives on the Android
+        // side; version selection, download and checksum live in the Dart
+        // update contract. The channel is recreated with the engine, so a
+        // hot-restart cannot leave a stale handler behind.
+        updateInstaller = UpdateInstaller(
+            this,
+            MethodChannel(flutterEngine.dartExecutor.binaryMessenger, UpdateInstaller.CHANNEL),
+        ).also { it.attach() }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
             .setMethodCallHandler { call, result ->
                 if (call.method != "readClipboardMedia") {
@@ -120,6 +130,13 @@ class MainActivity : FlutterActivity() {
                     result.error("save_failed", error.message ?: "save failed", null)
                 }
             }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        // Kept separate from FlutterActivity's own handling: super() must run
+        // first so plugins still receive their own request codes.
+        updateInstaller?.onActivityResult(requestCode, resultCode)
     }
 
     override fun onRequestPermissionsResult(
