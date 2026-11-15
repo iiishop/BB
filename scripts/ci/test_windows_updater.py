@@ -95,9 +95,10 @@ class Fixture { static void Main(string[] args) {
                 env["BB_UPDATE_FAULT"] = fault
             if crash:
                 env["BB_UPDATE_CRASH"] = crash
+            error_log = tempfile.TemporaryFile()
             updater = subprocess.Popen([str(self.helper), "--apply", str(self.old), str(self.archive),
                 digest or hashlib.sha256(self.archive.read_bytes()).hexdigest(), str(parent.pid)],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+                stdout=subprocess.PIPE, stderr=error_log, env=env)
             try:
                 # A background reader is unnecessary: the updater preflight is
                 # bounded by the test runner's subprocess timeout watchdog below.
@@ -108,10 +109,15 @@ class Fixture { static void Main(string[] args) {
                 if line == "READY":
                     parent.terminate()
                     parent.wait(timeout=10)
-                out, err = updater.communicate(timeout=45)
-                return updater.returncode, line + out.decode("utf-8-sig"), err.decode("utf-8-sig")
+                updater.wait(timeout=45)
+                # A real GUI child may inherit standard handles and outlive the
+                # helper. Its lifetime must not keep communicate() waiting for EOF.
+                error_log.seek(0)
+                return updater.returncode, line, error_log.read().decode("utf-8-sig")
             finally:
                 watchdog.cancel()
+                updater.stdout.close()
+                error_log.close()
                 if updater.poll() is None:
                     updater.kill()
                     updater.wait(timeout=10)

@@ -97,8 +97,9 @@ class ReleaseUpdateController extends UpdateController {
         safetyGate.installing ||
         snapshot.busy ||
         release == null ||
-        _disposed)
+        _disposed) {
       return;
+    }
     _working = true;
     _cancelled = false;
     _verified = null;
@@ -165,8 +166,9 @@ class ReleaseUpdateController extends UpdateController {
         safetyGate.installing ||
         snapshot.busy ||
         verified == null ||
-        _disposed)
+        _disposed) {
       return;
+    }
     _working = true;
     _platformCompletion = null;
     var acquired = false;
