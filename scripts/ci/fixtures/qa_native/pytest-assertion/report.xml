@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.012" timestamp="2026-11-15T20:23:42.615381+00:00" hostname="iiishop-Arch"><testcase classname="test_probe" name="test_authority" time="0.000"><failure message="AssertionError: authority must remain NEW&#10;assert 1 == 2">def test_authority():
+&gt;       assert 1 == 2, "authority must remain NEW"
+E       AssertionError: authority must remain NEW
+E       assert 1 == 2
+
+test_probe.py:3: AssertionError</failure></testcase></testsuite></testsuites>

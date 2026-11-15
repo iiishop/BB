@@ -1,0 +1,7 @@
+{"protocolVersion":"0.1.1","runnerVersion":null,"pid":511610,"type":"start","time":0}
+{"suite":{"id":0,"platform":"vm","path":"/tmp/qa-native-34dkndkl/probe_test.dart"},"type":"suite","time":0}
+{"test":{"id":1,"name":"loading /tmp/qa-native-34dkndkl/probe_test.dart","suiteID":0,"groupIDs":[],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":null},"type":"testStart","time":0}
+{"count":1,"time":3,"type":"allSuites"}
+{"testID":1,"error":"Failed to load \"/tmp/qa-native-34dkndkl/probe_test.dart\":\nCompilation failed for testPath=/tmp/qa-native-34dkndkl/probe_test.dart: probe_test.dart:2:46: Error: 'not' isn't a type.\nvoid main() { test('authority', () { this is not valid Dart; }, skip: false); }\n                                             ^^^\nprobe_test.dart:2:38: Error: Expected identifier, but got 'this'.\nvoid main() { test('authority', () { this is not valid Dart; }, skip: false); }\n                                     ^^^^\nprobe_test.dart:2:46: Error: Expected ';' after this.\nvoid main() { test('authority', () { this is not valid Dart; }, skip: false); }\n                                             ^^^\nprobe_test.dart:2:50: Error: 'valid' isn't a type.\nvoid main() { test('authority', () { this is not valid Dart; }, skip: false); }\n                                                 ^^^^^\n.","stackTrace":"","isFailure":false,"type":"error","time":703}
+{"testID":1,"result":"error","skipped":false,"hidden":false,"type":"testDone","time":705}
+{"success":false,"type":"done","time":706}
