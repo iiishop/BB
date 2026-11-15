@@ -8,6 +8,7 @@ import '../../models/auth_models.dart';
 import '../../models/chat_models.dart';
 import '../../models/profile_models.dart';
 import '../../services/chat_service.dart';
+import '../../services/presence_directory.dart';
 import '../../services/profile_service.dart';
 import 'chat_format.dart';
 
@@ -19,11 +20,16 @@ class UsersListView extends StatefulWidget {
     required this.chat,
     required this.profile,
     required this.onOpenChat,
+    this.presence,
     this.onSessionExpired,
   });
 
   final ChatService chat;
   final ProfileGateway profile;
+
+  /// Last-confirmed presence shared with the open conversation; when absent
+  /// the page falls back to the presence each list page carried.
+  final PresenceDirectory? presence;
   final void Function(ChatUser user) onOpenChat;
   final VoidCallback? onSessionExpired;
 
@@ -50,6 +56,7 @@ class _UsersListViewState extends State<UsersListView> {
   @override
   void initState() {
     super.initState();
+    widget.presence?.addListener(_onPresenceChanged);
     unawaited(_load(reset: true));
     _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       if (mounted && !_inFlight) {
@@ -60,8 +67,15 @@ class _UsersListViewState extends State<UsersListView> {
 
   @override
   void dispose() {
+    widget.presence?.removeListener(_onPresenceChanged);
     _refreshTimer?.cancel();
     super.dispose();
+  }
+
+  void _onPresenceChanged() {
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   Future<void> _load({required bool reset, bool silent = false}) async {
@@ -104,6 +118,9 @@ class _UsersListViewState extends State<UsersListView> {
         _loadingMore = false;
         _error = null;
       });
+      // One fresh server page is authoritative for the accounts it contains;
+      // share it so an open conversation cannot keep a stale header.
+      widget.presence?.seed(page.items);
     } on AuthFailure catch (failure) {
       if (!mounted) {
         return;
@@ -233,6 +250,8 @@ class _UsersListViewState extends State<UsersListView> {
               return _UserRow(
                 key: UsersListView.rowKey(user.account),
                 user: user,
+                presence:
+                    widget.presence?.valueFor(user.account) ?? user.presence,
                 profile: widget.profile,
                 selfAccount: widget.chat.selfAccount,
                 onTap: () => widget.onOpenChat(user),
@@ -279,12 +298,14 @@ class _UserRow extends StatelessWidget {
   const _UserRow({
     super.key,
     required this.user,
+    required this.presence,
     required this.profile,
     required this.selfAccount,
     required this.onTap,
   });
 
   final ChatUser user;
+  final Presence presence;
   final ProfileGateway profile;
   final String selfAccount;
   final VoidCallback onTap;
@@ -376,7 +397,7 @@ class _UserRow extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 6),
-                _PresenceBadge(presence: user.presence),
+                _PresenceBadge(presence: presence),
               ],
             ),
           ],

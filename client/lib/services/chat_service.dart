@@ -609,6 +609,36 @@ class ChatService {
     return page;
   }
 
+  /// Reads one peer's presence from the same `GET /users` source the signed-in
+  /// list uses, without paging the whole directory.
+  ///
+  /// Accounts are ascending 8-digit keyset values, so the page directly before
+  /// [account] contains that account even when the directory is paginated and
+  /// `limit: 1` returns it. Returns null when the server no longer lists the
+  /// account; callers must keep their last confirmed value instead of reading
+  /// that as offline.
+  Future<Presence?> presenceOf(
+    String account, {
+    ExpectedIdentity? expectedIdentity,
+  }) async {
+    final int numeric = int.tryParse(account) ?? 0;
+    // The keyset cursor must itself be a valid account: '' starts before the
+    // smallest allocatable account, (account - 1) is the row just below this
+    // one.
+    final String after = numeric > 10000000 ? '${numeric - 1}' : '';
+    final UserPage page = await listUsers(
+      afterAccount: after,
+      limit: 1,
+      expectedIdentity: expectedIdentity,
+    );
+    for (final ChatUser user in page.items) {
+      if (user.account == account) {
+        return user.presence;
+      }
+    }
+    return null;
+  }
+
   Future<MessagePage> loadConversation({
     required String peerAccount,
     int afterPosition = 0,
