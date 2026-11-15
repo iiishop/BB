@@ -26,6 +26,11 @@ import time
 import zipfile
 from pathlib import Path
 
+if hasattr(sys.stdout, "reconfigure"):
+    # Windows runners default to cp1252; summaries contain Chinese paths.
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 APP_EXECUTABLE = "bb_client.exe"
 FFMPEG_RELATIVE = "ffmpeg/ffmpeg.exe"
 REQUIRED_RELATIVE = (

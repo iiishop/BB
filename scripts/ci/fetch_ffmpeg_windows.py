@@ -27,6 +27,11 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
+if hasattr(sys.stdout, "reconfigure"):
+    # Windows runners default to cp1252; summaries contain Chinese paths.
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 FFMPEG_VERSION = "n8.1.3-35-gf1acb0a266"
 FFMPEG_RELEASE_BRANCH = "release/8.1"
 FFMPEG_COMMIT = "f1acb0a2666c78d92688f4c3d2803a132f5590f6"
