@@ -198,7 +198,14 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
       final Finder scrollbar = find.descendant(
         of: find.byKey(ChatPage.listKey),
-        matching: find.byWidgetPredicate((Widget w) => w is RawScrollbar),
+        matching: find.byWidgetPredicate(
+          (Widget w) =>
+              w is RawScrollbar &&
+              w.controller ==
+                  tester
+                      .widget<ListView>(find.byKey(ChatPage.listKey))
+                      .controller,
+        ),
       );
       expect(scrollbar, findsOneWidget);
       final RawScrollbarState state = tester.state<RawScrollbarState>(
