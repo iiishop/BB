@@ -11,6 +11,7 @@ import '../../models/chat_media.dart';
 import '../../models/chat_models.dart';
 import '../../services/chat_service.dart';
 import '../../services/media_stream_proxy.dart';
+import '../../services/presence_directory.dart';
 import '../../services/profile_service.dart';
 import '../widgets/profile_avatar.dart';
 import 'chat_avatars.dart';
@@ -30,6 +31,7 @@ class ChatPage extends StatefulWidget {
     required this.peer,
     required this.chat,
     required this.profile,
+    this.presence,
     this.openExternalStream,
     this.onMessagesChanged,
     this.saveService,
@@ -38,8 +40,14 @@ class ChatPage extends StatefulWidget {
     this.viewerInlineVideoSupported,
   });
 
+  /// Snapshot used for name/avatar; presence is read live from [presence] when
+  /// one is provided, so an update lands without leaving and reopening.
   final ChatUser peer;
   final ChatService chat;
+
+  /// Shared with the user list; null keeps the snapshot (tests and any surface
+  /// that has no directory).
+  final PresenceDirectory? presence;
 
   /// Avatar source shared with the Profile surfaces; the chat page never draws
   /// its own initials.
@@ -138,6 +146,11 @@ class _ChatPageState extends State<ChatPage> {
   /// from before that gesture are abandoned instead of fighting the drag.
   int _scrollEpoch = 0;
 
+  /// Maximum reading-column width inside the full-width transcript viewport.
+  /// It keeps the old 860px centred column (860 minus the list's 2x16 padding)
+  /// while the scroll viewport itself stays as wide as the chat pane.
+  static const double _readingColumnMaxWidth = 860 - AppSpacing.md * 2;
+
   String get _consumerSession =>
       'ui:${widget.chat.selfAccount}:${widget.peer.account}';
 
@@ -153,6 +166,8 @@ class _ChatPageState extends State<ChatPage> {
       profile: widget.profile,
       accounts: <String>[widget.chat.selfAccount, widget.peer.account],
     )..addListener(_onAvatarsChanged);
+    widget.presence?.addListener(_onPresenceChanged);
+    widget.presence?.watch(widget.peer.account);
     unawaited(_loadInitial());
     _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       if (mounted && !_fetching) {
@@ -161,9 +176,27 @@ class _ChatPageState extends State<ChatPage> {
     });
   }
 
+  void _onPresenceChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
   @override
   void didUpdateWidget(covariant ChatPage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.presence != widget.presence) {
+      oldWidget.presence
+        ?..removeListener(_onPresenceChanged)
+        ..unwatch(oldWidget.peer.account);
+      widget.presence
+        ?..addListener(_onPresenceChanged)
+        ..watch(widget.peer.account);
+    } else if (oldWidget.peer.account != widget.peer.account) {
+      widget.presence
+        ?..unwatch(oldWidget.peer.account)
+        ..watch(widget.peer.account);
+    }
     if (oldWidget.peer.account != widget.peer.account) {
       // Requests captured for the previous conversation must never write into
       // this page. A real navigation creates a new state; this guard also
@@ -192,6 +225,9 @@ class _ChatPageState extends State<ChatPage> {
 
   @override
   void dispose() {
+    widget.presence
+      ?..removeListener(_onPresenceChanged)
+      ..unwatch(widget.peer.account);
     _pollTimer?.cancel();
     _avatars
       ..removeListener(_onAvatarsChanged)
@@ -1027,6 +1063,11 @@ class _ChatPageState extends State<ChatPage> {
         .showSnackBar(SnackBar(content: Text(message)));
   }
 
+  /// Last confirmed presence from the shared directory, else the snapshot the
+  /// row handed over when the page opened.
+  Presence get _presenceOfPeer =>
+      widget.presence?.valueFor(widget.peer.account) ?? widget.peer.presence;
+
   @override
   Widget build(BuildContext context) {
     final TextTheme text = Theme.of(context).textTheme;
@@ -1060,7 +1101,7 @@ class _ChatPageState extends State<ChatPage> {
                 ),
                 Text(
                   '${widget.peer.account} · '
-                  '${widget.peer.presence == Presence.online ? '在线' : '离线'}',
+                  '${_presenceOfPeer == Presence.online ? '在线' : '离线'}',
                   style: text.bodySmall?.copyWith(fontSize: 11),
                 ),
               ],
@@ -1185,25 +1226,35 @@ class _ChatPageState extends State<ChatPage> {
         final DateTime local = message.createdAt.toLocal();
         if (shouldShowDaySeparator(previous, message.createdAt)) {
           timeline.add(
-            _DaySeparator(
+            _readingColumn(
               key: ValueKey<String>(
-                'chat-day-${local.year}-${local.month}-${local.day}',
+                'chat-column-day-${local.year}-${local.month}-${local.day}',
               ),
-              label: formatDaySeparator(message.createdAt),
+              child: _DaySeparator(
+                key: ValueKey<String>(
+                  'chat-day-${local.year}-${local.month}-${local.day}',
+                ),
+                label: formatDaySeparator(message.createdAt),
+              ),
             ),
           );
         } else if (shouldShowGapLabel(previous, message.createdAt)) {
           timeline.add(
-            KeyedSubtree(
-              key: ValueKey<String>('chat-gap-${message.identity}'),
-              child: Center(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
-                  child: Text(
-                    formatClockTime(message.createdAt),
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: AppColors.inkMuted,
+            _readingColumn(
+              key: ValueKey<String>('chat-column-gap-${message.identity}'),
+              child: KeyedSubtree(
+                key: ValueKey<String>('chat-gap-${message.identity}'),
+                child: Center(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: AppSpacing.sm,
+                    ),
+                    child: Text(
+                      formatClockTime(message.createdAt),
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: AppColors.inkMuted,
+                      ),
                     ),
                   ),
                 ),
@@ -1258,15 +1309,21 @@ class _ChatPageState extends State<ChatPage> {
         localMediaPreview: _previewFor,
       );
       timeline.add(
-        Padding(
-          key: ValueKey<String>('chat-row-$bubbleKey'),
-          padding: EdgeInsets.only(top: runStart ? 10 : 2),
-          child: MessageEntrance(
-            key: ValueKey<String>('chat-entrance-$bubbleKey'),
-            animate: entry.pending != null
-                ? pendingFirstFrame
-                : _animateIdentities.contains(message.identity),
-            child: bubble,
+        _readingColumn(
+          // The keyed wrapper (not the inner row) is the ListView child, so a
+          // day separator inserted above must not recreate the message element
+          // and reset its entrance/feedback state.
+          key: ValueKey<String>('chat-column-$bubbleKey'),
+          child: Padding(
+            key: ValueKey<String>('chat-row-$bubbleKey'),
+            padding: EdgeInsets.only(top: runStart ? 10 : 2),
+            child: MessageEntrance(
+              key: ValueKey<String>('chat-entrance-$bubbleKey'),
+              animate: entry.pending != null
+                  ? pendingFirstFrame
+                  : _animateIdentities.contains(message.identity),
+              child: bubble,
+            ),
           ),
         ),
       );
@@ -1284,23 +1341,34 @@ class _ChatPageState extends State<ChatPage> {
         _pendingEntered.addAll(consumedPending);
       });
     }
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 860),
-        child: NotificationListener<ScrollNotification>(
-          onNotification: _onScrollNotification,
-          child: ListView(
-            key: ChatPage.listKey,
-            controller: _scrollController,
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.md,
-              AppSpacing.md,
-              AppSpacing.md,
-              AppSpacing.lg,
-            ),
-            children: timeline,
-          ),
+    // The transcript scrolls as the full-width chat pane. Constraining the
+    // ListView itself to the reading column made the desktop scrollbar sit at
+    // the column edge and dropped wheel input over the side gutters (DEA-478);
+    // the column cap now applies to each row instead.
+    return NotificationListener<ScrollNotification>(
+      onNotification: _onScrollNotification,
+      child: ListView(
+        key: ChatPage.listKey,
+        controller: _scrollController,
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.md,
+          AppSpacing.md,
+          AppSpacing.md,
+          AppSpacing.lg,
         ),
+        children: timeline,
+      ),
+    );
+  }
+
+  /// Keeps the chat reading column centred and capped without shrinking the
+  /// scroll viewport (and therefore the scrollbar and wheel hit area).
+  Widget _readingColumn({Key? key, required Widget child}) {
+    return Center(
+      key: key,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: _readingColumnMaxWidth),
+        child: child,
       ),
     );
   }
