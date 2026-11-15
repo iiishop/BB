@@ -45,7 +45,8 @@ FFmpeg，程序按应用安装目录解析调用，不修改全局 PATH，删除
 - 检查 `ffmpeg.exe` 的 PE 导入表，拒绝 `libwinpthread`/`libgcc`/`zlib1`/FFmpeg DLL 等非系统依赖；
 - 生成 `BUILD-MANIFEST.txt`：源码哈希、exe SHA-256/大小、完整 configure、PE 导入、工具链；
 - 生成 `FFMPEG-NOTICE.txt`：版本、commit、源码与构建脚本地址、许可证清单、无源码修改声明、
-  对应源码获取方式与“删除应用即移除随包工具”的说明。
+  对应源码获取方式与“删除应用即移除随包工具”的说明；构建脚本随包为 `BUILD-FFMPEG.sh`，
+  manifest 记录 `build_script_git_commit`（CI 传入的候选 SHA）。
 
 `client/windows/CMakeLists.txt` 在 Release 构建中要求 `windows/ffmpeg/` 里同时存在
 `ffmpeg.exe`、许可证与声明，否则 `FATAL_ERROR`。
@@ -62,6 +63,7 @@ ZIP 内 `ffmpeg/` 目录包含：
 | `ZLIB-LICENSE.txt` | zlib 1.3.1 许可 |
 | `FFMPEG-NOTICE.txt` | 版本/commit/源码 URL 与 SHA-256、构建脚本、无修改声明、源码提供方式 |
 | `BUILD-MANIFEST.txt` | 上述固定值 + 实际 exe 哈希 + configure 参数 + PE 导入 |
+| `BUILD-FFMPEG.sh` | 产生该二进制的构建脚本（与仓库 `scripts/ci/build_ffmpeg_windows.sh` 一致） |
 
 由于本轮不再分发 BtbN 等静态包含多项外部库的预编译包，依赖清单就是 FFmpeg + zlib；
 不需要为几十个第三方静态库逐一提供许可/源码。构建关闭 `--enable-gpl`/`--enable-nonfree`，

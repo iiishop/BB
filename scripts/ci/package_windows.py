@@ -58,6 +58,7 @@ REQUIRED_RELATIVE = (
     "ffmpeg/FFMPEG-GPLv3.txt",
     "ffmpeg/ZLIB-LICENSE.txt",
     "ffmpeg/FFMPEG-NOTICE.txt",
+    "ffmpeg/BUILD-FFMPEG.sh",
 )
 LICENSE_MARKERS = {
     "ffmpeg/FFMPEG-LICENSE.txt": "GNU LESSER GENERAL PUBLIC LICENSE",

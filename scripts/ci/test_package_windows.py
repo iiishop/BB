@@ -51,6 +51,9 @@ def make_bundle(
         licenses.pop(omit_license)
     for name, text in licenses.items():
         (ffmpeg_dir / name).write_text(text, encoding="utf-8")
+    (ffmpeg_dir / "BUILD-FFMPEG.sh").write_text(
+        "#!/usr/bin/env bash\n", encoding="utf-8"
+    )
     (ffmpeg_dir / "FFMPEG-NOTICE.txt").write_text(
         "\n".join(
             (

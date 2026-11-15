@@ -133,12 +133,14 @@ DEST="$(cd "$DEST" && pwd -P)"
 # survive a rebuild.
 rm -f -- "$DEST"/ffmpeg.exe "$DEST"/FFMPEG-LICENSE.txt "$DEST"/FFMPEG-LGPLv3.txt \
   "$DEST"/FFMPEG-GPLv3.txt "$DEST"/ZLIB-LICENSE.txt "$DEST"/FFMPEG-NOTICE.txt \
-  "$DEST"/BUILD-MANIFEST.txt
+  "$DEST"/BUILD-MANIFEST.txt "$DEST"/BUILD-FFMPEG.sh
 install -m 0755 "$FFMPEG_EXE" "$DEST/ffmpeg.exe"
 cp "$FFMPEG_SRC/COPYING.LGPLv2.1" "$DEST/FFMPEG-LICENSE.txt"
 cp "$FFMPEG_SRC/COPYING.LGPLv3" "$DEST/FFMPEG-LGPLv3.txt"
 cp "$FFMPEG_SRC/COPYING.GPLv3" "$DEST/FFMPEG-GPLv3.txt"
 cp "$ZLIB_SRC/LICENSE" "$DEST/ZLIB-LICENSE.txt"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+cp "$SCRIPT_DIR/build_ffmpeg_windows.sh" "$DEST/BUILD-FFMPEG.sh"
 
 FFMPEG_VERSION="$(cat "$FFMPEG_SRC/RELEASE" 2>/dev/null || echo unknown)"
 CONFIGURE_LINE="${CONFIGURE_FLAGS[*]}"
@@ -156,7 +158,7 @@ fi
 IMPORTS="$(paste -sd, "$WORK/imports.txt")"
 EXE_SHA256="$(sha256sum "$DEST/ffmpeg.exe" | cut -d' ' -f1)"
 EXE_BYTES="$(stat -c %s "$DEST/ffmpeg.exe")"
-GIT_COMMIT="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
+GIT_COMMIT="${BB_GIT_COMMIT:-$(git rev-parse HEAD 2>/dev/null || echo unknown)}"
 TOOLCHAIN="$("$CC" --version | head -1)"
 
 cat > "$DEST/BUILD-MANIFEST.txt" <<EOF
@@ -205,11 +207,12 @@ https://github.com/FFmpeg/FFmpeg/tree/$FFMPEG_COMMIT
 zlib source archive (SHA-256 $ZLIB_SOURCE_SHA256):
 $ZLIB_SOURCE_URL
 
-Exact configure flags are recorded in BUILD-MANIFEST.txt (configure=...) and are
-produced by scripts/ci/build_ffmpeg_windows.sh in the BB repository at commit
-$GIT_COMMIT. That script plus the pinned archives provide the complete
-corresponding source and build configuration. No written request is required;
-the sources remain publicly available at the URLs above.
+Exact configure flags are recorded in BUILD-MANIFEST.txt (configure=...). The
+build script that produced this binary is included as BUILD-FFMPEG.sh and lives
+in the BB repository at commit $GIT_COMMIT. That script plus the pinned
+archives provide the complete corresponding source and build configuration. No
+written request is required; the sources remain publicly available at the URLs
+above.
 
 How the BB client uses it
 -------------------------
