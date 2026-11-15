@@ -1,0 +1,38 @@
+Resolving dependencies...
+Downloading packages...
+  code_assets 1.2.1 (2.2.0 available)
+  cross_file 0.3.5+5 (0.4.0 available)
+  hooks 2.0.2 (2.2.0 available)
+  material_color_utilities 0.13.0 (0.13.1 available)
+  meta 1.18.3 (1.19.0 available)
+  objective_c 9.5.0 (9.6.4 available)
+  record_use 0.6.0 (1.1.1 available)
+  test_api 0.7.12 (0.7.15 available)
+  vector_math 2.4.0 (2.4.4 available)
+  video_player_android 2.12.2 (2.12.4 available)
+  video_player_avfoundation 2.12.3 (2.12.4 available)
+Got dependencies!
+11 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+00:00 +0: loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/space_service_test.dart
+00:00 +0: consumer cannot reuse another consumer operation ID on same server/account
+00:00 +0 -1: consumer cannot reuse another consumer operation ID on same server/account [E]
+  Expected: throws <Instance of 'AuthFailure'>
+    Actual: <Instance of 'Future<Map<String, dynamic>?>'>
+     Which: emitted <null>
+  
+  package:matcher                                    expectLater
+  package:flutter_test/src/widget_tester.dart 507:8  expectLater
+  test/space_service_test.dart 43:11                 main.<fn>
+  ===== asynchronous gap ===========================
+  dart:async                                         _CustomZone.registerUnaryCallback
+  test/space_service_test.dart 41:5                  main.<fn>
+  
+00:00 +0 -1: lost publish reply reconciles without sending a second mutation
+00:00 +1 -1: in-flight switch saves original receipt but fences result and cross-account query
+00:00 +2 -1: intent flush failure prevents IO and rollback survives cold reopen
+00:00 +3 -1: schema rejects unknown fields, wrong type, duplicate images and blank comments
+00:00 +4 -1: Some tests failed.
+
+Failing tests:
+  /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/space_service_test.dart: consumer cannot reuse another consumer operation ID on same server/account

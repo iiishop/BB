@@ -1,0 +1,153 @@
+{
+  "candidate": "87c3807caa70b58914caf28c21b18d47386dfd15",
+  "baseline": "d402ba8cecdfdbfb421eef23165483b24f3bd1a3",
+  "checks": [
+    {
+      "name": "plugin",
+      "command": [
+        "uv",
+        "run",
+        "--project",
+        "dsh-plugin",
+        "--locked",
+        "pytest",
+        "dsh-plugin/tests",
+        "-q",
+        "--junitxml=/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/docs/evidence/dea481-agent/plugin.xml"
+      ],
+      "cwd": ".",
+      "exit_code": 0,
+      "seconds": 3.81,
+      "log": "plugin-final.log"
+    },
+    {
+      "name": "client",
+      "command": [
+        "flutter",
+        "test",
+        "test/space_service_test.dart",
+        "test/chat_ledger_io_rollback_test.dart",
+        "test/chat_ledger_commit_test.dart",
+        "test/chat_v2_local_server_test.dart",
+        "test/local_v2_unauthorized_test.dart",
+        "test/profile_v2_local_server_test.dart",
+        "test/session_race_local_server_test.dart",
+        "--reporter",
+        "json"
+      ],
+      "cwd": "client",
+      "exit_code": 0,
+      "seconds": 3.8,
+      "log": "client-final.log"
+    },
+    {
+      "name": "tcp",
+      "command": [
+        "uv",
+        "run",
+        "--project",
+        "dsh-plugin",
+        "--locked",
+        "python",
+        "dsh-plugin/probes/space_live.py"
+      ],
+      "cwd": ".",
+      "exit_code": 0,
+      "seconds": 5.12,
+      "log": "tcp-final.log"
+    },
+    {
+      "name": "native",
+      "command": [
+        "uv",
+        "run",
+        "--project",
+        "dsh-plugin",
+        "--locked",
+        "python",
+        "dsh-plugin/probes/space_host.py",
+        "/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/docs/evidence/dea481-agent",
+        "--runtime",
+        "/home/iiishop/.local/lib/node_modules/@deepseek-ai/dsh"
+      ],
+      "cwd": ".",
+      "exit_code": 0,
+      "seconds": 9.87,
+      "log": "native-final.log"
+    },
+    {
+      "name": "analyze",
+      "command": [
+        "dart",
+        "analyze",
+        "client/lib/services/space_api_client.dart",
+        "client/lib/services/space_service.dart",
+        "client/lib/services/space_local_router.dart",
+        "client/lib/services/space_methods.g.dart",
+        "client/lib/services/space_schema.g.dart",
+        "client/lib/models/space_models.dart",
+        "client/lib/services/local_auth_server.dart",
+        "client/lib/services/chat_ledger.dart",
+        "client/test/space_service_test.dart"
+      ],
+      "cwd": ".",
+      "exit_code": 0,
+      "seconds": 0.73,
+      "log": "analyze-final.log"
+    },
+    {
+      "name": "ruff",
+      "command": [
+        "uv",
+        "run",
+        "--project",
+        "dsh-plugin",
+        "--locked",
+        "ruff",
+        "check",
+        "dsh-plugin/src",
+        "dsh-plugin/probes/space_live.py",
+        "dsh-plugin/probes/space_host.py",
+        "dsh-plugin/tests/test_space_tools.py",
+        "dsh-plugin/tests/test_stdio.py",
+        "dsh-plugin/tests/test_profile_stdio.py"
+      ],
+      "cwd": ".",
+      "exit_code": 0,
+      "seconds": 0.02,
+      "log": "ruff-final.log"
+    }
+  ],
+  "plugin_suites": [
+    {
+      "tests": "114",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0"
+    }
+  ],
+  "dart": {
+    "completed": 46,
+    "skipped": 0,
+    "failed": 0
+  },
+  "unchanged_server": true,
+  "files": {
+    "space-installed.json": "9aa868bffe2b77403c1a2aa9c88c3802514ad5636ca961ae6515979af230fc32",
+    "plugin-initial.log": "5a8225ae0a8d85638ede673846014370a06b2ca22427a767694fb6a3501c1b9a",
+    "client-final.log": "4c66cef00625e026ba7ad8145a0ed5238957a7e18906ddb6ea0998088021a8be",
+    "plugin.xml": "501b6dd03a46519011c3c116e27a42524c7b5960d73d38a0a06ade81d8b54288",
+    "native.log": "13ab4a17e2cf080c1fb1b0c9af8aa0eac5d7a91d2b7d090561f113f3342eaa03",
+    "client-before.log": "73134d6831cc1c8b04cd08ccee13f0bc58f599d483311d7795afe7648d6e8bfa",
+    "host-result.json": "2842160eda8ba341ee5db0caced6e2dcf6cd089f1019a3ab5da1ca2be72d644f",
+    "native-probe-correction.log": "fe1a8ff223c0113104c6466482f655fdcb8ef3caab5adec42eb77ddfe7164677",
+    "tcp-final.log": "84265164db65fc7b9d22986ea672d2cf3e010cd744645bf9072b46dde73b2145",
+    "client.log": "7ac5ca13555f16ab70c2b2f52cf7b30ac13794c7419cfc43343b5921aee99503",
+    "plugin.log": "2cb63af96938bb16404491dc5f97000ae34395abd31c022f8b0b54c824135276",
+    "analyze-final.log": "361fb5f2e05c6f8c550dcbb410a50c4e919b5e47ea4eeb7154a26a99a725a68a",
+    "tcp.log": "4f28379a1526204036063246aae9b3c38c697f608da772f8c40d7f81ad7c9a1e",
+    "plugin-final.log": "cc6683f2a1aea57d250af0567c9305ae768ab2bdd176e542fb4ab9a64396733f",
+    "native-final.log": "f20ed74aa20a920e30aba64c8721dacfdafe27e1a35db7730070bd9e2b7e715e",
+    "ruff-final.log": "d0e52318ff774e99a446a72bce6e793c03546943527de24eee697e223c3858d8"
+  }
+}

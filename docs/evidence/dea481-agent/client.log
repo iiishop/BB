@@ -1,0 +1,64 @@
+Resolving dependencies...
+Downloading packages...
+  code_assets 1.2.1 (2.2.0 available)
+  cross_file 0.3.5+5 (0.4.0 available)
+  hooks 2.0.2 (2.2.0 available)
+  material_color_utilities 0.13.0 (0.13.1 available)
+  meta 1.18.3 (1.19.0 available)
+  objective_c 9.5.0 (9.6.4 available)
+  record_use 0.6.0 (1.1.1 available)
+  test_api 0.7.12 (0.7.15 available)
+  vector_math 2.4.0 (2.4.4 available)
+  video_player_android 2.12.2 (2.12.4 available)
+  video_player_avfoundation 2.12.3 (2.12.4 available)
+Got dependencies!
+11 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+00:00 +0: loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/space_service_test.dart
+00:00 +0: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/space_service_test.dart: consumer cannot reuse another consumer operation ID on same server/account
+00:00 +1: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_ledger_io_rollback_test.dart: failed ACK flush does not publish an unpersisted watermark
+00:00 +2: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_ledger_io_rollback_test.dart: failed ACK flush does not publish an unpersisted watermark
+00:00 +3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/space_service_test.dart: in-flight switch saves original receipt but fences result and cross-account query
+00:00 +4: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_ledger_io_rollback_test.dart: failed bind flush does not publish an unpersisted revision
+00:00 +5: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_ledger_io_rollback_test.dart: failed bind flush does not publish an unpersisted revision
+00:00 +6: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_ledger_io_rollback_test.dart: failed bind flush does not publish an unpersisted revision
+00:00 +7: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_ledger_commit_test.dart: setServerEventCursor: repeated failure, retry and cold reopen agree
+00:00 +8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_ledger_commit_test.dart: setConsumerEventCursor: repeated failure, retry and cold reopen agree
+00:00 +9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_ledger_commit_test.dart: setSubscriptionCursor: repeated failure, retry and cold reopen agree
+00:00 +10: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_ledger_commit_test.dart: discovery: repeated failure, retry and cold reopen agree
+00:00 +11: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_ledger_commit_test.dart: subscribe: repeated failure, retry and cold reopen agree
+00:00 +12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_ledger_commit_test.dart: saveOperation: repeated failure, retry and cold reopen agree
+00:00 +13: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_ledger_commit_test.dart: saveDownload: repeated failure, retry and cold reopen agree
+00:00 +14: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_ledger_commit_test.dart: saveDownloadOperation: repeated failure, retry and cold reopen agree
+00:00 +15: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_v2_local_server_test.dart: negotiate and status keep the strict v2 envelope
+00:00 +16: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_v2_local_server_test.dart: negotiate and status keep the strict v2 envelope
+00:00 +17: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_v2_local_server_test.dart: negotiate and status keep the strict v2 envelope
+00:00 +18: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_v2_local_server_test.dart: negotiate and status keep the strict v2 envelope
+00:00 +19: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_v2_local_server_test.dart: negotiate and status keep the strict v2 envelope
+00:00 +20: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/local_v2_unauthorized_test.dart: a genuine current-credential 401 runs the invalidation callback
+00:00 +21: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/local_v2_unauthorized_test.dart: a genuine current-credential 401 runs the invalidation callback
+00:00 +22: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/local_v2_unauthorized_test.dart: a genuine current-credential 401 runs the invalidation callback
+00:00 +23: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/local_v2_unauthorized_test.dart: a genuine current-credential 401 runs the invalidation callback
+00:00 +24: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/local_v2_unauthorized_test.dart: a genuine current-credential 401 runs the invalidation callback
+00:00 +25: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/local_v2_unauthorized_test.dart: a genuine current-credential 401 runs the invalidation callback
+00:00 +26: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/local_v2_unauthorized_test.dart: a genuine current-credential 401 runs the invalidation callback
+00:00 +27: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/local_v2_unauthorized_test.dart: a genuine current-credential 401 runs the invalidation callback
+00:00 +28: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/local_v2_unauthorized_test.dart: a genuine current-credential 401 runs the invalidation callback
+00:00 +29: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/profile_v2_local_server_test.dart: six guarded profile routes preserve params, media and product rules
+00:00 +30: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/profile_v2_local_server_test.dart: six guarded profile routes preserve params, media and product rules
+00:00 +31: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/profile_v2_local_server_test.dart: six guarded profile routes preserve params, media and product rules
+00:00 +32: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/profile_v2_local_server_test.dart: six guarded profile routes preserve params, media and product rules
+00:00 +33: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/profile_v2_local_server_test.dart: six guarded profile routes preserve params, media and product rules
+00:00 +34: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/profile_v2_local_server_test.dart: six guarded profile routes preserve params, media and product rules
+00:00 +35: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/profile_v2_local_server_test.dart: six guarded profile routes preserve params, media and product rules
+00:00 +36: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/profile_v2_local_server_test.dart: six guarded profile routes preserve params, media and product rules
+00:00 +37: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/profile_v2_local_server_test.dart: six guarded profile routes preserve params, media and product rules
+00:00 +38: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/profile_v2_local_server_test.dart: six guarded profile routes preserve params, media and product rules
+00:00 +39: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/profile_v2_local_server_test.dart: six guarded profile routes preserve params, media and product rules
+00:00 +40: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/profile_v2_local_server_test.dart: six guarded profile routes preserve params, media and product rules
+00:00 +41: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/profile_v2_local_server_test.dart: six guarded profile routes preserve params, media and product rules
+00:00 +42: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/session_race_local_server_test.dart: delayed old-session Profile 401 keeps the newly logged-in session
+00:00 +43: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/session_race_local_server_test.dart: delayed old-session Profile 401 keeps the newly logged-in session
+00:00 +44: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/session_race_local_server_test.dart: delayed old-session Profile 401 keeps the newly logged-in session
+00:00 +45: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/session_race_local_server_test.dart: delayed old-session Profile 401 keeps the newly logged-in session
+00:00 +46: All tests passed!

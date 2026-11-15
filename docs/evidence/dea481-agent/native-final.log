@@ -1,0 +1,3 @@
+warning: `VIRTUAL_ENV=server/.venv` does not match the project environment path `dsh-plugin/.venv` and will be ignored; use `--active` to target the active environment instead
+/tmp/multica-task-1299181820/bb-space-vyfz8pva/bundle
+stock DSH installed Space lifecycle PASS
