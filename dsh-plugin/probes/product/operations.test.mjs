@@ -136,3 +136,22 @@ test("new send scope includes its source peers and survives cold open", async (t
   assert.equal(reopened.blocks("10000003"), true);
   assert.equal(reopened.blocks("10000004"), false);
 });
+
+test("Space plans reconcile through scoped Space receipts after restart, never redispatch", async (t) => {
+  const f = await fixture(t, {status:404});
+  const exec = {...f.exec, callId:"space-call", name:"mcp__bb__space_publish_draft", arguments:{draft_id:"draft",expected_version:1}};
+  const plan = await f.operations.prepare(exec);
+  assert.equal(plan.kind,"space");
+  assert.match(plan.operation_id,/^bb-[a-f0-9]{64}$/);
+  const paths=[];
+  f.client.call=async(path,args)=>{
+    paths.push(path);
+    return {operation_id:args.operation_id,status:"succeeded",action:"publish_draft",resource_id:"post"};
+  };
+  const reopened=new Operations(f.client,f.root);
+  await reopened.open();
+  await reopened.query(reopened.rows.get(plan.key));
+  assert.equal(reopened.rows.get(plan.key).state,"succeeded");
+  await assert.rejects(reopened.prepare(exec),/do not redispatch/);
+  assert.deepEqual(paths,["space/get_operation","space/get_operation"]);
+});

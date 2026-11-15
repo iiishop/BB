@@ -82,7 +82,7 @@ export class Operations {
           throw new Error("Download operation identity mismatch");
         row = { ...row, task_id: fact.task_id };
       } else {
-        fact = await this.client.call("operations/get", {
+        fact = await this.client.call(row.kind === "space" ? "space/get_operation" : "operations/get", {
           operation_id: row.operation_id,
         });
       }
@@ -148,7 +148,7 @@ export class Operations {
       operation_id,
       session: exec.agent.session.id,
       sessionCreatedAt: exec.agent.session.header.createdAt,
-      kind: exec.name === "mcp__bb__start_download" ? "download" : "send",
+      kind: exec.name.startsWith("mcp__bb__space_") ? "space" : exec.name === "mcp__bb__start_download" ? "download" : "send",
       peer: exec.arguments.target_account,
       sourcePeers: [...new Set(sourcePeers)],
       payloadDigest,

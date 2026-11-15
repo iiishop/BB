@@ -10,6 +10,9 @@ import '../services/chat_service.dart';
 import '../services/chat_v2.dart';
 import '../services/client_identity.dart';
 import '../services/profile_service.dart';
+import 'space_api_client.dart';
+import 'space_service.dart';
+import 'space_local_router.dart';
 
 /// Loopback-only local control API used by the DSH MCP plugin.
 ///
@@ -82,6 +85,16 @@ class LocalAuthServer {
     chat: chat,
     profile: profile,
   );
+
+  late final SpaceLocalRouter? _space = chat == null
+      ? null
+      : SpaceLocalRouter(
+          SpaceService(
+            api: SpaceApiClient(baseUri: chat!.api.baseUri),
+            session: service.session,
+            chat: chat!,
+          ),
+        );
 
   /// Binds the listener and returns its `http://127.0.0.1:<port>` address.
   Future<Uri> start() async {
@@ -211,11 +224,18 @@ class LocalAuthServer {
       });
       return;
     }
-    final ({int status, Map<String, dynamic> body}) result = await _v2.handle(
-      path: path,
-      ownerKey: request.headers.value(v2OwnerHeader),
-      body: body,
-    );
+    final ({int status, Map<String, dynamic> body}) result =
+        path.startsWith('/v2/space/') && _space != null
+        ? await _space.handle(
+            path: path,
+            ownerKey: request.headers.value(v2OwnerHeader),
+            body: body,
+          )
+        : await _v2.handle(
+            path: path,
+            ownerKey: request.headers.value(v2OwnerHeader),
+            body: body,
+          );
     // The v2 router converts AuthFailure into a DTO, so the outer handler's
     // invalidation branch is otherwise unreachable. Only a genuine 401 for the
     // credential captured at request start may clear the session; a request

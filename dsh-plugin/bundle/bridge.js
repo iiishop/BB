@@ -284,7 +284,10 @@ export class Bridge {
   installOperations() {
     this.operationDisposers ??= [];
     if (this.operationDisposers.length) return;
-    for (const name of ["send_message", "send_attachment", "start_download"]) {
+    const spaceMutations = this.ctx.tools.schemas()
+      .filter((t) => t.name.startsWith("mcp__bb__space_") && t.name !== "mcp__bb__space_get_operation" && t.parameters?.properties?.operation_id)
+      .map((t) => t.name.slice("mcp__bb__".length));
+    for (const name of ["send_message", "send_attachment", "start_download", ...spaceMutations]) {
       const full = "mcp__bb__" + name,
         definition = this.ctx.tools.get(full);
       if (!definition) throw new Error("Missing MCP operation tool");
