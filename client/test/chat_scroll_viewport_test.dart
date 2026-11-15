@@ -195,6 +195,7 @@ void main() {
       await tester.pumpAndSettle();
       final ScrollPosition position = chatScroll(tester);
       position.jumpTo(position.maxScrollExtent / 2);
+      await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
       final Finder scrollbar = find.descendant(
         of: find.byKey(ChatPage.listKey),
