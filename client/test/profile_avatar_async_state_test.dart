@@ -188,9 +188,7 @@ void main() {
       reader: reader,
       decodeCheck: (Uint8List bytes) {
         decodeCalls += 1;
-        return decodeCalls == 1
-            ? firstDecode.future
-            : Future<bool>.value(true);
+        return decodeCalls == 1 ? firstDecode.future : Future<bool>.value(true);
       },
     );
 
@@ -282,6 +280,114 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(gateway.avatarSources, isEmpty);
+  });
+
+  // Adapted from the second independent review probe
+  // (`client/review_probes/typing_probe.dart`): a newer typed path must win
+  // over a pick that is still decoding, even before the 350 ms debounce fires.
+  for (final int delayMs in <int>[100, 400]) {
+    testWidgets(
+      'a newer typed path wins while the picked image decodes (delay=$delayMs)',
+      (WidgetTester tester) async {
+        final FakeProfileGateway gateway = FakeProfileGateway();
+        final FakeAvatarSourceReader reader = FakeAvatarSourceReader()
+          ..serve(_avatarPath, peerReplacedAvatar)
+          ..serve('/qa/new.png', peerReplacedAvatar);
+        final Completer<bool> decoding = Completer<bool>();
+        await pumpAvatarDialog(
+          tester,
+          gateway: gateway,
+          picker: FakeAvatarImagePicker(<Object?>[
+            const AvatarPick(name: 'avatar.png', path: _avatarPath),
+          ]),
+          reader: reader,
+          decodeCheck: (Uint8List bytes) => decoding.future,
+        );
+
+        await tester.tap(find.byKey(_pickFileKey));
+        await tester.pump();
+        await tester.enterText(find.byKey(_fieldKey), '/qa/new.png');
+        await tester.pump(Duration(milliseconds: delayMs));
+        decoding.complete(true);
+        await tester.pump(const Duration(milliseconds: 400));
+        await tester.pumpAndSettle();
+
+        expect(gateway.avatarSources, isEmpty);
+        expect(
+          tester.widget<TextField>(find.byKey(_fieldKey)).controller!.text,
+          '/qa/new.png',
+          reason: 'late picked image must not overwrite a newer typed path',
+        );
+        final OutlinedButton button = tester.widget<OutlinedButton>(
+          find.byKey(_pickFileKey),
+        );
+        expect(
+          button.onPressed,
+          isNotNull,
+          reason: 'stale pick must release the picker busy state',
+        );
+      },
+    );
+  }
+
+  testWidgets('a stale preview read cannot land after typing', (
+    WidgetTester tester,
+  ) async {
+    final FakeProfileGateway gateway = FakeProfileGateway();
+    final DeferredAvatarSourceReader reader = DeferredAvatarSourceReader()
+      ..ready['/qa/new.png'] = peerReplacedAvatar;
+    await pumpAvatarDialog(
+      tester,
+      gateway: gateway,
+      picker: FakeAvatarImagePicker(<Object?>[]),
+      reader: reader,
+    );
+
+    await tester.enterText(find.byKey(_fieldKey), _avatarPath);
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(previewSpinner(), findsOneWidget);
+
+    // Type a different candidate while the first read is still pending.
+    await tester.enterText(find.byKey(_fieldKey), '/qa/new.png');
+    reader.firstRead.complete(peerReplacedAvatar);
+    await tester.pump();
+
+    // The old bytes may not land on the new text.
+    expect(previewImage(), findsNothing);
+    expect(previewSpinner(), findsNothing);
+
+    // The dialog still resolves the newer text into a preview.
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(previewImage(), findsOneWidget);
+  });
+
+  testWidgets('applying right after typing submits the newer path', (
+    WidgetTester tester,
+  ) async {
+    final FakeProfileGateway gateway = FakeProfileGateway();
+    final FakeAvatarSourceReader reader = FakeAvatarSourceReader()
+      ..serve(_avatarPath, peerReplacedAvatar)
+      ..serve('/qa/new.png', peerReplacedAvatar);
+    await pumpAvatarDialog(
+      tester,
+      gateway: gateway,
+      picker: FakeAvatarImagePicker(<Object?>[]),
+      reader: reader,
+    );
+
+    await tester.enterText(find.byKey(_fieldKey), _avatarPath);
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(previewImage(), findsOneWidget);
+
+    // Apply immediately after the edit, before the debounce would ever run.
+    await tester.enterText(find.byKey(_fieldKey), '/qa/new.png');
+    await tester.pump();
+    await tester.tap(find.byKey(_applyKey));
+    await tester.pumpAndSettle();
+
+    expect(gateway.avatarSources.single, 'path:/qa/new.png');
   });
 }
 

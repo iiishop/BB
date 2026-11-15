@@ -62,7 +62,7 @@
 - 真实 Linux 入口发现长路径会把 `AlertDialog` 撑到接近整窗：内容宽度限制为 360，并新增回归
   断言（`profile_avatar_pick_test.dart` 的“long path does not stretch the dialog”）。
 
-## QA 返工（Sentinel 退回的 P2）
+## 第一次 QA 返工（P2：切换来源后选择器卡死）
 
 独立 QA 复验确认一个 P2：选中图片后，在解码尚未完成时切到“图片链接”再切回“本机路径”，
 旧解码完成时 `_pick` 因 token 失效直接返回，`_picking` 没有收尾，导致“选择图片”永久禁用，
@@ -73,15 +73,34 @@
 
 - 以计数 `_pendingPicks`/`_pendingReads` 表示真实在途工作，`_picking`/`_reading` 由它派生；
   每个异步操作在 `finally` 中释放自己的一份，取消、失败、过期结果都释放。
-- `_readToken` 只决定结果是否还允许落地，不再承担忙碌状态。
 - `_selectKind`/`_onPathChanged` 只做失效与预览清理，不再手工改忙碌标志。
 - 选图拆为 `_pick`（计数/`finally`）→ `_requestPick`（选择器异常文案）→ `_applyPick`
-  （校验+预览，token 决定是否落地）。
+  （校验+预览）。
 
 回归：QA 的 review-only 探针（`avatar_async_probe.dart`，switchSource 对照 + 失败例）修复前
 `1 passed / 1 failed / exit 1`，修复后 `2 passed / exit 0`；同样的场景与预览读取失效、
 过期选图重试、待解码时关闭对话框等生命周期用例已并入默认测试入口
-`client/test/profile_avatar_async_state_test.dart`（5 例，修复前 `3 passed / 2 failed`）。
+`client/test/profile_avatar_async_state_test.dart`。
+
+## 第二次 QA 返工（P2：新输入被旧选图结果覆盖）
+
+第二轮复验确认同机制的剩余 P2：选中 `/qa/avatar.png` 后解码未完成时手填 `/qa/new.png`，
+100 ms 后旧解码返回会把字段改回 `/qa/avatar.png`（400 ms 对照通过）。
+
+根因是**失效时机**归属错了：`_onPathChanged` 只在 350 ms 防抖触发（或输入清空）后才让 token
+失效，期间旧 `_applyPick` 仍然拥有 token，于是覆盖了更新的输入。修复为单一“候选代”而不是
+再追加时序特判：
+
+- `_readToken` 改为 `_generation`（候选代）。**每次编辑立刻自增**（不等防抖）、切换来源、
+  开始新一轮选图同样自增；防抖只延迟“开始读取新预览”，不决定归属。
+- 每个异步操作在启动时捕获当时的代，落地前校验代仍当前：旧选图解码、旧预览读取、旧的应用
+  校验都不能覆盖新输入；不匹配时只丢弃结果，忙碌计数仍在 `finally` 释放。
+- 编辑时立即清空预览（字段已不代表旧图片），避免“旧图 + 新路径”的错配状态。
+
+回归：QA 第二轮 review-only 探针（`typing_probe.dart`，delay=100/400）修复前
+`1 passed / 1 failed / exit 1`，修复后 `2 passed / exit 0`；其场景与“旧预览不得落到新输入”、
+“手填后立即应用应提交新路径”已并入默认入口
+`client/test/profile_avatar_async_state_test.dart`（该文件现 9 例：两轮返工的探针场景 + 生命周期）。
 
 ## 测试
 
@@ -98,10 +117,10 @@ flutter test test/profile_avatar_entry_test.dart
 
 ```bash
 flutter analyze          # No issues found! (exit 0)
-flutter test             # 651 passed / 9 skipped / exit 0
+flutter test             # 655 passed / 9 skipped / exit 0
 ```
 
-基线为 624 passed / 9 skipped；新增 27 例（含 QA 返工的 5 例异步状态回归）：
+基线为 624 passed / 9 skipped；新增 31 例（含两轮 QA 返工的 9 例异步状态回归）：
 
 | 测试 | 覆盖 |
 |---|---|
@@ -109,7 +128,7 @@ flutter test             # 651 passed / 9 skipped / exit 0
 | `test/profile_avatar_pick_test.dart`（14） | 选择≠提交、取消保留输入/预览/头像、关闭不更新、不可读/非图片/无法解码阻止上传、上传失败不显示成功、Android 字节上传、选择器失败可重试并给可读文案、无选择时应用提示、长路径不撑宽 |
 | `test/avatar_picker_decode_test.dart`（2） | 真实引擎解码：PNG fixture 通过；截断 PNG/非图片/空字节拒绝 |
 | `test/avatar_source_test.dart`（+3） | 中文+空格真实路径、已删除文件、伪装 `.png` 的非图片内容 |
-| `test/profile_avatar_async_state_test.dart`（5） | 选图解码期间切换来源后选择器可用（switchSource 对照）、过期选图可重试且只提交重试结果、预览读取期间切换来源释放 spinner 且不落地旧结果、待解码时关闭对话框不抛错 |
+| `test/profile_avatar_async_state_test.dart`（9） | 选图解码期间切换来源后选择器可用（switchSource 对照）、过期选图可重试且只提交重试结果、预览读取期间切换来源释放 spinner 且不落地旧结果、待解码时关闭对话框不抛错；手填新路径在旧解码返回前后都胜出（100/400 ms）、旧预览读取不得落到新输入、手填后立即应用提交新路径 |
 
 覆盖边界：`testWidgets` 的点击驱动不了 dart:io 异步读与引擎解码，因此对话框的
 `AvatarSourceReader`/`AvatarDecodeCheck` 是测试 seam；真实 reader 由 `avatar_source_test.dart`
@@ -128,8 +147,11 @@ flutter test             # 651 passed / 9 skipped / exit 0
    `sha256-c18ba32d6d6340ff89e0e9d6813021b87189d8dcf2828bbe9e792a34329ce5e0`，
    `GET /avatars/<account>.png` 返回 841 字节（截图 `gui-62-applied.png`）。
 5. 关闭资料面板再打开：仍显示新头像，读取行为无回退（截图 `gui-63-reopened.png`）。
-   该流程在 QA P2 修复后的候选上重跑一次，结果同上。
-6. 不可读路径显示“无法读取该本机路径”，应用不会上传（截图 `gui-12-native-dialog.png`；
+   该流程在两轮 QA 返工后的候选上分别重跑，结果同上。
+6. 第二轮返工后另跑“手填路径”入口：输入 `/tmp/bb-pick.png` → 预览 → 应用，服务端
+   `avatar_version` 同样变为 `sha256-c18ba32d…`（截图 `gui-71-typed-preview.png` /
+   `gui-72-typed-applied.png`）。
+7. 不可读路径显示“无法读取该本机路径”，应用不会上传（截图 `gui-12-native-dialog.png`；
    该次为合成按键截断路径，正好验证不可读分支）。
 
 ### 构建（仅构建，不等于真机运行）
@@ -137,10 +159,10 @@ flutter test             # 651 passed / 9 skipped / exit 0
 | 目标 | 命令 | 结果 |
 |---|---|---|
 | Linux | `flutter build linux --debug` | 成功，`build/linux/x64/debug/bundle/bb_mobile` |
-| Android | `flutter build apk --debug` | 成功，`app-debug.apk` 181,808,231 bytes，sha256 `fcd9f56f33dfe9218859a4dd11b9ba6de2ee69e7ea2ee2ac97f025527faf8f80` |
-| Android（分 ABI，已签名可安装） | `flutter build apk --release --split-per-abi` | 成功，arm64 20,838,230 bytes，sha256 `87938ce198b6297cdee933b381b14d1b54c39beb1b860eae72a00f6865e1d633`（debug keystore 签名，可安装、不可上架） |
+| Android | `flutter build apk --debug` | 成功，`app-debug.apk` 181,808,457 bytes，sha256 `578b7f6f16a530117c1210078b91f1e4e7333acaa22e9423b80839f8128663ff` |
+| Android（分 ABI，已签名可安装） | `flutter build apk --release --split-per-abi` | 成功，arm64 20,838,230 bytes，sha256 `29fccef3c23551bf6f559f8749814cf5af078b1da6605f9b571811fefd5c3638`（debug keystore 签名，可安装、不可上架） |
 
-以上构建在 QA P2 修复后的候选上重跑。Android 构建日志中 Kotlin daemon 因只读
+以上构建在第二轮 QA 返工后的候选上重跑。Android 构建日志中 Kotlin daemon 因只读
 `~/.local/share` 无法启动，Gradle 回退 in-process 编译后成功（非本次代码问题）。
 
 ## NOT RUN / BLOCKED

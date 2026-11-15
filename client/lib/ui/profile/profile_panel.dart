@@ -1119,10 +1119,15 @@ class _AvatarSourceDialogState extends State<_AvatarSourceDialog> {
 
   bool get _picking => _pendingPicks > 0;
 
-  /// Guards async result delivery so a late result from an older path cannot
-  /// replace the state of the current one. It deliberately does not own any
-  /// busy flag; see [_pendingReads]/[_pendingPicks].
-  int _readToken = 0;
+  /// The candidate the dialog currently represents. Every user action that
+  /// changes it — typing (immediately, not after the debounce), switching the
+  /// source kind, or starting a new pick — bumps this generation. Async work
+  /// captures the generation it started for and may only land while that
+  /// generation is still current, so a late pick decode can never overwrite a
+  /// newer typed path and a stale read can never replace the preview.
+  ///
+  /// Busy state is separate: see [_pendingReads]/[_pendingPicks].
+  int _generation = 0;
 
   bool get _isPathKind => _kind == _AvatarSourceKind.path;
 
@@ -1154,7 +1159,7 @@ class _AvatarSourceDialogState extends State<_AvatarSourceDialog> {
       return;
     }
     _debounceTimer?.cancel();
-    _readToken += 1;
+    _generation += 1;
     setState(() {
       _kind = kind;
       _error = null;
@@ -1168,34 +1173,35 @@ class _AvatarSourceDialogState extends State<_AvatarSourceDialog> {
 
   void _onPathChanged(String value) {
     _debounceTimer?.cancel();
+    // Ownership changes with the first keystroke, not after the debounce: a
+    // pick/decode/preview read started for the previous text must not land on
+    // the newly typed candidate. The timer below only delays starting the new
+    // preview read.
+    final int generation = ++_generation;
     final String path = value.trim();
-    if (_error != null) {
-      setState(() => _error = null);
-    }
+    setState(() {
+      _error = null;
+      _previewBytes = null;
+      _previewedPath = null;
+      _previewError = null;
+    });
     if (path.isEmpty) {
-      _readToken += 1;
-      setState(() {
-        _previewBytes = null;
-        _previewedPath = null;
-        _previewError = null;
-      });
       return;
     }
     _debounceTimer = Timer(
       _debounceDelay,
-      () => unawaited(_loadPathPreview(path)),
+      () => unawaited(_loadPathPreview(path, generation)),
     );
   }
 
-  Future<void> _loadPathPreview(String path) async {
-    final int token = ++_readToken;
+  Future<void> _loadPathPreview(String path, int generation) async {
     setState(() {
       _pendingReads += 1;
       _previewError = null;
     });
     try {
       final Uint8List bytes = await _validatePathBytes(path);
-      if (!mounted || token != _readToken) {
+      if (!mounted || generation != _generation) {
         return;
       }
       setState(() {
@@ -1203,7 +1209,7 @@ class _AvatarSourceDialogState extends State<_AvatarSourceDialog> {
         _previewedPath = path;
       });
     } catch (error) {
-      if (!mounted || token != _readToken) {
+      if (!mounted || generation != _generation) {
         return;
       }
       setState(() {
@@ -1232,6 +1238,9 @@ class _AvatarSourceDialogState extends State<_AvatarSourceDialog> {
     if (_picking) {
       return;
     }
+    // A new pick represents a new candidate; results for the previous typed
+    // text or an older pick are invalid from here on.
+    final int generation = ++_generation;
     setState(() {
       _pendingPicks += 1;
       _error = null;
@@ -1243,7 +1252,7 @@ class _AvatarSourceDialogState extends State<_AvatarSourceDialog> {
         // the current avatar untouched.
         return;
       }
-      await _applyPick(pick);
+      await _applyPick(pick, generation);
     } finally {
       // Runs for cancel, stale results and failures alike: the operation that
       // started the busy state always releases it.
@@ -1268,8 +1277,7 @@ class _AvatarSourceDialogState extends State<_AvatarSourceDialog> {
     }
   }
 
-  Future<void> _applyPick(AvatarPick selected) async {
-    final int token = ++_readToken;
+  Future<void> _applyPick(AvatarPick selected, int generation) async {
     try {
       // The platform picked this file, but its bytes still go through the same
       // size/magic/decode checks as a typed path.
@@ -1279,7 +1287,7 @@ class _AvatarSourceDialogState extends State<_AvatarSourceDialog> {
       if (!await widget.decodeCheck(bytes)) {
         throw const AvatarPickFailure('这个文件无法解码为图片，请换一张');
       }
-      if (!mounted || token != _readToken) {
+      if (!mounted || generation != _generation) {
         return;
       }
       setState(() {
@@ -1305,7 +1313,7 @@ class _AvatarSourceDialogState extends State<_AvatarSourceDialog> {
         }
       });
     } catch (error) {
-      if (!mounted || token != _readToken) {
+      if (!mounted || generation != _generation) {
         return;
       }
       setState(() {
@@ -1354,14 +1362,14 @@ class _AvatarSourceDialogState extends State<_AvatarSourceDialog> {
           .pop<_AvatarChoice>((source: 'path', value: path, bytes: null));
       return;
     }
-    final int token = ++_readToken;
+    final int generation = _generation;
     setState(() {
       _pendingReads += 1;
       _error = null;
     });
     try {
       final Uint8List bytes = await _validatePathBytes(path);
-      if (!mounted || token != _readToken) {
+      if (!mounted || generation != _generation) {
         return;
       }
       setState(() {
@@ -1372,7 +1380,7 @@ class _AvatarSourceDialogState extends State<_AvatarSourceDialog> {
       Navigator.of(context)
           .pop<_AvatarChoice>((source: 'path', value: path, bytes: null));
     } catch (error) {
-      if (!mounted || token != _readToken) {
+      if (!mounted || generation != _generation) {
         return;
       }
       setState(() {
