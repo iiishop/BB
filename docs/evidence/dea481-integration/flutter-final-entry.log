@@ -1,0 +1,839 @@
+
+=== analyze ===
+Resolving dependencies...
+Downloading packages...
+  code_assets 1.2.1 (2.2.0 available)
+  cross_file 0.3.5+5 (0.4.0 available)
+  hooks 2.0.2 (2.2.0 available)
+  material_color_utilities 0.13.0 (0.13.1 available)
+  meta 1.18.3 (1.19.0 available)
+  objective_c 9.5.0 (9.6.4 available)
+  record_use 0.6.0 (1.1.1 available)
+  test_api 0.7.12 (0.7.15 available)
+  vector_math 2.4.0 (2.4.4 available)
+  video_player_android 2.12.2 (2.12.4 available)
+  video_player_avfoundation 2.12.3 (2.12.4 available)
+Got dependencies!
+11 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+Analyzing client...                                             
+No issues found! (ran in 1.1s)
+analyze	PASS	0
+
+=== flutter-test ===
+Resolving dependencies...
+Downloading packages...
+  code_assets 1.2.1 (2.2.0 available)
+  cross_file 0.3.5+5 (0.4.0 available)
+  hooks 2.0.2 (2.2.0 available)
+  material_color_utilities 0.13.0 (0.13.1 available)
+  meta 1.18.3 (1.19.0 available)
+  objective_c 9.5.0 (9.6.4 available)
+  record_use 0.6.0 (1.1.1 available)
+  test_api 0.7.12 (0.7.15 available)
+  vector_math 2.4.0 (2.4.4 available)
+  video_player_android 2.12.2 (2.12.4 available)
+  video_player_avfoundation 2.12.3 (2.12.4 available)
+Got dependencies!
+11 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+00:00 +0: loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/space_controller_test.dart
+00:00 +0: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/space_controller_test.dart: background refresh reports new posts without moving the list
+00:00 +1: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/space_controller_test.dart: pagination deduplicates a repeated page
+00:00 +2: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/space_controller_test.dart: detail stack keeps local reference history and one visit per active open
+00:00 +3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/space_controller_test.dart: post.deleted event removes the post and invalidates its images
+00:00 +4: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/space_controller_test.dart: duplicate events are applied once and the cursor advances
+00:00 +5: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/space_controller_test.dart: notification acknowledgement only covers the observed version
+00:00 +6: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/space_controller_test.dart: opening a notification focuses an unloaded comment and acknowledges it
+00:00 +7: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/space_controller_test.dart: resizing never creates a second visit
+00:00 +8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/space_controller_test.dart: reconnect replays deletions, clears cached bytes and keeps drafts
+00:00 +9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/space_controller_test.dart: offline state is distinct from an empty feed
+00:00 +10: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/space_controller_test.dart: local buffers never cross account or server scopes
+00:00 +11: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/f4_repair_logout_test.dart: old cleanup repair must not resurrect a completed logout
+00:00 +12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/f4_repair_logout_test.dart: old cleanup repair must not resurrect a completed logout
+00:00 +13: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/f4_repair_logout_test.dart: old cleanup repair must not resurrect a completed logout
+00:00 +14: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/f4_repair_logout_test.dart: old cleanup repair must not resurrect a completed logout
+00:00 +15: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/f4_repair_logout_test.dart: old cleanup repair must not resurrect a completed logout
+before old repair release: logout returned, memory/disk both empty
+after old repair: logged_out=true; credential_absent=true
+00:00 +16: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/space_shell_test.dart: phone uses the bottom chat/space bar and keeps both states
+00:01 +17: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/space_shell_test.dart: phone uses the bottom chat/space bar and keeps both states
+00:01 +18: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/space_shell_test.dart: phone uses the bottom chat/space bar and keeps both states
+00:01 +19: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/space_shell_test.dart: phone uses the bottom chat/space bar and keeps both states
+00:01 +20: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/space_shell_test.dart: phone uses the bottom chat/space bar and keeps both states
+00:01 +20: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/live_media_contract_test.dart: live media contract metadata, bounded thumbnail, original bytes and isolation
+  Skip: BB_LIVE_SERVER_URL 未设置：未执行真实 DEA-471 媒体链路（SKIP，不算 PASS）
+00:01 +20 ~1: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/space_shell_test.dart: phone uses the bottom chat/space bar and keeps both states
+00:01 +21 ~1: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/space_shell_test.dart: phone uses the bottom chat/space bar and keeps both states
+00:01 +22 ~1: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/space_shell_test.dart: phone uses the bottom chat/space bar and keeps both states
+00:01 +23 ~1: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/space_shell_test.dart: phone uses the bottom chat/space bar and keeps both states
+00:01 +24 ~1: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/space_shell_test.dart: phone uses the bottom chat/space bar and keeps both states
+00:01 +25 ~1: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/space_shell_test.dart: phone uses the bottom chat/space bar and keeps both states
+00:01 +26 ~1: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/space_shell_test.dart: phone uses the bottom chat/space bar and keeps both states
+00:01 +27 ~1: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/space_shell_test.dart: phone uses the bottom chat/space bar and keeps both states
+00:01 +28 ~1: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/space_shell_test.dart: phone uses the bottom chat/space bar and keeps both states
+00:01 +28 ~2: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/space_shell_test.dart: phone uses the bottom chat/space bar and keeps both states
+00:01 +28 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/space_shell_test.dart: phone uses the bottom chat/space bar and keeps both states
+00:01 +29 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/space_shell_test.dart: phone uses the bottom chat/space bar and keeps both states
+00:01 +30 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/space_shell_test.dart: phone uses the bottom chat/space bar and keeps both states
+00:01 +31 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/space_shell_test.dart: phone uses the bottom chat/space bar and keeps both states
+00:01 +32 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/space_shell_test.dart: phone uses the bottom chat/space bar and keeps both states
+00:01 +33 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/space_shell_test.dart: phone uses the bottom chat/space bar and keeps both states
+00:01 +34 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/space_shell_test.dart: phone uses the bottom chat/space bar and keeps both states
+00:01 +35 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/space_shell_test.dart: phone uses the bottom chat/space bar and keeps both states
+00:01 +36 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/space_shell_test.dart: phone uses the bottom chat/space bar and keeps both states
+00:01 +37 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/space_shell_test.dart: phone uses the bottom chat/space bar and keeps both states
+00:01 +38 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/space_detail_test.dart: replies use one indent level and keep the real reply target
+00:01 +39 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/space_detail_test.dart: replies use one indent level and keep the real reply target
+00:01 +40 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/space_detail_test.dart: replies use one indent level and keep the real reply target
+00:02 +41 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_video_test.dart: viewer plays video with stream progress and releases on close
+00:02 +42 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_video_test.dart: viewer plays video with stream progress and releases on close
+00:02 +43 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_video_test.dart: viewer plays video with stream progress and releases on close
+00:02 +44 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_video_test.dart: viewer plays video with stream progress and releases on close
+00:02 +45 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_video_test.dart: viewer plays video with stream progress and releases on close
+00:02 +46 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_video_test.dart: viewer plays video with stream progress and releases on close
+00:02 +47 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_video_test.dart: viewer plays video with stream progress and releases on close
+00:02 +48 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_video_test.dart: viewer plays video with stream progress and releases on close
+00:02 +49 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_video_test.dart: viewer plays video with stream progress and releases on close
+00:02 +50 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_video_test.dart: viewer plays video with stream progress and releases on close
+00:02 +51 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_video_test.dart: viewer plays video with stream progress and releases on close
+00:02 +52 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_video_test.dart: viewer plays video with stream progress and releases on close
+00:02 +53 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_video_test.dart: viewer plays video with stream progress and releases on close
+00:02 +54 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_video_test.dart: viewer plays video with stream progress and releases on close
+00:02 +55 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_video_test.dart: viewer plays video with stream progress and releases on close
+00:02 +56 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_video_test.dart: viewer plays video with stream progress and releases on close
+00:02 +57 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_video_test.dart: viewer plays video with stream progress and releases on close
+00:02 +58 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_video_test.dart: viewer plays video with stream progress and releases on close
+00:02 +59 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_video_test.dart: viewer plays video with stream progress and releases on close
+00:02 +60 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_video_test.dart: viewer plays video with stream progress and releases on close
+00:02 +61 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_video_test.dart: viewer plays video with stream progress and releases on close
+00:02 +62 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_video_test.dart: viewer plays video with stream progress and releases on close
+00:02 +63 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_video_test.dart: viewer plays video with stream progress and releases on close
+00:02 +64 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_video_test.dart: viewer plays video with stream progress and releases on close
+00:02 +65 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_video_test.dart: viewer plays video with stream progress and releases on close
+00:02 +66 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_video_test.dart: viewer plays video with stream progress and releases on close
+00:02 +67 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_video_test.dart: viewer plays video with stream progress and releases on close
+00:02 +68 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_video_test.dart: viewer plays video with stream progress and releases on close
+00:02 +69 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_video_test.dart: viewer plays video with stream progress and releases on close
+00:02 +70 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_video_test.dart: viewer plays video with stream progress and releases on close
+00:02 +71 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_video_test.dart: viewer plays video with stream progress and releases on close
+00:02 +72 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:02 +73 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:02 +74 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:02 +75 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:02 +76 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:02 +77 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:02 +78 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:02 +79 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:02 +80 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:02 +81 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:02 +82 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:02 +83 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:02 +84 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:02 +85 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:02 +86 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:02 +87 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:03 +88 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:03 +89 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:03 +90 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:03 +91 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:03 +92 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:03 +93 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:03 +94 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:03 +95 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:03 +96 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:03 +97 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:03 +98 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:03 +99 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:03 +100 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:03 +101 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:03 +102 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:03 +103 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:03 +104 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:03 +105 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:03 +106 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:03 +107 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:03 +108 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:03 +109 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:03 +110 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:03 +111 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:03 +112 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:03 +113 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:03 +114 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:03 +115 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:03 +116 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:03 +117 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:03 +118 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:03 +119 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:03 +120 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:04 +121 ~3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:04 +121 ~4: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: wide desktop: scroll viewport and scrollbar span the chat pane
+00:04 +122 ~4: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_send_feedback_test.dart: a send shows one local bubble before the server commits, then the same identity settles without a duplicate or re-entry
+00:04 +123 ~4: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_send_feedback_test.dart: a send shows one local bubble before the server commits, then the same identity settles without a duplicate or re-entry
+00:04 +124 ~4: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_send_feedback_test.dart: a send shows one local bubble before the server commits, then the same identity settles without a duplicate or re-entry
+00:04 +125 ~4: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_send_feedback_test.dart: a send shows one local bubble before the server commits, then the same identity settles without a duplicate or re-entry
+00:04 +126 ~4: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_send_feedback_test.dart: a send shows one local bubble before the server commits, then the same identity settles without a duplicate or re-entry
+00:04 +127 ~4: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: one wheel notch scrolls the same list from content and gutters
+00:04 +128 ~4: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: one wheel notch scrolls the same list from content and gutters
+00:04 +128 ~4: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/live_chat_e2e_test.dart: live chat chain ordered text/image send, real blocks, receipts, ACK gap and ACL
+  Skip: BB_LIVE_SERVER_URL 未设置：未执行真实 FastAPI 聊天链路（SKIP，不算 PASS）
+00:04 +128 ~5: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: one wheel notch scrolls the same list from content and gutters
+00:04 +128 ~5: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/live_chat_e2e_test.dart: live chat chain attachment metadata only, async download, durable event and video cover
+  Skip: BB_LIVE_SERVER_URL 未设置：未执行真实 FastAPI 聊天链路（SKIP，不算 PASS）
+00:04 +128 ~6: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: one wheel notch scrolls the same list from content and gutters
+00:04 +128 ~6: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/live_chat_e2e_test.dart: live chat chain wait returns an arriving message before timeout
+  Skip: BB_LIVE_SERVER_URL 未设置：未执行真实 FastAPI 聊天链路（SKIP，不算 PASS）
+00:04 +128 ~7: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: one wheel notch scrolls the same list from content and gutters
+00:04 +129 ~7: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: one wheel notch scrolls the same list from content and gutters
+00:04 +130 ~7: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: one wheel notch scrolls the same list from content and gutters
+00:04 +131 ~7: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: one wheel notch scrolls the same list from content and gutters
+00:04 +132 ~7: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: one wheel notch scrolls the same list from content and gutters
+00:04 +133 ~7: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: one wheel notch scrolls the same list from content and gutters
+00:05 +134 ~7: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_scroll_viewport_test.dart: one wheel notch scrolls the same list from content and gutters
+00:05 +135 ~7: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:05 +135 ~7: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/f4_queued_clear_login_test.dart: queued old clear cannot invalidate a later queued successful login
+login status=200; old request=401; latest memory=true; latest cold disk=true; credential absent=false
+00:05 +136 ~7: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:05 +137 ~7: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:05 +138 ~7: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:05 +139 ~7: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:05 +140 ~7: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:05 +141 ~7: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:05 +142 ~7: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:05 +142 ~7: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/space_real_api_test.dart: real HTTP round trip: draft, image, publish, comment, like, visits, delete
+  Skip: BB_SPACE_API_BASE 未设置：本次未运行真实 API 路径
+00:05 +142 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:05 +143 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:05 +144 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:05 +145 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:05 +146 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:05 +147 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:05 +148 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:05 +149 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:05 +150 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:05 +151 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:05 +152 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:05 +153 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:05 +154 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:05 +155 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:05 +156 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:05 +157 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:05 +158 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:05 +159 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:05 +160 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:06 +161 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:06 +162 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:06 +163 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:06 +164 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:06 +165 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:06 +166 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:06 +167 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:06 +168 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:06 +169 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:06 +170 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:06 +171 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:06 +172 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:06 +173 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:06 +174 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:06 +175 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:06 +176 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:06 +177 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:06 +178 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:06 +179 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:06 +180 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:06 +181 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:07 +182 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:07 +183 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:07 +184 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:07 +185 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:07 +186 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:07 +187 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:07 +188 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:07 +189 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:07 +190 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:07 +191 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_avatar_regression_test.dart: chat avatars come from the server and 30-message scroll asks once per account, re-entry revalidates the changed image
+00:07 +192 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/avatar_source_test.dart: url source times out and maps network errors
+00:07 +193 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/avatar_source_test.dart: url source times out and maps network errors
+00:07 +194 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/avatar_source_test.dart: url source times out and maps network errors
+00:07 +195 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/avatar_source_test.dart: url source times out and maps network errors
+00:07 +196 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/avatar_source_test.dart: url source times out and maps network errors
+00:07 +197 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/avatar_source_test.dart: url source times out and maps network errors
+00:07 +198 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/avatar_source_test.dart: url source times out and maps network errors
+00:07 +199 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/avatar_source_test.dart: url source times out and maps network errors
+00:07 +200 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/avatar_source_test.dart: url source times out and maps network errors
+00:07 +201 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_clipboard_paste_test.dart: composer Ctrl+V pastes many arbitrary files, keeps the body and never auto-sends
+00:07 +202 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_clipboard_paste_test.dart: composer Ctrl+V pastes many arbitrary files, keeps the body and never auto-sends
+00:07 +203 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_clipboard_paste_test.dart: composer Ctrl+V pastes many arbitrary files, keeps the body and never auto-sends
+00:08 +204 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_media_viewer_widget_test.dart: large body image uses the bounded thumbnail in the chat list
+00:08 +205 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_media_viewer_widget_test.dart: large body image uses the bounded thumbnail in the chat list
+00:08 +206 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_media_viewer_widget_test.dart: large body image uses the bounded thumbnail in the chat list
+00:08 +207 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_media_viewer_widget_test.dart: large body image uses the bounded thumbnail in the chat list
+00:08 +208 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_media_viewer_widget_test.dart: large body image uses the bounded thumbnail in the chat list
+00:08 +209 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_media_viewer_widget_test.dart: large body image uses the bounded thumbnail in the chat list
+00:08 +210 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_media_viewer_widget_test.dart: large body image uses the bounded thumbnail in the chat list
+00:08 +211 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_flow_widget_test.dart: tapping a user opens ordered chat and the composer sends
+00:08 +212 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_flow_widget_test.dart: tapping a user opens ordered chat and the composer sends
+00:08 +213 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_flow_widget_test.dart: tapping a user opens ordered chat and the composer sends
+00:08 +214 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_flow_widget_test.dart: tapping a user opens ordered chat and the composer sends
+00:08 +215 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_flow_widget_test.dart: tapping a user opens ordered chat and the composer sends
+00:08 +216 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_flow_widget_test.dart: tapping a user opens ordered chat and the composer sends
+00:08 +217 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_flow_widget_test.dart: tapping a user opens ordered chat and the composer sends
+00:08 +218 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_flow_widget_test.dart: tapping a user opens ordered chat and the composer sends
+00:08 +219 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_flow_widget_test.dart: tapping a user opens ordered chat and the composer sends
+00:08 +220 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_flow_widget_test.dart: tapping a user opens ordered chat and the composer sends
+00:08 +220 ~8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/live_auth_test.dart: live FastAPI auth register → login → persist → restore → expired credential
+  Skip: BB_LIVE_SERVER_URL 未设置：未执行真实 FastAPI 链路（SKIP，不算 PASS）
+00:08 +220 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_flow_widget_test.dart: tapping a user opens ordered chat and the composer sends
+00:08 +221 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_flow_widget_test.dart: tapping a user opens ordered chat and the composer sends
+00:08 +222 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_send_feedback_test.dart: a delayed failure does not pull a history reader to the end
+00:08 +223 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_send_feedback_test.dart: a delayed failure does not pull a history reader to the end
+00:08 +224 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_send_feedback_test.dart: a delayed failure does not pull a history reader to the end
+00:08 +225 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_send_feedback_test.dart: a delayed failure does not pull a history reader to the end
+00:08 +226 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_send_feedback_test.dart: a delayed failure does not pull a history reader to the end
+00:08 +227 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_send_feedback_test.dart: a delayed failure does not pull a history reader to the end
+00:08 +228 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/home_flow_widget_test.dart: three missed beats show the reconnect banner and keep login
+00:08 +229 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/home_flow_widget_test.dart: three missed beats show the reconnect banner and keep login
+00:08 +230 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/home_flow_widget_test.dart: three missed beats show the reconnect banner and keep login
+00:08 +231 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/home_flow_widget_test.dart: three missed beats show the reconnect banner and keep login
+00:08 +232 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/home_flow_widget_test.dart: three missed beats show the reconnect banner and keep login
+00:08 +233 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_media_viewer_widget_test.dart: chat image and video cover open the viewer at the tapped item
+00:08 +234 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_media_viewer_widget_test.dart: chat image and video cover open the viewer at the tapped item
+00:08 +235 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_media_viewer_widget_test.dart: chat image and video cover open the viewer at the tapped item
+00:09 +236 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_media_viewer_widget_test.dart: chat image and video cover open the viewer at the tapped item
+00:09 +237 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_media_viewer_widget_test.dart: chat image and video cover open the viewer at the tapped item
+00:09 +238 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_media_viewer_widget_test.dart: chat image and video cover open the viewer at the tapped item
+00:09 +239 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_media_viewer_widget_test.dart: chat image and video cover open the viewer at the tapped item
+00:09 +240 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_media_viewer_widget_test.dart: chat image and video cover open the viewer at the tapped item
+00:09 +241 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_send_feedback_test.dart: a delayed success does not yank a reader who scrolled away
+00:09 +242 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_send_feedback_test.dart: a delayed success does not yank a reader who scrolled away
+00:09 +243 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_send_feedback_test.dart: a delayed success does not yank a reader who scrolled away
+00:09 +244 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_send_feedback_test.dart: a delayed success does not yank a reader who scrolled away
+00:09 +245 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_send_feedback_test.dart: a delayed success does not yank a reader who scrolled away
+00:09 +246 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_send_feedback_test.dart: a delayed success does not yank a reader who scrolled away
+00:09 +247 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_send_feedback_test.dart: a delayed success does not yank a reader who scrolled away
+00:09 +248 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_send_feedback_test.dart: a delayed success does not yank a reader who scrolled away
+00:09 +249 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_send_feedback_test.dart: a delayed success does not yank a reader who scrolled away
+00:09 +250 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_send_feedback_test.dart: a delayed success does not yank a reader who scrolled away
+00:09 +251 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_send_feedback_test.dart: a delayed success does not yank a reader who scrolled away
+00:09 +252 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_send_feedback_test.dart: a delayed success does not yank a reader who scrolled away
+00:09 +253 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/home_flow_widget_test.dart: heartbeat 401 returns the whole app to login
+00:09 +254 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/home_flow_widget_test.dart: heartbeat 401 returns the whole app to login
+00:09 +255 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/home_flow_widget_test.dart: heartbeat 401 returns the whole app to login
+00:09 +256 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/home_flow_widget_test.dart: heartbeat 401 returns the whole app to login
+00:09 +257 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/home_flow_widget_test.dart: heartbeat 401 returns the whole app to login
+00:09 +258 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/home_flow_widget_test.dart: heartbeat 401 returns the whole app to login
+00:09 +259 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/home_flow_widget_test.dart: heartbeat 401 returns the whole app to login
+00:09 +260 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/update_settings_page_test.dart: 空闲态提供手动检查，点击触发回调
+00:09 +261 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/update_settings_page_test.dart: 空闲态提供手动检查，点击触发回调
+00:09 +262 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/update_settings_page_test.dart: 空闲态提供手动检查，点击触发回调
+00:09 +263 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/update_settings_page_test.dart: 空闲态提供手动检查，点击触发回调
+00:10 +264 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/update_settings_page_test.dart: 空闲态提供手动检查，点击触发回调
+00:10 +265 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/update_settings_page_test.dart: 空闲态提供手动检查，点击触发回调
+00:10 +266 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/update_settings_page_test.dart: 空闲态提供手动检查，点击触发回调
+00:10 +266 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/f4_clear_race_test.dart: 401 cleanup must not clear a login completed during credential deletion
+cleanup callback count=1; new credential on disk=true; new login in memory=true
+00:10 +267 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/update_settings_page_test.dart: 空闲态提供手动检查，点击触发回调
+00:10 +268 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/update_settings_page_test.dart: 空闲态提供手动检查，点击触发回调
+00:10 +269 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/update_settings_page_test.dart: 空闲态提供手动检查，点击触发回调
+00:10 +270 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/update_settings_page_test.dart: 空闲态提供手动检查，点击触发回调
+00:10 +271 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/update_settings_page_test.dart: 空闲态提供手动检查，点击触发回调
+00:10 +272 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/update_settings_page_test.dart: 空闲态提供手动检查，点击触发回调
+00:10 +273 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/update_settings_page_test.dart: 空闲态提供手动检查，点击触发回调
+00:10 +274 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/update_settings_page_test.dart: 空闲态提供手动检查，点击触发回调
+00:10 +275 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/update_settings_page_test.dart: 空闲态提供手动检查，点击触发回调
+00:10 +276 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/update_settings_page_test.dart: 空闲态提供手动检查，点击触发回调
+00:10 +277 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/update_settings_page_test.dart: 空闲态提供手动检查，点击触发回调
+00:10 +278 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/update_release_notes_test.dart: 空正文显示明确占位，不编造更新说明
+00:10 +279 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/update_release_notes_test.dart: 空正文显示明确占位，不编造更新说明
+00:10 +280 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/update_release_notes_test.dart: 空正文显示明确占位，不编造更新说明
+00:10 +281 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/update_release_notes_test.dart: 空正文显示明确占位，不编造更新说明
+00:10 +282 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/auth_flow_widget_test.dart: a persisted session shows a restoring state until verified
+00:10 +283 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/auth_flow_widget_test.dart: a persisted session shows a restoring state until verified
+00:10 +284 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/auth_flow_widget_test.dart: a persisted session shows a restoring state until verified
+00:10 +285 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/auth_flow_widget_test.dart: a persisted session shows a restoring state until verified
+00:10 +286 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/auth_flow_widget_test.dart: a persisted session shows a restoring state until verified
+00:10 +287 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/auth_flow_widget_test.dart: a persisted session shows a restoring state until verified
+00:10 +288 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/auth_flow_widget_test.dart: a persisted session shows a restoring state until verified
+00:10 +289 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/auth_flow_widget_test.dart: a persisted session shows a restoring state until verified
+00:10 +290 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/auth_flow_widget_test.dart: a persisted session shows a restoring state until verified
+00:10 +291 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/auth_flow_widget_test.dart: a persisted session shows a restoring state until verified
+00:10 +292 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/auth_flow_widget_test.dart: a persisted session shows a restoring state until verified
+00:11 +293 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/auth_flow_widget_test.dart: a persisted session shows a restoring state until verified
+00:11 +294 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/auth_flow_widget_test.dart: a persisted session shows a restoring state until verified
+00:11 +295 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/auth_flow_widget_test.dart: a persisted session shows a restoring state until verified
+00:11 +296 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/auth_flow_widget_test.dart: a persisted session shows a restoring state until verified
+00:11 +297 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/auth_flow_widget_test.dart: a persisted session shows a restoring state until verified
+00:11 +298 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/auth_flow_widget_test.dart: a persisted session shows a restoring state until verified
+00:11 +299 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/auth_flow_widget_test.dart: a persisted session shows a restoring state until verified
+00:11 +300 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/auth_flow_widget_test.dart: a persisted session shows a restoring state until verified
+00:11 +301 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/auth_flow_widget_test.dart: a persisted session shows a restoring state until verified
+00:11 +302 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/auth_flow_widget_test.dart: a persisted session shows a restoring state until verified
+00:11 +303 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/auth_flow_widget_test.dart: a persisted session shows a restoring state until verified
+00:11 +304 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/auth_flow_widget_test.dart: a persisted session shows a restoring state until verified
+00:11 +305 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/auth_flow_widget_test.dart: a persisted session shows a restoring state until verified
+00:11 +306 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/auth_flow_widget_test.dart: a persisted session shows a restoring state until verified
+00:11 +307 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/auth_flow_widget_test.dart: a persisted session shows a restoring state until verified
+00:11 +308 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/auth_flow_widget_test.dart: a persisted session shows a restoring state until verified
+00:11 +309 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/auth_flow_widget_test.dart: a persisted session shows a restoring state until verified
+00:11 +310 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/auth_flow_widget_test.dart: a persisted session shows a restoring state until verified
+00:11 +311 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/auth_flow_widget_test.dart: a persisted session shows a restoring state until verified
+00:11 +312 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/viewer_video_rounds_test.dart: R3 retry button succeeds and old failure cleanup keeps the player visible
+00:11 +313 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/viewer_video_rounds_test.dart: R3 retry button succeeds and old failure cleanup keeps the player visible
+00:11 +314 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/viewer_video_rounds_test.dart: R3 retry button succeeds and old failure cleanup keeps the player visible
+00:11 +315 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/viewer_video_rounds_test.dart: R3 retry button succeeds and old failure cleanup keeps the player visible
+00:11 +316 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/viewer_video_rounds_test.dart: R3 retry button succeeds and old failure cleanup keeps the player visible
+00:11 +317 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/viewer_video_rounds_test.dart: R3 retry button succeeds and old failure cleanup keeps the player visible
+00:11 +318 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/viewer_video_rounds_test.dart: R3 retry button succeeds and old failure cleanup keeps the player visible
+00:11 +319 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/viewer_video_rounds_test.dart: R3 retry button succeeds and old failure cleanup keeps the player visible
+00:11 +320 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/viewer_video_rounds_test.dart: R3 retry button succeeds and old failure cleanup keeps the player visible
+00:11 +321 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/viewer_video_rounds_test.dart: R3 retry button succeeds and old failure cleanup keeps the player visible
+00:11 +322 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/viewer_video_rounds_test.dart: R3 retry button succeeds and old failure cleanup keeps the player visible
+00:11 +323 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/viewer_video_rounds_test.dart: R3 retry button succeeds and old failure cleanup keeps the player visible
+00:11 +324 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/viewer_video_rounds_test.dart: R3 retry button succeeds and old failure cleanup keeps the player visible
+00:11 +325 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/viewer_video_rounds_test.dart: R3 retry button succeeds and old failure cleanup keeps the player visible
+00:11 +326 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/viewer_video_rounds_test.dart: R3 retry button succeeds and old failure cleanup keeps the player visible
+00:11 +327 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/viewer_video_rounds_test.dart: R3 retry button succeeds and old failure cleanup keeps the player visible
+00:11 +328 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/viewer_video_rounds_test.dart: R3 retry button succeeds and old failure cleanup keeps the player visible
+00:11 +329 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/viewer_video_rounds_test.dart: R3 retry button succeeds and old failure cleanup keeps the player visible
+00:11 +330 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/viewer_video_rounds_test.dart: R3 retry button succeeds and old failure cleanup keeps the player visible
+00:11 +331 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/viewer_video_rounds_test.dart: R3 retry button succeeds and old failure cleanup keeps the player visible
+00:11 +332 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/viewer_video_rounds_test.dart: R3 retry button succeeds and old failure cleanup keeps the player visible
+00:11 +332 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_send_feedback_test.dart: a failed operation lookup keeps the failure retryable and releases the held message
+
+Warning: A call to tap() with finder "Found 1 widget with key [<'chat-bubble-failed'>]: [
+  Row-[<'chat-bubble-failed'>](direction: horizontal, mainAxisAlignment: start, mainAxisSize: min, crossAxisAlignment: center, dependencies: [Directionality], renderObject: RenderFlex#88086 relayoutBoundary=up25),
+]" derived an Offset (Offset(245.0, 334.0)) that would not hit test on the specified widget.
+Maybe the widget is actually off-screen, or another widget is obscuring it, or the widget cannot receive pointer events.
+The finder corresponds to this RenderBox: RenderFlex#88086 relayoutBoundary=up25
+The hit test result at that offset is: HitTestResult(HitTestEntry<HitTestTarget>#fe0da(TextSpan(debugLabel: ((englishLike bodyMedium 2021).merge((blackMountainView bodyMedium).apply)).merge(unknown), inherit: false, color: Color(alpha: 0.7800, red: 1.0000, green: 1.0000, blue: 1.0000, colorSpace: ColorSpace.sRGB), family: Roboto, size: 11.0, weight: 400, letterSpacing: 0.3, baseline: alphabetic, height: 1.4x, leadingDistribution: even, decoration: Color(alpha: 1.0000, red: 0.1137, green: 0.1059, blue: 0.1255, colorSpace: ColorSpace.sRGB) TextDecoration.none, "23:42")), RenderParagraph#27f9a@Offset(28.1, 8.0), RenderAnimatedOpacity#29817@Offset(28.1, 8.0), RenderStack#92e7d@Offset(75.0, 8.0), RenderConstrainedBox#9997d@Offset(75.0, 8.0), RenderPositionedBox#745b0@Offset(185.6, 8.0), RenderFlex#ed8d9@Offset(185.6, 60.0), _RenderInkFeatures#cb3fa@Offset(185.6, 60.0), RenderCustomPaint#1b3eb@Offset(185.6, 60.0), RenderClipPath#b2a1c@Offset(185.6, 60.0), RenderPadding#b06b6@Offset(199.6, 69.0), RenderDecoratedBox#636e2@Offset(199.6, 69.0), RenderConstrainedBox#7901f@Offset(199.6, 69.0), RenderSemanticsAnnotations#3dcee@Offset(199.6, 69.0), RenderPointerListener#1f6a1@Offset(199.6, 69.0), RenderSemanticsGestureHandler#171bc@Offset(199.6, 69.0), RenderFlex#7e273@Offset(229.0, 69.0), RenderOpacity#a8a4f@Offset(229.0, 69.0), RenderPadding#d356c@Offset(229.0, 79.0), RenderConstrainedBox#33867@Offset(229.0, 79.0), RenderPositionedBox#f7881@Offset(229.0, 79.0), RenderRepaintBoundary#9bb12@Offset(229.0, 79.0), RenderIndexedSemantics#445da@Offset(229.0, 79.0), RenderSliverList@(mainAxis: 262.0, crossAxis: 229.0), RenderSliverPadding@(mainAxis: 278.0, crossAxis: 245.0), RenderViewport#1ed0c@Offset(245.0, 278.0), RenderIgnorePointer#1b177@Offset(245.0, 278.0), RenderSemanticsAnnotations#564d8@Offset(245.0, 278.0), RenderPointerListener#cfded@Offset(245.0, 278.0), RenderSemanticsGestureHandler#3b94e@Offset(245.0, 278.0), RenderPointerListener#5752b@Offset(245.0, 278.0), _RenderScrollSemantics#6ebc1@Offset(245.0, 278.0), RenderClipRect#62dfd@Offset(245.0, 278.0), RenderFlex#491c3@Offset(245.0, 278.0), RenderCustomMultiChildLayoutBox#af7d4@Offset(245.0, 334.0), _RenderInkFeatures#030d6@Offset(245.0, 334.0), RenderPhysicalModel#87f98@Offset(245.0, 334.0), RenderSemanticsAnnotations#641b5@Offset(245.0, 334.0), RenderRepaintBoundary#c802f@Offset(245.0, 334.0), RenderIgnorePointer#8050a@Offset(245.0, 334.0), RenderAnimatedOpacity#41c53@Offset(245.0, 334.0), RenderAnimatedOpacity#0a9fb@Offset(245.0, 334.0), _RenderColoredBox#1fd9e@Offset(245.0, 334.0), RenderAnimatedOpacity#34972@Offset(245.0, 334.0), RenderIgnorePointer#6bb41@Offset(245.0, 334.0), RenderAnimatedOpacity#952e1@Offset(245.0, 334.0), RenderRepaintBoundary#fb40b@Offset(245.0, 334.0), RenderSemanticsAnnotations#f8b33@Offset(245.0, 334.0), RenderOffstage#8cf03@Offset(245.0, 334.0), RenderSemanticsAnnotations#bffad@Offset(245.0, 334.0), _RenderTheater#a181e@Offset(245.0, 334.0), RenderAbsorbPointer#77dc0@Offset(245.0, 334.0), RenderPointerListener#1740b@Offset(245.0, 334.0), RenderSemanticsAnnotations#84693@Offset(245.0, 334.0), RenderCustomPaint#64424@Offset(245.0, 334.0), RenderSemanticsAnnotations#5cd2c@Offset(245.0, 334.0), RenderSemanticsAnnotations#44a13@Offset(245.0, 334.0), RenderSemanticsAnnotations#fab13@Offset(245.0, 334.0), RenderTapRegionSurface#757c8@Offset(245.0, 334.0), RenderSemanticsAnnotations#2fd89@Offset(245.0, 334.0), RenderSemanticsAnnotations#6bb9b@Offset(245.0, 334.0), HitTestEntry<HitTestTarget>#4be3a(_ReusableRenderView#1b166), HitTestEntry<HitTestTarget>#f44bd(<AutomatedTestWidgetsFlutterBinding>))
+#0      WidgetController._getElementPoint (package:flutter_test/src/controller.dart:2165:25)
+#1      WidgetController.getCenter (package:flutter_test/src/controller.dart:1947:12)
+#2      WidgetController.tap (package:flutter_test/src/controller.dart:1080:7)
+#3      main.<anonymous closure> (file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_send_feedback_test.dart:1139:18)
+<asynchronous suspension>
+#4      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#5      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+#6      StackZoneSpecification._registerCallback.<anonymous closure> (package:stack_trace/src/stack_zone_specification.dart:114:42)
+<asynchronous suspension>
+To silence this warning, pass "warnIfMissed: false" to "tap()".
+To make this warning fatal, set WidgetController.hitTestWarningShouldBeFatal to true.
+
+00:11 +333 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/viewer_video_rounds_test.dart: R3 retry button succeeds and old failure cleanup keeps the player visible
+00:11 +334 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/viewer_video_rounds_test.dart: R3 retry button succeeds and old failure cleanup keeps the player visible
+00:11 +335 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/viewer_video_rounds_test.dart: R3 retry button succeeds and old failure cleanup keeps the player visible
+00:11 +336 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_playback_test.dart: video arrives without original request and play opens an online stream
+00:11 +337 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_playback_test.dart: video arrives without original request and play opens an online stream
+00:11 +338 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_playback_test.dart: video arrives without original request and play opens an online stream
+00:11 +339 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_playback_test.dart: video arrives without original request and play opens an online stream
+00:11 +340 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_playback_test.dart: video arrives without original request and play opens an online stream
+00:12 +341 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/server_setup_test.dart: ServerSetupPage a first launch asks for an address and submits a bare domain over HTTPS
+00:12 +342 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/server_setup_test.dart: ServerSetupPage a first launch asks for an address and submits a bare domain over HTTPS
+00:12 +343 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/server_setup_test.dart: ServerSetupPage a first launch asks for an address and submits a bare domain over HTTPS
+00:12 +344 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/server_setup_test.dart: ServerSetupPage a first launch asks for an address and submits a bare domain over HTTPS
+00:12 +345 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/server_setup_test.dart: ServerSetupPage a first launch asks for an address and submits a bare domain over HTTPS
+00:12 +346 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/server_setup_test.dart: ServerSetupPage a first launch asks for an address and submits a bare domain over HTTPS
+00:12 +347 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/server_setup_test.dart: ServerSetupPage a first launch asks for an address and submits a bare domain over HTTPS
+00:12 +348 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/server_setup_test.dart: ServerSetupPage a first launch asks for an address and submits a bare domain over HTTPS
+00:12 +349 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/server_setup_test.dart: ServerSetupPage a first launch asks for an address and submits a bare domain over HTTPS
+00:12 +350 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_send_feedback_test.dart: a pending operation stays one failure bubble until later acceptance (refresh)
+00:12 +351 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_send_feedback_test.dart: a pending operation stays one failure bubble until later acceptance (refresh)
+00:12 +352 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_v2_query_routes_test.dart: notification tools use owner identity and strict shared inputs; query never displays
+00:12 +353 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_v2_query_routes_test.dart: notification tools use owner identity and strict shared inputs; query never displays
+00:12 +354 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_v2_query_routes_test.dart: notification tools use owner identity and strict shared inputs; query never displays
+00:12 +355 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_v2_query_routes_test.dart: notification tools use owner identity and strict shared inputs; query never displays
+00:12 +356 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_v2_query_routes_test.dart: notification tools use owner identity and strict shared inputs; query never displays
+00:12 +357 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_v2_query_routes_test.dart: notification tools use owner identity and strict shared inputs; query never displays
+00:12 +358 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_v2_query_routes_test.dart: notification tools use owner identity and strict shared inputs; query never displays
+00:12 +359 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_v2_query_routes_test.dart: notification tools use owner identity and strict shared inputs; query never displays
+00:12 +360 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_v2_query_routes_test.dart: notification tools use owner identity and strict shared inputs; query never displays
+00:12 +361 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:12 +362 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:12 +363 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:12 +364 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:12 +365 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:12 +366 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:12 +367 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:12 +368 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:12 +369 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:12 +370 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:12 +371 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:12 +372 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:12 +373 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:13 +374 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:13 +375 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:13 +376 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:13 +377 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:13 +378 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:13 +379 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:13 +380 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:13 +381 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:13 +382 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:13 +383 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:13 +384 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:13 +385 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:13 +386 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:13 +387 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:13 +388 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:13 +389 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:13 +390 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:13 +391 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:13 +392 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:13 +393 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:13 +394 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:13 +395 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:13 +396 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:13 +397 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:13 +398 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:13 +399 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:13 +400 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:13 +401 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:13 +402 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:13 +403 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:13 +404 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:14 +405 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:14 +406 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:14 +407 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:14 +408 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:14 +409 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:14 +410 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:14 +411 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:14 +412 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:14 +413 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:14 +414 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:14 +415 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:14 +416 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:14 +417 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:14 +418 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:14 +419 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:14 +420 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:14 +421 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:14 +422 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:14 +423 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: failed send survives route teardown and keeps installation blocked
+00:14 +424 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_media_input_test.dart: pasted image enters the ordered body draft
+00:14 +425 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_media_input_test.dart: pasted image enters the ordered body draft
+00:14 +426 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/metrics_hinge_reflow_test.dart: flat hinge add/move/remove reflows an open Profile panel
+00:14 +427 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/metrics_hinge_reflow_test.dart: flat hinge add/move/remove reflows an open Profile panel
+00:14 +428 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/metrics_hinge_reflow_test.dart: flat hinge add/move/remove reflows an open Profile panel
+00:14 +429 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/metrics_hinge_reflow_test.dart: flat hinge add/move/remove reflows an open Profile panel
+00:14 +430 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/metrics_hinge_reflow_test.dart: flat hinge add/move/remove reflows an open Profile panel
+00:14 +431 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/metrics_hinge_reflow_test.dart: flat hinge add/move/remove reflows an open Profile panel
+00:14 +432 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_presence_refresh_test.dart: an open conversation turns 在线 when the peer logs in, without reopening, and the list row shows the same value
+00:14 +433 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_presence_refresh_test.dart: an open conversation turns 在线 when the peer logs in, without reopening, and the list row shows the same value
+00:14 +434 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_presence_refresh_test.dart: an open conversation turns 在线 when the peer logs in, without reopening, and the list row shows the same value
+00:14 +435 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_presence_refresh_test.dart: an open conversation turns 在线 when the peer logs in, without reopening, and the list row shows the same value
+00:14 +436 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_presence_refresh_test.dart: an open conversation turns 在线 when the peer logs in, without reopening, and the list row shows the same value
+00:14 +437 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_presence_refresh_test.dart: an open conversation turns 在线 when the peer logs in, without reopening, and the list row shows the same value
+00:14 +438 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_presence_refresh_test.dart: an open conversation turns 在线 when the peer logs in, without reopening, and the list row shows the same value
+00:14 +439 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_presence_refresh_test.dart: an open conversation turns 在线 when the peer logs in, without reopening, and the list row shows the same value
+00:14 +440 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_presence_refresh_test.dart: an open conversation turns 在线 when the peer logs in, without reopening, and the list row shows the same value
+00:14 +441 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_presence_refresh_test.dart: an open conversation turns 在线 when the peer logs in, without reopening, and the list row shows the same value
+00:14 +441 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_draft_install_gate_test.dart: 草稿清空后安全门释放，更新页恢复安装入口
+after clear, blocked key: 0, blockers: []
+after second pump, blocked key: 0
+00:14 +442 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_presence_refresh_test.dart: an open conversation turns 在线 when the peer logs in, without reopening, and the list row shows the same value
+00:14 +443 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_presence_refresh_test.dart: an open conversation turns 在线 when the peer logs in, without reopening, and the list row shows the same value
+00:15 +444 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_presence_refresh_test.dart: an open conversation turns 在线 when the peer logs in, without reopening, and the list row shows the same value
+00:15 +445 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_presence_refresh_test.dart: an open conversation turns 在线 when the peer logs in, without reopening, and the list row shows the same value
+00:15 +446 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_presence_refresh_test.dart: an open conversation turns 在线 when the peer logs in, without reopening, and the list row shows the same value
+00:15 +447 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_presence_refresh_test.dart: an open conversation turns 在线 when the peer logs in, without reopening, and the list row shows the same value
+00:15 +448 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_presence_refresh_test.dart: an open conversation turns 在线 when the peer logs in, without reopening, and the list row shows the same value
+00:15 +449 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_presence_refresh_test.dart: an open conversation turns 在线 when the peer logs in, without reopening, and the list row shows the same value
+00:15 +450 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_presence_refresh_test.dart: an open conversation turns 在线 when the peer logs in, without reopening, and the list row shows the same value
+00:15 +451 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_presence_refresh_test.dart: an open conversation turns 在线 when the peer logs in, without reopening, and the list row shows the same value
+00:15 +452 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/update_navigation_test.dart: Profile 面板的设置入口打开更新页，离开后回到首页
+00:15 +453 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/update_navigation_test.dart: Profile 面板的设置入口打开更新页，离开后回到首页
+00:15 +454 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/update_navigation_test.dart: Profile 面板的设置入口打开更新页，离开后回到首页
+00:15 +455 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/update_navigation_test.dart: Profile 面板的设置入口打开更新页，离开后回到首页
+00:15 +456 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/update_navigation_test.dart: Profile 面板的设置入口打开更新页，离开后回到首页
+00:15 +457 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/update_navigation_test.dart: Profile 面板的设置入口打开更新页，离开后回到首页
+00:15 +458 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/update_navigation_test.dart: Profile 面板的设置入口打开更新页，离开后回到首页
+00:15 +459 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/update_navigation_test.dart: Profile 面板的设置入口打开更新页，离开后回到首页
+00:15 +460 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/update_navigation_test.dart: Profile 面板的设置入口打开更新页，离开后回到首页
+00:15 +461 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_http_retry_test.dart: S471-T2 viewer retries real truncated HTTP original without displaying partial bytes
+00:15 +462 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_http_retry_test.dart: S471-T2 viewer retries real truncated HTTP original without displaying partial bytes
+00:15 +463 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_http_retry_test.dart: S471-T2 viewer retries real truncated HTTP original without displaying partial bytes
+00:15 +464 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_http_retry_test.dart: S471-T2 viewer retries real truncated HTTP original without displaying partial bytes
+00:15 +465 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_http_retry_test.dart: S471-T2 viewer retries real truncated HTTP original without displaying partial bytes
+00:15 +466 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_http_retry_test.dart: S471-T2 viewer retries real truncated HTTP original without displaying partial bytes
+00:15 +467 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_http_retry_test.dart: S471-T2 viewer retries real truncated HTTP original without displaying partial bytes
+00:15 +468 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_http_retry_test.dart: S471-T2 viewer retries real truncated HTTP original without displaying partial bytes
+00:15 +469 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_http_retry_test.dart: S471-T2 viewer retries real truncated HTTP original without displaying partial bytes
+00:15 +470 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_http_retry_test.dart: S471-T2 viewer retries real truncated HTTP original without displaying partial bytes
+00:15 +471 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_http_retry_test.dart: S471-T2 viewer retries real truncated HTTP original without displaying partial bytes
+00:15 +472 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_http_retry_test.dart: S471-T2 viewer retries real truncated HTTP original without displaying partial bytes
+00:15 +473 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_http_retry_test.dart: S471-T2 viewer retries real truncated HTTP original without displaying partial bytes
+00:15 +474 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_http_retry_test.dart: S471-T2 viewer retries real truncated HTTP original without displaying partial bytes
+00:16 +475 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_http_retry_test.dart: S471-T2 viewer retries real truncated HTTP original without displaying partial bytes
+00:16 +476 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_http_retry_test.dart: S471-T2 viewer retries real truncated HTTP original without displaying partial bytes
+00:16 +477 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_http_retry_test.dart: S471-T2 viewer retries real truncated HTTP original without displaying partial bytes
+00:16 +478 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_http_retry_test.dart: S471-T2 viewer retries real truncated HTTP original without displaying partial bytes
+00:16 +479 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_http_retry_test.dart: S471-T2 viewer retries real truncated HTTP original without displaying partial bytes
+00:16 +480 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_http_retry_test.dart: S471-T2 viewer retries real truncated HTTP original without displaying partial bytes
+00:16 +481 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_http_retry_test.dart: S471-T2 viewer retries real truncated HTTP original without displaying partial bytes
+00:16 +482 ~9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_http_retry_test.dart: S471-T2 viewer retries real truncated HTTP original without displaying partial bytes
+00:16 +482 ~10: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_http_retry_test.dart: S471-T2 viewer retries real truncated HTTP original without displaying partial bytes
+00:16 +482 ~10: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/f4_clear_failure_test.dart: a failed 401 cleanup keeps the concurrently completed new login
+cleanup callback count=1; new credential on disk=true; new login in memory=true
+00:16 +483 ~10: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_http_retry_test.dart: S471-T2 viewer retries real truncated HTTP original without displaying partial bytes
+00:16 +484 ~10: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_http_retry_test.dart: S471-T2 viewer retries real truncated HTTP original without displaying partial bytes
+00:16 +485 ~10: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_http_retry_test.dart: S471-T2 viewer retries real truncated HTTP original without displaying partial bytes
+00:16 +486 ~10: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_http_retry_test.dart: S471-T2 viewer retries real truncated HTTP original without displaying partial bytes
+00:16 +487 ~10: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_http_retry_test.dart: S471-T2 viewer retries real truncated HTTP original without displaying partial bytes
+00:16 +487 ~11: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_http_retry_test.dart: S471-T2 viewer retries real truncated HTTP original without displaying partial bytes
+00:16 +487 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_http_retry_test.dart: S471-T2 viewer retries real truncated HTTP original without displaying partial bytes
+00:16 +488 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_http_retry_test.dart: S471-T2 viewer retries real truncated HTTP original without displaying partial bytes
+00:16 +489 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_http_retry_test.dart: S471-T2 viewer retries real truncated HTTP original without displaying partial bytes
+00:17 +490 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_http_retry_test.dart: S471-T2 viewer retries real truncated HTTP original without displaying partial bytes
+T2: thumbnail=1061 original=230948 partial=8192; requests=[/media/image-1?variant=thumb, /media/image-1, /media/image-1]; decoded 16x16 -> retained on failure -> 256x256
+00:17 +490 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/f4_repair_overwrite_test.dart: old cleanup repair must not overwrite a later completed login
+before old repair release: latest login HTTP=200; latest disk=true; latest memory=true
+cleanup callback count=1; new credential on disk=true; new login in memory=true
+00:17 +491 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_http_retry_test.dart: S471-T2 viewer retries real truncated HTTP original without displaying partial bytes
+00:17 +492 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_http_retry_test.dart: S471-T2 viewer retries real truncated HTTP original without displaying partial bytes
+00:17 +493 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/media_viewer_http_retry_test.dart: S471-T2 viewer retries real truncated HTTP original without displaying partial bytes
+00:17 +494 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_composer_shortcuts_test.dart: Enter sends exactly once and clears the input
+00:17 +495 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_composer_shortcuts_test.dart: Enter sends exactly once and clears the input
+00:17 +496 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_composer_shortcuts_test.dart: Enter sends exactly once and clears the input
+00:17 +496 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/f4_bounded_repair_test.dart: bounded repair must not overwrite the final completed login
+repair 0 paused: login HTTP=200, latest memory/disk consistent
+00:17 +497 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_composer_shortcuts_test.dart: Enter sends exactly once and clears the input
+00:17 +498 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_composer_shortcuts_test.dart: Enter sends exactly once and clears the input
+00:17 +498 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/f4_bounded_repair_test.dart: bounded repair must not overwrite the final completed login
+repair 1 paused: login HTTP=200, latest memory/disk consistent
+repair 2 paused: login HTTP=200, latest memory/disk consistent
+00:17 +499 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_composer_shortcuts_test.dart: Enter sends exactly once and clears the input
+00:17 +500 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +500 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/f4_bounded_repair_test.dart: bounded repair must not overwrite the final completed login
+repair 3 paused: login HTTP=200, latest memory/disk consistent
+00:17 +501 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +502 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +502 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/f4_bounded_repair_test.dart: bounded repair must not overwrite the final completed login
+repair 4 paused: login HTTP=200, latest memory/disk consistent
+cleanup callback count=1; new credential on disk=true; new login in memory=true
+00:17 +503 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +504 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +505 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +506 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +507 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +508 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +509 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +510 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +511 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +512 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +513 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +514 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +515 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +516 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +517 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +518 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +519 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +520 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +521 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +522 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +523 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +524 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +525 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +526 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +527 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +528 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +529 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +530 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +531 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +532 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +533 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +534 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +535 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +536 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +537 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +538 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +539 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +540 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +541 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +542 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +543 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +544 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +545 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +546 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +547 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +548 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +549 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +550 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +551 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +552 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +553 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +554 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +555 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +556 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +557 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +558 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +559 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +560 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +561 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +562 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +563 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +564 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +565 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +566 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +567 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:17 +568 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:18 +569 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:18 +570 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:18 +571 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:18 +572 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:18 +573 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:18 +574 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:18 +575 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:18 +576 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:18 +577 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:18 +578 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:18 +579 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:18 +580 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:18 +581 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:18 +582 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:18 +583 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:18 +584 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:18 +585 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:18 +586 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:18 +587 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:18 +588 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:18 +589 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:18 +590 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:18 +591 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:18 +592 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:18 +593 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:18 +594 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:18 +595 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:18 +596 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:18 +597 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:18 +598 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:18 +599 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:18 +600 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:18 +601 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_local_media_preview_test.dart: just-sent image stays visible when metadata and thumbnails fail
+00:18 +602 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:18 +602 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/f4_login_failure_queue_test.dart: failed earlier login cannot erase a later queued successful login
+old login status=500; latest login status=200; latest memory=true; latest cold disk=true
+00:18 +603 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:18 +604 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:18 +605 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:18 +606 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:19 +607 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:19 +608 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:19 +609 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:19 +610 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:19 +611 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:19 +612 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:19 +613 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:19 +614 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:19 +615 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:19 +616 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:19 +617 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:19 +618 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:19 +619 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:19 +620 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:19 +621 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:19 +622 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:19 +623 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:19 +624 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:19 +625 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:19 +626 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:19 +627 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:19 +628 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:19 +629 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:19 +630 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:19 +631 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:19 +632 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:19 +633 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:19 +634 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:20 +635 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:20 +636 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:20 +637 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:20 +638 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:20 +639 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:20 +640 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:20 +641 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:20 +642 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:20 +643 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:20 +644 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:20 +645 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:20 +646 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:20 +647 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:20 +648 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:20 +649 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:20 +650 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:20 +651 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:21 +652 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:21 +653 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:21 +654 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:21 +655 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:21 +656 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:21 +657 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:21 +658 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:21 +659 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:21 +660 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:21 +661 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:21 +662 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:21 +663 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:22 +664 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:22 +665 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:22 +666 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:22 +667 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:22 +668 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:22 +669 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:22 +670 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:22 +671 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:22 +672 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:22 +673 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:22 +674 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:23 +675 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:23 +676 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:23 +677 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:23 +678 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:23 +679 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:23 +680 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:23 +681 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:24 +682 ~12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/test/chat_history_gap_test.dart: 1000-message backfill cannot be skipped by a send or a poll
+00:25 +683 ~12: All tests passed!
+flutter-test	PASS	0
+
+=== linux-integration ===
+Resolving dependencies...
+Downloading packages...
+  code_assets 1.2.1 (2.2.0 available)
+  cross_file 0.3.5+5 (0.4.0 available)
+  hooks 2.0.2 (2.2.0 available)
+  material_color_utilities 0.13.0 (0.13.1 available)
+  meta 1.18.3 (1.19.0 available)
+  objective_c 9.5.0 (9.6.4 available)
+  record_use 0.6.0 (1.1.1 available)
+  test_api 0.7.12 (0.7.15 available)
+  vector_math 2.4.0 (2.4.4 available)
+  video_player_android 2.12.2 (2.12.4 available)
+  video_player_avfoundation 2.12.3 (2.12.4 available)
+Got dependencies!
+11 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+00:00 +0: loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/integration_test/auth_flow_test.dart
+Building Linux application...                                   
+✓ Built build/linux/x64/debug/bundle/bb_mobile
+00:00 +0: (setUpAll)
+00:00 +0: real HTTP: register → account → copy → login → signed in
+00:02 +1: real HTTP: wrong password shows the shared 401 message
+00:03 +2: restart: a persisted credential restores the session
+00:04 +3: restart: an expired credential is cleared and returns to login
+00:04 +4: wide and compact viewports switch layout without overflow
+00:05 +5: a storage failure after a real server login is not success
+00:06 +6: real HTTP + Linux render: Profile edit, avatar upload and logout
+00:11 +7: real HTTP + Linux: STEP-2 Profile edits, live reflow, avatar path and logout
+00:19 +8: real HTTP + Linux: heartbeat failures keep the session and banner
+00:20 +9: real HTTP + Linux: resized Profile panel exits to the left
+00:22 +10: restart: an unreachable server keeps the credential and warns
+00:22 +11: real HTTP: users home opens chat, image renders, text sends
+00:25 +12: real ffmpeg: pasted video gets a real cover and mixes with text
+00:27 +13: real FVP Linux: click plays frames, Range and releases
+00:29 +14: (tearDownAll)
+00:29 +14: All tests passed!
+linux-integration	PASS	0
+
+RESULT=PASS ELAPSED_SECONDS=73 LOG_DIR=/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/docs/evidence/dea481-integration/flutter-final

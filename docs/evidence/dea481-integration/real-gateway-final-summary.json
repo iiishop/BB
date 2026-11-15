@@ -1,0 +1,13 @@
+{
+  "pass": 6,
+  "fail": 0,
+  "skip": 0,
+  "names": [
+    "live FastAPI auth register → login → persist → restore → expired credential",
+    "real HTTP round trip: draft, image, publish, comment, like, visits, delete",
+    "live media contract metadata, bounded thumbnail, original bytes and isolation",
+    "live chat chain ordered text/image send, real blocks, receipts, ACK gap and ACL",
+    "live chat chain attachment metadata only, async download, durable event and video cover",
+    "live chat chain wait returns an arriving message before timeout"
+  ]
+}

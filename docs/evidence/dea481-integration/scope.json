@@ -1,0 +1,58 @@
+{
+  "server-evidence": {
+    "reference": "d402ba8cecdfdbfb421eef23165483b24f3bd1a3",
+    "paths": [
+      "server"
+    ],
+    "identical": true
+  },
+  "agent-evidence": {
+    "reference": "87c3807caa70b58914caf28c21b18d47386dfd15",
+    "paths": [
+      "dsh-plugin",
+      "client/bin",
+      "client/lib/services",
+      "client/lib/models",
+      "client/lib/config",
+      "client/pubspec.lock"
+    ],
+    "identical": true
+  },
+  "native-tcp-this-run": {
+    "reference": "d2211e2bab3f6a79e54d2777103d9f8b1d782cad",
+    "paths": [
+      "server",
+      "dsh-plugin",
+      "client/bin",
+      "client/lib/services",
+      "client/lib/models",
+      "client/lib/config",
+      "client/pubspec.lock"
+    ],
+    "identical": true
+  },
+  "latest-ui-tested-tree": {
+    "reference": "d3856e316d1e11b27738ea9e9bedcd6a1f66524e",
+    "paths": [
+      "client/lib/ui",
+      "client/test/space_compose_test.dart",
+      "client/test/support/fake_space_gateway.dart"
+    ],
+    "identical": true
+  },
+  "protected-files": {
+    "reference": "573f3877cb8497d9df4720be3c13eee089ff9642",
+    "paths": [
+      ".github/workflows",
+      "client/windows",
+      "client/test/windows_clipboard_native_diag_test.dart"
+    ],
+    "identical": true
+  },
+  "source_sha": "542cfadcb38e6b60856c2e371d921443cba53a4c",
+  "git_trees": {
+    "server": "8d2147fd7be48cd30227fbddf851e2e157e936d5",
+    "client": "5dbfff1760b1ac72ad3f6768396e5759e2cf6d63",
+    "dsh-plugin": "96bfbf775ec0db595d47bd6f4a7aa098c41e3e46"
+  }
+}
