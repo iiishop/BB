@@ -18,10 +18,13 @@ import 'services/heartbeat_controller.dart';
 import 'services/profile_api_client.dart';
 import 'services/profile_service.dart';
 import 'services/server_address_store.dart';
+import 'services/space_api_client.dart';
+import 'services/space_service.dart';
 import 'services/session_store.dart';
 import 'ui/chat/chat_drafts.dart';
 import 'ui/server_setup_page.dart';
 import 'ui/server_settings_scope.dart';
+import 'ui/space/space_gateway.dart';
 import 'ui/updates/update_scope.dart';
 
 Future<void> main() async {
@@ -153,6 +156,7 @@ class _BbRootState extends State<BbRoot> {
           profile: services.profile,
           heartbeat: services.heartbeat,
           chat: services.chat,
+          space: SpaceServiceGateway(services.space),
         ),
       );
     }
@@ -189,6 +193,7 @@ class _AppServices {
     required this.profile,
     required this.heartbeat,
     required this.chat,
+    required this.space,
   });
 
   final Uri baseUri;
@@ -196,6 +201,7 @@ class _AppServices {
   final ProfileService profile;
   final HeartbeatController heartbeat;
   final ChatService chat;
+  final SpaceService space;
 
   static Future<_AppServices> create(Uri baseUri, File sessionFile) async {
     final AuthSession session = AuthSession();
@@ -217,12 +223,18 @@ class _AppServices {
       cacheRoot: await _chatCacheDirectory(sessionFile),
     );
     chat.start();
+    final SpaceService space = SpaceService(
+      api: SpaceApiClient(baseUri: baseUri),
+      session: session,
+      chat: chat,
+    );
     return _AppServices._(
       baseUri: baseUri,
       auth: auth,
       profile: profile,
       heartbeat: heartbeat,
       chat: chat,
+      space: space,
     );
   }
 

@@ -5,6 +5,7 @@ import 'services/chat_service.dart';
 import 'services/heartbeat_controller.dart';
 import 'services/profile_service.dart';
 import 'ui/auth_flow.dart';
+import 'ui/space/space_gateway.dart';
 
 /// Spacing scale shared by the Flutter client. Keep new screens on these
 /// steps so the surface stays visually consistent as modules land.
@@ -238,6 +239,7 @@ class BbClientApp extends StatelessWidget {
     this.profile,
     this.heartbeat,
     this.chat,
+    this.space,
   });
 
   final AuthGateway authGateway;
@@ -250,6 +252,9 @@ class BbClientApp extends StatelessWidget {
   /// STEP-3 chat service. Null keeps the focused STEP-1/2 test surfaces.
   final ChatService? chat;
 
+  /// Space capability. Null keeps the pre-Space signed-in surface.
+  final SpaceGateway? space;
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -261,6 +266,7 @@ class BbClientApp extends StatelessWidget {
         profile: profile,
         heartbeat: heartbeat,
         chat: chat,
+        space: space,
       ),
     );
   }

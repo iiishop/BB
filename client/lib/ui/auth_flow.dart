@@ -8,6 +8,7 @@ import '../services/chat_service.dart';
 import '../services/heartbeat_controller.dart';
 import '../services/profile_service.dart';
 import 'home_view.dart';
+import 'space/space_gateway.dart';
 import 'login_page.dart';
 import 'register_page.dart';
 import 'restoring_view.dart';
@@ -26,6 +27,7 @@ class AuthFlow extends StatefulWidget {
     this.profile,
     this.heartbeat,
     this.chat,
+    this.space,
   });
 
   final AuthGateway gateway;
@@ -36,6 +38,9 @@ class AuthFlow extends StatefulWidget {
 
   /// STEP-3 chat service, forwarded to the signed-in home.
   final ChatService? chat;
+
+  /// Space capability; null keeps the pre-Space signed-in surface.
+  final SpaceGateway? space;
 
   @override
   State<AuthFlow> createState() => _AuthFlowState();
@@ -286,6 +291,7 @@ class _AuthFlowState extends State<AuthFlow> {
             auth: widget.gateway,
             heartbeat: heartbeat,
             chat: widget.chat,
+            space: widget.space,
             onSignedOut: _handleSignedOut,
             onSessionExpired: () => unawaited(_handleExpiredSession()),
           );
