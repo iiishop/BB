@@ -187,6 +187,28 @@ class ValidateBundleTests(unittest.TestCase):
             self.assertIn("not a Windows PE", str(context.exception))
 
 
+class DependencyTests(unittest.TestCase):
+    def test_validate_dependency_without_app(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            bundle = make_bundle(Path(temporary) / 'bundle')
+            (bundle / 'bb_client.exe').unlink()
+            self.assertTrue(hasattr(pkg, 'validate_ffmpeg'))
+            report = pkg.validate_ffmpeg(bundle, min_ffmpeg_bytes=8)
+            self.assertEqual(report['ffmpeg_sha256'], pkg.sha256_file(bundle / pkg.FFMPEG_RELATIVE))
+
+    def test_rewritten_manifest_cannot_override_external_hash(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            bundle = make_bundle(Path(temporary) / 'bundle')
+            original = pkg.sha256_file(bundle / pkg.FFMPEG_RELATIVE)
+            exe = bundle / pkg.FFMPEG_RELATIVE
+            exe.write_bytes(exe.read_bytes().replace(b'\0', b'X'))
+            manifest = bundle / pkg.MANIFEST_RELATIVE
+            manifest.write_text(manifest.read_text().replace(original, pkg.sha256_file(exe)))
+            self.assertTrue(hasattr(pkg, 'validate_ffmpeg'))
+            with self.assertRaisesRegex(RuntimeError, 'expected build output'):
+                pkg.validate_ffmpeg(bundle, min_ffmpeg_bytes=8, expected_ffmpeg_sha256=original)
+
+
 class ZipTests(unittest.TestCase):
     def test_zip_layout_and_inspection(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

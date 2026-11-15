@@ -112,14 +112,32 @@ def validate_bundle(
     if not bundle.is_dir():
         raise RuntimeError(f"bundle directory not found: {bundle}")
     problems: list[str] = []
-    for relative in REQUIRED_RELATIVE:
-        if not (bundle / relative).is_file():
-            problems.append(f"missing {relative}")
+    if not (bundle / APP_EXECUTABLE).is_file():
+        problems.append(f"missing {APP_EXECUTABLE}")
     if not (bundle / "data" / "flutter_assets").is_dir():
         problems.append("missing data/flutter_assets/")
     app = bundle / APP_EXECUTABLE
     if app.is_file() and app.stat().st_size < min_app_bytes:
         problems.append(f"{APP_EXECUTABLE} is only {app.stat().st_size} bytes")
+    if problems:
+        raise RuntimeError("; ".join(problems))
+    return {
+        **validate_ffmpeg(bundle, min_ffmpeg_bytes=min_ffmpeg_bytes,
+                          expected_ffmpeg_sha256=expected_ffmpeg_sha256),
+        "app_bytes": app.stat().st_size,
+    }
+
+
+def validate_ffmpeg(
+    bundle: Path, *, min_ffmpeg_bytes: int = MIN_FFMPEG_BYTES,
+    expected_ffmpeg_sha256: str | None = None,
+) -> dict[str, object]:
+    """One validation path for restored dependencies and final/extracted bundles."""
+    bundle = Path(bundle)
+    problems: list[str] = []
+    for relative in REQUIRED_RELATIVE:
+        if relative != APP_EXECUTABLE and not (bundle / relative).is_file():
+            problems.append(f"missing {relative}")
     ffmpeg = bundle / FFMPEG_RELATIVE
     if ffmpeg.is_file():
         if ffmpeg.stat().st_size < min_ffmpeg_bytes:
@@ -201,7 +219,6 @@ def validate_bundle(
         raise RuntimeError("; ".join(problems))
     return {
         "bundle": str(bundle),
-        "app_bytes": app.stat().st_size,
         "ffmpeg_bytes": ffmpeg.stat().st_size,
         "ffmpeg_sha256": actual_sha256,
         "ffmpeg_version": manifest.get("ffmpeg_version"),
