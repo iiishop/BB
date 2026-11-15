@@ -68,6 +68,14 @@ class FakeChatService extends ChatService {
   /// "sending" bubble before the server commits.
   Completer<void>? sendGate;
 
+  /// Blocks the response after the body was appended, while attachments are
+  /// still being handled: the partial-success window.
+  Completer<void>? attachmentGate;
+
+  /// Blocks the response after every item was appended (server accepted) but
+  /// before the caller sees the result.
+  Completer<void>? responseGate;
+
   /// Thrown from [sendComposed] after [sendGate] completes.
   Object? sendFailure;
 
@@ -215,6 +223,10 @@ class FakeChatService extends ChatService {
         );
       }
     }
+    final Completer<void>? attachmentGate = this.attachmentGate;
+    if (attachmentGate != null) {
+      await attachmentGate.future;
+    }
     final List<SendOutcome> outcomes = <SendOutcome>[];
     for (int i = 0; i < attachments.length; i++) {
       final OutgoingAttachment attachment = attachments[i];
@@ -253,6 +265,10 @@ class FakeChatService extends ChatService {
           attachment: attachment,
         ),
       );
+    }
+    final Completer<void>? responseGate = this.responseGate;
+    if (responseGate != null) {
+      await responseGate.future;
     }
     return ComposedSendResult(
       body: bodyOutcome,

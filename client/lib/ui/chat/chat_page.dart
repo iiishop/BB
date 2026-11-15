@@ -33,6 +33,7 @@ class ChatPage extends StatefulWidget {
     this.onMessagesChanged,
     this.saveService,
     this.clipboard = const PlatformClipboardMediaReader(),
+    this.coverExtractor = defaultVideoCoverExtractor,
     this.viewerInlineVideoSupported,
   });
 
@@ -48,6 +49,10 @@ class ChatPage extends StatefulWidget {
 
   /// Clipboard/images seam for tests that exercise the real composer.
   final ClipboardMediaReader clipboard;
+
+  /// Product default is the real ffmpeg/platform extractor; the seam lets
+  /// widget tests exercise the partial-success window with a synthetic cover.
+  final VideoCoverExtractorFn coverExtractor;
 
   /// Test seam: force the viewer's external-player path on unsupported hosts.
   final bool? viewerInlineVideoSupported;
@@ -87,6 +92,16 @@ class _ChatPageState extends State<ChatPage> {
   /// Pending operation ids whose one entrance already played. Scrolling an
   /// unfinished bubble out and back in must not replay it.
   final Set<String> _pendingEntered = <String>{};
+
+  /// Pending operation ids whose accepted message was already read by the
+  /// poll. Their local row is hidden and the committed row carries the send
+  /// state until the response settles, so one server fact is one bubble.
+  final Set<String> _matchedPending = <String>{};
+
+  /// Highest server position when each local operation started. Only messages
+  /// after that point may reconcile with it, so an older identical message is
+  /// never mistaken for the local echo.
+  final Map<String, int> _pendingFloor = <String, int>{};
   static const int _maxLocalPreviewEntries = 8;
   static const int _maxLocalPreviewBytes = 24 * 1024 * 1024;
   bool _loading = true;
@@ -101,6 +116,10 @@ class _ChatPageState extends State<ChatPage> {
   /// fetched window). It must never advance the fetch cursor by itself.
   int _displayedMax = 0;
   bool _fetching = false;
+
+  /// Bumped when the user grabs the list; queued/settling programmatic scrolls
+  /// from before that gesture are abandoned instead of fighting the drag.
+  int _scrollEpoch = 0;
 
   String get _consumerSession =>
       'ui:${widget.chat.selfAccount}:${widget.peer.account}';
@@ -185,11 +204,17 @@ class _ChatPageState extends State<ChatPage> {
       if (!mounted) {
         return;
       }
+      final Set<String> known = _messages
+          .map((ChatMessage message) => message.identity)
+          .toSet();
+      final Map<String, String> reconciled = _reconcilePending(loaded, known);
       setState(() {
         _mergeMessages(loaded);
         _fetchedThrough = cursor;
         _loading = false;
         _animateIdentities.clear();
+        _operationByMessage.addAll(reconciled);
+        _matchedPending.addAll(reconciled.values);
       });
       widget.onMessagesChanged?.call(List<ChatMessage>.unmodifiable(_messages));
       _scrollToBottom(animate: false, force: true);
@@ -253,12 +278,15 @@ class _ChatPageState extends State<ChatPage> {
         for (final ChatMessage message in loaded)
           if (!known.contains(message.identity)) message.identity,
       };
+      final Map<String, String> reconciled = _reconcilePending(loaded, known);
       setState(() {
         _mergeMessages(loaded);
         // Only a contiguous server read advances the fetch cursor. Local
         // sends in _onSent never touch this value.
         _fetchedThrough = cursor;
         _animateIdentities.addAll(arrived);
+        _operationByMessage.addAll(reconciled);
+        _matchedPending.addAll(reconciled.values);
       });
       widget.onMessagesChanged?.call(List<ChatMessage>.unmodifiable(_messages));
       if (arrived.isNotEmpty && wasNearBottom) {
@@ -269,6 +297,88 @@ class _ChatPageState extends State<ChatPage> {
     } finally {
       _fetching = false;
     }
+  }
+
+  /// Binds a polled self message to a local pending operation when the server
+  /// accepted it but the HTTP response is still in flight. This is the only
+  /// point where both facts are visible at once; hiding the local row here
+  /// keeps exactly one bubble per accepted message and keeps the committed
+  /// row keyed by the same operation id.
+  Map<String, String> _reconcilePending(
+    Iterable<ChatMessage> loaded,
+    Set<String> known,
+  ) {
+    final Map<String, String> matches = <String, String>{};
+    final Set<String> claimed = <String>{};
+    for (final ChatMessage message in loaded) {
+      if (known.contains(message.identity)) {
+        continue;
+      }
+      for (final PendingSend pending in _pending) {
+        final String operationId = pending.operationId;
+        if (_matchedPending.contains(operationId) ||
+            claimed.contains(operationId)) {
+          continue;
+        }
+        if (_pendingMatchesMessage(message, pending)) {
+          matches[message.identity] = operationId;
+          claimed.add(operationId);
+          break;
+        }
+      }
+    }
+    return matches;
+  }
+
+  /// Presentation-level reconciliation, not identity: text and part order must
+  /// match, image media ids may differ because the upload happens server side,
+  /// and an attachment must agree on type, name and size. A five-minute window
+  /// and the position floor keep an older identical message out.
+  bool _pendingMatchesMessage(ChatMessage message, PendingSend pending) {
+    final int? floor = _pendingFloor[pending.operationId];
+    if (floor != null && message.position <= floor) {
+      return false;
+    }
+    if (message.senderAccount != widget.chat.selfAccount ||
+        message.targetAccount != widget.peer.account) {
+      return false;
+    }
+    if (message.createdAt.difference(pending.message.createdAt).abs() >
+        const Duration(minutes: 5)) {
+      return false;
+    }
+    if (message.kind != pending.message.kind) {
+      return false;
+    }
+    if (message.kind == ChatMessageKind.body) {
+      final List<MessagePart> actual = message.parts;
+      final List<MessagePart> local = pending.message.parts;
+      if (actual.length != local.length) {
+        return false;
+      }
+      for (int index = 0; index < actual.length; index += 1) {
+        final MessagePart a = actual[index];
+        final MessagePart b = local[index];
+        if (a is TextPart && b is TextPart) {
+          if (a.text != b.text) {
+            return false;
+          }
+        } else if (a is ImagePart && b is ImagePart) {
+          continue;
+        } else {
+          return false;
+        }
+      }
+      return true;
+    }
+    final Attachment? actual = message.attachment;
+    final Attachment? local = pending.message.attachment;
+    if (actual == null || local == null) {
+      return false;
+    }
+    return actual.kind == local.kind &&
+        actual.filename == local.filename &&
+        actual.byteSize == local.byteSize;
   }
 
   /// Merge by stable message identity and keep the displayed order. Existing
@@ -316,7 +426,9 @@ class _ChatPageState extends State<ChatPage> {
     });
     widget.onMessagesChanged?.call(List<ChatMessage>.unmodifiable(_messages));
     if (_displayedMax > before) {
-      _scrollToBottom(force: true);
+      // A settle is not a new user action: follow only when already near the
+      // end, so a reader who scrolled up meanwhile is not pulled down.
+      _scrollToBottom();
     }
   }
 
@@ -335,19 +447,37 @@ class _ChatPageState extends State<ChatPage> {
     if (!mounted) {
       return;
     }
+    final Set<String> previous = <String>{
+      for (final PendingSend item in _pending) item.operationId,
+    };
+    final Set<String> live = <String>{
+      for (final PendingSend item in pending) item.operationId,
+    };
+    final bool startedSend = pending.any(
+      (PendingSend item) =>
+          item.state == SendFeedbackState.sending &&
+          !previous.contains(item.operationId),
+    );
     setState(() {
       _pending = List<PendingSend>.of(pending);
-      final Set<String> live = <String>{
-        for (final PendingSend item in pending) item.operationId,
-      };
+      for (final String operationId in live) {
+        _pendingFloor.putIfAbsent(operationId, () => _displayedMax);
+      }
+      _pendingFloor.removeWhere(
+        (String operationId, int _) => !live.contains(operationId),
+      );
       _pendingEntered.removeWhere(
         (String operationId) => !live.contains(operationId),
       );
+      _matchedPending.removeWhere(
+        (String operationId) => !live.contains(operationId),
+      );
     });
-    if (pending.isNotEmpty) {
-      // Sending is an explicit user action: show the local bubble even when
-      // the reader was up in history.
-      _scrollToBottom(force: true);
+    if (startedSend) {
+      // A new explicit send reveals its bubble immediately; a failed/retrying
+      // update does not move a reader who is parked in history. No long
+      // animation here, so the user can grab the list without a fight.
+      _scrollToBottom(animate: false, force: true);
     }
   }
 
@@ -375,16 +505,29 @@ class _ChatPageState extends State<ChatPage> {
     if (!force && !_isNearBottom) {
       return;
     }
+    final int epoch = _scrollEpoch;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _applyBottomScroll(animate: animate, attempt: 0);
+      _applyBottomScroll(animate: animate, attempt: 0, epoch: epoch);
     });
+  }
+
+  bool _onScrollNotification(ScrollNotification notification) {
+    if (notification is ScrollStartNotification &&
+        notification.dragDetails != null) {
+      _scrollEpoch += 1;
+    }
+    return false;
   }
 
   /// The list is lazy, so its reported max extent can grow while scrolling
   /// toward the end. Animate once, then correct any remaining distance with
   /// cheap jumps so a send really lands on its own bubble.
-  void _applyBottomScroll({required bool animate, required int attempt}) {
-    if (!mounted || !_scrollController.hasClients) {
+  void _applyBottomScroll({
+    required bool animate,
+    required int attempt,
+    required int epoch,
+  }) {
+    if (!mounted || !_scrollController.hasClients || epoch != _scrollEpoch) {
       return;
     }
     final ScrollPosition position = _scrollController.position;
@@ -401,8 +544,10 @@ class _ChatPageState extends State<ChatPage> {
             curve: Curves.easeOutCubic,
           )
           .whenComplete(() {
-            if (mounted && _scrollController.hasClients) {
-              _applyBottomScroll(animate: false, attempt: 1);
+            if (mounted &&
+                _scrollController.hasClients &&
+                epoch == _scrollEpoch) {
+              _applyBottomScroll(animate: false, attempt: 1, epoch: epoch);
             }
           });
       return;
@@ -412,7 +557,7 @@ class _ChatPageState extends State<ChatPage> {
     }
     _scrollController.jumpTo(target);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _applyBottomScroll(animate: false, attempt: attempt + 1);
+      _applyBottomScroll(animate: false, attempt: attempt + 1, epoch: epoch);
     });
   }
 
@@ -724,6 +869,7 @@ class _ChatPageState extends State<ChatPage> {
             chat: widget.chat,
             peerAccount: widget.peer.account,
             clipboard: widget.clipboard,
+            coverExtractor: widget.coverExtractor,
             controller: _composerController,
             onSent: _onSent,
             onSentOperations: _onSentOperations,
@@ -794,12 +940,17 @@ class _ChatPageState extends State<ChatPage> {
           operationId: _operationByMessage[message.identity],
         ),
       for (final PendingSend pending in _pending)
-        _TimelineEntry(
-          message: pending.message,
-          operationId: pending.operationId,
-          pending: pending,
-        ),
+        if (!_matchedPending.contains(pending.operationId))
+          _TimelineEntry(
+            message: pending.message,
+            operationId: pending.operationId,
+            pending: pending,
+          ),
     ];
+    final Map<String, SendFeedbackState> pendingState =
+        <String, SendFeedbackState>{
+          for (final PendingSend item in _pending) item.operationId: item.state,
+        };
     bool sameRun(int left, int right) {
       return continuesMessageRun(
         entries[left].message.senderAccount,
@@ -816,20 +967,29 @@ class _ChatPageState extends State<ChatPage> {
       final ChatMessage message = entry.message;
       final bool committed = entry.pending == null;
       if (committed) {
+        final DateTime local = message.createdAt.toLocal();
         if (shouldShowDaySeparator(previous, message.createdAt)) {
           timeline.add(
-            _DaySeparator(label: formatDaySeparator(message.createdAt)),
+            _DaySeparator(
+              key: ValueKey<String>(
+                'chat-day-${local.year}-${local.month}-${local.day}',
+              ),
+              label: formatDaySeparator(message.createdAt),
+            ),
           );
         } else if (shouldShowGapLabel(previous, message.createdAt)) {
           timeline.add(
-            Center(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
-                child: Text(
-                  formatClockTime(message.createdAt),
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: AppColors.inkMuted,
+            KeyedSubtree(
+              key: ValueKey<String>('chat-gap-${message.identity}'),
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+                  child: Text(
+                    formatClockTime(message.createdAt),
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: AppColors.inkMuted,
+                    ),
                   ),
                 ),
               ),
@@ -845,6 +1005,12 @@ class _ChatPageState extends State<ChatPage> {
       final String bubbleKey = entry.operationId ?? message.identity;
       final bool pendingFirstFrame =
           entry.pending != null && !_pendingEntered.contains(entry.operationId);
+      final SendFeedbackState? displayedSendState = entry.pending != null
+          ? entry.pending!.state
+          : entry.operationId != null &&
+                pendingState[entry.operationId] == SendFeedbackState.sending
+          ? SendFeedbackState.sending
+          : null;
       final Widget bubble = MessageBubble(
         key: ValueKey<String>('chat-bubble-$bubbleKey'),
         message: message,
@@ -856,7 +1022,7 @@ class _ChatPageState extends State<ChatPage> {
             committed &&
             attachment != null &&
             _busyMedia.contains(attachment.mediaId),
-        sendState: entry.pending?.state,
+        sendState: displayedSendState,
         onRetry: entry.pending?.state == SendFeedbackState.failed
             ? () => _composerController.retryFailed(entry.operationId!)
             : null,
@@ -879,6 +1045,7 @@ class _ChatPageState extends State<ChatPage> {
       );
       timeline.add(
         Padding(
+          key: ValueKey<String>('chat-row-$bubbleKey'),
           padding: EdgeInsets.only(top: runStart ? 10 : 2),
           child: MessageEntrance(
             key: ValueKey<String>('chat-entrance-$bubbleKey'),
@@ -906,16 +1073,19 @@ class _ChatPageState extends State<ChatPage> {
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 860),
-        child: ListView(
-          key: ChatPage.listKey,
-          controller: _scrollController,
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.md,
-            AppSpacing.md,
-            AppSpacing.md,
-            AppSpacing.lg,
+        child: NotificationListener<ScrollNotification>(
+          onNotification: _onScrollNotification,
+          child: ListView(
+            key: ChatPage.listKey,
+            controller: _scrollController,
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.md,
+              AppSpacing.md,
+              AppSpacing.md,
+              AppSpacing.lg,
+            ),
+            children: timeline,
           ),
-          children: timeline,
         ),
       ),
     );
@@ -932,7 +1102,7 @@ class _TimelineEntry {
 }
 
 class _DaySeparator extends StatelessWidget {
-  const _DaySeparator({required this.label});
+  const _DaySeparator({super.key, required this.label});
 
   final String label;
 

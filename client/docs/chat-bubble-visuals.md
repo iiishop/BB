@@ -63,6 +63,33 @@
   重试、入场只给新消息、减少动画、历史阅读不被拉底、连续两条在途、手机/桌面/1.6 倍文字无溢出。
 - 截图渲染：`QA_CHAT_SCREENSHOT_DIR=.qa-artifacts/screenshots flutter test test/chat_screenshot_test.dart --update-goldens`。
 
+## 视觉参考与版本
+
+- 本轮基准是仓库自身：`docs/images/chat.png` 的既有聊天界面、`client/lib/app.dart` 的
+  `AppColors` / `AppSpacing` / `AppRadius`，以及 `UsersListView` / `ChatPage` 现有层级。
+  没有引入 Figma/Pencil、外部组件库或第三方品牌素材；Astryx 未被使用。
+- 1:1 连续消息合并头像、发送方方向性圆角、底部对齐时间属于通用消息列表惯例，本轮按其
+  可读性目标自选参数，不复制任何产品截图。
+- 动效 240ms / `easeOutCubic` / 6px 上移与 Reduce Motion 跳过是本实现自选参数；未联网引用
+  外部规范，不声称照搬 Material 或 Apple 的 token。
+- **改前截图**由基线 `43967a2` 构建（不含本 PR）；**改后截图**由本 PR 固定 SHA 构建。两组用
+  同一隔离 DB、同一组合成账号、同一四条消息、1180×780 与 390×844 同一窗口尺寸。上一轮
+  “附件均最终 SHA 构建”的说法不准确，以本节为准。
+
+## Sentinel 复验修复（revision 2）
+
+1. **已接受但响应延迟时重复气泡**：轮询先读到的本人消息按“发送者/目标/kind/正文段类型与
+   文本/附件 kind+文件名+大小”、发送前位置下限和 5 分钟窗口与未决 operation 对账；对账后
+   隐藏本地行，已提交行继续显示“发送中…”直到响应落地。`_loadInitial`（刷新/媒体重载）走同一
+   对账；正文已提交、附件仍在途的部分成功也按各自 operation 独立对账。对账仅用于展示，
+   不写入共享状态，不改变幂等、身份或消息事实。
+2. **异步失败抢走历史位置**：只有“新的 sending operation”出现时才强制显示自己的气泡，且
+   立即 jump 不播放滚动动画；失败、重试、成功回执只在距底 96px 内跟随。用户开始拖动列表会
+   使排队中的程序化滚动失效（epoch），不再与手势抢位置。
+3. **pending→committed 重建 entrance State**：ListView 的直接子节点（日期分隔、时间分隔、
+   消息行）都带上稳定 key，消息行以 operation id 为 key。跨日期插入分隔时同一 operation
+   复用同一 `MessageEntrance` State；回归测试直接比较实际 State 对象，而非嵌套 key。
+
 ## 用户返稿记录
 
 | 日期 | 意见 | 修改 | 适用场景 |

@@ -1,9 +1,13 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:bb_client/models/auth_models.dart';
 import 'package:bb_client/models/chat_models.dart';
 import 'package:bb_client/ui/chat/chat_page.dart';
+import 'package:bb_client/services/media_source.dart';
 import 'package:bb_client/ui/chat/chat_composer.dart';
+import 'package:bb_client/ui/chat/media_actions.dart';
 import 'package:bb_client/ui/chat/message_bubble.dart';
 import 'package:bb_client/ui/chat/pending_send.dart';
 import 'package:flutter/material.dart';
@@ -44,24 +48,40 @@ ChatMessage _message(
   );
 }
 
+class _FakeClipboard implements ClipboardMediaReader {
+  _FakeClipboard(this.media);
+
+  final PickedMedia? media;
+
+  @override
+  Future<PickedMedia?> read() async => media;
+}
+
 class _Harness {
   _Harness({
     List<ChatMessage>? thread,
+    FakeChatService? service,
     this.textScale = 1,
     this.reducedMotion = false,
-  }) : chat = FakeChatService(
-         self: _self,
-         users: const <ChatUser>[_bob],
-         conversations: <String, List<ChatMessage>>{
-           _bob.account: thread ?? <ChatMessage>[],
-         },
-       ),
+    this.clipboard = const PlatformClipboardMediaReader(),
+    this.coverExtractor = defaultVideoCoverExtractor,
+  }) : chat =
+           service ??
+           FakeChatService(
+             self: _self,
+             users: const <ChatUser>[_bob],
+             conversations: <String, List<ChatMessage>>{
+               _bob.account: thread ?? <ChatMessage>[],
+             },
+           ),
        profile = FakeProfileGateway();
 
   final FakeChatService chat;
   final FakeProfileGateway profile;
   final double textScale;
   final bool reducedMotion;
+  final ClipboardMediaReader clipboard;
+  final VideoCoverExtractorFn coverExtractor;
 
   Future<void> pump(
     WidgetTester tester, {
@@ -79,7 +99,13 @@ class _Harness {
             textScaler: TextScaler.linear(textScale),
             disableAnimations: reducedMotion,
           ),
-          child: ChatPage(peer: _bob, chat: chat, profile: profile),
+          child: ChatPage(
+            peer: _bob,
+            chat: chat,
+            profile: profile,
+            clipboard: clipboard,
+            coverExtractor: coverExtractor,
+          ),
         ),
       ),
     );
@@ -304,6 +330,247 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('a polled acceptance reconciles with the local echo before the '
+      'response returns', (WidgetTester tester) async {
+    final FakeChatService service = FakeChatService(
+      self: _self,
+      users: const <ChatUser>[_bob],
+      conversations: <String, List<ChatMessage>>{
+        _bob.account: <ChatMessage>[_message(1)],
+      },
+    );
+    service.responseGate = Completer<void>();
+    final _Harness harness = _Harness(service: service);
+    await harness.pump(tester);
+
+    await harness.send(tester, 'accepted before response');
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.text('accepted before response'), findsOneWidget);
+    expect(
+      find.byType(MessageBubble),
+      findsNWidgets(2),
+      reason:
+          'the accepted message is one server fact, not pending + committed',
+    );
+    expect(
+      find.byKey(MessageBubble.sendingKey),
+      findsOneWidget,
+      reason: 'the committed row carries the in-flight state',
+    );
+
+    service.responseGate!.complete();
+    await tester.pumpAndSettle();
+    expect(find.text('accepted before response'), findsOneWidget);
+    expect(find.byType(MessageBubble), findsNWidgets(2));
+    expect(find.byKey(MessageBubble.sendingKey), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a refresh while the response is delayed does not duplicate the '
+      'accepted message', (WidgetTester tester) async {
+    final FakeChatService service = FakeChatService(
+      self: _self,
+      users: const <ChatUser>[_bob],
+      conversations: <String, List<ChatMessage>>{
+        _bob.account: <ChatMessage>[_message(1)],
+      },
+    );
+    service.responseGate = Completer<void>();
+    final _Harness harness = _Harness(service: service);
+    await harness.pump(tester);
+
+    await harness.send(tester, 'refresh safe');
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.byKey(ChatPage.refreshKey));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('refresh safe'), findsOneWidget);
+
+    service.responseGate!.complete();
+    await tester.pumpAndSettle();
+    expect(find.text('refresh safe'), findsOneWidget);
+    expect(find.byType(MessageBubble), findsNWidgets(2));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('partial success shows the committed body plus the one still '
+      'pending attachment', (WidgetTester tester) async {
+    final FakeChatService service = FakeChatService(
+      self: _self,
+      users: const <ChatUser>[_bob],
+      conversations: <String, List<ChatMessage>>{
+        _bob.account: <ChatMessage>[_message(1)],
+      },
+    );
+    service.attachmentGate = Completer<void>();
+    final _Harness harness = _Harness(
+      service: service,
+      clipboard: _FakeClipboard(
+        PickedMedia(
+          bytes: Uint8List.fromList(List<int>.filled(32, 0)),
+          filename: 'clip.mp4',
+          mimeType: 'video/mp4',
+        ),
+      ),
+      coverExtractor:
+          ({
+            String? path,
+            required Uint8List bytes,
+            required String filename,
+          }) async => ResolvedMedia(
+            bytes: base64Decode(_tinyPng),
+            filename: 'cover.png',
+            mimeType: 'image/png',
+          ),
+    );
+    await harness.pump(tester);
+
+    await tester.enterText(find.byKey(ChatComposer.inputKey), '混排正文');
+    await tester.tap(find.byKey(ChatComposer.pasteKey));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(ChatComposer.sendKey));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.text('混排正文'), findsOneWidget);
+    expect(find.text('clip.mp4'), findsOneWidget);
+    expect(
+      find.byType(MessageBubble),
+      findsNWidgets(3),
+      reason: 'history + committed body + pending attachment',
+    );
+    expect(
+      find.byKey(MessageBubble.sendingKey),
+      findsNWidgets(2),
+      reason:
+          'the accepted body and the still-pending attachment both await '
+          'the same composed response',
+    );
+
+    service.attachmentGate!.complete();
+    await tester.pumpAndSettle();
+    expect(find.text('混排正文'), findsOneWidget);
+    expect(find.text('clip.mp4'), findsOneWidget);
+    expect(
+      find.byType(MessageBubble),
+      findsNWidgets(3),
+      reason: 'both items committed once, pending rows replaced',
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a delayed failure does not pull a history reader to the end', (
+    WidgetTester tester,
+  ) async {
+    final List<ChatMessage> thread = <ChatMessage>[
+      for (int position = 1; position <= 40; position += 1)
+        _message(position, text: '历史 $position'),
+    ];
+    final _Harness harness = _Harness(thread: thread);
+    harness.chat.sendGate = Completer<void>();
+    harness.chat.failBody = true;
+    await harness.pump(tester);
+
+    await harness.send(tester, 'delayed failure');
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump();
+    final ScrollController controller = tester
+        .widget<ListView>(find.byKey(ChatPage.listKey))
+        .controller!;
+    await tester.drag(find.byKey(ChatPage.listKey), const Offset(0, 900));
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pump(const Duration(milliseconds: 600));
+
+    final double parked = controller.offset;
+    expect(controller.position.maxScrollExtent - parked, greaterThan(96));
+
+    harness.chat.sendGate!.complete();
+    await tester.pumpAndSettle();
+    expect(
+      controller.offset,
+      closeTo(parked, 1),
+      reason: 'an async failure is not a new explicit send',
+    );
+    // Inspect the failed row at the bottom without using a user gesture that
+    // would itself be allowed to move the list.
+    controller.jumpTo(controller.position.maxScrollExtent);
+    await tester.pump();
+    expect(find.byKey(MessageBubble.failedKey), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a delayed success does not yank a reader who scrolled away', (
+    WidgetTester tester,
+  ) async {
+    final List<ChatMessage> thread = <ChatMessage>[
+      for (int position = 1; position <= 40; position += 1)
+        _message(position, text: '历史 $position'),
+    ];
+    final _Harness harness = _Harness(thread: thread);
+    harness.chat.sendGate = Completer<void>();
+    await harness.pump(tester);
+
+    await harness.send(tester, 'delayed success');
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump();
+    await tester.drag(find.byKey(ChatPage.listKey), const Offset(0, 900));
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pump(const Duration(milliseconds: 600));
+
+    final ScrollController controller = tester
+        .widget<ListView>(find.byKey(ChatPage.listKey))
+        .controller!;
+    final double parked = controller.offset;
+    expect(controller.position.maxScrollExtent - parked, greaterThan(96));
+
+    harness.chat.sendGate!.complete();
+    await tester.pumpAndSettle();
+    expect(controller.offset, closeTo(parked, 1));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('pending to committed preserves the entrance element when a day '
+      'separator is inserted', (WidgetTester tester) async {
+    final _Harness harness = _Harness(
+      thread: <ChatMessage>[
+        _message(
+          1,
+          at: DateTime.now().toUtc().subtract(const Duration(days: 1)),
+        ),
+      ],
+    );
+    harness.chat.sendGate = Completer<void>();
+    await harness.pump(tester);
+
+    await harness.send(tester, 'stable element');
+    await tester.pump(const Duration(milliseconds: 300));
+    final State<StatefulWidget> before = tester.state(
+      find.byType(MessageEntrance).last,
+    );
+
+    harness.chat.sendGate!.complete();
+    await tester.pump();
+    final State<StatefulWidget> after = tester.state(
+      find.byType(MessageEntrance).last,
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      identical(before, after),
+      isTrue,
+      reason: 'the same operation must keep the actual entrance State',
+    );
+    expect(find.text('昨天'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'phone/desktop and large text keep long bubbles without overflow',
     (WidgetTester tester) async {
@@ -321,3 +588,6 @@ void main() {
     },
   );
 }
+
+const String _tinyPng =
+    'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR4nGP8z8Dwn4GBgYGJAQoAHxcCAk+Uzr4AAAAASUVORK5CYII=';
