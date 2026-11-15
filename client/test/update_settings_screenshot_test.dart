@@ -75,6 +75,7 @@ void main() {
       Size size, {
       VoidCallback? onCheck,
       VoidCallback? onDownload,
+      VoidCallback? onInstall,
       VoidCallback? onCancelDownload,
       VoidCallback? onRetry,
       VoidCallback? onOpenInstallPermissionSettings,
@@ -97,6 +98,7 @@ void main() {
             state: state,
             onCheck: onCheck,
             onDownload: onDownload,
+            onInstall: onInstall,
             onCancelDownload: onCancelDownload,
             onRetry: onRetry,
             onOpenInstallPermissionSettings: onOpenInstallPermissionSettings,
@@ -134,6 +136,20 @@ void main() {
       onDownload: () {},
     );
     await capture('update-available-phone.png');
+
+    await pump(
+      const UpdateUiState(
+        currentVersion: '0.0.1+2',
+        phase: UpdateUiPhase.ready,
+        latestVersion: '0.1.0+3',
+        releaseNotes: releaseNotes,
+        receivedBytes: 21 * 1024 * 1024,
+        totalBytes: 21 * 1024 * 1024,
+      ),
+      phone,
+      onInstall: () {},
+    );
+    await capture('update-ready-phone.png');
 
     await pump(
       const UpdateUiState(
