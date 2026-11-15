@@ -5,6 +5,7 @@ import '../models/profile_models.dart';
 import '../validation/profile_rules.dart';
 import 'auth_service.dart';
 import 'auth_session.dart';
+import 'install_safety_gate.dart';
 import 'avatar_cache.dart';
 import 'avatar_source.dart';
 import 'client_identity.dart';
@@ -151,6 +152,11 @@ class ProfileService implements ProfileGateway {
   Future<AvatarInfo> updateAvatarFromPath(
     String path, {
     AuthIdentity? captured,
+  }) => InstallSafetyGate.instance.protect(() => _updateAvatarFromPath(path, captured: captured));
+
+  Future<AvatarInfo> _updateAvatarFromPath(
+    String path, {
+    AuthIdentity? captured,
   }) async {
     final Uint8List bytes = await sources.readPath(path);
     return _upload(bytes, captured);
@@ -160,6 +166,11 @@ class ProfileService implements ProfileGateway {
   Future<AvatarInfo> updateAvatarFromUrl(
     String url, {
     AuthIdentity? captured,
+  }) => InstallSafetyGate.instance.protect(() => _updateAvatarFromUrl(url, captured: captured));
+
+  Future<AvatarInfo> _updateAvatarFromUrl(
+    String url, {
+    AuthIdentity? captured,
   }) async {
     final Uint8List bytes = await sources.readUrl(url);
     return _upload(bytes, captured);
@@ -167,6 +178,11 @@ class ProfileService implements ProfileGateway {
 
   @override
   Future<AvatarInfo> updateAvatarFromBase64(
+    String payload, {
+    AuthIdentity? captured,
+  }) => InstallSafetyGate.instance.protect(() => _updateAvatarFromBase64(payload, captured: captured));
+
+  Future<AvatarInfo> _updateAvatarFromBase64(
     String payload, {
     AuthIdentity? captured,
   }) async {
@@ -198,6 +214,11 @@ class ProfileService implements ProfileGateway {
 
   @override
   Future<Profile> saveProfile(
+    ProfilePatch patch, {
+    AuthIdentity? captured,
+  }) => InstallSafetyGate.instance.protect(() => _saveProfile(patch, captured: captured));
+
+  Future<Profile> _saveProfile(
     ProfilePatch patch, {
     AuthIdentity? captured,
   }) async {
