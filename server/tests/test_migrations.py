@@ -30,11 +30,11 @@ def test_failed_migration_rolls_back_entire_schema(tmp_path, monkeypatch):
 def test_newer_schema_is_never_downgraded(tmp_path):
     path = tmp_path / "future.db"
     with sqlite3.connect(path) as db:
-        db.execute("PRAGMA user_version=4")
+        db.execute("PRAGMA user_version=5")
     with pytest.raises(RuntimeError, match="newer"):
         migrate(path)
     with sqlite3.connect(path) as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 4
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 5
 
 
 def test_upgrade_step1_preserves_old_accounts_and_sessions(tmp_path):
@@ -64,7 +64,7 @@ def test_upgrade_step1_preserves_old_accounts_and_sessions(tmp_path):
         )
     migrate(path)
     with sqlite3.connect(path) as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 4
         assert db.execute("SELECT last_seen_at FROM sessions").fetchone()[0] >= int(
             before
         )
@@ -93,3 +93,29 @@ def test_failed_step2_migration_leaves_step1_unchanged(tmp_path, monkeypatch):
             "username",
             "password",
         ]
+
+
+def test_space_upgrade_preserves_v3_chat_and_rollback(tmp_path, monkeypatch):
+    path = tmp_path / "v3.db"
+    migrations = Path(__file__).parents[1] / "src/bb_server/migrations"
+    with sqlite3.connect(path) as db:
+        for name in ("001_auth.sql", "002_profile.sql", "003_chat.sql"):
+            db.executescript((migrations / name).read_text())
+        db.execute("PRAGMA user_version=3")
+        db.execute("INSERT INTO users(account,username,password) VALUES ('12345678','fixture','$argon2id$fixture')")
+        db.execute("INSERT INTO messages VALUES ('m','12345678','12345678',1,'12345678','12345678','time','payload')")
+    original = Path.read_text
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "read_text", lambda self, **kw: original(self, **kw) + "; INVALID SQL;")
+        with pytest.raises(sqlite3.OperationalError):
+            migrate(path)
+    with sqlite3.connect(path) as db:
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert db.execute("SELECT name FROM sqlite_master WHERE name LIKE 'space_%'").fetchall() == []
+        assert db.execute("SELECT payload FROM messages").fetchone()[0] == "payload"
+    migrate(path)
+    migrate(path)
+    with sqlite3.connect(path) as db:
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 4
+        assert db.execute("SELECT payload FROM messages").fetchone()[0] == "payload"
+        assert db.execute("SELECT count(*) FROM space_posts").fetchone()[0] == 0
