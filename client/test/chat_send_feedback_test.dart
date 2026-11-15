@@ -144,6 +144,59 @@ class _CommitThenFailService extends FakeChatService {
   }
 }
 
+class _PendingThenCommittedService extends FakeChatService {
+  _PendingThenCommittedService({this.pendingStatus = OperationStatus.pending})
+    : super(
+        self: _self,
+        users: const <ChatUser>[_bob],
+        conversations: <String, List<ChatMessage>>{
+          _bob.account: <ChatMessage>[_message(1)],
+        },
+      );
+
+  final OperationStatus pendingStatus;
+  String? seed;
+  List<OutgoingPart>? body;
+  ChatMessage? accepted;
+
+  @override
+  Future<ComposedSendResult> sendComposed({
+    required String targetAccount,
+    required List<OutgoingPart> body,
+    required List<OutgoingAttachment> attachments,
+    String? operationSeed,
+  }) async {
+    seed = operationSeed;
+    this.body = body;
+    throw const AuthFailure(
+      status: 502,
+      code: 'gateway_failed',
+      message: 'request still processing',
+    );
+  }
+
+  Future<void> acceptLater() async {
+    final ComposedSendResult result = await super.sendComposed(
+      targetAccount: _bob.account,
+      body: body!,
+      attachments: const <OutgoingAttachment>[],
+      operationSeed: seed,
+    );
+    accepted = result.body!.message;
+  }
+
+  @override
+  Future<OperationResult?> getOperation(String operationId) async {
+    operationQueries.add(operationId);
+    return OperationResult(
+      operationId: operationId,
+      kind: 'message',
+      status: accepted == null ? pendingStatus : OperationStatus.succeeded,
+      message: accepted,
+    );
+  }
+}
+
 class _Harness {
   _Harness({
     List<ChatMessage>? thread,
@@ -982,6 +1035,71 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('retry during lookup'), findsOneWidget);
     expect(find.byType(MessageBubble), findsNWidgets(2));
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final bool refresh in <bool>[false, true]) {
+    testWidgets(
+      'a pending operation stays one failure bubble until later acceptance '
+      '(${refresh ? 'refresh' : 'poll'})',
+      (WidgetTester tester) async {
+        final _PendingThenCommittedService service =
+            _PendingThenCommittedService();
+        final _Harness harness = _Harness(service: service);
+        await harness.pump(tester);
+
+        await harness.send(tester, 'late commit');
+        await tester.pumpAndSettle();
+        expect(find.byKey(MessageBubble.failedKey), findsOneWidget);
+        expect(find.text('late commit'), findsOneWidget);
+        expect(service.operationQueries, hasLength(1));
+
+        await service.acceptLater();
+        if (refresh) {
+          await tester.tap(find.byKey(ChatPage.refreshKey));
+          await tester.pump();
+        } else {
+          await tester.pump(const Duration(seconds: 3));
+        }
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.descendant(
+            of: find.byType(MessageBubble),
+            matching: find.text('late commit'),
+          ),
+          findsOneWidget,
+          reason: 'pending is not not-found; later acceptance must reconcile',
+        );
+        expect(find.byKey(MessageBubble.failedKey), findsNothing);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  testWidgets('uncertain operation status is held and retried like pending', (
+    WidgetTester tester,
+  ) async {
+    final _PendingThenCommittedService service = _PendingThenCommittedService(
+      pendingStatus: OperationStatus.uncertain,
+    );
+    final _Harness harness = _Harness(service: service);
+    await harness.pump(tester);
+
+    await harness.send(tester, 'uncertain commit');
+    await tester.pumpAndSettle();
+    expect(find.byKey(MessageBubble.failedKey), findsOneWidget);
+    expect(find.text('uncertain commit'), findsOneWidget);
+
+    await service.acceptLater();
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(find.text('uncertain commit'), findsOneWidget);
+    expect(find.byKey(MessageBubble.failedKey), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

@@ -122,6 +122,18 @@
   `operation_lookup_failure_test.dart` 2/2 通过（临时探针，未提交）。此前的同文/同媒体/乱序/
   查询窗口反例继续保留，未恢复内容启发式。
 
+## Sentinel 复验修复（revision 6）
+
+- **pending/uncertain 不是 not-found**：`GET /operations/{id}` 返回 `OperationStatus.pending` 或
+  `uncertain`（本地 uncertain/prepared 记录、远端暂时 404）时，保留 `_unresolvedOperations`
+  与暂存消息，失败气泡与重试继续显示；只有 `succeeded` 才绑定并移除失败，只有
+  `failed`/权威 null 才释放暂存。
+- **重查**：后续 poll/refresh 对未决 operation 重查（同一 operation 不并发重复查询）；若转发
+  请求随后提交，下一次查询成功后只显示一条。重试成功也走同一清除路径。
+- **覆盖**：新增 pending poll/refresh、uncertain、后续提交恢复；Sentinel r5
+  `pending_operation_test.dart` 3/3 通过（含真实 ChatService 语义测试）。未恢复内容启发式，
+  未改契约。
+
 ## 用户返稿记录
 
 | 日期 | 意见 | 修改 | 适用场景 |

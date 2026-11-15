@@ -378,6 +378,14 @@ class _ChatPageState extends State<ChatPage> {
     widget.onMessagesChanged?.call(List<ChatMessage>.unmodifiable(_messages));
   }
 
+  bool _isFailedPendingLive(String operationId) {
+    return _pending.any(
+      (PendingSend item) =>
+          item.operationId == operationId &&
+          item.state == SendFeedbackState.failed,
+    );
+  }
+
   void _retryUnresolvedLookups() {
     if (_unresolvedOperations.isEmpty) {
       return;
@@ -419,12 +427,21 @@ class _ChatPageState extends State<ChatPage> {
           List<ChatMessage>.unmodifiable(_messages),
         );
         _composerController.forgetCommittedOperation(operationId);
-      } else {
-        // An authoritative "not found" means this operation did not commit;
-        // any held self message belongs to another operation.
+      } else if (result == null || result.status == OperationStatus.failed) {
+        // Only a terminal not-found/failed answer means the operation did not
+        // commit; any held self message then belongs to another operation.
         setState(() {
           _unresolvedOperations.remove(operationId);
         });
+      } else {
+        // pending/uncertain (including a temporary remote 404 behind a local
+        // uncertain record) is not proof of absence. Keep the message held
+        // and retry the operation lookup on later polls.
+        if (_isFailedPendingLive(operationId)) {
+          setState(() {
+            _unresolvedOperations.add(operationId);
+          });
+        }
       }
     } on AuthFailure {
       // Unknown is not failed: hold accepted self messages and keep retry.
