@@ -50,10 +50,17 @@ if hasattr(sys.stdout, "reconfigure"):
 APP_EXECUTABLE = "bb_client.exe"
 FFMPEG_RELATIVE = "ffmpeg/ffmpeg.exe"
 MANIFEST_RELATIVE = "ffmpeg/BUILD-MANIFEST.txt"
-REQUIRED_RELATIVE = (
+# Application payload: only the final/extracted bundle must carry these. The
+# dependency-tree check below runs before `flutter build windows`, so it must
+# not require build outputs such as bb_updater.exe or bb-build.json.
+APP_REQUIRED_RELATIVE = (
     APP_EXECUTABLE,
     "bb_updater.exe",
     "bb-build.json",
+)
+# Bundled FFmpeg dependency tree: produced by build_ffmpeg_windows.sh and
+# verified both before the app build and inside the final bundle.
+FFMPEG_REQUIRED_RELATIVE = (
     FFMPEG_RELATIVE,
     MANIFEST_RELATIVE,
     "ffmpeg/FFMPEG-LICENSE.txt",
@@ -63,6 +70,7 @@ REQUIRED_RELATIVE = (
     "ffmpeg/FFMPEG-NOTICE.txt",
     "ffmpeg/BUILD-FFMPEG.sh",
 )
+REQUIRED_RELATIVE = APP_REQUIRED_RELATIVE + FFMPEG_REQUIRED_RELATIVE
 LICENSE_MARKERS = {
     "ffmpeg/FFMPEG-LICENSE.txt": "GNU LESSER GENERAL PUBLIC LICENSE",
     "ffmpeg/FFMPEG-LGPLv3.txt": "Version 3",
@@ -114,8 +122,9 @@ def validate_bundle(
     if not bundle.is_dir():
         raise RuntimeError(f"bundle directory not found: {bundle}")
     problems: list[str] = []
-    if not (bundle / APP_EXECUTABLE).is_file():
-        problems.append(f"missing {APP_EXECUTABLE}")
+    for relative in APP_REQUIRED_RELATIVE:
+        if not (bundle / relative).is_file():
+            problems.append(f"missing {relative}")
     if not (bundle / "data" / "flutter_assets").is_dir():
         problems.append("missing data/flutter_assets/")
     app = bundle / APP_EXECUTABLE
@@ -137,8 +146,8 @@ def validate_ffmpeg(
     """One validation path for restored dependencies and final/extracted bundles."""
     bundle = Path(bundle)
     problems: list[str] = []
-    for relative in REQUIRED_RELATIVE:
-        if relative != APP_EXECUTABLE and not (bundle / relative).is_file():
+    for relative in FFMPEG_REQUIRED_RELATIVE:
+        if not (bundle / relative).is_file():
             problems.append(f"missing {relative}")
     ffmpeg = bundle / FFMPEG_RELATIVE
     if ffmpeg.is_file():
