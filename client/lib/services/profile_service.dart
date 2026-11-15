@@ -23,6 +23,14 @@ abstract class ProfileGateway {
 
   Future<AvatarInfo> updateAvatarFromPath(String path, {AuthIdentity? captured});
 
+  /// Uploads image bytes the platform already handed back, e.g. Android's
+  /// document picker copy of a content URI that has no usable path. Validation
+  /// and upload are the same chain as [updateAvatarFromPath].
+  Future<AvatarInfo> updateAvatarFromBytes(
+    Uint8List bytes, {
+    AuthIdentity? captured,
+  });
+
   Future<AvatarInfo> updateAvatarFromUrl(String url, {AuthIdentity? captured});
 
   Future<AvatarInfo> updateAvatarFromBase64(String payload, {AuthIdentity? captured});
@@ -161,6 +169,12 @@ class ProfileService implements ProfileGateway {
     final Uint8List bytes = await sources.readPath(path);
     return _upload(bytes, captured);
   }
+
+  @override
+  Future<AvatarInfo> updateAvatarFromBytes(
+    Uint8List bytes, {
+    AuthIdentity? captured,
+  }) => InstallSafetyGate.instance.protect(() => _upload(bytes, captured));
 
   @override
   Future<AvatarInfo> updateAvatarFromUrl(

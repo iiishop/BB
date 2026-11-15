@@ -105,6 +105,25 @@ void main() {
       expect(await reader.readPath(file.path), _png);
     });
 
+    test('reads a chinese path containing spaces', () async {
+      final File file = File('${directory.path}/头像 样图.png');
+      await file.writeAsBytes(_png);
+      expect(await reader.readPath(file.path), _png);
+    });
+
+    test('rejects a deleted file', () async {
+      final File file = File('${directory.path}/deleted.png');
+      await file.writeAsBytes(_png);
+      await file.delete();
+      expect(await _fieldCode(() => reader.readPath(file.path)), 'unreadable');
+    });
+
+    test('rejects non-image content behind an image extension', () async {
+      final File file = File('${directory.path}/not-an-image.png');
+      await file.writeAsBytes(utf8.encode('plain text'));
+      expect(await _failure(() => reader.readPath(file.path)), 415);
+    });
+
     test('rejects a relative path', () async {
       expect(await _fieldCode(() => reader.readPath('relative.png')), 'format');
     });
