@@ -37,9 +37,7 @@ ChatMessage _message(int position) {
     targetAccount: position.isEven ? _bob.account : _self.account,
     createdAt: DateTime.utc(2026, 1, 1, 12).add(Duration(minutes: position)),
     kind: ChatMessageKind.body,
-    parts: <MessagePart>[
-      TextPart('第 $position 条消息，用来撑满聊天记录的滚动视口。'),
-    ],
+    parts: <MessagePart>[TextPart('第 $position 条消息，用来撑满聊天记录的滚动视口。')],
   );
 }
 
@@ -62,11 +60,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: buildAppTheme().copyWith(platform: TargetPlatform.windows),
-        home: ChatPage(
-          peer: _bob,
-          chat: chat,
-          profile: FakeProfileGateway(),
-        ),
+        home: ChatPage(peer: _bob, chat: chat, profile: FakeProfileGateway()),
       ),
     );
     await tester.pumpAndSettle();
@@ -106,81 +100,88 @@ void main() {
       moreOrLessEquals(paneWidth, epsilon: 0.5),
       reason: 'scrollbar paints on the right edge of the scroll viewport',
     );
-    expect(
-      chatScroll(tester).viewportDimension,
-      moreOrLessEquals(paneWidth, epsilon: 0.5),
-    );
 
-    final Finder scrollbar = find.ancestor(
+    // The desktop scrollbar is inserted by ScrollBehavior around the
+    // scrollable's viewport, so its width is the viewport width: the transcript
+    // scrollbar must be as wide as the pane, not the reading column.
+    final Finder scrollbars = find.descendant(
       of: find.byKey(ChatPage.listKey),
       matching: find.byType(Scrollbar),
     );
-    expect(scrollbar, findsOneWidget);
+    expect(scrollbars, findsWidgets);
+    final List<double> scrollbarWidths = <double>[
+      for (int i = 0; i < scrollbars.evaluate().length; i += 1)
+        tester.getSize(scrollbars.at(i)).width,
+    ];
     expect(
-      tester.getSize(scrollbar).width,
-      moreOrLessEquals(paneWidth, epsilon: 0.5),
+      scrollbarWidths,
+      contains(moreOrLessEquals(paneWidth, epsilon: 0.5)),
+      reason: 'the transcript scrollbar spans the chat pane',
     );
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('one wheel notch scrolls the same list from content and gutters', (
-    WidgetTester tester,
-  ) async {
-    await pumpChat(tester, const Size(1280, 900));
-    final ScrollPosition position = chatScroll(tester);
-    final double bottom = position.pixels;
-    expect(bottom, greaterThan(0), reason: 'opening a chat follows the bottom');
-    expect(
-      tester.getRect(
-        find.byKey(
-          const ValueKey<String>('chat-row-m60@60'),
-        ),
-      ).width,
-      lessThanOrEqualTo(_readingColumnCap + 0.5),
-      reason: 'the reading column must keep its capped width',
-    );
+  testWidgets(
+    'one wheel notch scrolls the same list from content and gutters',
+    (WidgetTester tester) async {
+      await pumpChat(tester, const Size(1280, 900));
+      final ScrollPosition position = chatScroll(tester);
+      final double bottom = position.pixels;
+      expect(
+        bottom,
+        greaterThan(0),
+        reason: 'opening a chat follows the bottom',
+      );
+      expect(
+        tester
+            .getRect(find.byKey(const ValueKey<String>('chat-row-m60@60')))
+            .width,
+        lessThanOrEqualTo(_readingColumnCap + 0.5),
+        reason: 'the reading column must keep its capped width',
+      );
 
-    // The centred reading column ends around x=1054 at 1280px; these points
-    // stood outside the old 860px-wide viewport on both sides.
-    final Rect column = tester.getRect(
-      find.byKey(const ValueKey<String>('chat-row-m60@60')),
-    );
-    expect(
-      column.center.dx,
-      moreOrLessEquals(640, epsilon: 0.5),
-      reason: 'the reading column stays centred in the pane',
-    );
+      // The centred reading column ends around x=1054 at 1280px; these points
+      // stood outside the old 860px-wide viewport on both sides.
+      final Rect column = tester.getRect(
+        find.byKey(const ValueKey<String>('chat-row-m60@60')),
+      );
+      expect(
+        column.center.dx,
+        moreOrLessEquals(640, epsilon: 0.5),
+        reason: 'the reading column stays centred in the pane',
+      );
 
-    await wheelAt(tester, Offset(column.right + 30, 400), -120);
-    expect(
-      position.pixels,
-      moreOrLessEquals(bottom - 120, epsilon: 0.5),
-      reason: 'one wheel notch must scroll once, not twice',
-    );
+      await wheelAt(tester, Offset(column.right + 30, 400), -120);
+      expect(
+        position.pixels,
+        moreOrLessEquals(bottom - 120, epsilon: 0.5),
+        reason: 'one wheel notch must scroll once, not twice',
+      );
 
-    await wheelAt(tester, Offset(column.left - 30, 400), -120);
-    expect(
-      position.pixels,
-      moreOrLessEquals(bottom - 240, epsilon: 0.5),
-      reason: 'the left gutter must scroll the same transcript',
-    );
+      await wheelAt(tester, Offset(column.left - 30, 400), -120);
+      expect(
+        position.pixels,
+        moreOrLessEquals(bottom - 240, epsilon: 0.5),
+        reason: 'the left gutter must scroll the same transcript',
+      );
 
-    await wheelAt(tester, const Offset(640, 400), -120);
-    expect(
-      position.pixels,
-      moreOrLessEquals(bottom - 360, epsilon: 0.5),
-      reason: 'the content itself keeps scrolling',
-    );
+      await wheelAt(tester, const Offset(640, 400), -120);
+      expect(
+        position.pixels,
+        moreOrLessEquals(bottom - 360, epsilon: 0.5),
+        reason: 'the content itself keeps scrolling',
+      );
 
-    final double beforeComposerWheel = position.pixels;
-    await wheelAt(tester, tester.getCenter(find.byType(ChatComposer)), -120);
-    expect(
-      position.pixels,
-      moreOrLessEquals(beforeComposerWheel, epsilon: 0.5),
-      reason: 'the composer must not be captured into the transcript scroll',
-    );
-    expect(tester.takeException(), isNull);
-  });
+      final double beforeComposerWheel = position.pixels;
+      await wheelAt(tester, tester.getCenter(find.byType(ChatComposer)), -120);
+      expect(
+        position.pixels,
+        moreOrLessEquals(beforeComposerWheel, epsilon: 0.5),
+        reason: 'the composer must not be captured into the transcript scroll',
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('narrow windows keep the scrollbar edge and a centred column', (
     WidgetTester tester,
@@ -203,6 +204,12 @@ void main() {
         reason: 'scrollbar stays on the pane edge at ${size.width}px',
       );
 
+      // Resizing changes the extent; follow the bottom again so the last row
+      // is laid out and can be measured.
+      final ScrollPosition position = chatScroll(tester);
+      position.jumpTo(position.maxScrollExtent);
+      await tester.pump();
+
       final Rect column = tester.getRect(
         find.byKey(const ValueKey<String>('chat-row-m60@60')),
       );
@@ -211,10 +218,7 @@ void main() {
         lessThanOrEqualTo(_readingColumnCap + 0.5),
         reason: 'reading column never exceeds its cap at ${size.width}px',
       );
-      expect(
-        column.center.dx,
-        moreOrLessEquals(paneWidth / 2, epsilon: 0.5),
-      );
+      expect(column.center.dx, moreOrLessEquals(paneWidth / 2, epsilon: 0.5));
       expect(
         column.left,
         greaterThanOrEqualTo(15.5),
