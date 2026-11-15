@@ -9,18 +9,14 @@ on:
     branches: [main]
     tags: ['v*']
   workflow_dispatch:
-    inputs:
-      publish:
-        description: 建 GitHub Release（不勾只产 artifact）
-        type: boolean
-        default: false
 
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
+  pull-requests: read
 
 jobs:
   meta:
@@ -28,6 +24,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.v.outputs.version }}
+      package_version: ${{ steps.v.outputs.package_version }}
+      short_sha: ${{ steps.v.outputs.short_sha }}
       has_client: ${{ steps.v.outputs.has_client }}
       publish: ${{ steps.v.outputs.publish }}
     steps:
@@ -38,30 +36,14 @@ jobs:
           REF_TYPE: ${{ github.ref_type }}
           REF_NAME: ${{ github.ref_name }}
           EVENT: ${{ github.event_name }}
-          DISPATCH_PUBLISH: ${{ inputs.publish }}
-        run: |
-          set -euo pipefail
-          if [ -f client/pubspec.yaml ]; then
-            version="$(grep -m1 '^version:' client/pubspec.yaml | awk '{print $2}' | cut -d+ -f1)"
-            echo "has_client=true" >> "$GITHUB_OUTPUT"
-          else
-            version="0.0.0"
-            echo "has_client=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::仓库里没有 client/，本次只跑空构建"
-          fi
-          [ -n "$version" ] || { echo "::error::pubspec.yaml 里读不到 version"; exit 1; }
-          if [ "$REF_TYPE" = "tag" ] && [ "$REF_NAME" != "v$version" ]; then
-            echo "::error::tag $REF_NAME 与 pubspec 版本 v$version 不一致，先改版本再打 tag"
-            exit 1
-          fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          if [ "$REF_TYPE" = "tag" ]; then
-            echo "publish=true" >> "$GITHUB_OUTPUT"
-          elif [ "$EVENT" = "workflow_dispatch" ] && [ "$DISPATCH_PUBLISH" = "true" ]; then
-            echo "publish=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "publish=false" >> "$GITHUB_OUTPUT"
-          fi
+        run: python3 scripts/ci/release_meta.py >> "$GITHUB_OUTPUT"
+
+  # The local reusable workflow is resolved at this exact commit, not main.
+  # Only tags rerun full CI; test packages do not double the normal CI cost.
+  ci:
+    needs: meta
+    if: needs.meta.outputs.publish == 'true'
+    uses: ./.github/workflows/ci.yml
 
   linux:
     name: Linux (deb + rpm + tar)
@@ -70,7 +52,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
-      VERSION: ${{ needs.meta.outputs.version }}
+      VERSION: ${{ needs.meta.outputs.package_version }}
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
@@ -118,7 +100,7 @@ jobs:
           tar -C "$(dirname "$bundle_dir")" -czf dist/bundle.tar.gz "$(basename "$bundle_dir")"
       - uses: actions/upload-artifact@v4
         with:
-          name: bb-linux
+          name: bb-linux-${{ needs.meta.outputs.short_sha }}
           path: |
             dist/*.deb
             dist/*.rpm
@@ -126,7 +108,7 @@ jobs:
           retention-days: 14
       - uses: actions/upload-artifact@v4
         with:
-          name: bb-linux-bundle
+          name: bb-linux-bundle-${{ needs.meta.outputs.short_sha }}
           path: dist/bundle.tar.gz
           retention-days: 3
 
@@ -138,14 +120,14 @@ jobs:
     container: archlinux:latest
     timeout-minutes: 30
     env:
-      VERSION: ${{ needs.meta.outputs.version }}
+      VERSION: ${{ needs.meta.outputs.package_version }}
     steps:
       - uses: actions/checkout@v4
       - name: 装打包工具
         run: pacman -Sy --noconfirm --needed base-devel >/dev/null
       - uses: actions/download-artifact@v4
         with:
-          name: bb-linux-bundle
+          name: bb-linux-bundle-${{ needs.meta.outputs.short_sha }}
           path: /tmp/art
       - name: makepkg（非 root 用户）
         run: |
@@ -161,7 +143,7 @@ jobs:
           mkdir -p dist && cp /tmp/out/*.pkg.tar.zst dist/
       - uses: actions/upload-artifact@v4
         with:
-          name: bb-arch
+          name: bb-arch-${{ needs.meta.outputs.short_sha }}
           path: dist/*.pkg.tar.zst
           retention-days: 14
 
@@ -172,7 +154,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 75
     env:
-      VERSION: ${{ needs.meta.outputs.version }}
+      VERSION: ${{ needs.meta.outputs.package_version }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -210,6 +192,9 @@ jobs:
         run: |
           flutter pub get
           flutter build windows --release
+      - name: Windows 单元测试（应用目录解析 + 粘贴准备）
+        working-directory: client
+        run: flutter test test/ffmpeg_tool_test.dart test/chat_clipboard_paste_test.dart
       - name: 打包、ZIP 内容检查与无系统 FFmpeg 冒烟
         shell: pwsh
         run: |
@@ -221,8 +206,17 @@ jobs:
             --expected-ffmpeg-sha256 "${{ steps.ffmpeg.outputs.sha }}"
       - uses: actions/upload-artifact@v4
         with:
-          name: bb-windows
+          name: bb-windows-${{ needs.meta.outputs.short_sha }}
           path: dist/*.zip
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-package-evidence-${{ needs.meta.outputs.short_sha }}
+          path: |
+            dist/package-summary.json
+            dist/package-windows.log
+            client/windows/ffmpeg/BUILD-MANIFEST.txt
           retention-days: 14
 
   macos:
@@ -232,7 +226,7 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 40
     env:
-      VERSION: ${{ needs.meta.outputs.version }}
+      VERSION: ${{ needs.meta.outputs.package_version }}
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
@@ -261,7 +255,7 @@ jobs:
           ditto -c -k --sequesterRsrc --keepParent "$app" "dist/bb-$VERSION-macos.zip"
       - uses: actions/upload-artifact@v4
         with:
-          name: bb-macos
+          name: bb-macos-${{ needs.meta.outputs.short_sha }}
           path: dist/*.zip
           retention-days: 14
 
@@ -272,7 +266,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
-      VERSION: ${{ needs.meta.outputs.version }}
+      VERSION: ${{ needs.meta.outputs.package_version }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -309,7 +303,7 @@ jobs:
           echo "::notice::apk 按 abi 拆分，arm64-v8a 覆盖绝大多数 64 位设备；apk 用仓库自带的 debug keystore 签名（可安装、不可上架）"
       - uses: actions/upload-artifact@v4
         with:
-          name: bb-android
+          name: bb-android-${{ needs.meta.outputs.short_sha }}
           path: |
             dist/*.apk
             dist/*.aab
@@ -317,10 +311,13 @@ jobs:
 
   release:
     name: 建 Release
-    needs: [meta, linux, arch, windows, macos, android]
+    permissions:
+      contents: write
+    needs: [meta, ci, linux, arch, windows, macos, android]
     if: needs.meta.outputs.publish == 'true'
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           pattern: bb-*
@@ -341,6 +338,7 @@ jobs:
           fail_on_unmatched_files: true
           prerelease: ${{ contains(needs.meta.outputs.version, '-') }}
           generate_release_notes: true
+          body_path: docs/RELEASE-NOTES.md
 
   verify:
     name: 回下载校验
@@ -354,6 +352,6 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dl && cd dl
-          gh release download "$TAG" --dir . --clobber
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir . --clobber
           ls -la
           sha256sum -c SHA256SUMS
