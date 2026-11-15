@@ -103,7 +103,7 @@ internal class UpdateInstaller(
         return mapOf(
             "status" to if (canInstallPackages()) "ready" else "permissionRequired",
             "package_name" to activity.packageName,
-            "version_code" to info.longVersionCode,
+            "version_code" to versionCode(info),
             "version_name" to info.versionName,
             "supported_abis" to Build.SUPPORTED_ABIS.toList(),
         )
@@ -118,7 +118,16 @@ internal class UpdateInstaller(
     }
 
     private fun installedPackage(): PackageInfo =
-        activity.packageManager.getPackageInfo(activity.packageName, 0)
+        activity.packageManager.getPackageInfo(activity.packageName, signatureFlags())
+
+    /** API 24–27 have only the legacy field; API 28+ also carries major bits. */
+    private fun versionCode(info: PackageInfo): Long =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            info.longVersionCode
+        } else {
+            @Suppress("DEPRECATION")
+            info.versionCode.toLong()
+        }
 
     /**
      * Opens an https target explicitly confirmed by the user in the update UI.
@@ -225,7 +234,7 @@ internal class UpdateInstaller(
             return ApkCheck.Rejected("empty_file")
         }
         val archive = try {
-            activity.packageManager.getPackageArchiveInfo(file.absolutePath, archiveFlags())
+            activity.packageManager.getPackageArchiveInfo(file.absolutePath, signatureFlags())
         } catch (_: Exception) {
             null
         } ?: return ApkCheck.Rejected("unreadable_apk")
@@ -233,7 +242,7 @@ internal class UpdateInstaller(
             return ApkCheck.Rejected("package_mismatch")
         }
         val installed = installedPackage()
-        if (archive.longVersionCode <= installed.longVersionCode) {
+        if (versionCode(archive) <= versionCode(installed)) {
             return ApkCheck.Rejected("version_not_newer")
         }
         val archiveSigners = signerDigests(archive)
@@ -247,11 +256,12 @@ internal class UpdateInstaller(
         return when (checkAbi(file)) {
             null -> ApkCheck.Rejected("unreadable_apk")
             false -> ApkCheck.Rejected("abi_unsupported")
-            true -> ApkCheck.Valid(archive.longVersionCode, archive.versionName)
+            true -> ApkCheck.Valid(versionCode(archive), archive.versionName)
         }
     }
 
-    private fun archiveFlags(): Int {
+    // Both installed and archive PackageInfo need explicitly requested signers.
+    private fun signatureFlags(): Int {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             PackageManager.GET_SIGNING_CERTIFICATES or PackageManager.GET_SIGNATURES
         } else {
@@ -348,7 +358,7 @@ internal class UpdateInstaller(
             )
         }
         val versionCode = try {
-            installedPackage().longVersionCode
+            versionCode(installedPackage())
         } catch (_: Exception) {
             null
         }

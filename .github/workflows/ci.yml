@@ -118,6 +118,7 @@ jobs:
           set -euo pipefail
           flutter pub get
           flutter build apk --release --target-platform android-arm64
+          (cd android && ./gradlew :app:testUpdateInstaller)
 
       - name: 上传 Android 可安装验收包
         uses: actions/upload-artifact@v4

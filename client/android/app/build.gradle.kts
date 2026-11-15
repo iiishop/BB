@@ -73,3 +73,30 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+// Compile the production installer against narrow Android-contract doubles.
+// Reuse the pinned Gradle distribution's Kotlin compiler: no test dependency
+// download, Android emulator, or extra CI job. Doubles never enter the APK.
+val updaterTestJar = layout.buildDirectory.file("updater-test/probe.jar")
+val gradleKotlinLib = fileTree("${gradle.gradleHomeDir}/lib") { include("*.jar") }
+val gradleKotlinStdlib = fileTree("${gradle.gradleHomeDir}/lib") { include("kotlin-stdlib-*.jar") }
+val updaterTestSources = files(
+    file("src/main/kotlin/ai/bb/bb_mobile/UpdateInstaller.kt"),
+    fileTree("../updater_test") { include("*.kt") },
+)
+val compileUpdateInstallerTest by tasks.registering(JavaExec::class) {
+    classpath = gradleKotlinLib
+    mainClass.set("org.jetbrains.kotlin.cli.jvm.K2JVMCompiler")
+    inputs.files(updaterTestSources)
+    outputs.file(updaterTestJar)
+    doFirst { updaterTestJar.get().asFile.parentFile.mkdirs() }
+    args("-no-stdlib", "-no-reflect", "-classpath", gradleKotlinStdlib.asPath,
+        "-d", updaterTestJar.get().asFile.absolutePath)
+    args(updaterTestSources.files.sortedBy { it.path }.map { it.absolutePath })
+}
+val testUpdateInstaller by tasks.registering(JavaExec::class) {
+    dependsOn(compileUpdateInstallerTest)
+    classpath = files(updaterTestJar, gradleKotlinStdlib)
+    mainClass.set("ai.bb.bb_mobile.ProbeKt")
+}
+tasks.named("check") { dependsOn(testUpdateInstaller) }
