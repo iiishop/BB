@@ -82,6 +82,7 @@ def make_bundle(
                 f"configure={configure}",
                 "imports=KERNEL32.dll,USER32.dll",
                 "toolchain=gcc",
+                "build_script_git_commit=0123456789abcdef0123456789abcdef01234567",
             )
         )
         + "\n",
@@ -149,6 +150,24 @@ class ValidateBundleTests(unittest.TestCase):
             with self.assertRaises(RuntimeError) as context:
                 self.validate(bundle)
             self.assertIn("FFMPEG-GPLv3.txt", str(context.exception))
+
+    def test_rejects_manifest_without_real_build_commit(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            bundle = make_bundle(Path(temporary) / "bundle")
+            manifest = bundle / "ffmpeg/BUILD-MANIFEST.txt"
+            manifest.write_text(
+                manifest.read_text(encoding="utf-8").replace(
+                    "build_script_git_commit=" + "0" * 0,
+                    "build_script_git_commit=",
+                ).replace(
+                    "build_script_git_commit=0123456789abcdef0123456789abcdef01234567",
+                    "build_script_git_commit=unknown",
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaises(RuntimeError) as context:
+                self.validate(bundle)
+            self.assertIn("build_script_git_commit", str(context.exception))
 
     def test_rejects_unused_ffprobe(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

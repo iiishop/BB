@@ -23,6 +23,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -176,6 +177,11 @@ def validate_bundle(
         problems.append(
             "ffmpeg.exe SHA256 does not match the expected build output "
             f"({actual_sha256} != {expected_ffmpeg_sha256})"
+        )
+    build_commit = manifest.get("build_script_git_commit", "")
+    if not re.fullmatch(r"[0-9a-f]{40}", build_commit):
+        problems.append(
+            "manifest build_script_git_commit is not a full 40-char git SHA"
         )
     notice = (bundle / "ffmpeg/FFMPEG-NOTICE.txt").read_text(
         encoding="utf-8", errors="replace"
