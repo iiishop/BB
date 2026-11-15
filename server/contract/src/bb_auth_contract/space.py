@@ -5,12 +5,13 @@ Local POST /v2/space/<action> uses LOCAL_REQUESTS and {identity, result}, behind
 the existing owner capability/CAS fence. This module defines no new identity.
 """
 
-from typing import Annotated, Generic, Literal, TypeVar
+from typing import Annotated, Literal, TypeVar
 
 from pydantic import Field, create_model, model_validator
 
 from .chat import Account, Wire
 from .chat_v2 import ExpectedIdentity, Opaque, Position, Protected, Revision
+from .media import MediaVariant
 
 VERSION = "dea481-space-v1"
 MAX_IMAGE_BYTES = 32 * 1024 * 1024
@@ -146,6 +147,17 @@ class OperationGet(Wire):
     operation_id: Id
 
 
+class GetImage(Wire):
+    image_id: Id
+    variant: MediaVariant = "original"
+
+
+class ImageContent(Wire):
+    image_id: Id
+    mime_type: Literal["image/png", "image/jpeg", "image/webp"]
+    base64: str
+
+
 class Author(Wire):
     account: Account
     username: str
@@ -185,7 +197,7 @@ class Comment(Wire):
 T = TypeVar("T")
 
 
-class Page(Wire, Generic[T]):
+class Page[T](Wire):
     items: list[T]
     next_cursor: str | None
     has_more: bool
@@ -307,6 +319,7 @@ class EventPage(Wire):
 
 # Real routes, generated schemas and test requests consume this same registry.
 REQUESTS = {
+    "get_image": GetImage,
     "overview": Empty,
     "list_posts": PostList,
     "get_post": GetPost,
@@ -333,6 +346,7 @@ REQUESTS = {
     "read_events": Events,
 }
 RESPONSES = {
+    "get_image": ImageContent,
     "overview": Overview,
     "list_posts": Page[Post],
     "get_post": Post,
@@ -355,7 +369,7 @@ LOCAL_REQUESTS = {
 }
 
 
-class LocalResult(Wire, Generic[T]):
+class LocalResult[T](Wire):
     identity: ExpectedIdentity
     result: T
 

@@ -1,4 +1,5 @@
 """All successful test traffic validates against the one shared wire authority."""
+
 import uuid
 
 from bb_auth_contract import space
@@ -28,4 +29,6 @@ def register(api, name):
 
 def publish(api, who, text="post", reference_id=None):
     draft = call(api, who, "create_draft", text=text, reference_id=reference_id)
-    return call(api, who, "publish_draft", draft_id=draft["resource_id"], expected_version=1)["resource_id"]
+    return call(
+        api, who, "publish_draft", draft_id=draft["resource_id"], expected_version=1
+    )["resource_id"]

@@ -36,6 +36,7 @@ from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from starlette.concurrency import run_in_threadpool
 
+from bb_server import space, space_media
 from bb_server.avatars import (
     default_version,
     etag_matches,
@@ -58,7 +59,6 @@ from bb_server.storage import (
 )
 from bb_server.storage_errors import storage_failure
 from bb_server.upload_limit import UploadLimit
-from bb_server import space, space_media
 
 
 def create_app(
@@ -78,7 +78,11 @@ def create_app(
     if not math.isfinite(maintenance_interval) or maintenance_interval <= 0:
         raise ValueError("Maintenance interval must be positive and finite")
     hasher = PasswordHasher()
-    media_root = Path(media_directory) if media_directory else path.parent / (path.name + ".media")
+    media_root = (
+        Path(media_directory)
+        if media_directory
+        else path.parent / (path.name + ".media")
+    )
     # Run the same expensive verification for a nonexistent account.
     dummy_hash = hasher.hash(secrets.token_hex(32))
 
@@ -100,7 +104,9 @@ def create_app(
                 except TimeoutError:
                     try:
                         await run_in_threadpool(cleanup_sessions, path, clock())
-                        await run_in_threadpool(space_media.collect, path, media_root / "space")
+                        await run_in_threadpool(
+                            space_media.collect, path, media_root / "space"
+                        )
                     except (sqlite3.Error, OSError) as error:
                         storage_failure(error)
 

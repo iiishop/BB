@@ -1,6 +1,7 @@
 CREATE TABLE space_posts (
  id TEXT PRIMARY KEY, author TEXT NOT NULL REFERENCES users(account), created_at TEXT NOT NULL,
- text TEXT NOT NULL, reference_id TEXT REFERENCES space_posts(id), deleted INTEGER NOT NULL DEFAULT 0
+ text TEXT NOT NULL, reference_id TEXT REFERENCES space_posts(id), deleted INTEGER NOT NULL DEFAULT 0,
+ seq INTEGER NOT NULL UNIQUE
 );
 CREATE INDEX space_posts_order ON space_posts(deleted,created_at DESC,id DESC);
 CREATE INDEX space_posts_author_order ON space_posts(author,deleted,created_at DESC,id DESC);

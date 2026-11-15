@@ -1,6 +1,228 @@
 {
   "contract": "dea481-space-v1",
   "actions": {
+    "get_image": {
+      "method": "POST",
+      "server_path": "/space/get_image",
+      "local_path": "/v2/space/get_image",
+      "request": {
+        "additionalProperties": false,
+        "properties": {
+          "image_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Image Id",
+            "type": "string"
+          },
+          "variant": {
+            "default": "original",
+            "enum": [
+              "original",
+              "thumb"
+            ],
+            "title": "Variant",
+            "type": "string"
+          }
+        },
+        "required": [
+          "image_id"
+        ],
+        "title": "GetImage",
+        "type": "object"
+      },
+      "response": {
+        "additionalProperties": false,
+        "properties": {
+          "image_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Image Id",
+            "type": "string"
+          },
+          "mime_type": {
+            "enum": [
+              "image/png",
+              "image/jpeg",
+              "image/webp"
+            ],
+            "title": "Mime Type",
+            "type": "string"
+          },
+          "base64": {
+            "title": "Base64",
+            "type": "string"
+          }
+        },
+        "required": [
+          "image_id",
+          "mime_type",
+          "base64"
+        ],
+        "title": "ImageContent",
+        "type": "object"
+      },
+      "local_request": {
+        "$defs": {
+          "ExpectedIdentity": {
+            "additionalProperties": false,
+            "properties": {
+              "account": {
+                "pattern": "^[1-9][0-9]{7}$",
+                "title": "Account",
+                "type": "string"
+              },
+              "auth_generation": {
+                "maxLength": 200,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "title": "Auth Generation",
+                "type": "string"
+              },
+              "consumer_id": {
+                "maxLength": 200,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "title": "Consumer Id",
+                "type": "string"
+              },
+              "binding_revision": {
+                "maximum": 9007199254740991,
+                "minimum": 1,
+                "title": "Binding Revision",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "account",
+              "auth_generation",
+              "consumer_id",
+              "binding_revision"
+            ],
+            "title": "ExpectedIdentity",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "image_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Image Id",
+            "type": "string"
+          },
+          "variant": {
+            "default": "original",
+            "enum": [
+              "original",
+              "thumb"
+            ],
+            "title": "Variant",
+            "type": "string"
+          },
+          "expected_identity": {
+            "$ref": "#/$defs/ExpectedIdentity"
+          }
+        },
+        "required": [
+          "image_id",
+          "expected_identity"
+        ],
+        "title": "LocalSpaceGetImage",
+        "type": "object"
+      },
+      "local_response": {
+        "$defs": {
+          "ExpectedIdentity": {
+            "additionalProperties": false,
+            "properties": {
+              "account": {
+                "pattern": "^[1-9][0-9]{7}$",
+                "title": "Account",
+                "type": "string"
+              },
+              "auth_generation": {
+                "maxLength": 200,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "title": "Auth Generation",
+                "type": "string"
+              },
+              "consumer_id": {
+                "maxLength": 200,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "title": "Consumer Id",
+                "type": "string"
+              },
+              "binding_revision": {
+                "maximum": 9007199254740991,
+                "minimum": 1,
+                "title": "Binding Revision",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "account",
+              "auth_generation",
+              "consumer_id",
+              "binding_revision"
+            ],
+            "title": "ExpectedIdentity",
+            "type": "object"
+          },
+          "ImageContent": {
+            "additionalProperties": false,
+            "properties": {
+              "image_id": {
+                "maxLength": 200,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "title": "Image Id",
+                "type": "string"
+              },
+              "mime_type": {
+                "enum": [
+                  "image/png",
+                  "image/jpeg",
+                  "image/webp"
+                ],
+                "title": "Mime Type",
+                "type": "string"
+              },
+              "base64": {
+                "title": "Base64",
+                "type": "string"
+              }
+            },
+            "required": [
+              "image_id",
+              "mime_type",
+              "base64"
+            ],
+            "title": "ImageContent",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "identity": {
+            "$ref": "#/$defs/ExpectedIdentity"
+          },
+          "result": {
+            "$ref": "#/$defs/ImageContent"
+          }
+        },
+        "required": [
+          "identity",
+          "result"
+        ],
+        "title": "LocalResult[ImageContent]",
+        "type": "object"
+      }
+    },
     "overview": {
       "method": "POST",
       "server_path": "/space/overview",

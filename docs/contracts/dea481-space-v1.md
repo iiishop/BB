@@ -30,6 +30,7 @@ the existing v2 identity protocol. Old chat/Profile routes and events stay intac
 | overview | Counts unread posts/interactions and current visible event cursor; no read/visit mutation |
 | list_posts | Descending creation time + ID; optional author and sparse unread filter |
 | get_post | Complete body, ordered images, one direct reference, 5 root/3 reply previews; explicit nullable visit_id |
+| get_image | Explicit image ID/variant to MIME + base64 bytes under the same draft/post authorization; local/MCP adapter emits native image content rather than a path or arbitrary URL fetch |
 | create_draft, get_draft, list_drafts | Private author scope; create may be empty or reference an existing post |
 | update_draft | Compare expected_version; replace text/reference/full ordered image_ids; removing/reordering images uses stable IDs |
 | add_image | Compare expected_version; validated base64 PNG/JPEG/WebP, atomically append completed image, increment version |
@@ -95,15 +96,23 @@ no-store. Maximum decoded file size is the existing 32 MiB media limit; text is
 only a UI preview count, never an attachment limit. Content formats outside
 PNG/JPEG/WebP are rejected; image validation does not trust the filename.
 
-Events use the existing durable replay + WebSocket transport pattern, isolated
+Events use the existing durable replay + optional WebSocket hint pattern, isolated
 from the chat event stream: POST read_events and WebSocket `/space/events` with
-bearer auth and `after_event_id` query. Global post/comment invalidations are
+bearer auth and `after_event_id` query. As with the existing chat event feed,
+one account-wide HTTP replay loop remains authoritative even without WebSocket
+support; never poll every post separately. The locked server environment does
+not install a Uvicorn WebSocket backend: the ASGI route is tested, but actual
+network WebSocket delivery is unavailable here. No dependency was changed.
+Global post/comment invalidations are
 visible to every account; notification/read/draft invalidations are recipient
 scoped. IDs are monotonically increasing, possibly sparse per account. Store the
 last processed cursor only after applying invalidations; deduplicate by ID and
 refetch current facts. No event contains body text, images, or notification
 snippets. Reconnect reads all pages before treating local cached content as fresh.
 The server retains events in this version; no arbitrary retention gap is implied.
+A post.deleted event invalidates both the post and any cached reference cards or
+notifications pointing at it; comment.deleted invalidates that comment/its
+notification snippets, not live children. Consumers refetch current state.
 
 ## Notifications and pagination
 
@@ -114,7 +123,8 @@ A given liker raises its notification version only on its first like for that
 post; unlike/re-like updates membership without generating unlimited reminders.
 New people increment version; ack of v cannot acknowledge v+1. Acknowledgement
 never accepts a future version and never lowers the stored ack watermark.
-Empty like aggregates are hidden. Explicit repeated set_like with a new operation
+Empty like aggregates on live posts are hidden; deleted posts keep a content-deleted
+notification with zero active actors. Explicit repeated set_like with a new operation
 ID is still a no-op when the desired membership already holds.
 
 Notifications store IDs, not snippets. Snippets and accessibility resolve live
@@ -123,6 +133,8 @@ locatable. A repost notification targets the new post, so deleting its source
 does not remove the repost's own text or make that target inaccessible.
 
 Cursors are opaque, versioned and query/account-scoped keysets, not offsets.
+Post cursors retain the publication sequence high-water mark of the first page,
+so even a new publication with an equal/backdated clock is only seen on refresh.
 Rows sort by created_at plus stable ID (ascending comments, descending posts,
 drafts and notifications); likes/visitors use account order. New posts do not
 move older pages. Unread filtering is evaluated against current explicit reads.

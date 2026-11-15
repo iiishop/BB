@@ -25,11 +25,19 @@ def decode(body):
         fail(413, "payload_too_large")
     try:
         with Image.open(io.BytesIO(data)) as img:
-            mime = {"PNG": "image/png", "JPEG": "image/jpeg", "WEBP": "image/webp"}.get(img.format)
+            mime = {"PNG": "image/png", "JPEG": "image/jpeg", "WEBP": "image/webp"}.get(
+                img.format
+            )
             if mime is None:
                 fail(415, "unsupported_media_type")
             img.verify()
-    except (UnidentifiedImageError, OSError, ValueError, SyntaxError, Image.DecompressionBombError):
+    except (
+        UnidentifiedImageError,
+        OSError,
+        ValueError,
+        SyntaxError,
+        Image.DecompressionBombError,
+    ):
         fail(415, "unsupported_media_type")
     return data, mime, hashlib.sha256(data).hexdigest()
 
@@ -60,7 +68,9 @@ def store(directory, data, blob):
 
 def release(db, field, value, keep=()):
     assert field in ("post_id", "draft_id")
-    for row in db.execute(f"SELECT id,blob FROM space_images WHERE {field}=?", (value,)).fetchall():
+    for row in db.execute(
+        f"SELECT id,blob FROM space_images WHERE {field}=?", (value,)
+    ).fetchall():
         if row["id"] not in keep:
             db.execute("INSERT OR IGNORE INTO space_gc VALUES (?)", (row["blob"],))
             db.execute("DELETE FROM space_images WHERE id=?", (row["id"],))
@@ -73,23 +83,32 @@ def collect(path, directory, *, scan=False):
         if scan and directory.exists():
             for entry in directory.iterdir():
                 if entry.is_file() and re.fullmatch(r"[a-f0-9]{64}", entry.name):
-                    db.execute("INSERT OR IGNORE INTO space_gc VALUES (?)", (entry.name,))
+                    db.execute(
+                        "INSERT OR IGNORE INTO space_gc VALUES (?)", (entry.name,)
+                    )
                 elif entry.is_file() and entry.name.startswith("upload-"):
                     entry.unlink(missing_ok=True)
         for row in db.execute("SELECT blob FROM space_gc").fetchall():
             blob = row["blob"]
-            if not db.execute("SELECT 1 FROM space_images WHERE blob=? LIMIT 1", (blob,)).fetchone():
+            if not db.execute(
+                "SELECT 1 FROM space_images WHERE blob=? LIMIT 1", (blob,)
+            ).fetchone():
                 (directory / blob).unlink(missing_ok=True)
-                (directory / "derivatives" / "thumb-v1" / (blob + ".jpg")).unlink(missing_ok=True)
+                (directory / "derivatives" / "thumb-v1" / (blob + ".jpg")).unlink(
+                    missing_ok=True
+                )
             db.execute("DELETE FROM space_gc WHERE blob=?", (blob,))
 
 
 def read(db, directory, account, image_id, variant):
-    row = db.execute("""SELECT i.* FROM space_images i
+    row = db.execute(
+        """SELECT i.* FROM space_images i
         LEFT JOIN space_posts p ON p.id=i.post_id
         LEFT JOIN space_drafts d ON d.id=i.draft_id
         WHERE i.id=? AND ((p.id IS NOT NULL AND p.deleted=0)
-          OR (d.author=? AND d.state='draft'))""", (image_id, account)).fetchone()
+          OR (d.author=? AND d.state='draft'))""",
+        (image_id, account),
+    ).fetchone()
     if row is None:
         fail(404, "not_found")
     # Read bytes before releasing snapshot. Deletion cannot unlink halfway

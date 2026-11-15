@@ -102,16 +102,29 @@ def test_space_upgrade_preserves_v3_chat_and_rollback(tmp_path, monkeypatch):
         for name in ("001_auth.sql", "002_profile.sql", "003_chat.sql"):
             db.executescript((migrations / name).read_text())
         db.execute("PRAGMA user_version=3")
-        db.execute("INSERT INTO users(account,username,password) VALUES ('12345678','fixture','$argon2id$fixture')")
-        db.execute("INSERT INTO messages VALUES ('m','12345678','12345678',1,'12345678','12345678','time','payload')")
+        db.execute(
+            "INSERT INTO users(account,username,password) VALUES ('12345678','fixture','$argon2id$fixture')"
+        )
+        db.execute(
+            "INSERT INTO messages VALUES ('m','12345678','12345678',1,'12345678','12345678','time','payload')"
+        )
     original = Path.read_text
     with monkeypatch.context() as patch:
-        patch.setattr(Path, "read_text", lambda self, **kw: original(self, **kw) + "; INVALID SQL;")
+        patch.setattr(
+            Path,
+            "read_text",
+            lambda self, **kw: original(self, **kw) + "; INVALID SQL;",
+        )
         with pytest.raises(sqlite3.OperationalError):
             migrate(path)
     with sqlite3.connect(path) as db:
         assert db.execute("PRAGMA user_version").fetchone()[0] == 3
-        assert db.execute("SELECT name FROM sqlite_master WHERE name LIKE 'space_%'").fetchall() == []
+        assert (
+            db.execute(
+                "SELECT name FROM sqlite_master WHERE name LIKE 'space_%'"
+            ).fetchall()
+            == []
+        )
         assert db.execute("SELECT payload FROM messages").fetchone()[0] == "payload"
     migrate(path)
     migrate(path)

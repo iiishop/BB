@@ -1,4 +1,7 @@
 """Real bb-server TCP entry, persistent restart and protected media; no HTTP double."""
+
+import base64
+import io
 import os
 import socket
 import subprocess
@@ -7,6 +10,7 @@ import time
 from contextlib import contextmanager
 
 import httpx
+from PIL import Image
 from space_support import call, publish, register
 
 
@@ -15,12 +19,18 @@ def server(tmp_path):
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
-    environment = {**os.environ, "BB_DATABASE_PATH": str(tmp_path / "space.db"),
-                   "BB_AVATAR_DIRECTORY": str(tmp_path / "avatars"),
-                   "BB_MEDIA_DIRECTORY": str(tmp_path / "media"),
-                   "BB_HOST": "127.0.0.1", "BB_PORT": str(port)}
+    environment = {
+        **os.environ,
+        "BB_DATABASE_PATH": str(tmp_path / "space.db"),
+        "BB_AVATAR_DIRECTORY": str(tmp_path / "avatars"),
+        "BB_MEDIA_DIRECTORY": str(tmp_path / "media"),
+        "BB_HOST": "127.0.0.1",
+        "BB_PORT": str(port),
+    }
     with (tmp_path / "server.log").open("ab") as log:
-        process = subprocess.Popen([sys.executable, "-m", "bb_server"], env=environment, stdout=log, stderr=log)
+        process = subprocess.Popen(
+            [sys.executable, "-m", "bb_server"], env=environment, stdout=log, stderr=log
+        )
         try:
             with httpx.Client(base_url=f"http://127.0.0.1:{port}", timeout=10) as api:
                 deadline = time.monotonic() + 15
@@ -48,14 +58,31 @@ def test_real_entry_publish_lost_response_restart_events_and_logout(tmp_path):
     with server(tmp_path) as api:
         a, b = register(api, "Alice"), register(api, "Bob")
         pid = publish(api, a, "real TCP fact")
-        cid = call(api, b, "create_comment", post_id=pid, text="real reply", operation_id="logical_comment")["resource_id"]
+        cid = call(
+            api,
+            b,
+            "create_comment",
+            post_id=pid,
+            text="real reply",
+            operation_id="logical_comment",
+        )["resource_id"]
         call(api, b, "get_post", post_id=pid, visit_id="active_visit")
         events = call(api, a, "read_events")
         assert any(e["type"] == "notification.changed" for e in events["items"])
     with server(tmp_path) as api:
         result = call(api, b, "get_operation", operation_id="logical_comment")
         assert result["resource_id"] == cid
-        assert call(api, b, "create_comment", post_id=pid, text="real reply", operation_id="logical_comment") == result
+        assert (
+            call(
+                api,
+                b,
+                "create_comment",
+                post_id=pid,
+                text="real reply",
+                operation_id="logical_comment",
+            )
+            == result
+        )
         post = call(api, b, "get_post", post_id=pid, visit_id="active_visit")
         assert post["comment_count"] == post["view_count"] == 1
         assert call(api, a, "read_events") == events
@@ -65,3 +92,41 @@ def test_real_entry_publish_lost_response_restart_events_and_logout(tmp_path):
         assert notification["deleted"] and notification["snippet"] is None
         assert api.post("/auth/logout", headers=b[1]).status_code == 204
         call(api, b, "overview", status=401)
+
+
+def test_real_image_bytes_draft_acl_and_delete_survive_process_restart(tmp_path):
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 6), "blue").save(buf, format="PNG")
+    data = buf.getvalue()
+    with server(tmp_path) as api:
+        a, b = register(api, "Alice"), register(api, "Bob")
+        did = call(api, a, "create_draft")["resource_id"]
+        mid = call(
+            api,
+            a,
+            "add_image",
+            draft_id=did,
+            expected_version=1,
+            filename="real.png",
+            base64=base64.b64encode(data).decode(),
+        )["resource_id"]
+        call(api, b, "get_image", image_id=mid, status=404)
+        assert api.get(f"/space/images/{mid}", headers=b[1]).status_code == 404
+        assert (
+            base64.b64decode(call(api, a, "get_image", image_id=mid)["base64"]) == data
+        )
+        pid = call(api, a, "publish_draft", draft_id=did, expected_version=2)[
+            "resource_id"
+        ]
+        assert api.get(f"/space/images/{mid}", headers=b[1]).content == data
+        image = call(api, b, "get_image", image_id=mid, variant="thumb")
+        assert image["mime_type"] == "image/jpeg"
+        with Image.open(io.BytesIO(base64.b64decode(image["base64"]))) as thumb:
+            assert thumb.width == 8 and thumb.height == 6
+        call(api, a, "delete_post", post_id=pid)
+    with server(tmp_path) as api:
+        call(api, b, "get_image", image_id=mid, status=404)
+        assert (
+            api.get(f"/space/images/{mid}?variant=thumb", headers=b[1]).status_code
+            == 404
+        )

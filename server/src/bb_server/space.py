@@ -1,6 +1,7 @@
 """Space HTTP and replay transport over the existing authentication/storage boundary."""
 
 import asyncio
+import base64
 import hashlib
 import sqlite3
 from typing import Annotated
@@ -19,7 +20,10 @@ from .storage_errors import storage_failure
 
 def authorize(db, identity):
     # Fence a logout between the dependency and actual transaction admission.
-    if not db.execute("SELECT 1 FROM sessions WHERE token_hash=? AND account=?", (identity["digest"], identity["account"])).fetchone():
+    if not db.execute(
+        "SELECT 1 FROM sessions WHERE token_hash=? AND account=?",
+        (identity["digest"], identity["account"]),
+    ).fetchone():
         space_queries.fail(401, "unauthenticated")
 
 
@@ -30,7 +34,24 @@ def execute(path, directory, identity, action, body, clock):
     with connection(path, write=mutation or visiting) as db:
         authorize(db, identity)
         if mutation:
-            result = space_store.mutate(db, directory, identity["account"], action, body, space_store.now(clock), upload)
+            result = space_store.mutate(
+                db,
+                directory,
+                identity["account"],
+                action,
+                body,
+                space_store.now(clock),
+                upload,
+            )
+        elif action == "get_image":
+            data, mime = space_media.read(
+                db, directory, identity["account"], body.image_id, body.variant
+            )
+            result = {
+                "image_id": body.image_id,
+                "mime_type": mime,
+                "base64": base64.b64encode(data).decode("ascii"),
+            }
         else:
             if visiting:
                 space_store.visit(db, identity["account"], body, space_store.now(clock))
@@ -46,39 +67,79 @@ def execute(path, directory, identity, action, body, clock):
 
 
 def install(app, path, directory, current_session, clock):
-    errors = {code: {"model": ErrorResponse} for code in (401, 403, 404, 409, 413, 415, 422, 503)}
+    identity_dep = Depends(current_session)
+    errors = {
+        code: {"model": ErrorResponse}
+        for code in (401, 403, 404, 409, 413, 415, 422, 503)
+    }
 
     def no_query(request: Request):
         if request.query_params:
             space_queries.fail(422, "validation_error")
 
     def endpoint(action, model):
-        def call(payload: model, identity=Depends(current_session)):
+        def call(payload: model, identity=identity_dep):
             return execute(path, directory, identity, action, payload, clock)
+
         call.__name__ = "space_" + action
         return call
 
     for action, model in contract.REQUESTS.items():
-        app.add_api_route("/space/" + action, endpoint(action, model), methods=["POST"],
-                          response_model=contract.RESPONSES[action], responses=errors,
-                          dependencies=[Depends(no_query)], tags=["space"])
+        app.add_api_route(
+            "/space/" + action,
+            endpoint(action, model),
+            methods=["POST"],
+            response_model=contract.RESPONSES[action],
+            responses=errors,
+            dependencies=[Depends(no_query)],
+            tags=["space"],
+        )
 
-    @app.get("/space/images/{image_id}", responses=errors, tags=["space"])
-    def image(image_id: contract.Id, request: Request,
-              variant: Annotated[MediaVariant, Query()] = "original", identity=Depends(current_session)):
+    @app.get(
+        "/space/images/{image_id}",
+        response_class=Response,
+        responses={
+            **errors,
+            200: {
+                "content": {
+                    mime: {"schema": {"type": "string", "format": "binary"}}
+                    for mime in ("image/png", "image/jpeg", "image/webp")
+                }
+            },
+        },
+        tags=["space"],
+    )
+    def image(
+        image_id: contract.Id,
+        request: Request,
+        variant: Annotated[MediaVariant, Query()] = "original",
+        identity=identity_dep,
+    ):
         if set(request.query_params) - {"variant"}:
             space_queries.fail(422, "validation_error")
         with connection(path) as db:
             authorize(db, identity)
-            data, mime = space_media.read(db, directory, identity["account"], image_id, variant)
-        return Response(data, media_type=mime, headers={"Cache-Control": "private, no-store", "Vary": "Authorization", "X-Content-Type-Options": "nosniff"})
+            data, mime = space_media.read(
+                db, directory, identity["account"], image_id, variant
+            )
+        return Response(
+            data,
+            media_type=mime,
+            headers={
+                "Cache-Control": "private, no-store",
+                "Vary": "Authorization",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
 
     def events_for_token(token, after):
         user = find_session(path, token, clock())
         if user is None:
             return None
         with connection(path) as db:
-            if not db.execute("SELECT 1 FROM sessions WHERE token_hash=?", (token,)).fetchone():
+            if not db.execute(
+                "SELECT 1 FROM sessions WHERE token_hash=?", (token,)
+            ).fetchone():
                 return None
             return space_queries.event_page(db, user["account"], after, 100)
 
@@ -87,7 +148,9 @@ def install(app, path, directory, current_session, clock):
         authorization = socket.headers.get("authorization", "")
         try:
             after = int(socket.query_params.get("after_event_id", "0"))
-            if not 0 <= after <= 9007199254740991 or set(socket.query_params) - {"after_event_id"}:
+            if not 0 <= after <= 9007199254740991 or set(socket.query_params) - {
+                "after_event_id"
+            }:
                 raise ValueError
         except ValueError:
             await socket.close(code=1008)
