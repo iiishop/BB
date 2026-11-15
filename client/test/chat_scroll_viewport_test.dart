@@ -209,14 +209,27 @@ void main() {
         ),
       );
       expect(scrollbar, findsOneWidget);
-      final RawScrollbarState state = tester.state<RawScrollbarState>(
-        scrollbar,
-      );
+      final ScrollbarPainter painter =
+          tester
+                  .widget<CustomPaint>(
+                    find
+                        .descendant(
+                          of: scrollbar,
+                          matching: find.byWidgetPredicate(
+                            (Widget w) =>
+                                w is CustomPaint &&
+                                w.painter is ScrollbarPainter,
+                          ),
+                        )
+                        .first,
+                  )
+                  .painter!
+              as ScrollbarPainter;
       final Rect rect = tester.getRect(scrollbar);
       final double x = size.width - 6;
       final List<double> thumbYs = <double>[
         for (double y = rect.top; y < rect.bottom; y += 1)
-          if (state.scrollbarPainter.hitTestOnlyThumbInteractive(
+          if (painter.hitTestOnlyThumbInteractive(
             Offset(x, y) - rect.topLeft,
             PointerDeviceKind.mouse,
           ))
