@@ -638,6 +638,19 @@ class ChatLedger {
       }
       return jsonDecode(jsonEncode(previous)) as Map<String, dynamic>;
     }
+    // Server operation IDs are account-scoped. Do not let a different local
+    // consumer adopt an ID just because its payload happens to be identical.
+    final target = jsonDecode(scope) as List;
+    final scopes = _data['space_operations'] as Map<String, dynamic>;
+    for (final entry in scopes.entries) {
+      if (entry.key == scope) continue;
+      final other = jsonDecode(entry.key) as List;
+      if (other[0] == target[0] && other[1] == target[1] &&
+          (entry.value as Map).containsKey(id)) {
+        throw const AuthFailure(status: 409, code: 'idempotency_conflict',
+            message: 'Operation belongs to another consumer');
+      }
+    }
     plans[id] = {'action': action, 'digest': digest};
     await _flush();
     return null;
