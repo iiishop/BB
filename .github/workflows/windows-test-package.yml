@@ -1,0 +1,119 @@
+name: Windows test package
+
+# 固定候选的 Windows 测试包：自带 FFmpeg（LGPL），不依赖 runner/user PATH。
+# PR 与手动触发都会产出同一个可下载 artifact；不建 Release、不部署。
+
+on:
+  pull_request:
+    paths:
+      - 'client/**'
+      - 'scripts/ci/**'
+      - '.github/workflows/windows-test-package.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: windows-package-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  windows-test-package:
+    name: Windows 自带 FFmpeg 测试包
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.9'
+          channel: stable
+          cache: true
+
+      - name: 读取客户端版本
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(grep -m1 '^version:' client/pubspec.yaml | awk '{print $2}' | cut -d+ -f1)"
+          [ -n "$version" ]
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: 记录 runner 自带的 FFmpeg（仅诊断，不作为验收依据）
+        shell: pwsh
+        run: |
+          $cmd = Get-Command ffmpeg -ErrorAction SilentlyContinue
+          if ($cmd) { "SYSTEM_FFMPEG=$($cmd.Source)" } else { "SYSTEM_FFMPEG=none" }
+
+      - name: 下载、校验固定 FFmpeg（LGPL）并暂存
+        run: python scripts/ci/fetch_ffmpeg_windows.py --dest client/windows/ffmpeg
+
+      - name: Windows release 构建（Release 缺少内置 FFmpeg 会直接失败）
+        working-directory: client
+        run: |
+          flutter pub get
+          flutter build windows --release
+
+      - name: Windows 单元测试（应用目录解析 + 粘贴准备）
+        working-directory: client
+        run: flutter test test/ffmpeg_tool_test.dart test/chat_clipboard_paste_test.dart
+
+      - name: 打包、ZIP 内容检查、无系统 FFmpeg 冒烟与中文/空格路径复验
+        run: >
+          python scripts/ci/package_windows.py
+          --bundle client/build/windows/x64/runner/Release
+          --out dist
+          --version ${{ steps.version.outputs.version }}
+          --name bb-${{ steps.version.outputs.version }}-windows-x64-dea477
+
+      - name: 复核 artifact 与校验和
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -la dist
+          python - <<'EOF'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          parts = Path("dist/SHA256SUMS.txt").read_text(encoding="utf-8").split()
+          digest, name = parts[0], parts[1]
+          archive = Path("dist") / name
+          actual = hashlib.sha256(archive.read_bytes()).hexdigest()
+          assert actual == digest, (actual, digest)
+          summary = json.loads(
+              Path("dist/package-summary.json").read_text(encoding="utf-8")
+          )
+          smoke = summary["extracted_recheck"]["smoke"]
+          assert smoke["status"] == "PASS", summary
+          assert summary["archive"]["zip_bytes"] > 20 * 1024 * 1024, summary
+          print("zip:", name, "sha256:", digest)
+          print("bundled ffmpeg:", smoke["ffmpeg_version"])
+          EOF
+
+      - name: 上传 Windows 测试包
+        uses: actions/upload-artifact@v4
+        with:
+          name: bb-windows-test-package
+          path: |
+            dist/*.zip
+            dist/SHA256SUMS.txt
+            dist/package-summary.json
+          retention-days: 14
+
+      - name: 上传打包日志
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bb-windows-package-evidence
+          path: |
+            dist/package-windows.log
+            dist/package-summary.json
+          if-no-files-found: ignore
+          retention-days: 14

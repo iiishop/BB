@@ -20,7 +20,8 @@
 - 中文 IME 组词/选字期间（`TextEditingValue.composing.isValid`）Enter 不发送。
 - Enter 长按/重复事件不重复提交；Ctrl+V 重复事件不重复粘贴。
 - 空正文且无待发送草稿时不发送；发送仍走原 `_send()`（局部气泡、幂等 operation、失败重试不变）。
-- 桌面输入框 hint 与实际快捷键一致（`输入消息… Enter 发送 · Ctrl+Enter 换行`），发送按钮
+- 桌面输入框 hint 与实际快捷键一致（`输入消息… Enter 发送，Ctrl+Enter 换行`，不用 ` · `
+  以免与顶栏 `账号 · 在线状态` 的单行断言混淆），发送按钮
   tooltip 为“发送（Enter）”；手机软键盘保持原来的换行 + 发送按钮，不新增设置项。
 - 删除专用“粘贴图片或视频”按钮；图片/文件选择入口保留。
 - Ctrl+V：剪贴板里有文件/图片时进入待发送区，不自动上传、不自动发送；纯文本时按光标位置插入，
@@ -52,8 +53,10 @@ Windows runner 没有剪贴板插件，本轮用系统自带 PowerShell（不安
   代码页，中文文件名不经过 stdout；读取后删除临时目录。
 - 每个文件在 Dart 侧重新检查存在性/类型/大小并重新 sniff MIME；目录、空文件、超 32 MiB、
   不可读、已删除分别给提示。
-- 依赖：`powershell.exe`（Windows 11 自带；失败再尝试 `pwsh.exe`）。桌面视频封面仍依赖
-  `ffmpeg` 在 PATH，这是既有约束；缺失时提示“桌面需要 ffmpeg”。
+- 依赖：`powershell.exe`（Windows 11 自带；失败再尝试 `pwsh.exe`）。视频封面在 Windows
+  使用随包 `ffmpeg/ffmpeg.exe`（应用目录解析，不依赖 PATH，版本/哈希/许可见
+  `dea477-windows-package.md`）；Linux/macOS 仍用系统 `ffmpeg`。找不到可用 ffmpeg 时提示
+  “未找到可用的 ffmpeg”。
 
 限制：只处理文件列表、原始图片和纯文本；不读取第三方软件私有/虚拟剪贴板格式；PowerShell
 冷启动会带来约数百毫秒的粘贴延迟；Windows 上仍可能有短暂的隐藏窗口开启开销。

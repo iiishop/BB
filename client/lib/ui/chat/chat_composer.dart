@@ -188,7 +188,7 @@ class _ChatComposerState extends State<ChatComposer> {
           mimeType = 'application/octet-stream';
         } else {
           return _isDesktop
-              ? '无法从 ${picked.filename} 提取视频封面（桌面需要 ffmpeg）'
+              ? '无法从 ${picked.filename} 提取视频封面（未找到可用的 ffmpeg）'
               : '无法从 ${picked.filename} 提取视频封面';
         }
       }
@@ -825,7 +825,7 @@ class _ChatComposerState extends State<ChatComposer> {
                       textInputAction: TextInputAction.newline,
                       decoration: InputDecoration(
                         hintText: _usesSendShortcut
-                            ? '输入消息… Enter 发送 · Ctrl+Enter 换行'
+                            ? '输入消息… Enter 发送，Ctrl+Enter 换行'
                             : '输入消息…',
                         isDense: true,
                         contentPadding: const EdgeInsets.symmetric(

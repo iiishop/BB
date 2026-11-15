@@ -175,22 +175,29 @@ jobs:
       VERSION: ${{ needs.meta.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.47.9'
           channel: stable
           cache: true
+      - name: 下载、校验固定 FFmpeg（LGPL）并暂存
+        run: python scripts/ci/fetch_ffmpeg_windows.py --dest client/windows/ffmpeg
       - name: flutter build windows
         working-directory: client
         run: |
           flutter pub get
           flutter build windows --release
-      - name: 压缩产物
+      - name: 打包、ZIP 内容检查与无系统 FFmpeg 冒烟
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force dist | Out-Null
-          Compress-Archive -Path client\build\windows\x64\runner\Release\* `
-            -DestinationPath "dist\bb-$env:VERSION-windows-x64.zip" -Force
+          python scripts/ci/package_windows.py `
+            --bundle client/build/windows/x64/runner/Release `
+            --out dist `
+            --version "$env:VERSION" `
+            --name "bb-$env:VERSION-windows-x64"
       - uses: actions/upload-artifact@v4
         with:
           name: bb-windows

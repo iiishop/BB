@@ -87,6 +87,31 @@ if(PLUGIN_BUNDLED_LIBRARIES)
     COMPONENT Runtime)
 endif()
 
+# === Bundled FFmpeg ===
+# Windows 发布包自带固定版本的 FFmpeg（LGPL 构建），由
+# scripts/ci/fetch_ffmpeg_windows.py 下载、校验哈希后放到 windows/ffmpeg/。
+# 运行时从应用可执行文件所在目录解析 ffmpeg/ffmpeg.exe，不依赖 PATH 或当前工作目录。
+set(BUNDLED_FFMPEG_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ffmpeg")
+if(EXISTS "${BUNDLED_FFMPEG_DIR}/ffmpeg.exe")
+  foreach(required "ffmpeg.exe" "FFMPEG-LICENSE.txt" "FFMPEG-NOTICE.txt")
+    if(NOT EXISTS "${BUNDLED_FFMPEG_DIR}/${required}")
+      message(FATAL_ERROR "内置 FFmpeg 缺少 ${required}：重新运行 python scripts/ci/fetch_ffmpeg_windows.py --dest client/windows/ffmpeg")
+    endif()
+  endforeach()
+  install(DIRECTORY "${BUNDLED_FFMPEG_DIR}/"
+    DESTINATION "${INSTALL_BUNDLE_LIB_DIR}/ffmpeg"
+    COMPONENT Runtime
+    FILES_MATCHING
+      PATTERN "ffmpeg.exe"
+      PATTERN "FFMPEG-LICENSE.txt"
+      PATTERN "FFMPEG-NOTICE.txt")
+  message(STATUS "Bundling FFmpeg from ${BUNDLED_FFMPEG_DIR}")
+elseif(CMAKE_BUILD_TYPE STREQUAL "Release")
+  message(FATAL_ERROR "Release 构建必须自带 FFmpeg：先运行 python scripts/ci/fetch_ffmpeg_windows.py --dest client/windows/ffmpeg")
+else()
+  message(WARNING "未找到 windows/ffmpeg/ffmpeg.exe：Debug/Profile 运行回退到 PATH 中的 ffmpeg，不能作为发布包验收")
+endif()
+
 # Copy the native assets provided by the build.dart from all packages.
 set(NATIVE_ASSETS_DIR "${PROJECT_BUILD_DIR}native_assets/windows/")
 install(DIRECTORY "${NATIVE_ASSETS_DIR}"

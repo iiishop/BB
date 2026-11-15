@@ -56,7 +56,9 @@ Android release 已在主 manifest 声明 `INTERNET`，并允许明文流量—�
 
 Linux 默认窗口 1180×780，Windows 同样 1180×780。Windows 构建/运行与 Android 运行在本
 环境均为 **NOT RUN**：Windows 没有 MSVC 工具链、Android 没有模拟器/真机；Linux 截图不代表
-这两个平台。
+这两个平台。Windows release 包由 CI `Windows test package` 工作流构建，包内自带固定版本
+FFmpeg（`ffmpeg/ffmpeg.exe`，LGPL，应用目录解析、不依赖 PATH），见
+`docs/dea477-windows-package.md`；CI 产包不等于 Windows 原生验收。
 
 ## 会话持久化与登出
 
@@ -198,7 +200,8 @@ flutter test integration_test -d linux
 QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_tests.sh client
 ```
 
-- 默认 `flutter test`：合并最新 main 后为 **537 passed / 8 skipped / exit 0**。新增覆盖
+- 默认 `flutter test`：合并最新 main 并加入 Windows 内置 FFmpeg 解析回归后为
+  **550 passed / 8 skipped / exit 0**。新增覆盖
   1000 条真实分页下发送/接收并发补取无缺口、events/wait limit 边界、原子展示确认/冲突/全组
   拒绝/重启幂等、新 consumer 独立补取、有序图文发送、幂等/冲突、read→receipt→ACK 缺口、
   附件只读元信息、异步下载内容、持久事件、wait 积压/提前到达、用户列表分页/预览/在线状态、
@@ -227,6 +230,9 @@ QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_test
   （Opus、无视频轨）经 Windows 文件列表 seam + Ctrl+V 进入准备链路后保持可取消、可发送，
   准备规则在“声明 video 但无视频轨”时降级为 `application/octet-stream`。`chat_media_input_test.dart`
   增加多 URI 去重、m4a 不误判、真实 audio-only webm/mp4 轨道检测与 video webm/mp4 保持视频。
+- `test/ffmpeg_tool_test.dart` 覆盖 Windows 从应用目录解析 `ffmpeg/ffmpeg.exe`、旧式同目录布局、
+  开发构建回退 PATH、非 Windows 保持系统 ffmpeg、显式覆盖优先级；CI `Windows test package`
+  还在真实 Windows 上校验 ZIP 内容、无系统 FFmpeg 冒烟与中文/空格路径复验。
 - 严格命令 `QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_tests.sh client`
   需要可用的 Linux 显示服务；本环境 Xvfb segfault，DEA-477 本轮只实跑 `flutter analyze`
   （`No issues found!`，exit 0）与 `flutter test`；`linux-integration`、Windows/Android 真机与
@@ -282,8 +288,12 @@ QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_test
 - 不做 token 过期/刷新；真正重新登录只有主动退出或服务端清理 24h 离线会话后 401。
 - 不做群聊、好友申请/搜索、动态、产品已读回执、跨机器文件传输、附件自动解析。
 - Windows 原生剪贴板读取（PowerShell CF_HDROP/CF_DIB）只做了 listing/脚本/文件收集层单测，
-  真实 Windows 运行时 **NOT RUN**；桌面视频封面仍依赖系统 `ffmpeg`，缺失时会给出可见提示。
-  粘贴入口只处理“文件/图片 + 纯文本”，不读取第三方软件私有格式或仅存在于虚拟剪贴板的对象。
+  真实 Windows 运行时 **NOT RUN**。Windows 发布包自带 `ffmpeg/ffmpeg.exe`（LGPL，应用目录
+  解析、不依赖 PATH）；Linux/macOS 仍使用系统 `ffmpeg`（各自分发方式未变）。粘贴入口只处理
+  “文件/图片 + 纯文本”，不读取第三方软件私有格式或仅存在于虚拟剪贴板的对象。
+- Windows 测试包（CI artifact）未做 Authenticode 签名，首次运行会弹 SmartScreen；免安装
+  ZIP 删除目录即移除应用与随包 FFmpeg。真实 Windows 交互（Enter/Ctrl+Enter、IME、截图/
+  多文件粘贴、视频封面→发送）仍需用户实测，见 `docs/dea477-windows-package.md`。
 - Android 真机与 Windows 构建/运行 **NOT RUN**；折叠屏形态为注入 `DisplayFeature` 的
   widget 渲染验证，未在真实折叠设备运行。Android 剪贴板通道已实现，但未在真机验证；
   Linux/Windows 的在线流交给系统播放器，桌面 GUI 实际播放未在本环境人工验收；这两项均

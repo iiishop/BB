@@ -6,6 +6,7 @@ import 'dart:typed_data' show BytesBuilder, Uint8List;
 import '../models/auth_models.dart';
 import '../models/chat_models.dart';
 import 'chat_ledger.dart';
+import 'ffmpeg_tool.dart';
 
 /// A client-side media source: exactly one of path/url/base64/bytes.
 class MediaSource {
@@ -704,9 +705,11 @@ AttachmentKind attachmentKindForMime(String mime) {
 
 /// Extracts the first real video frame for the upload cover.
 ///
-/// Desktop uses the system `ffmpeg`; Android resolves covers in the Flutter UI
-/// layer with the platform thumbnailer. Returning null means "no cover" and the
-/// caller must not pretend the upload succeeded.
+/// Desktop uses `ffmpeg`: Windows release packages resolve the executable that
+/// ships inside the application directory (see [resolveFfmpegExecutable]);
+/// other desktops keep the system tool. Android resolves covers in the Flutter
+/// UI layer with the platform thumbnailer. Returning null means "no cover" and
+/// the caller must not pretend the upload succeeded.
 abstract interface class VideoCoverExtractor {
   Future<ResolvedMedia?> extract({
     required String path,
@@ -715,7 +718,8 @@ abstract interface class VideoCoverExtractor {
 }
 
 class FfmpegVideoCoverExtractor implements VideoCoverExtractor {
-  FfmpegVideoCoverExtractor({this.executable = 'ffmpeg'});
+  FfmpegVideoCoverExtractor({String? executable})
+    : executable = executable ?? resolveFfmpegExecutable();
 
   final String executable;
 
