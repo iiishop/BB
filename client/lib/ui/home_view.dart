@@ -9,6 +9,7 @@ import '../models/profile_models.dart';
 import '../services/auth_service.dart';
 import '../services/chat_service.dart';
 import '../services/heartbeat_controller.dart';
+import '../services/presence_directory.dart';
 import '../services/profile_service.dart';
 import '../models/chat_models.dart';
 import 'chat/chat_page.dart';
@@ -61,16 +62,26 @@ class _HomeViewState extends State<HomeView> {
   bool _loading = true;
   String? _error;
 
+  /// Shared by the user list and every conversation opened from it, so both
+  /// surfaces read the same last-confirmed presence instead of each keeping a
+  /// snapshot or its own poll.
+  PresenceDirectory? _presence;
+
   @override
   void initState() {
     super.initState();
     widget.heartbeat.addListener(_onHeartbeatChanged);
+    final ChatService? chat = widget.chat;
+    if (chat != null) {
+      _presence = PresenceDirectory(chat: chat);
+    }
     unawaited(_load());
   }
 
   @override
   void dispose() {
     widget.heartbeat.removeListener(_onHeartbeatChanged);
+    _presence?.dispose();
     super.dispose();
   }
 
@@ -149,8 +160,12 @@ class _HomeViewState extends State<HomeView> {
     }
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (BuildContext context) =>
-            ChatPage(peer: user, chat: chat, profile: widget.profile),
+        builder: (BuildContext context) => ChatPage(
+          peer: user,
+          chat: chat,
+          profile: widget.profile,
+          presence: _presence,
+        ),
       ),
     );
   }
@@ -218,6 +233,7 @@ class _HomeViewState extends State<HomeView> {
                           child: UsersListView(
                             chat: widget.chat!,
                             profile: widget.profile,
+                            presence: _presence,
                             onOpenChat: _openChat,
                             onSessionExpired: widget.onSessionExpired,
                           ),
