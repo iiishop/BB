@@ -1,0 +1,10 @@
+{"protocolVersion":"0.1.1","runnerVersion":null,"pid":511445,"type":"start","time":0}
+{"suite":{"id":0,"platform":"vm","path":"/tmp/qa-native-34dkndkl/probe_test.dart"},"type":"suite","time":0}
+{"test":{"id":1,"name":"loading /tmp/qa-native-34dkndkl/probe_test.dart","suiteID":0,"groupIDs":[],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":null},"type":"testStart","time":0}
+{"count":1,"time":3,"type":"allSuites"}
+{"testID":1,"result":"success","skipped":false,"hidden":true,"type":"testDone","time":972}
+{"group":{"id":2,"suiteID":0,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":1,"line":null,"column":null,"url":null},"type":"group","time":974}
+{"test":{"id":3,"name":"authority","suiteID":0,"groupIDs":[2],"metadata":{"skip":false,"skipReason":null},"line":2,"column":15,"url":"file:///tmp/qa-native-34dkndkl/probe_test.dart"},"type":"testStart","time":975}
+{"testID":3,"error":"Expected: <2>\n  Actual: <1>\nauthority must remain NEW\n","stackTrace":"package:matcher                                     expect\npackage:flutter_test/src/widget_tester.dart 473:18  expect\nprobe_test.dart 2:38                                main.<fn>\n","isFailure":true,"type":"error","time":1006}
+{"testID":3,"result":"failure","skipped":false,"hidden":false,"type":"testDone","time":1007}
+{"success":false,"type":"done","time":1022}

@@ -1,0 +1,13 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+________________________________ test_authority ________________________________
+
+    def test_authority():
+>       assert 1 == 2, "authority must remain NEW"
+E       AssertionError: authority must remain NEW
+E       assert 1 == 2
+
+test_probe.py:3: AssertionError
+=========================== short test summary info ============================
+FAILED test_probe.py::test_authority - AssertionError: authority must remain NEW
+1 failed in 0.01s

@@ -1,0 +1,184 @@
+{
+  "versions": {
+    "node": "v26.8.2",
+    "pytest": "pytest 9.1.1",
+    "flutter": "Flutter 3.47.9 \u2022 channel stable \u2022 https://github.com/flutter/flutter.git\nFramework \u2022 revision c197ca5199 (2 weeks ago) \u2022 2026-10-29 10:10:20 -0400\nEngine \u2022 hash 9e025265bef30b838c0c1b68cad19decf97048f2 (revision 89c39edfdf) (19 days ago) \u2022 2026-10-27 19:51:20.000Z\nTools \u2022 Dart 3.13.7 \u2022 DevTools 2.60.0"
+  },
+  "runs": [
+    {
+      "runner": "node",
+      "mode": "pass",
+      "command": [
+        "node",
+        "--test",
+        "--test-reporter=junit",
+        "probe.cjs"
+      ],
+      "exit_code": 0
+    },
+    {
+      "runner": "node",
+      "mode": "assertion",
+      "command": [
+        "node",
+        "--test",
+        "--test-reporter=junit",
+        "probe.cjs"
+      ],
+      "exit_code": 1
+    },
+    {
+      "runner": "node",
+      "mode": "runtime",
+      "command": [
+        "node",
+        "--test",
+        "--test-reporter=junit",
+        "probe.cjs"
+      ],
+      "exit_code": 1
+    },
+    {
+      "runner": "node",
+      "mode": "skip",
+      "command": [
+        "node",
+        "--test",
+        "--test-reporter=junit",
+        "probe.cjs"
+      ],
+      "exit_code": 0
+    },
+    {
+      "runner": "node",
+      "mode": "compile",
+      "command": [
+        "node",
+        "--test",
+        "--test-reporter=junit",
+        "probe.cjs"
+      ],
+      "exit_code": 1
+    },
+    {
+      "runner": "pytest",
+      "mode": "pass",
+      "command": [
+        "pytest",
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "--junitxml=result.xml",
+        "test_probe.py"
+      ],
+      "exit_code": 0
+    },
+    {
+      "runner": "pytest",
+      "mode": "assertion",
+      "command": [
+        "pytest",
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "--junitxml=result.xml",
+        "test_probe.py"
+      ],
+      "exit_code": 1
+    },
+    {
+      "runner": "pytest",
+      "mode": "runtime",
+      "command": [
+        "pytest",
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "--junitxml=result.xml",
+        "test_probe.py"
+      ],
+      "exit_code": 1
+    },
+    {
+      "runner": "pytest",
+      "mode": "skip",
+      "command": [
+        "pytest",
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "--junitxml=result.xml",
+        "test_probe.py"
+      ],
+      "exit_code": 0
+    },
+    {
+      "runner": "pytest",
+      "mode": "compile",
+      "command": [
+        "pytest",
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "--junitxml=result.xml",
+        "test_probe.py"
+      ],
+      "exit_code": 2
+    },
+    {
+      "runner": "flutter",
+      "mode": "pass",
+      "command": [
+        "/home/iiishop/flutter/bin/flutter",
+        "test",
+        "--reporter=json",
+        "probe_test.dart"
+      ],
+      "exit_code": 0
+    },
+    {
+      "runner": "flutter",
+      "mode": "assertion",
+      "command": [
+        "/home/iiishop/flutter/bin/flutter",
+        "test",
+        "--reporter=json",
+        "probe_test.dart"
+      ],
+      "exit_code": 1
+    },
+    {
+      "runner": "flutter",
+      "mode": "runtime",
+      "command": [
+        "/home/iiishop/flutter/bin/flutter",
+        "test",
+        "--reporter=json",
+        "probe_test.dart"
+      ],
+      "exit_code": 1
+    },
+    {
+      "runner": "flutter",
+      "mode": "skip",
+      "command": [
+        "/home/iiishop/flutter/bin/flutter",
+        "test",
+        "--reporter=json",
+        "probe_test.dart"
+      ],
+      "exit_code": 0
+    },
+    {
+      "runner": "flutter",
+      "mode": "compile",
+      "command": [
+        "/home/iiishop/flutter/bin/flutter",
+        "test",
+        "--reporter=json",
+        "probe_test.dart"
+      ],
+      "exit_code": 1
+    }
+  ]
+}

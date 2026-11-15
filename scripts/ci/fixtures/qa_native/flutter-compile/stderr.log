@@ -1,0 +1,12 @@
+probe_test.dart:2:46: Error: 'not' isn't a type.
+void main() { test('authority', () { this is not valid Dart; }, skip: false); }
+                                             ^^^
+probe_test.dart:2:38: Error: Expected identifier, but got 'this'.
+void main() { test('authority', () { this is not valid Dart; }, skip: false); }
+                                     ^^^^
+probe_test.dart:2:46: Error: Expected ';' after this.
+void main() { test('authority', () { this is not valid Dart; }, skip: false); }
+                                             ^^^
+probe_test.dart:2:50: Error: 'valid' isn't a type.
+void main() { test('authority', () { this is not valid Dart; }, skip: false); }
+                                                 ^^^^^

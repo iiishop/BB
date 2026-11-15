@@ -1,0 +1,12 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+________________________________ test_authority ________________________________
+
+    def test_authority():
+>       raise TypeError("authority must remain NEW")
+E       TypeError: authority must remain NEW
+
+test_probe.py:3: TypeError
+=========================== short test summary info ============================
+FAILED test_probe.py::test_authority - TypeError: authority must remain NEW
+1 failed in 0.01s
