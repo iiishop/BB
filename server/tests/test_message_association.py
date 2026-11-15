@@ -15,8 +15,9 @@ from bb_auth_contract.chat_association import (
     AssociatedOperation,
 )
 from bb_auth_contract.chat_query import ConversationPage, MessageContext
-from bb_server.app import create_app
 from test_chat import chat as chat_fixture  # noqa: F401
+
+from bb_server.app import create_app
 
 
 @pytest.fixture
