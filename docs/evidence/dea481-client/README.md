@@ -8,8 +8,9 @@ Owner: Muse. Task: DEA-483, client part of the approved DEA-481 Space revision 1
   `client/lib/services/space*`, ledger/local-router and its docs). The client
   branch is based on that commit; Forge remains the sole integrator of PR #35.
 - Candidate branch: `agent/muse/dea-481-client` (pushed from the run worktree).
-- Candidate SHA: `CANDIDATE_SHA_PLACEHOLDER` (this README is appended after the
-  verification tree; code/tests are unchanged by that documentation commit).
+- Verification SHA: `de0da8b` (the code/test tree all commands above ran on).
+  The branch head appends this manifest/SHA note only; code and tests are
+  unchanged by that documentation commit.
 - Run directory: `dea-483-17449a6f2dc1/workdir/BB-client`; scope: `ui/space/`,
   `main.dart`, `app.dart`, `ui/auth_flow.dart`, `ui/home_view.dart`,
   `test/space_*`, `test/support/space_*`, `client/docs/dea481-*`,
