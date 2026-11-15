@@ -104,6 +104,11 @@ class _ChatPageState extends State<ChatPage> {
   /// Failed operations the server confirmed as committed. Their local failure
   /// row is hidden because the committed message is the truth.
   final Set<String> _resolvedOperations = <String>{};
+
+  /// Failed operations whose verification could not be completed (transport
+  /// or server error). Their send result is unknown, so self messages stay
+  /// held and the failure/retry row remains; a later poll retries the lookup.
+  final Set<String> _unresolvedOperations = <String>{};
   static const int _maxLocalPreviewEntries = 8;
   static const int _maxLocalPreviewBytes = 24 * 1024 * 1024;
   bool _loading = true;
@@ -219,6 +224,7 @@ class _ChatPageState extends State<ChatPage> {
         _animateIdentities.clear();
       });
       widget.onMessagesChanged?.call(List<ChatMessage>.unmodifiable(_messages));
+      _retryUnresolvedLookups();
       _scrollToBottom(animate: false, force: true);
     } on AuthFailure catch (failure) {
       if (!mounted) {
@@ -290,6 +296,7 @@ class _ChatPageState extends State<ChatPage> {
         _animateIdentities.addAll(arrived);
       });
       widget.onMessagesChanged?.call(List<ChatMessage>.unmodifiable(_messages));
+      _retryUnresolvedLookups();
       if (arrived.isNotEmpty && wasNearBottom) {
         _scrollToBottom(force: true);
       }
@@ -316,7 +323,9 @@ class _ChatPageState extends State<ChatPage> {
   /// not settled yet either: the committed message must stay held until that
   /// lookup either binds it or proves it is a different operation.
   bool get _shouldHoldSelfMessages =>
-      _hasSendingPending || _resolvingOperations.isNotEmpty;
+      _hasSendingPending ||
+      _resolvingOperations.isNotEmpty ||
+      _unresolvedOperations.isNotEmpty;
 
   /// While a send is in flight, self-authored messages read from history are
   /// held instead of rendered. A local pending row plus the same accepted
@@ -369,6 +378,18 @@ class _ChatPageState extends State<ChatPage> {
     widget.onMessagesChanged?.call(List<ChatMessage>.unmodifiable(_messages));
   }
 
+  void _retryUnresolvedLookups() {
+    if (_unresolvedOperations.isEmpty) {
+      return;
+    }
+    for (final String operationId in Set<String>.of(_unresolvedOperations)) {
+      if (!_resolvingOperations.contains(operationId) &&
+          !_resolvedOperations.contains(operationId)) {
+        unawaited(_resolveFailedOperation(operationId));
+      }
+    }
+  }
+
   /// A client-observed failure is not proof the server rejected the operation.
   /// Only `GET /operations/{id}` can name the committed message for this exact
   /// operation; if it can, the local failure row is replaced by that message.
@@ -388,6 +409,7 @@ class _ChatPageState extends State<ChatPage> {
       if (result?.status == OperationStatus.succeeded && message != null) {
         setState(() {
           _resolvedOperations.add(operationId);
+          _unresolvedOperations.remove(operationId);
           _operationByMessage[message.identity] = operationId;
           _heldSelfMessages.remove(message.identity);
           _mergeMessages(<ChatMessage>[message]);
@@ -397,11 +419,26 @@ class _ChatPageState extends State<ChatPage> {
           List<ChatMessage>.unmodifiable(_messages),
         );
         _composerController.forgetCommittedOperation(operationId);
+      } else {
+        // An authoritative "not found" means this operation did not commit;
+        // any held self message belongs to another operation.
+        setState(() {
+          _unresolvedOperations.remove(operationId);
+        });
       }
     } on AuthFailure {
-      // Keep the honest local failure and its retry entry.
+      // Unknown is not failed: hold accepted self messages and keep retry.
+      if (mounted) {
+        setState(() {
+          _unresolvedOperations.add(operationId);
+        });
+      }
     } catch (_) {
-      // A failed verification is not evidence of success.
+      if (mounted) {
+        setState(() {
+          _unresolvedOperations.add(operationId);
+        });
+      }
     } finally {
       _resolvingOperations.remove(operationId);
       if (!_shouldHoldSelfMessages) {
@@ -483,6 +520,10 @@ class _ChatPageState extends State<ChatPage> {
     final Set<String> live = <String>{
       for (final PendingSend item in pending) item.operationId,
     };
+    final Set<String> failedLive = <String>{
+      for (final PendingSend item in pending)
+        if (item.state == SendFeedbackState.failed) item.operationId,
+    };
     final bool startedSend = pending.any(
       (PendingSend item) =>
           item.state == SendFeedbackState.sending &&
@@ -502,6 +543,9 @@ class _ChatPageState extends State<ChatPage> {
       );
       _resolvedOperations.removeWhere(
         (String operationId) => !live.contains(operationId),
+      );
+      _unresolvedOperations.removeWhere(
+        (String operationId) => !failedLive.contains(operationId),
       );
     });
     if (startedSend) {

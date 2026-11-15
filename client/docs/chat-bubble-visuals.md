@@ -111,6 +111,17 @@
   r3 `operation_lookup_window_test.dart` 2/2 通过（临时运行，未提交探针目录）。游标在暂存时
   仍连续推进，暂存消息按 identity 去重并在释放时合并；没有恢复任何内容启发式。
 
+## Sentinel 复验修复（revision 5）
+
+- **查询失败不是 operation 不存在**：`GET /operations/{id}` 网络/服务错误时，把 operation 放入
+  `_unresolvedOperations`，继续暂存本人消息、保留本地失败与重试，不再释放成两条。只有权威
+  404/空结果（operation 未提交）才释放暂存；succeeded 则绑定并移除失败。
+- **恢复**：`_unresolvedOperations` 非空时继续 hold；后续 poll/refresh 自动重查（同一 operation
+  不并发重复查询），成功后绑定并只显示一条；用户重试成功也走同一清除路径。
+- **覆盖**：新增查询失败 poll/refresh、失败后后续轮询重查成功、查询与重试交错；Sentinel r4
+  `operation_lookup_failure_test.dart` 2/2 通过（临时探针，未提交）。此前的同文/同媒体/乱序/
+  查询窗口反例继续保留，未恢复内容启发式。
+
 ## 用户返稿记录
 
 | 日期 | 意见 | 修改 | 适用场景 |

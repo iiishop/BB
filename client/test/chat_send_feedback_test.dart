@@ -70,7 +70,7 @@ class _CommitThenFailService extends FakeChatService {
       );
 
   final Completer<void>? lookupGate;
-  final bool failLookup;
+  bool failLookup;
   ComposedSendResult? committed;
   bool retryReturnsCommitted = false;
 
@@ -921,12 +921,42 @@ void main() {
     await tester.pump();
 
     expect(find.byKey(MessageBubble.failedKey), findsOneWidget);
-    expect(find.text('lookup unavailable'), findsNWidgets(2));
+    expect(
+      find.text('lookup unavailable'),
+      findsOneWidget,
+      reason: 'an unknown operation keeps the accepted message held',
+    );
     service.retryReturnsCommitted = true;
     await tester.tap(find.byKey(MessageBubble.failedKey));
     await tester.pumpAndSettle();
     expect(find.byKey(MessageBubble.failedKey), findsNothing);
     expect(find.text('lookup unavailable'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a later poll retries an unresolved lookup and binds the '
+      'committed message once', (WidgetTester tester) async {
+    final _CommitThenFailService service = _CommitThenFailService(
+      failLookup: true,
+    );
+    final _Harness harness = _Harness(service: service);
+    await harness.pump(tester);
+
+    await harness.send(tester, 'lookup recovers');
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byKey(MessageBubble.failedKey), findsOneWidget);
+    expect(find.text('lookup recovers'), findsOneWidget);
+
+    service.failLookup = false;
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(MessageBubble.failedKey), findsNothing);
+    expect(find.text('lookup recovers'), findsOneWidget);
+    expect(service.operationQueries.length, greaterThanOrEqualTo(2));
     expect(tester.takeException(), isNull);
   });
 
