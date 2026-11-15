@@ -1,0 +1,63 @@
+{
+  "source_sha": "d402ba8cecdfdbfb421eef23165483b24f3bd1a3",
+  "server_tree": "8d2147fd7be48cd30227fbddf851e2e157e936d5",
+  "base_sha": "573f3877cb8497d9df4720be3c13eee089ff9642",
+  "contract_sha": "d402ba8cecdfdbfb421eef23165483b24f3bd1a3",
+  "regression_before_sha": "ebfeb86b5bb41a890b2fca87e874d07be767349e",
+  "run_id": "01a1e14c-2b6a-77aa-bae3-01655ad7e799",
+  "counts": {
+    "regression_before": {
+      "tests": 2,
+      "failures": 2,
+      "errors": 0,
+      "skipped": 0
+    },
+    "targeted": {
+      "tests": 57,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "server": {
+      "tests": 459,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "commands": [
+    {
+      "cwd": "repository root",
+      "command": "uv run --project server --locked pytest server/tests/test_space.py -k 'equal_timestamp or reposts_delete' -q --junitxml=docs/evidence/dea481/regression-before.xml",
+      "exit_code": 1
+    },
+    {
+      "cwd": "repository root",
+      "command": "uv run --project server --locked pytest server/tests/test_space.py server/tests/test_space_live.py server/tests/test_space_contract.py server/tests/test_migrations.py -q --junitxml=docs/evidence/dea481/targeted.xml",
+      "exit_code": 0
+    },
+    {
+      "cwd": "server",
+      "command": "uv run --locked pytest -q --junitxml=../docs/evidence/dea481/server.xml",
+      "exit_code": 0
+    },
+    {
+      "cwd": "server",
+      "command": "uv run --locked ruff check src tests contract/src/bb_auth_contract/admin.py contract/src/bb_auth_contract/space.py contract/export_space.py",
+      "exit_code": 0
+    }
+  ],
+  "sha256": {
+    "regression-before.log": "e9a244b45c313a2e641506ba442f1dcbd4b7d23f2285fa4b382765dd8ed4cb54",
+    "environment.json": "70e295a798fc967621d6f52496f11e21caf795b5c0e56050e9cffbdcf94e078e",
+    "server.log": "a54a67fd0d66ef31d73fbcc1e0a89b0b2906bb64f2df027eb25a5d46b83eafcc",
+    "ruff.log": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+    "targeted.log": "2ac391c2fc53464638c7609987ffa2f3c6110684240b8fbbc8fd8823e7118c09",
+    "server.xml": "85044ba0075bf3af2f962dec63918163a289a1fd3a302ae6770b7a56e21d14f6",
+    "targeted.xml": "3a885c74406afccd02a35bdbcd9687cffed5f462223f8a3ed8431e09019b875b",
+    "regression-before.xml": "f5575d4ea85992a3734a62f6d9da308e7ea1b74e85dbcf9049e84150ef666003"
+  },
+  "scope_check": "server and task documentation only",
+  "credential_scan": "no unexpected bearer; existing negative test ID uses the public all-a invalid token fixture",
+  "unmodified_lock_sha256": "8f1e26a0a2ab8fd52f3a4a9a6fde02f2f6aa870937040b08bdd33b0d6785f252"
+}
