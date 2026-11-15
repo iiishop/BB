@@ -1,21 +1,21 @@
 # CI/CD
 
-两套流水线：PR 门禁（`ci.yml`）和发布打包（`release.yml`）。都用 GitHub 官方 runner，不自建。
+PR 门禁（`ci.yml`，也可复用）、发布打包（`release.yml`）和 Windows 测试包。都用 GitHub 官方 runner，不自建。
 
 ## 触发条件
 
 | 工作流 | 触发 | 结果 |
 | --- | --- | --- |
 | `ci.yml` | PR（opened / synchronize / reopened / ready_for_review）、push 到 main、手动 | 只跑改动的子系统；三层 QA + 两套 pytest |
-| `release.yml` | push 到 main | 全平台构建，产物留在 workflow artifact（14 天） |
+| `release.yml` | push 到 main | 全平台测试构建，文件名含 `.test.<12位SHA>`，artifact 名含 SHA（14 天） |
 | `release.yml` | 打 `v*` tag | 同样的构建，另建 GitHub Release 并附 `SHA256SUMS`，最后回下载校验 |
-| `release.yml` | 手动，勾 `publish` | 同上，tag 用 `v<pubspec 版本>` |
+| `release.yml` | 手动（包括选择 tag） | 只生成带 SHA 的测试包，绝不发布 |
 
 版本号只有一处来源：`client/pubspec.yaml` 的 `version`。打 tag 时如果 tag 名跟它对不上，`meta` 作业直接失败，不会静默发出一版错版本。
 
 ## PR 门禁做什么
 
-`plan` 先判断三个子系统在不在、这次改动涉不涉及，缺目录的整段跳过（仓库现在 main 上只有文档和 `scripts/`，所以会出现“全部跳过”的绿色）。
+`plan` 按依赖关系裁剪 PR 的子系统测试；push/dispatch/tag 则覆盖所有现存子系统。正式发布通过本地 `workflow_call` 调用同一提交的 `ci.yml`，Release job 必须等待它成功；不轮询另一个可能不存在的 CI。main 测试包不重复调用 CI。新增标准库发布策略回归复用 plan 的既有测试入口。
 
 - **Flutter**（`client/` 存在且改动涉及）：`scripts/run_flutter_tests.sh client`，`QA_REQUIRE_INTEGRATION=1`、`QA_REQUIRE_WIDGET_TESTS=1`，套在 `xvfb-run` 里跑 Linux integration。QA 日志和 `results.tsv` 作为 artifact 上传。
 - **服务端**（`server/`）：`uv sync --frozen` → `uv run pytest -q` → `uv run ruff check .`
@@ -68,7 +68,7 @@ Windows 包不再依赖用户 PATH：`client/windows/CMakeLists.txt` 把暂存�
 
 ## 已知缺口（不是 bug，是还没做）
 
-1. **main 上还没有 `client/`、`server/`、`dsh-plugin/`**。三个 STEP 都还在 `agent/*` 分支上，合并前所有构建作业都会被跳过。流水线本身能跑，但没有东西可构建。
+1. **版本重置和升级边界**：本次 `0.2.0+1` → `0.0.1+2`，Android 构建号递增但展示版本降低；Linux 包是降级。未做真机覆盖安装，详见 [Release notes](RELEASE-NOTES.md)。
 2. **`client/macos` 目录不存在**。macOS 作业第一次会在 runner 上 `flutter create --platforms=macos` 生成脚手架，然后打包。这条缝应该补上：生成一次、提交进仓库，否则每次构建都在赌 Flutter 模板版本。
 3. **apk 用的是仓库自带的 debug keystore**（`client/android/debug.keystore`，密码 `android`）。可以安装，不能上架。真签名要改 `client/android/app/build.gradle.kts` 读 `key.properties`，并把 keystore 放 Secrets，属于产品侧改动。
 4. **macOS 未签名未公证**。产物会被 Gatekeeper 拦，用户需要右键打开。公证需要 Apple Developer 账号（99 美元/年）和 `notarytool` 凭据。
