@@ -59,6 +59,50 @@ class Fixture { static void Main(string[] args) {
         self.archive = self.basecase / "package.zip"
         self.zip_new()
         self.transaction = self.basecase / ("." + self.old.name + ".bb-update")
+        self.addCleanup(self.stop_fixture_app)
+
+    def stop_fixture_app(self):
+        """Join only our recorded GUI, including the old app relaunched on rollback.
+
+        Windows TEMP can use RUNNER~1 while process paths use runneradmin. File
+        identity, rather than spelling, must authorize termination. Keep the
+        process handle across identity validation and termination to avoid PID
+        reuse, and wait for exit before deleting its executable.
+        """
+        import ctypes
+        from ctypes import wintypes
+
+        pid_file = self.transaction / "launched.pid"
+        if not pid_file.exists():
+            return
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel.OpenProcess.restype = wintypes.HANDLE
+        kernel.QueryFullProcessImageNameW.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD)]
+        kernel.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        kernel.WaitForSingleObject.restype = wintypes.DWORD
+        kernel.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
+        kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        handle = kernel.OpenProcess(0x1000 | 0x100000 | 1, False, int(pid_file.read_text()))
+        if not handle:
+            if ctypes.get_last_error() == 87:  # PID has already exited.
+                return
+            raise ctypes.WinError(ctypes.get_last_error())
+        try:
+            if kernel.WaitForSingleObject(handle, 0) == 0:
+                return
+            path = ctypes.create_unicode_buffer(32768)
+            size = wintypes.DWORD(len(path))
+            if not kernel.QueryFullProcessImageNameW(handle, 0, path, ctypes.byref(size)):
+                if kernel.WaitForSingleObject(handle, 0) == 0:
+                    return
+                raise ctypes.WinError(ctypes.get_last_error())
+            self.assertTrue(os.path.samefile(path.value, self.old / "bb_client.exe"), path.value)
+            if not kernel.TerminateProcess(handle, 0) and kernel.WaitForSingleObject(handle, 10000) != 0:
+                raise ctypes.WinError(ctypes.get_last_error())
+            self.assertEqual(kernel.WaitForSingleObject(handle, 10000), 0, "fixture GUI did not exit")
+        finally:
+            kernel.CloseHandle(handle)
 
     def make_payload(self, path, version):
         path.mkdir()
@@ -125,6 +169,7 @@ class Fixture { static void Main(string[] args) {
             if parent.poll() is None:
                 parent.terminate()
             parent.wait(timeout=10)
+            self.stop_fixture_app()
 
     def assert_old(self):
         self.assertEqual((self.old / "bb-build.json").read_text(), "old")
@@ -140,21 +185,10 @@ class Fixture { static void Main(string[] args) {
             archive.extractall(self.new)
         (self.old / "用户文件.txt").write_text("user data", encoding="utf-8")
         self.zip_new()
-        try:
-            result = self.run_update()
-            self.assertEqual(result[0], 0, result)
-            self.assertEqual((self.transaction / "state").read_text(), "committed")
-            self.assertEqual((self.old / "用户文件.txt").read_text(encoding="utf-8"), "user data")
-        finally:
-            pid_file = self.transaction / "launched.pid"
-            if pid_file.exists():
-                app_pid = int(pid_file.read_text())
-                # Only terminate our recorded child, after checking its full
-                # executable path belongs to this isolated fixture directory.
-                subprocess.run(["powershell.exe", "-NoProfile", "-Command",
-                    "$p = Get-Process -Id " + str(app_pid) + " -ErrorAction SilentlyContinue; "
-                    "if ($p -and $p.Path -eq $env:BB_FIXTURE_EXE) { $p | Stop-Process -Force; $p.WaitForExit() }"],
-                    env={**os.environ, "BB_FIXTURE_EXE": str(self.old / "bb_client.exe")}, check=True, timeout=20)
+        result = self.run_update()
+        self.assertEqual(result[0], 0, result)
+        self.assertEqual((self.transaction / "state").read_text(), "committed")
+        self.assertEqual((self.old / "用户文件.txt").read_text(encoding="utf-8"), "user data")
 
     def test_success_keeps_backup_and_unknown_user_files(self):
         result = self.run_update()
@@ -176,6 +210,7 @@ class Fixture { static void Main(string[] args) {
         self.assertEqual(result[0], 91, result)
         self.assertFalse(self.old.exists())
         recovery = subprocess.run([str(self.transaction / "Recover BB.exe")], capture_output=True, timeout=45)
+        self.stop_fixture_app()
         self.assertEqual(recovery.returncode, 0, recovery.stderr)
         self.assert_old()
         result = self.run_update()
