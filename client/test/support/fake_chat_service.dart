@@ -128,6 +128,17 @@ class FakeChatService extends ChatService {
   final Completer<void>? gate;
   int _seq = 100;
 
+  /// Reply gate for a presence refresh. Tests open the page first, then gate so
+  /// the initial list load is not held up.
+  Completer<void>? listUsersGate;
+
+  /// Makes the next list/presence reads fail like an unreachable server.
+  bool listUsersFails = false;
+
+  /// Every `GET /users` this double served, in call order.
+  final List<({String afterAccount, int limit})> listUsersCalls =
+      <({String afterAccount, int limit})>[];
+
   @override
   String get selfAccount => self.account;
 
@@ -137,10 +148,33 @@ class FakeChatService extends ChatService {
     int limit = 50,
     ExpectedIdentity? expectedIdentity,
   }) async {
+    listUsersCalls.add((afterAccount: afterAccount, limit: limit));
+    final Completer<void>? waiting = listUsersGate;
+    if (waiting != null) {
+      await waiting.future;
+    }
+    if (listUsersFails) {
+      throw const AuthFailure(
+        status: 502,
+        code: 'upstream_unavailable',
+        message: 'presence unavailable',
+      );
+    }
+    final List<ChatUser> accounts =
+        users
+            .where((ChatUser user) => user.account != self.account)
+            .where(
+              (ChatUser user) =>
+                  afterAccount.isEmpty ||
+                  user.account.compareTo(afterAccount) > 0,
+            )
+            .toList()
+          ..sort((ChatUser a, ChatUser b) => a.account.compareTo(b.account));
+    final int take = limit.clamp(1, 100);
+    final List<ChatUser> page = accounts.take(take).toList();
     return UserPage(
-      items: users
-          .where((ChatUser user) => user.account != self.account)
-          .toList(),
+      items: page,
+      nextCursor: accounts.length > page.length ? page.last.account : null,
     );
   }
 
