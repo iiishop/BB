@@ -741,6 +741,93 @@ void main() {
   });
 
   test(
+    'deleting a referenced source invalidates its images after backing out',
+    () async {
+      final FakeSpaceGateway gateway = FakeSpaceGateway();
+      final SpacePost source = spacePost(
+        postId: 'source',
+        images: <SpaceImage>[spaceImage(imageId: 'img-a')],
+      );
+      final SpacePost repost = spacePost(
+        postId: 'repost',
+        text: 'repost',
+        reference: SpaceReference(
+          postId: 'source',
+          deleted: false,
+          author: source.author,
+          text: 'source',
+          image: spaceImage(imageId: 'img-a'),
+        ),
+      );
+      gateway.posts['source'] = source;
+      gateway.posts['repost'] = repost;
+      gateway.postPages[''] = spacePagePost(<SpacePost>[]);
+      gateway.overviewResult = spaceOverview(latestEventId: 1);
+      final SpaceController controller = controllerFor(gateway);
+      await controller.start();
+      final SpaceDetailController repostDetail = (await controller.openPost(
+        'repost',
+      ))!;
+      await controller.openPost('source', push: true);
+      await controller.images.load('img-a', variant: 'original');
+      await controller.images.load('img-a');
+      expect(controller.images.cached('img-a', variant: 'original'), isNotNull);
+
+      // Back to the repost: the source detail (and its snapshot) is disposed.
+      controller.backDetail();
+      gateway.eventPages.add(
+        spaceEventPage(<SpaceEvent>[
+          spaceEvent(eventId: 2, type: 'post.deleted', postId: 'source'),
+        ]),
+      );
+      await controller.pollEventsOnce();
+
+      expect(controller.images.cached('img-a', variant: 'original'), isNull);
+      expect(controller.images.cached('img-a'), isNull);
+      expect(repostDetail.post!.reference!.deleted, isTrue);
+    },
+  );
+
+  test(
+    'deleting a post after closing all details still invalidates its images',
+    () async {
+      final FakeSpaceGateway gateway = FakeSpaceGateway();
+      final SpacePost source = spacePost(
+        postId: 'source',
+        images: <SpaceImage>[spaceImage(imageId: 'img-a')],
+      );
+      final SpacePost live = spacePost(
+        postId: 'live',
+        images: <SpaceImage>[spaceImage(imageId: 'img-live')],
+      );
+      gateway.posts['source'] = source;
+      gateway.posts['live'] = live;
+      gateway.postPages[''] = spacePagePost(<SpacePost>[live]);
+      gateway.overviewResult = spaceOverview(latestEventId: 1);
+      final SpaceController controller = controllerFor(gateway);
+      await controller.start();
+      await controller.openPost('source');
+      await controller.images.load('img-a', variant: 'original');
+      await controller.images.load('img-live', variant: 'original');
+      controller.closeDetail();
+      expect(controller.detailOpen, isFalse);
+
+      gateway.eventPages.add(
+        spaceEventPage(<SpaceEvent>[
+          spaceEvent(eventId: 2, type: 'post.deleted', postId: 'source'),
+        ]),
+      );
+      await controller.pollEventsOnce();
+
+      expect(controller.images.cached('img-a', variant: 'original'), isNull);
+      expect(
+        controller.images.cached('img-live', variant: 'original'),
+        isNotNull,
+      );
+    },
+  );
+
+  test(
     'post.deleted event removes the post and invalidates its images',
     () async {
       final FakeSpaceGateway gateway = FakeSpaceGateway();

@@ -24,6 +24,7 @@ class SpaceDetailController extends ChangeNotifier {
     this.isTombstoned,
     this.isDeletedComment,
     this.onCommentDeleted,
+    this.onPostObserved,
   });
 
   final SpaceGateway gateway;
@@ -45,6 +46,10 @@ class SpaceDetailController extends ChangeNotifier {
   /// Propagates a locally deleted comment so feed previews and notification
   /// snippets redact it exactly like a remote `comment.deleted` event.
   final void Function(String postId, String commentId)? onCommentDeleted;
+
+  /// Registers the post's owned images with the owner controller so a deletion
+  /// can revoke them even after this detail is backed out or closed.
+  final void Function(SpacePost post)? onPostObserved;
 
   SpacePhase phase = SpacePhase.loading;
   SpacePost? post;
@@ -102,7 +107,9 @@ class SpaceDetailController extends ChangeNotifier {
     if (reference != null && (isTombstoned?.call(reference.postId) ?? false)) {
       result = spacePostWithScrubbedReference(result, reference.postId);
     }
-    return spacePostWithScrubbedComments(result, _isCommentDeleted);
+    result = spacePostWithScrubbedComments(result, _isCommentDeleted);
+    onPostObserved?.call(result);
+    return result;
   }
 
   SpaceComment _admitComment(SpaceComment comment) =>

@@ -82,6 +82,11 @@ class SpaceController extends ChangeNotifier {
   /// embeds a comment (feed preview, pending page, notification snippet, detail
   /// page/context) must redact it, including late responses.
   final Set<String> _deletedComments = <String>{};
+
+  /// Post id -> owned image ids. Kept beyond the visible snapshot lifetime so
+  /// deleting a post after its detail was closed can still revoke cached
+  /// thumbnails/originals and cancel in-flight loads.
+  final Map<String, List<String>> _ownedImageIds = <String, List<String>>{};
   bool _polling = false;
   Timer? _timer;
   bool _disposed = false;
@@ -379,6 +384,7 @@ class SpaceController extends ChangeNotifier {
         isTombstoned: _isTombstoned,
         isDeletedComment: _isDeletedComment,
         onCommentDeleted: _handleCommentDeleted,
+        onPostObserved: _recordOwnedImages,
       );
       _details[postId] = controller;
     }
@@ -462,6 +468,20 @@ class SpaceController extends ChangeNotifier {
       invalidate(post);
     }
     invalidate(_details[postId]?.post);
+    // Snapshots can be gone (detail backed out or closed) before the deletion
+    // event arrives; the recorded ownership still knows which bytes to revoke.
+    for (final String imageId in _ownedImageIds.remove(postId) ?? <String>[]) {
+      images.invalidateImage(imageId);
+    }
+  }
+
+  void _recordOwnedImages(SpacePost post) {
+    if (post.images.isEmpty) {
+      return;
+    }
+    _ownedImageIds[post.postId] = <String>[
+      for (final SpaceImage image in post.images) image.imageId,
+    ];
   }
 
   bool _isTombstoned(String postId) => _tombstones.contains(postId);
@@ -475,7 +495,9 @@ class SpaceController extends ChangeNotifier {
     if (reference != null && _tombstones.contains(reference.postId)) {
       result = spacePostWithScrubbedReference(result, reference.postId);
     }
-    return spacePostWithScrubbedComments(result, _isDeletedComment);
+    result = spacePostWithScrubbedComments(result, _isDeletedComment);
+    _recordOwnedImages(result);
+    return result;
   }
 
   /// Mirrors the server's notification projection: a notification is
