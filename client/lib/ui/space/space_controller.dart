@@ -287,7 +287,14 @@ class SpaceController extends ChangeNotifier {
         (SpacePost p) => p.postId == post.postId,
       );
       if (current >= 0) {
-        posts[current] = original;
+        // Revert only the like fields on the live snapshot. Restoring the
+        // whole captured object would resurrect deleted text/reference facts
+        // when a deletion event arrived while the request was in flight.
+        posts[current] = _withLikeFields(
+          posts[current],
+          liked: original.liked,
+          likeCount: original.likeCount,
+        );
       }
       feedError = spaceErrorText(failure);
     }
@@ -296,24 +303,38 @@ class SpaceController extends ChangeNotifier {
 
   SpacePost _withLike(SpacePost original, bool desired) {
     final int delta = desired == original.liked ? 0 : (desired ? 1 : -1);
-    return SpacePost(
-      postId: original.postId,
-      author: original.author,
-      createdAt: original.createdAt,
-      text: original.text,
-      images: original.images,
-      reference: original.reference,
+    return _withLikeFields(
+      original,
       liked: desired,
-      read: original.read,
       likeCount: original.likeCount + delta,
-      commentCount: original.commentCount,
-      rootCount: original.rootCount,
-      repostCount: original.repostCount,
-      viewCount: original.viewCount,
-      canDelete: original.canDelete,
-      canListVisitors: original.canListVisitors,
-      previewComments: original.previewComments,
-      remainingRoots: original.remainingRoots,
+    );
+  }
+
+  /// Copies [target] (so its current deletion/reference facts win) and only
+  /// overrides the like fields.
+  SpacePost _withLikeFields(
+    SpacePost target, {
+    required bool liked,
+    required int likeCount,
+  }) {
+    return SpacePost(
+      postId: target.postId,
+      author: target.author,
+      createdAt: target.createdAt,
+      text: target.text,
+      images: target.images,
+      reference: target.reference,
+      liked: liked,
+      read: target.read,
+      likeCount: likeCount,
+      commentCount: target.commentCount,
+      rootCount: target.rootCount,
+      repostCount: target.repostCount,
+      viewCount: target.viewCount,
+      canDelete: target.canDelete,
+      canListVisitors: target.canListVisitors,
+      previewComments: target.previewComments,
+      remainingRoots: target.remainingRoots,
     );
   }
 

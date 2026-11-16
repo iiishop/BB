@@ -69,6 +69,12 @@ class FakeSpaceGateway implements SpaceGateway {
   Completer<void>? listPostsCaptured;
   Completer<void>? listPostsGate;
 
+  /// Delays a committed `setLike` response, optionally failing after release
+  /// to exercise the optimistic rollback path against a deletion event.
+  Completer<void>? setLikeCaptured;
+  Completer<void>? setLikeGate;
+  bool failSetLikeAfterGate = false;
+
   final List<String> calls = <String>[];
   final List<({String postId, String? visitId})> getPostCalls =
       <({String postId, String? visitId})>[];
@@ -488,6 +494,18 @@ class FakeSpaceGateway implements SpaceGateway {
         previewComments: post.previewComments,
         remainingRoots: post.remainingRoots,
       );
+    }
+    final Completer<void>? captured = setLikeCaptured;
+    if (captured != null && !captured.isCompleted) {
+      captured.complete();
+    }
+    final Completer<void>? gate = setLikeGate;
+    if (gate != null) {
+      await gate.future;
+    }
+    if (failSetLikeAfterGate) {
+      failSetLikeAfterGate = false;
+      throw upstreamUnavailable;
     }
     return spaceOperation(
       operationId: operationId,

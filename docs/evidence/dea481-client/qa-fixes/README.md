@@ -234,3 +234,43 @@ The round-2 probe source is copied byte-for-byte from Sentinel's
 `dea481-sentinel-qa2-35c9223f.zip` (`round4/sentinel_round2_test.dart`); that
 bundle keeps the pre-fix 0/2 evidence. The 12 skips are unchanged; no assertion
 was loosened.
+
+## Round 5: optimistic like rollback vs a processed deletion
+
+Forge's adjacent probes on candidate `8a57faa` failed **0/2, exit 1, zero
+skips**. A like on B was really committed at the server, its reply was held,
+the real API deleted A (B's reference source), the client consumed the real
+deletion event and cleared B's reference text, then the model failed the held
+like reply. The feed `togglePostLike` wrote back its whole captured `original`
+object and the detail `toggleLike` wrote back `current`, both restoring
+`deleted source secret` (and the old reference author/image).
+
+`root_cause_id = SPACE-DELETION-LATE-WRITE` (same mechanism as Sentinel's stale
+refresh write-back in `35c9223`): confirmed deletion must constrain every
+whole-object write, including optimistic rollbacks. `contract_gap = none`;
+owner and sole fix author Muse; Forge remains the only integrator.
+
+**Common fix.** Both rollbacks now run through one rule: copy the *live*
+post (which already carries the scrubbed reference) and override only the
+`liked`/`likeCount` fields. A whole pre-deletion object is never written back;
+if the post was deleted/tombstoned during the request, the rollback restores
+nothing. The existing tombstone admission filters (initial/refresh feed
+replacement, `loadMore`, pending-page apply, detail load/reload) stay in place.
+
+Regressions were added to the existing `test/space_controller_test.dart` entry:
+feed like rollback after a real deletion event keeps the reference scrubbed,
+and detail like rollback after `onReferenceDeletedEvent` keeps it scrubbed.
+
+## Round 5 verification (same fixed tree)
+
+| Check | Command | Result | Log/exit |
+| --- | --- | --- | --- |
+| Analyzer | `flutter analyze` | exit 0, no issues | `round5/analyze.log`, `round5/analyze.exit` |
+| Focused Space suite | same 9 files | exit 0, **70 passed** | `round5/space-tests.log`, `round5/space-tests.exit` |
+| Full client suite | `flutter test` | exit 0, **694 passed, 12 skipped** | `round5/flutter-test-all.log`, `round5/flutter-test-all.exit` |
+| Real probes | `python3 run_real_probes.py` (10 probes: prior eight + Forge's two rollback probes) | exit 0, **10 passed** | `round5/real-probes.log`, `round5/real-probes.exit`, `round5/server.log` |
+
+The rollback probe source is copied byte-for-byte from Forge's
+`docs/evidence/dea481-qa-round4/rollback_tombstone_probe_test.dart`
+(`round5/rollback_tombstone_probe_test.dart`); Forge's bundle keeps the
+pre-fix 0/2 evidence. The 12 skips are unchanged; no assertion was loosened.
