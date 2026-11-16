@@ -78,6 +78,7 @@ try:
         '.qa-artifacts/probes/sentinel_round4_controls_test.dart',
         '.qa-artifacts/probes/sentinel_round5_test.dart',
         '.qa-artifacts/probes/sentinel_round5_widget_test.dart',
+        '.qa-artifacts/probes/sentinel_round6_test.dart',
         '--reporter=expanded',
     ]
     run_log = (out / 'real-probes.log').open('w')

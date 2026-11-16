@@ -425,6 +425,9 @@ class SpaceController extends ChangeNotifier {
 
   void _handlePostDeleted(String postId) {
     _tombstones.add(postId);
+    // Invalidate the owned image bytes before removing the last snapshot that
+    // still knows which images belong to this post.
+    _invalidateImagesForPostId(postId);
     posts.removeWhere((SpacePost p) => p.postId == postId);
     _pendingPage.removeWhere((SpacePost p) => p.postId == postId);
     _scrubReferencesTo(postId);
@@ -433,6 +436,32 @@ class SpaceController extends ChangeNotifier {
       phase = SpacePhase.empty;
     }
     _notify();
+  }
+
+  /// Drops every cached thumbnail/original owned by [postId], wherever the
+  /// owning snapshot currently lives (feed, pending page or an open detail).
+  /// Call this before removing that snapshot.
+  void _invalidateImagesForPostId(String postId) {
+    void invalidate(SpacePost? post) {
+      if (post == null || post.postId != postId) {
+        return;
+      }
+      for (final SpaceImage image in post.images) {
+        images.invalidateImage(image.imageId);
+      }
+      final SpaceImage? referenceImage = post.reference?.image;
+      if (referenceImage != null) {
+        images.invalidateImage(referenceImage.imageId);
+      }
+    }
+
+    for (final SpacePost post in posts) {
+      invalidate(post);
+    }
+    for (final SpacePost post in _pendingPage) {
+      invalidate(post);
+    }
+    invalidate(_details[postId]?.post);
   }
 
   bool _isTombstoned(String postId) => _tombstones.contains(postId);
@@ -807,23 +836,8 @@ class SpaceController extends ChangeNotifier {
       case 'post.deleted':
         final String? postId = event.postId;
         if (postId != null) {
-          SpacePost? removed;
-          for (final SpacePost post in posts) {
-            if (post.postId == postId) {
-              removed = post;
-              break;
-            }
-          }
-          if (removed != null) {
-            for (final SpaceImage image in removed.images) {
-              images.invalidateImage(image.imageId);
-            }
-            final SpaceImage? referenceImage = removed.reference?.image;
-            if (referenceImage != null) {
-              images.invalidateImage(referenceImage.imageId);
-            }
-          }
           _tombstones.add(postId);
+          _invalidateImagesForPostId(postId);
           posts.removeWhere((SpacePost p) => p.postId == postId);
           _pendingPage.removeWhere((SpacePost p) => p.postId == postId);
           _details[postId]?.onDeletedEvent();

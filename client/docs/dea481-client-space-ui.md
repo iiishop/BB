@@ -263,3 +263,15 @@ bytes immediately when it becomes stale, and offers retry (which receives the
 server's 404). Regressions are in `test/space_detail_test.dart`; all seventeen
 real probes pass serially (`docs/evidence/dea481-client/qa-fixes/round8/`).
 Current suite: 701 passed / 12 skipped, Space 77 passed.
+
+### Deletion image ownership (`SPACE-DELETION-LATE-WRITE`, round 9)
+
+Sentinel's sixth QA round found two deletion entry points that removed their
+snapshot before notifying the image cache. `SpaceController` now invalidates a
+deleted post's owned images (and reference image) from whichever snapshot owns
+it — feed, pending page or open detail — before that snapshot is removed. This
+covers remote deletion events, local feed deletion and local detail deletion;
+unrelated live images remain cached. Regressions are in
+`test/space_controller_test.dart`; all nineteen real probes pass serially
+(`docs/evidence/dea481-client/qa-fixes/round9/`). Current suite: 704 passed /
+12 skipped, Space 80 passed.
