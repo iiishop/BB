@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:bb_client/models/auth_models.dart';
@@ -51,6 +52,12 @@ class FakeSpaceGateway implements SpaceGateway {
   /// Per-action one-shot failures (FIFO). The UI must surface them, not turn
   /// them into an empty list.
   final Map<String, List<Object>> failures = <String, List<Object>>{};
+
+  /// Optional in-flight controls for `updateDraft`: [updateDraftCommitted]
+  /// completes after the fake server applied the write, and [updateDraftGate]
+  /// delays the response so a test can edit while the save is in flight.
+  Completer<void>? updateDraftCommitted;
+  Completer<void>? updateDraftGate;
 
   final List<String> calls = <String>[];
   final List<({String postId, String? visitId})> getPostCalls =
@@ -288,6 +295,14 @@ class FakeSpaceGateway implements SpaceGateway {
       referenceId: referenceId,
       images: images,
     );
+    final Completer<void>? committed = updateDraftCommitted;
+    if (committed != null && !committed.isCompleted) {
+      committed.complete();
+    }
+    final Completer<void>? gate = updateDraftGate;
+    if (gate != null) {
+      await gate.future;
+    }
     return spaceOperation(
       operationId: operationId,
       action: 'update_draft',
