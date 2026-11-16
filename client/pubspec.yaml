@@ -1,7 +1,7 @@
 name: bb_client
 description: "BB social platform — Flutter client (desktop + Android)."
 publish_to: 'none'
-version: 0.1.2+7
+version: 0.1.3+8
 
 environment:
   sdk: ^3.13.7
