@@ -1,0 +1,16 @@
+INFO:     Started server process [9]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:54649 (Press CTRL+C to quit)
+storage_lock_retry phase=BEGIN IMMEDIATE sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_recovered phase=BEGIN IMMEDIATE attempts=3 wait_ms=24.2
+storage_lock_retry phase=COMMIT sqlite_error=SQLITE_BUSY budget_ms=2975.3
+storage_lock_retry phase=BEGIN IMMEDIATE sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_recovered phase=COMMIT attempts=2 wait_ms=24.5
+storage_lock_recovered phase=BEGIN IMMEDIATE attempts=4 wait_ms=45.2
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=3 wait_ms=18.3
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [9]

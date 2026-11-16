@@ -312,6 +312,49 @@ void main() {
     );
   });
 
+  test(
+    'upload confirmation cannot adopt a newer external writer as baseline',
+    () async {
+      final FakeSpaceGateway gateway = FakeSpaceGateway();
+      final SpaceComposeController controller = SpaceComposeController(
+        gateway: gateway,
+        store: SpaceLocalStore(scopeKey: gateway.scopeKey),
+        picker: () async => PickedSpaceImage(
+          bytes: spaceTinyPng,
+          filename: 'p.png',
+        ),
+      );
+      addTearDown(controller.dispose);
+      await controller.start();
+      controller.text.text = 'pending local text';
+      controller.onTextChanged();
+
+      gateway.addImageCommitted = Completer<SpaceOperation>();
+      gateway.addImageGate = Completer<void>();
+      final Future<void> uploading = controller.addImage();
+      final SpaceOperation receipt = await gateway.addImageCommitted!.future;
+      final String draftId = controller.id!;
+      final SpaceDraft afterUpload = await gateway.getDraft(draftId);
+      expect(afterUpload.version, receipt.resourceVersion);
+      // Another client commits after our upload was accepted but before its
+      // receipt reaches the controller.
+      await gateway.updateDraft(
+        draftId: draftId,
+        operationId: 'other-client',
+        expectedVersion: afterUpload.version,
+        text: 'other client committed',
+        imageIds: afterUpload.images.map((SpaceImage i) => i.imageId).toList(),
+      );
+      gateway.addImageGate!.complete();
+      await uploading;
+      await Future<void>.delayed(const Duration(milliseconds: 900));
+
+      expect(gateway.drafts[draftId]!.text, 'other client committed');
+      expect(controller.text.text, 'pending local text');
+      expect(controller.phase, DraftSavePhase.conflict);
+    },
+  );
+
   testWidgets('offline input stays local and survives reopening the draft', (
     WidgetTester tester,
   ) async {

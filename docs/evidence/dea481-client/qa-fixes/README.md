@@ -134,3 +134,49 @@ The 12 skips are unchanged opt-in/environment skips; no assertion was loosened.
 Adjacent probe source is copied byte-for-byte from Forge's
 `docs/evidence/dea481-qa-integration/adjacent_draft_probe_test.dart`
 (`round2/adjacent_draft_probe_test.dart`).
+
+## Round 3: upload receipt fence vs a newer external writer
+
+Forge's post-integration probe on candidate `4790ae4` failed **0/1, exit 1,
+zero skips**: the image upload was committed and its receipt held; another
+client then saved a newer version (`other client committed`); when the upload
+receipt was released, the confirmation read saw that newer version and
+`_reconcileAfterUpload` adopted it as the baseline for the pending local text,
+so the next autosave overwrote the other writer.
+
+Same mechanism, same `root_cause_id = SPACE-DRAFT-ACK-LOCAL-STATE`; no contract
+gap (the receipt already carries `resourceVersion`). Owner and sole fix author
+**Muse**; Forge remains the only integrator.
+
+**Common fix (extends the round-2 reconciliation).** The receipt version is the
+accepted boundary for the local mutation. A confirmation read with a newer
+version means another writer committed afterwards:
+
+- If local intent (text plus the local order, where the upload's own new image
+  counts as local) differs from the confirmed draft, the controller enters
+  `conflict`, keeps the local text/order and never auto-saves against the newer
+  version.
+- `PendingDraftImage.confirmedVersion` carries that boundary through
+  `_refreshDraftImages`, so a confirmation retry keeps the original fence
+  instead of adopting yet another version.
+- Only when the confirmed draft equals local intent (e.g. the external write
+  was content-identical) is the newer version adopted as saved.
+
+Regression added to the existing compose entry: upload receipt held, an
+external update commits a newer version, and after release the server keeps
+`other client committed`, local text stays `pending local text` and the phase
+is `conflict`.
+
+## Round 3 verification (same fixed tree)
+
+| Check | Command | Result | Log/exit |
+| --- | --- | --- | --- |
+| Analyzer | `flutter analyze` | exit 0, no issues | `round3/analyze.log`, `round3/analyze.exit` |
+| Focused Space suite | same 9 files | exit 0, **65 passed** | `round3/space-tests.log`, `round3/space-tests.exit` |
+| Full client suite | `flutter test` | exit 0, **689 passed, 12 skipped** | `round3/flutter-test-all.log`, `round3/flutter-test-all.exit` |
+| Real probes | `python3 run_real_probes.py` (6 probes: 3 original + 2 adjacent + 1 upload-conflict) | exit 0, **6 passed** | `round3/real-probes.log`, `round3/real-probes.exit`, `round3/server.log` |
+
+The upload-conflict probe source is copied byte-for-byte from Forge's
+`docs/evidence/dea481-qa-round2/upload_conflict_probe_test.dart`
+(`round3/upload_conflict_probe_test.dart`). The 12 skips are unchanged; no
+assertion was loosened.

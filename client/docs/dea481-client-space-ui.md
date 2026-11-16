@@ -185,3 +185,16 @@ Regressions live in `test/space_compose_test.dart`; Sentinel's three probes and
 Forge's two adjacent probes pass on the real FastAPI path
 (`docs/evidence/dea481-client/qa-fixes/round2/`). Current suite: 688 passed /
 12 skipped, Space 64 passed.
+
+### Upload receipt fence (`SPACE-DRAFT-ACK-LOCAL-STATE`, round 3)
+
+Forge's upload-conflict probe showed a confirmation read that sees a version
+newer than the upload receipt could become the baseline for pending local text,
+overwriting another client. The upload receipt's `resourceVersion` is now the
+accepted boundary: when the confirmation read is newer and local intent differs
+from the confirmed draft, the editor enters `conflict`, keeps the local text
+and order, and never autosaves against the newer version. The boundary is kept
+on `PendingDraftImage.confirmedVersion` so confirmation retries preserve the
+same fence. Regression added to `test/space_compose_test.dart`; all six real
+probes pass (`docs/evidence/dea481-client/qa-fixes/round3/`). Current suite:
+689 passed / 12 skipped, Space 65 passed.
