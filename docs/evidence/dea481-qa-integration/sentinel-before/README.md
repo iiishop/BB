@@ -1,0 +1,40 @@
+DEA-481 independent QA — NOT RELEASED
+
+Candidate: `942dd46a601d4604cb9273c9830d472cda41378c`, PR https://github.com/iiishop/BB/pull/35.
+Reviewer: Sentinel. Production tree untouched; probes supplied as review artifacts, outside default tests. No merge/deploy/Done.
+
+## Specified defect verification
+
+Full plugin cwd `uv run --locked ruff check src tests`: exit 0, Ruff 0.17.4. Plugin pytest: 114 collected/passed, zero skipped, exit 0. Three import-only edits are recorded in lint-fix.diff. This verifies the reported lint defect on this candidate, not all Space acceptance. Existing avatar tests are included in the 688 passing Flutter tests; historical release screenshots/binaries were not independently revalidated this run.
+
+## Confirmed defects (Muse owns these UI files)
+
+1. **P1 / T02: editing during a slow save publishes older text.** Actual TextField accepts `latest edit` while save of `first edit` awaits its response. Let the 700ms debounce expire before releasing the response. The editor reports saved and enables Publish, but the resulting post contains `first edit`. `space_compose_controller.dart:275` drops the later save while `_saving`; lines 303–309 mark current buffer clean without checking the request snapshot. The later confirmation read does not schedule the unsaved edit. Widget reproduction and a real FastAPI→SpaceService→controller reproduction both fail their content assertion.
+2. **P1 / T02/T17: reopening an unsynced draft silently overwrites a newer device revision.** Local dirty buffer has base version 1; server holds version 2 and `other device edit`. Reopen and let autosave fire: server becomes `offline local edit`, without conflict choice. `space_compose_controller.dart:157` replaces base version with the freshly read server version while retaining dirty local content, and the update passes CAS against that new version. Real receiver control proves an actual version-1 update returns `version_conflict`; the UI rebasing is what bypasses that protection. Widget and real-service assertions fail.
+3. **P1 / T07: processed deletion leaves original text inside loaded repost reference.** Load source A and repost B, delete A, consume actual `post.deleted` replay. A disappears but B.reference.text still equals `deleted secret`. A fresh real-server GET of B correctly returns a null source text. `space_controller.dart:658–685` removes only the matching post and invalidates that detail, not other loaded reference snapshots; `space_widgets.dart:414` consumes the retained reference. This is a controller/cache reproduction with the rendered consumer statically traced, not a desktop click claim. Reconnection uses the same event handler.
+
+All three exist before the import fix as well: `runtime-since-lint.diff` is empty for client/lib, server/src and dsh-plugin/src against `4c5d4be8fccffc87736cb5866418b1301bffe883`. Space UI did not exist on original main baseline `573f3877cb8497d9df4720be3c13eee089ff9642`; these are Space feature defects, not attributed to the latest lint-only change. No fixed candidate exists yet, hence no red→green claim.
+
+## Actual evidence and checker
+
+- Environment: Arch Linux x64, Flutter 3.47.9 / Dart 3.13.7, Python 3.13.15 in uv project environments, uv 0.12.10. All Python product commands used locked project dependencies. Only Linux device detected; no DISPLAY/WAYLAND_DISPLAY initially.
+- `QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_tests.sh client`: analyze exit 0, Flutter 688 passed / 12 skipped. Linux app built but first integration launch failed without display. Full original command remains FAIL; no log rewriting.
+- Changed environment only, retry `xvfb-run -a flutter test --no-pub integration_test -d linux`: 14 passed, exit 0. These are the existing auth/chat integration paths, not proof of new Space scenarios or Windows/device coverage.
+- Server `uv run --locked pytest tests/test_space.py tests/test_space_live.py tests/test_space_contract.py --junitxml=../../qa/server-space.xml -q`: 52 passed, zero skipped, exit 0. Includes actual TCP server tests. Plugin command and JUnit as above.
+- Initial runner `--junit` artifact path was incorrectly relative to repository root while pytest emitted relative to project cwd. XML exists but the runner receipt lacks XML hash. Original receipts retained unchanged; `manual-xml-check.json` records actual test count, failure/error/skip and XML SHA256. These two runs are manually checked, not checker-certified PASS.
+- `flutter test --no-pub .qa-artifacts/probes/sentinel_space_test.dart --reporter=json`: 3 failing tests, exit 1. First two widget assertion failures are wrapped by Flutter as error events; checker correctly refuses to certify those as assertion-counterexample evidence. The raw exception prints contain the TestFailure assertions. Initial run also contained pub resolution text; retained under probes/, corrected native capture under probes-native/.
+- `python ../qa/run_real.py` from repository root: launches isolated FastAPI with temporary synthetic accounts, then native runner on `sentinel_real_space_test.dart`, waits for completion, and stops exact child after daemon PID check. Actual run produced 3 collected, 3 assertion failures, zero errors/skips, exit 1. Real receipt records clean candidate and unchanged production tree. No database/session credentials included in this archive.
+- Repository checker: `python scripts/ci/qa_evidence.py check ../qa/report.json --candidate 942dd46a601d4604cb9273c9830d472cda41378c --require defect-1 --require defect-2 --require defect-3`: exit 2, `candidate tests failed`, as expected. This is an evidence consistency result, not a platform permission gate.
+- Multica PR snapshot read once: six checks passed, two running, zero failed, snapshot time 2026-11-16T00:16:54Z. No wait/poll or full-green claim.
+
+To reproduce: place the supplied two Dart files under `client/.qa-artifacts/probes/` (imports reuse existing test helpers); run the commands above from the indicated cwd using fresh output directories. `run_real.py` expects `server/.venv` from the locked server setup and a fresh `../qa/real-probes` output. Repair should move the now-green regression cases into existing `client/test/` entry and remove duplicate probes, preserving assertions. Review pending save/upload/reorder/publish/dispose and all deleted-reference/image/comment/cache writers rather than adding only narrow special cases.
+
+## Mechanism and untested boundaries / release conclusion
+
+Scope inventory is in scope.md. Proven transitions are accepted save→later local input→late response→publish; dirty base→other device update→reopen/autosave; cached reference→real deletion→HTTP replay. Real receiver checks distinguish frontend errors from server CAS/tombstone behavior. Existing green tests do not cover these combinations.
+
+Upload/reorder racing saves, delayed read resurrection after deletion, loaded image-viewer invalidation, deleted comment previews, all notification failure/ack combinations, account-switch rendered state and full native host lifecycle have not been independently covered in this run. Full T01–T17 mechanism review remains incomplete. This report does not adopt developer historical evidence as personal PASS.
+
+Windows build/runtime/package, Android/foldable device runtime, real model/adversarial visual understanding, native DSH settings rendering, network WebSocket and release visitor-sheet clicks remain NOT RUN in this run. Standalone Dart binary and installed native DSH lifecycle were not rerun; Flutter real gateway is not a substitute. No model credentials accessed. Device and model gaps do not explain away the three confirmed code defects.
+
+**Do not advance to in_review.** Return to in_progress and assign Muse once for UI corrections; Forge remains sole integration owner of PR #35. After fixes and integration, deliver a new fixed SHA through automated_qa. No competing PR created because no production source or default tests were changed by this review.

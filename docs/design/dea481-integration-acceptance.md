@@ -2,8 +2,10 @@
 
 Approved source is revision 1 in `dea481-approved-space.md`; original
 source/ownership mapping remains in `dea481-acceptance.md`. Code candidate:
-`0114e2c1d298570df98fad1a47c308be55f08d54` (plugin test import correction;
-runtime sources unchanged from avatar integration `b3f391a`). This matrix maps evidence to portions
+`8b2f787a0d60b4f09686ed7a1dcbde7576831a02` (first client QA repairs).
+This candidate still has two real draft-state failures and must not advance to
+automated_qa. See `docs/evidence/dea481-qa-integration/` for the new fixed-version
+evidence and bounded rework. This matrix maps evidence to portions
 of the approved cases. It does not mark the complete cases accepted.
 
 Evidence roots: **S** = `docs/evidence/dea481/` (unchanged server, 459 tests);
@@ -24,10 +26,19 @@ and locally verified with the same plugin working directory in
 runtime test results and packages are reused with explicit tree/byte checks;
 new CI and the linked Windows package run are not claimed as completed.
 
+The first QA repairs are integrated. New execution: analyze PASS, 691 client
+passes / 12 skips, 14 Linux integration passes, and Sentinel's unchanged three
+real probes PASS. Two additional real probes FAIL: removal of an image while
+waiting for a save response is undone; an upload confirmation erases text already
+dirty at upload admission. T02 therefore remains unaccepted. The shared mechanism
+rework table and explicit coverage limits are in the new integration README.
+No new UI test package is issued for this failing candidate; previous UI binaries
+must not be represented as this runtime.
+
 | Case / approved source | Implementer / concrete evidence | Remaining verification or issue |
 | --- | --- | --- |
 | T01 §2, §9 | Forge S ten-image/order/publish; Muse `space_compose_test`, `space_feed_test`, `space_detail_test`; I native ten images and provider bytes, real gateway | Independent combined visual/user-path QA; real device/model limits remain |
-| T02 §2.1, §7.3 | S CAS/lost-reply/publish guards; Muse compose tests retain operation IDs and input, show failures; I final includes `d3856e3` regression | Independent offline/conflict UX verification |
+| T02 §2.1, §7.3 | S CAS/lost-reply/publish guards; Muse operation retention and first QA text/reopen repair; latest original real probes pass | **FAIL:** image removal during save is restored; upload erases already-dirty text. Muse owns common-state correction; no QA handoff yet |
 | T03 §7.3 | S fixed equal-timestamp pagination counterexample; Muse `space_controller_test`, `space_feed_test` | QA multi-page scroll/refresh on target platforms |
 | T04 §4.1 | S arbitrary depth and preview/pagination; Muse `space_detail_test`, C detail screenshots | Visual multi-level interaction QA |
 | T05 §5.3 | S exact recipient/context; Muse `space_notifications_test`, `space_detail_test`; I gateway notifications | Independent notification navigation/focus |

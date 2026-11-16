@@ -1,0 +1,73 @@
+{
+  "code_sha": "8b2f787a0d60b4f09686ed7a1dcbde7576831a02",
+  "integrated_client_head": "2e5f758a8c13a84ff4e5de95e7c460849aa786cb",
+  "baseline": "942dd46a601d4604cb9273c9830d472cda41378c",
+  "unchanged_paths": [
+    "server",
+    "dsh-plugin",
+    "client/bin",
+    "client/lib/services",
+    "client/lib/models",
+    "client/lib/config",
+    "client/pubspec.lock",
+    "client/pubspec.yaml",
+    ".github",
+    "client/windows",
+    "client/test/windows_clipboard_native_diag_test.dart"
+  ],
+  "developer_ui_tree_identical": true,
+  "probe_sha256": "28f70598526dda61cb2a026bdccac7f8268976b981676cbf54af9c0c97df8ca7",
+  "full_suite": {
+    "flutter-test": {
+      "passed": 691,
+      "skipped": 12
+    },
+    "linux-integration": {
+      "passed": 14,
+      "skipped": 0
+    }
+  },
+  "probes": {
+    "original": {
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0,
+      "tests": [
+        "real T02 delayed save publishes visible text",
+        "real T02 dirty reopen preserves conflicting server version",
+        "real T07 replay removes cached repost source text"
+      ]
+    },
+    "adjacent": {
+      "passed": 0,
+      "failed": 2,
+      "skipped": 0,
+      "tests": [
+        "real T02 image removal during save must survive the older receipt",
+        "real T02 upload must not erase already-dirty text"
+      ]
+    },
+    "sentinel-before": {
+      "passed": 0,
+      "failed": 3,
+      "skipped": 0,
+      "tests": [
+        "real T02 delayed save publishes visible text",
+        "real T02 dirty reopen preserves conflicting server version",
+        "real T07 replay removes cached repost source text"
+      ]
+    }
+  },
+  "commands": {
+    "flutter": "xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 QA_LOG_DIR=\"$PWD/docs/evidence/dea481-qa-integration/flutter\" bash scripts/run_flutter_tests.sh client",
+    "original": "uv run --project server --locked python docs/evidence/dea481-qa-integration/run_probes.py original",
+    "adjacent": "uv run --project server --locked python docs/evidence/dea481-qa-integration/run_probes.py adjacent"
+  },
+  "exit_codes": {
+    "flutter-entry": 0,
+    "original": 0,
+    "adjacent": 1
+  },
+  "decision": "DO NOT HAND OFF TO QA: two real UI draft counterexamples remain",
+  "artifacts": "New source/evidence only; prior UI packages are not the new candidate; no new UI binary issued"
+}
