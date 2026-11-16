@@ -1,22 +1,27 @@
-# Windows test-package FFmpeg dependency
+# Windows FFmpeg dependency
 
-`windows-test-package.yml` stays PR/manual-only. Release still builds FFmpeg
-from source, independently: a published dependency asset is never an input to a
-published release.
+Both Windows jobs (`.github/workflows/windows-test-package.yml` for PRs and the
+`windows` job in `release.yml` for a tagged release) consume the same pinned
+prebuilt dependency. Neither compiles FFmpeg per run any more; a source build
+cost 528s of a 860s job and repeated it on every PR and every release.
 
 ## Two sources, one content check
 
 | Trigger | Source | Cost |
 | --- | --- | --- |
-| `pull_request` | pinned prebuilt asset (`ffmpeg-deps-8.1.3` Release) | seconds |
+| `pull_request` | pinned prebuilt asset (`ffmpeg-deps-8.1.3`) | seconds |
 | `workflow_dispatch` with `source_build: true` | compile from pinned sources | ~9 minutes |
+| tag release (`release.yml`) | pinned prebuilt asset | seconds |
 
 A source build used to run on **every** PR run. The `actions/cache` layer that
 was supposed to avoid it never hit: the key embedded the exact GitHub ref (so a
 new branch was always cold) and a hash of the upstream MSYS2 package databases
-(so even the same branch expired within hours), and `main` never ran this
-workflow, so no baseline ever existed. That mechanism is removed; the two
-sources above replace it.
+(so even the same branch expired within hours), and `main` never ran that
+workflow, so no baseline ever existed. That mechanism is removed.
+
+`workflow_dispatch` with `source_build: true` remains the way to re-derive the
+dependency from source (see "Regenerating it"). `release.yml` has no such
+toggle: if the asset is wrong at release time, publishing stops at `verify`.
 
 Both paths end in the same `ffmpeg_cache.py verify`, which always runs:
 
@@ -62,11 +67,25 @@ refuses an asset whose build script no longer matches the repository.
 
 ## Trust boundary
 
-The asset is a build output of this repository's own CI, pinned by hash. It is
-not a signature from an independent builder, and it is not used for releases.
-Anyone who can publish a Release in this repository can replace it; the hash
-pins in `ffmpeg_pins.py` mean a replacement has to be committed to the
-repository too, which is reviewable in the diff.
+The asset is a build output of this repository's own CI, pinned by hash, and it
+is now the input to published releases as well. What replaces the old "compile
+it again at release time" ritual is a stronger, checkable statement:
+
+- the archive hash and the extracted tree digest are constants in
+  `ffmpeg_pins.py`;
+- the `BUILD-FFMPEG.sh` shipped inside the asset must be byte-identical (line
+  endings folded) to `scripts/ci/build_ffmpeg_windows.sh`, so changing the build
+  recipe invalidates the asset instead of silently shipping an older build;
+- `verify` hashes the actual `ffmpeg.exe` and runs the same manifest/license/PE
+  validation the packager uses.
+
+Rebuilding from source every time proved nothing extra — it produced a different
+binary each run (MSYS2 packages roll) and was accepted on trust anyway. The pins
+are what actually constrain the artifact.
+
+It is still not a signature from an independent builder. Anyone who can publish
+a Release in this repository can replace the asset, but the hash pins live in
+the repository, so a replacement has to land in a reviewable diff.
 
 ## Paths and checks
 

@@ -165,28 +165,15 @@ jobs:
           flutter-version: '3.47.9'
           channel: stable
           cache: true
-      - name: 下载并校验固定源码（FFmpeg / zlib）
-        run: python scripts/ci/fetch_ffmpeg_sources.py --dest .ffmpeg-src
-      - uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          update: true
-          install: >-
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-binutils
-            make
-      - name: 从固定源码构建最小 FFmpeg（仅解码 + PNG 封面）
-        shell: msys2 {0}
+      - name: 下载预构建 FFmpeg 依赖（校验归档哈希与目录树）
         env:
-          BB_GIT_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: bash scripts/ci/build_ffmpeg_windows.sh --sources .ffmpeg-src --dest client/windows/ffmpeg
-      - name: 读取内置 FFmpeg 构建 hash
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/ci/ffmpeg_cache.py fetch
+      - name: Verify FFmpeg tree, manifest, licenses and executable hash
         id: ffmpeg
-        shell: pwsh
-        run: |
-          $line = Select-String -Path client/windows/ffmpeg/BUILD-MANIFEST.txt -Pattern '^ffmpeg_exe_sha256=' | Select-Object -First 1
-          $sha = $line.Line.Split('=', 2)[1]
-          "sha=$sha" | Out-File -Encoding utf8 -Append $env:GITHUB_OUTPUT
+        env:
+          FFMPEG_SOURCE: asset
+        run: python scripts/ci/ffmpeg_cache.py verify
       - name: flutter build windows
         working-directory: client
         run: |

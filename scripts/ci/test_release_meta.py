@@ -56,8 +56,14 @@ class ReleaseMetaTests(unittest.TestCase):
         self.assertNotIn('DISPATCH_PUBLISH', release)
         self.assertIn('--repo "$GITHUB_REPOSITORY"', release)
         self.assertIn('flutter test test/ffmpeg_tool_test.dart test/chat_clipboard_paste_test.dart', release)
-        for script in ('fetch_ffmpeg_sources.py', 'build_ffmpeg_windows.sh', 'package_windows.py'):
-            self.assertIn(script, release)
+        # The release job takes the pinned dependency asset instead of compiling
+        # FFmpeg twice per release. Integrity still comes from verify(): archive
+        # hash, tree digest, build-script byte equality and the measured EXE hash.
+        self.assertIn('ffmpeg_cache.py fetch', release)
+        self.assertIn('ffmpeg_cache.py verify', release)
+        self.assertIn('FFMPEG_SOURCE: asset', release)
+        self.assertIn('package_windows.py', release)
+        self.assertNotIn('build_ffmpeg_windows.sh --sources', release)
 
 
 if __name__ == '__main__':
