@@ -127,6 +127,7 @@ String apkInstallRejectionMessage(ApkInstallRejection rejection) {
     ApkInstallRejection.missingFile => '安装包已不存在，请重新下载。',
     ApkInstallRejection.notApk => '下载的文件不是 APK 安装包。',
     ApkInstallRejection.outsideAppStorage => '安装包不在应用的私有目录中，已拒绝安装。',
+    ApkInstallRejection.providerRejected => '系统拒绝了安装包的共享路径，已取消安装。',
     ApkInstallRejection.emptyFile => '安装包为空，请重新下载。',
     ApkInstallRejection.unreadableApk => '安装包已损坏或格式不正确，请重新下载。',
     ApkInstallRejection.packageMismatch => '该安装包不属于 BB，已拒绝安装。',
