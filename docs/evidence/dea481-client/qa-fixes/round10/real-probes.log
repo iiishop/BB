@@ -1,0 +1,35 @@
+00:00 +0: loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/space_defect_probe_test.dart
+00:00 +0: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/space_defect_probe_test.dart: real T02 delayed save publishes visible text
+00:01 +1: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/space_defect_probe_test.dart: real T02 dirty reopen preserves conflicting server version
+00:02 +2: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/space_defect_probe_test.dart: real T07 replay removes cached repost source text
+00:02 +3: loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/adjacent_draft_probe_test.dart
+00:02 +3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/adjacent_draft_probe_test.dart: real T02 image removal during save must survive the older receipt
+00:03 +4: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/adjacent_draft_probe_test.dart: real T02 upload must not erase already-dirty text
+00:04 +5: loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/upload_conflict_probe_test.dart
+00:04 +5: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/upload_conflict_probe_test.dart: real T02 upload confirmation must fence a newer external writer
+00:05 +6: loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/sentinel_round2_test.dart
+00:06 +6: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/sentinel_round2_test.dart: T02 failed upload confirmation retry preserves local image removal
+00:06 +7: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/sentinel_round2_test.dart: T07 stale refresh response cannot restore a deleted post or reference
+00:06 +8: loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/rollback_tombstone_probe_test.dart
+00:07 +8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/rollback_tombstone_probe_test.dart: T07 like rollback cannot restore deleted reference detail=false
+00:07 +9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/rollback_tombstone_probe_test.dart: T07 like rollback cannot restore deleted reference detail=true
+00:07 +10: loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/sentinel_round3_test.dart
+00:08 +10: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/sentinel_round3_test.dart: T08 comment deletion scrubs loaded feed and notification snippets
+00:08 +11: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/sentinel_round3_test.dart: T08 late replies response cannot revive a deleted comment
+00:08 +12: loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/sentinel_round4_test.dart
+00:09 +12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/sentinel_round4_test.dart: deleted comment notification must match unavailable server state after late page
+00:09 +13: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/sentinel_round4_test.dart: post deletion invalidates loaded and late notification snapshots
+00:10 +14: loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/sentinel_round4_controls_test.dart
+00:10 +14: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/sentinel_round4_controls_test.dart: deleting repost source preserves notification to surviving repost target
+00:11 +15: loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/sentinel_round5_test.dart
+00:11 +15: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/sentinel_round5_test.dart: T07 deleted image cannot reenter cache through a late response
+00:11 +16: loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/sentinel_round5_widget_test.dart
+00:12 +16: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/sentinel_round5_widget_test.dart: T07 open viewer stops displaying image after deletion event
+00:13 +17: loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/sentinel_round6_test.dart
+00:13 +17: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/sentinel_round6_test.dart: T07 local delete followed by replay clears own original cache
+00:13 +18: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/sentinel_round6_test.dart: T07 deletion of detail outside first feed page clears original cache
+00:14 +19: loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/detail_reference_image_probe_test.dart
+00:15 +19: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/detail_reference_image_probe_test.dart: T07 detail-only repost source deletion invalidates both image variants
+00:16 +20: loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/closed_detail_image_probe_test.dart
+00:16 +20: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/closed_detail_image_probe_test.dart: T07 closing all details retains deletion authority over cached source images
+00:18 +21: All tests passed!

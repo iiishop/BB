@@ -482,3 +482,51 @@ The round-6 probe source is copied byte-for-byte from Sentinel's
 bundle keeps the pre-fix 0/2 evidence. Probes stay serial because one
 upload-conflict probe asserts a real 700 ms debounce has not fired during
 setup; the recorded run is not skipped or weakened.
+
+## Round 10: image ownership must outlive the visible snapshot
+
+Forge's post-integration counterexamples on `f3e1496` failed **0/2, exit 1** in
+`SPACE-DELETION-LATE-WRITE`:
+
+1. The feed contained neither source A nor repost B. Opening B's detail,
+   following the reference into A, loading A's thumbnail/original, backing out
+   to B, then deleting A and consuming the event: B's reference became the
+   deleted placeholder and the server image returned 404, but both cached
+   variants remained. The reference scrub invalidated only currently visible
+   snapshots.
+2. Closing all details after loading the same bytes, then deleting A: the
+   owner snapshot was disposed, so the deletion helper could not find the image
+   ids from the current feed/details and both caches remained.
+
+**Common fix.** `SpaceController` records post→owned-image ids persistently
+(`_ownedImageIds`) whenever a post is admitted into the feed, the pending page
+or a detail (`onPostObserved`). Deletion first invalidates from every visible
+snapshot, then from the recorded ownership — even when the detail was backed
+out or closed — and drops that record. Invalidation still goes through
+`SpaceImageLoader` generations, so in-flight requests are cancelled as well;
+per-image invalidation keeps unrelated live images cached. Reference scrub
+continues to run for the visible repost cards.
+
+`contract_gap = none`; owner and sole fix author Muse; Forge remains the only
+integrator.
+
+Regressions were added to the existing `test/space_controller_test.dart`
+entry: a source loaded through a reference detail and then backed out still has
+both cached variants invalidated on the deletion event, and a source whose
+details were all closed is invalidated the same way while a live image stays
+cached.
+
+## Round 10 verification (same fixed tree)
+
+| Check | Command | Result | Log/exit |
+| --- | --- | --- | --- |
+| Analyzer | `flutter analyze` | exit 0, no issues | `round10/analyze.log`, `round10/analyze.exit` |
+| Focused Space suite | same 9 files | exit 0, **82 passed** | `round10/space-tests.log`, `round10/space-tests.exit` |
+| Full client suite | `flutter test` | exit 0, **706 passed, 12 skipped** | `round10/flutter-test-all.log`, `round10/flutter-test-all.exit` |
+| Real probes | `python3 run_real_probes.py` (21 probes, **`-j 1`**) | exit 0, **21 passed** | `round10/real-probes.log`, `round10/real-probes.exit`, `round10/server.log` |
+
+Both probe sources are copied byte-for-byte from Forge's candidate evidence
+(`round10/detail_reference_image_probe_test.dart`,
+`round10/closed_detail_image_probe_test.dart`); Forge's bundle keeps the pre-fix
+0/2 evidence. Probes stay serial because one upload-conflict probe depends on a
+real 700 ms debounce during setup; the recorded run is not skipped or weakened.

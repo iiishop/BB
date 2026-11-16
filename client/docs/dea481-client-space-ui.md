@@ -275,3 +275,15 @@ unrelated live images remain cached. Regressions are in
 `test/space_controller_test.dart`; all nineteen real probes pass serially
 (`docs/evidence/dea481-client/qa-fixes/round9/`). Current suite: 704 passed /
 12 skipped, Space 80 passed.
+
+### Image ownership beyond snapshots (`SPACE-DELETION-LATE-WRITE`, round 10)
+
+Forge's adjacent probes showed cached source images survived when the owning
+detail had been backed out or closed. `SpaceController` now records the image
+ids owned by each observed post (feed, pending page and detail load) and
+invalidates from that record even after the snapshot is gone, before removing
+the record; in-flight loads are still cancelled through loader generations and
+unrelated live images stay cached. Regressions are in
+`test/space_controller_test.dart`; all twenty-one real probes pass serially
+(`docs/evidence/dea481-client/qa-fixes/round10/`). Current suite: 706 passed /
+12 skipped, Space 82 passed.
