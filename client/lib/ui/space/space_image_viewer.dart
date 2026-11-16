@@ -172,11 +172,26 @@ class SpaceImageViewer extends StatefulWidget {
   static const Key pagesKey = Key('space-viewer-pages');
   static const Key closeKey = Key('space-viewer-close');
   static const Key saveKey = Key('space-viewer-save');
+  static const Key previousKey = Key('space-viewer-previous');
+  static const Key nextKey = Key('space-viewer-next');
   static const Key indexKey = Key('space-viewer-index');
   static const Key statusKey = Key('space-viewer-status');
 
   @override
   State<SpaceImageViewer> createState() => _SpaceImageViewerState();
+}
+
+/// Paging request produced by the arrow keys.
+///
+/// Arrow keys are declared as shortcuts instead of being read in
+/// [Focus.onKeyEvent]: WidgetsApp binds them to `DirectionalFocusIntent` above
+/// the page, so a listener on this node never sees them and the keys travel
+/// focus instead of paging. A shortcut closer to the focused node wins, and
+/// this one is closer.
+class _StepIntent extends Intent {
+  const _StepIntent(this.delta);
+
+  final int delta;
 }
 
 class _SpaceImageViewerState extends State<SpaceImageViewer> {
@@ -235,24 +250,15 @@ class _SpaceImageViewerState extends State<SpaceImageViewer> {
     }
   }
 
-  KeyEventResult _onKey(FocusNode node, KeyEvent event) {
-    if (event is! KeyDownEvent) {
-      return KeyEventResult.ignored;
-    }
-    final LogicalKeyboardKey key = event.logicalKey;
-    if (key == LogicalKeyboardKey.arrowLeft) {
-      _step(-1);
-      return KeyEventResult.handled;
-    }
-    if (key == LogicalKeyboardKey.arrowRight) {
-      _step(1);
-      return KeyEventResult.handled;
-    }
-    if (key == LogicalKeyboardKey.escape) {
-      Navigator.of(context).maybePop();
-      return KeyEventResult.handled;
-    }
-    return KeyEventResult.ignored;
+  /// Desktop gets explicit paging affordances; mobile stays swipe-only.
+  ///
+  /// Reads `Theme.of(context).platform` rather than `Platform.isWindows` so a
+  /// widget test can exercise both branches via an injected theme.
+  static bool desktopOf(BuildContext context) {
+    final TargetPlatform platform = Theme.of(context).platform;
+    return platform == TargetPlatform.windows ||
+        platform == TargetPlatform.linux ||
+        platform == TargetPlatform.macOS;
   }
 
   void _step(int delta) {
@@ -268,86 +274,166 @@ class _SpaceImageViewerState extends State<SpaceImageViewer> {
     );
   }
 
+  /// Desktop-only affordance: the arrow keys page, but nothing on screen says
+  /// so. Kept off mobile where it would cover the photo with no hover to hide.
+  Widget _pagingArrow({
+    required Key key,
+    required int delta,
+    required IconData icon,
+    required String tooltip,
+    required Alignment alignment,
+  }) {
+    return Align(
+      alignment: alignment,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
+        child: IconButton(
+          key: key,
+          onPressed: () => _step(delta),
+          tooltip: tooltip,
+          style: IconButton.styleFrom(
+            backgroundColor: Colors.black54,
+            foregroundColor: Colors.white,
+            minimumSize: const Size(48, 48),
+          ),
+          icon: Icon(icon, size: 32),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final bool desktop = desktopOf(context);
     return Scaffold(
       backgroundColor: Colors.black,
-      body: Focus(
-        autofocus: true,
-        onKeyEvent: _onKey,
-        child: SafeArea(
-          child: Column(
-            children: <Widget>[
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.sm,
-                  vertical: AppSpacing.xs,
-                ),
-                child: Row(
-                  children: <Widget>[
-                    IconButton(
-                      key: SpaceImageViewer.closeKey,
-                      onPressed: () => Navigator.of(context).maybePop(),
-                      color: Colors.white,
-                      icon: const Icon(Icons.close_rounded),
-                      tooltip: '关闭',
+      body: Shortcuts(
+        shortcuts: const <ShortcutActivator, Intent>{
+          SingleActivator(LogicalKeyboardKey.arrowLeft): _StepIntent(-1),
+          SingleActivator(LogicalKeyboardKey.arrowRight): _StepIntent(1),
+          SingleActivator(LogicalKeyboardKey.escape): DismissIntent(),
+        },
+        child: Actions(
+          actions: <Type, Action<Intent>>{
+            _StepIntent: CallbackAction<_StepIntent>(
+              onInvoke: (_StepIntent intent) {
+                _step(intent.delta);
+                return null;
+              },
+            ),
+            DismissIntent: CallbackAction<DismissIntent>(
+              onInvoke: (_) {
+                Navigator.of(context).maybePop();
+                return null;
+              },
+            ),
+          },
+          child: Focus(
+            autofocus: true,
+            child: SafeArea(
+              child: Column(
+                children: <Widget>[
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.sm,
+                      vertical: AppSpacing.xs,
                     ),
-                    const Spacer(),
-                    Text(
-                      '${_index + 1} / ${widget.images.length}',
-                      key: SpaceImageViewer.indexKey,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
+                    child: Row(
+                      children: <Widget>[
+                        IconButton(
+                          key: SpaceImageViewer.closeKey,
+                          onPressed: () => Navigator.of(context).maybePop(),
+                          color: Colors.white,
+                          icon: const Icon(Icons.close_rounded),
+                          tooltip: '关闭',
+                        ),
+                        const Spacer(),
+                        Text(
+                          '${_index + 1} / ${widget.images.length}',
+                          key: SpaceImageViewer.indexKey,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const Spacer(),
+                        IconButton(
+                          key: SpaceImageViewer.saveKey,
+                          onPressed: _saving ? null : _save,
+                          color: Colors.white,
+                          icon: _saving
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Icon(Icons.download_rounded),
+                          tooltip: '保存原图',
+                        ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: <Widget>[
+                        PageView.builder(
+                          key: SpaceImageViewer.pagesKey,
+                          controller: _controller,
+                          itemCount: widget.images.length,
+                          onPageChanged: (int value) =>
+                              setState(() => _index = value),
+                          itemBuilder: (BuildContext context, int index) {
+                            return _ViewerImage(
+                              key: ValueKey<String>(
+                                widget.images[index].imageId,
+                              ),
+                              image: widget.images[index],
+                              loader: widget.loader,
+                            );
+                          },
+                        ),
+                        // Mobile stays swipe-only: a persistent arrow would sit on
+                        // top of the photo and there is no hover to reveal it.
+                        if (desktop && _index > 0)
+                          _pagingArrow(
+                            key: SpaceImageViewer.previousKey,
+                            delta: -1,
+                            icon: Icons.chevron_left_rounded,
+                            tooltip: '上一张',
+                            alignment: Alignment.centerLeft,
+                          ),
+                        if (desktop && _index < widget.images.length - 1)
+                          _pagingArrow(
+                            key: SpaceImageViewer.nextKey,
+                            delta: 1,
+                            icon: Icons.chevron_right_rounded,
+                            tooltip: '下一张',
+                            alignment: Alignment.centerRight,
+                          ),
+                      ],
+                    ),
+                  ),
+                  SizedBox(
+                    height: 40,
+                    child: Center(
+                      child: Text(
+                        _notice ?? '',
+                        key: SpaceImageViewer.statusKey,
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 13,
+                        ),
                       ),
                     ),
-                    const Spacer(),
-                    IconButton(
-                      key: SpaceImageViewer.saveKey,
-                      onPressed: _saving ? null : _save,
-                      color: Colors.white,
-                      icon: _saving
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : const Icon(Icons.download_rounded),
-                      tooltip: '保存原图',
-                    ),
-                  ],
-                ),
-              ),
-              Expanded(
-                child: PageView.builder(
-                  key: SpaceImageViewer.pagesKey,
-                  controller: _controller,
-                  itemCount: widget.images.length,
-                  onPageChanged: (int value) => setState(() => _index = value),
-                  itemBuilder: (BuildContext context, int index) {
-                    return _ViewerImage(
-                      key: ValueKey<String>(widget.images[index].imageId),
-                      image: widget.images[index],
-                      loader: widget.loader,
-                    );
-                  },
-                ),
-              ),
-              SizedBox(
-                height: 40,
-                child: Center(
-                  child: Text(
-                    _notice ?? '',
-                    key: SpaceImageViewer.statusKey,
-                    style: const TextStyle(color: Colors.white70, fontSize: 13),
                   ),
-                ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),
@@ -395,11 +481,7 @@ class _ViewerImageState extends State<_ViewerImage> {
     if (!mounted) {
       return;
     }
-    if (!widget.loader.isStale(
-      widget.image.imageId,
-      _epoch,
-      _generation,
-    )) {
+    if (!widget.loader.isStale(widget.image.imageId, _epoch, _generation)) {
       return;
     }
     setState(() {
