@@ -19,7 +19,13 @@ abstract class ProfileGateway {
   Future<Profile> loadProfile({String? account, AuthIdentity? captured});
 
   /// Always revalidates with the server. Cached bytes are reused only on 304.
-  Future<AvatarImage> loadAvatar({String? account, AuthIdentity? captured});
+  /// `thumb: true` asks for the small derivative (lists, bubbles, rail).
+  /// Profile detail keeps the original so the avatar is sharp at full size.
+  Future<AvatarImage> loadAvatar({
+    String? account,
+    AuthIdentity? captured,
+    bool thumb = false,
+  });
 
   Future<AvatarInfo> updateAvatarFromPath(String path, {AuthIdentity? captured});
 
@@ -121,21 +127,30 @@ class ProfileService implements ProfileGateway {
   }
 
   @override
-  Future<AvatarImage> loadAvatar({String? account, AuthIdentity? captured}) async {
+  Future<AvatarImage> loadAvatar({
+    String? account,
+    AuthIdentity? captured,
+    bool thumb = false,
+  }) async {
     final String target = _account(account, captured);
     final String token = _token(captured);
-    CachedAvatar? cached = await cache.read(target);
+    CachedAvatar? cached = await cache.read(target, thumb: thumb);
     AvatarFetch fetched = await api.fetchAvatar(
       token: token,
       account: target,
       ifNoneMatch: cached?.version,
+      thumb: thumb,
     );
     _ensureCurrent(captured);
     if (fetched.notModified) {
       if (cached == null) {
         // Defensive: a 304 without a usable cache entry must not produce an
         // empty image; ask the server for the bytes again.
-        fetched = await api.fetchAvatar(token: token, account: target);
+        fetched = await api.fetchAvatar(
+          token: token,
+          account: target,
+          thumb: thumb,
+        );
       } else {
         return AvatarImage(
           account: target,
@@ -148,7 +163,7 @@ class ProfileService implements ProfileGateway {
       throw upstreamMalformed;
     }
     _ensureCurrent(captured);
-    await cache.write(target, fetched.bytes, fetched.version);
+    await cache.write(target, fetched.bytes, fetched.version, thumb: thumb);
     return AvatarImage(
       account: target,
       bytes: fetched.bytes,

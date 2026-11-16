@@ -110,6 +110,7 @@ class ProfileApiClient {
     required String token,
     required String account,
     String? ifNoneMatch,
+    bool thumb = false,
   }) async {
     final Map<String, String> extra = <String, String>{};
     if (ifNoneMatch != null && ifNoneMatch.isNotEmpty) {
@@ -117,7 +118,7 @@ class ProfileApiClient {
     }
     final _Response response = await _send(
       'GET',
-      '/avatars/$account.png',
+      thumb ? '/avatars/$account.png?variant=thumb' : '/avatars/$account.png',
       token: token,
       extraHeaders: extra,
       maxBytes: maxAvatarResponseBytes,

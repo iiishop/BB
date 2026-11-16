@@ -314,8 +314,17 @@ def create_app(
             304: {"description": "ETag matched"},
         },
     )
-    def avatar(account: str, request: Request, identity: Identity):
-        png, version = read_avatar(path, avatars, account)
+    def avatar(
+        account: str,
+        request: Request,
+        identity: Identity,
+        variant: str = "original",
+    ):
+        # `variant=thumb` serves the derivative lists and bubbles use; anything
+        # else keeps the original so the profile detail stays full resolution.
+        data, version, media_type = read_avatar(
+            path, avatars, account, "thumb" if variant == "thumb" else "original"
+        )
         etag = '"' + version + '"'
         headers = {
             "ETag": etag,
@@ -325,7 +334,7 @@ def create_app(
         }
         if etag_matches(request.headers.get("if-none-match"), etag):
             return Response(status_code=304, headers=headers)
-        return Response(png, media_type="image/png", headers=headers)
+        return Response(data, media_type=media_type, headers=headers)
 
     from .chat import install
 

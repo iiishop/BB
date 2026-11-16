@@ -51,7 +51,10 @@ class ChatAvatarController extends ChangeNotifier {
     _loading[account] = true;
     _notify();
     try {
-      final AvatarImage image = await profile.loadAvatar(account: account);
+      final AvatarImage image = await profile.loadAvatar(
+        account: account,
+        thumb: true,
+      );
       _bytes[account] = image.bytes;
       _failed.remove(account);
     } catch (_) {

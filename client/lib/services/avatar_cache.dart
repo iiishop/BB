@@ -11,10 +11,19 @@ class CachedAvatar {
 }
 
 /// Avatar cache contract (memory is always used; disk is optional).
+///
+/// `thumb` selects the small derivative used by lists and bubbles. The original
+/// and the derivative are cached separately: they have different bytes, different
+/// ETags, and a client may legitimately hold both.
 abstract class AvatarCacheStore {
-  Future<CachedAvatar?> read(String account);
+  Future<CachedAvatar?> read(String account, {bool thumb = false});
 
-  Future<void> write(String account, Uint8List bytes, String version);
+  Future<void> write(
+    String account,
+    Uint8List bytes,
+    String version, {
+    bool thumb = false,
+  });
 
   Future<void> invalidate(String account);
 }
@@ -34,18 +43,19 @@ class AvatarCache implements AvatarCacheStore {
       LinkedHashMap<String, CachedAvatar>();
 
   @override
-  Future<CachedAvatar?> read(String account) async {
-    final CachedAvatar? memory = _memory.remove(account);
+  Future<CachedAvatar?> read(String account, {bool thumb = false}) async {
+    final String key = _key(account, thumb);
+    final CachedAvatar? memory = _memory.remove(key);
     if (memory != null) {
-      _memory[account] = memory;
+      _memory[key] = memory;
       return memory;
     }
     final Directory? directory = this.directory;
     if (directory == null) {
       return null;
     }
-    final File image = _imageFile(directory, account);
-    final File versionFile = _versionFile(directory, account);
+    final File image = _imageFile(directory, account, thumb);
+    final File versionFile = _versionFile(directory, account, thumb);
     try {
       if (!await image.exists() || !await versionFile.exists()) {
         return null;
@@ -59,7 +69,7 @@ class AvatarCache implements AvatarCacheStore {
         return null;
       }
       final CachedAvatar cached = CachedAvatar(bytes: bytes, version: version);
-      _remember(account, cached);
+      _remember(key, cached);
       return cached;
     } on FileSystemException {
       return null;
@@ -67,18 +77,24 @@ class AvatarCache implements AvatarCacheStore {
   }
 
   @override
-  Future<void> write(String account, Uint8List bytes, String version) async {
+  Future<void> write(
+    String account,
+    Uint8List bytes,
+    String version, {
+    bool thumb = false,
+  }) async {
     if (bytes.isEmpty || version.isEmpty) {
       return;
     }
-    _remember(account, CachedAvatar(bytes: bytes, version: version));
+    final String key = _key(account, thumb);
+    _remember(key, CachedAvatar(bytes: bytes, version: version));
     final Directory? directory = this.directory;
     if (directory == null) {
       return;
     }
     try {
       await directory.create(recursive: true);
-      final File image = _imageFile(directory, account);
+      final File image = _imageFile(directory, account, thumb);
       final File temporary = File('${image.path}.$pid.tmp');
       await temporary.writeAsBytes(bytes, flush: true);
       // The cache is expendable; if a Windows rename over the old file fails,
@@ -94,44 +110,58 @@ class AvatarCache implements AvatarCacheStore {
       await _versionFile(
         directory,
         account,
+        thumb,
       ).writeAsString(version, flush: true);
     } on FileSystemException {
       // Cache writes are best effort; the fetched bytes are still returned.
     }
   }
 
+  /// Drops both variants: a replaced avatar invalidates the original and the
+  /// derivative together.
   @override
   Future<void> invalidate(String account) async {
-    _memory.remove(account);
+    _memory.remove(_key(account, false));
+    _memory.remove(_key(account, true));
     final Directory? directory = this.directory;
     if (directory == null) {
       return;
     }
-    for (final File file in <File>[
-      _imageFile(directory, account),
-      _versionFile(directory, account),
-    ]) {
-      try {
-        if (await file.exists()) {
-          await file.delete();
+    for (final bool thumb in <bool>[false, true]) {
+      for (final File file in <File>[
+        _imageFile(directory, account, thumb),
+        _versionFile(directory, account, thumb),
+      ]) {
+        try {
+          if (await file.exists()) {
+            await file.delete();
+          }
+        } on FileSystemException {
+          // Ignore: a stale file is harmless because the version gate rejects it.
         }
-      } on FileSystemException {
-        // Ignore: a stale file is harmless because the version gate rejects it.
       }
     }
   }
 
-  void _remember(String account, CachedAvatar cached) {
-    _memory.remove(account);
-    _memory[account] = cached;
+  String _key(String account, bool thumb) =>
+      thumb ? '$account|thumb' : account;
+
+  void _remember(String key, CachedAvatar cached) {
+    _memory.remove(key);
+    _memory[key] = cached;
     while (_memory.length > maxEntries) {
       _memory.remove(_memory.keys.first);
     }
   }
 
-  File _imageFile(Directory directory, String account) =>
-      File('${directory.path}${Platform.pathSeparator}$account.png');
+  String _stem(String account, bool thumb) =>
+      thumb ? '$account-thumb' : account;
 
-  File _versionFile(Directory directory, String account) =>
-      File('${directory.path}${Platform.pathSeparator}$account.version');
+  File _imageFile(Directory directory, String account, bool thumb) => File(
+    '${directory.path}${Platform.pathSeparator}${_stem(account, thumb)}.png',
+  );
+
+  File _versionFile(Directory directory, String account, bool thumb) => File(
+    '${directory.path}${Platform.pathSeparator}${_stem(account, thumb)}.version',
+  );
 }

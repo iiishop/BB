@@ -477,6 +477,7 @@ class _UserAvatarState extends State<_UserAvatar> {
   Future<Uint8List> _load() async {
     final AvatarImage image = await widget.profile.loadAvatar(
       account: widget.user.account,
+      thumb: true,
     );
     return image.bytes;
   }

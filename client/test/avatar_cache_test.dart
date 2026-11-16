@@ -67,4 +67,34 @@ void main() {
     expect(await cache.read('11111111'), isNotNull);
     expect(await cache.read('33333333'), isNotNull);
   });
+
+  test('original and derivative are cached separately', () async {
+    final AvatarCache cache = AvatarCache(directory: directory);
+    await cache.write('12345678', _bytes(1), 'v1');
+    await cache.write('12345678', _bytes(2), 'v1-thumb.jpg', thumb: true);
+
+    final CachedAvatar? original = await cache.read('12345678');
+    final CachedAvatar? thumb = await cache.read('12345678', thumb: true);
+    expect(original?.bytes, _bytes(1));
+    expect(thumb?.bytes, _bytes(2));
+    expect(thumb?.version, 'v1-thumb.jpg');
+
+    // A replacement drops both, so a new upload cannot leave a stale derivative.
+    await cache.invalidate('12345678');
+    expect(await cache.read('12345678'), isNull);
+    expect(await cache.read('12345678', thumb: true), isNull);
+  });
+
+  test('derivative survives a new cache instance on disk', () async {
+    await AvatarCache(
+      directory: directory,
+    ).write('12345678', _bytes(3), 'v2-thumb.jpg', thumb: true);
+    final CachedAvatar? cached = await AvatarCache(
+      directory: directory,
+    ).read('12345678', thumb: true);
+    expect(cached?.bytes, _bytes(3));
+    expect(cached?.version, 'v2-thumb.jpg');
+    // The original slot stays empty: the two variants never collide.
+    expect(await AvatarCache(directory: directory).read('12345678'), isNull);
+  });
 }
