@@ -59,6 +59,10 @@ class FakeSpaceGateway implements SpaceGateway {
   Completer<void>? updateDraftCommitted;
   Completer<void>? updateDraftGate;
 
+  /// Same in-flight controls for `addImage`.
+  Completer<SpaceOperation>? addImageCommitted;
+  Completer<void>? addImageGate;
+
   final List<String> calls = <String>[];
   final List<({String postId, String? visitId})> getPostCalls =
       <({String postId, String? visitId})>[];
@@ -343,12 +347,21 @@ class FakeSpaceGateway implements SpaceGateway {
       referenceId: draft.referenceId,
       images: <SpaceImage>[...draft.images, image],
     );
-    return spaceOperation(
+    final SpaceOperation operation = spaceOperation(
       operationId: operationId,
       action: 'add_image',
       resourceId: imageId,
       resourceVersion: draft.version + 1,
     );
+    final Completer<SpaceOperation>? committed = addImageCommitted;
+    if (committed != null && !committed.isCompleted) {
+      committed.complete(operation);
+    }
+    final Completer<void>? gate = addImageGate;
+    if (gate != null) {
+      await gate.future;
+    }
+    return operation;
   }
 
   @override

@@ -42,6 +42,11 @@ class PendingDraftImage {
   /// Bytes reached the server but the refreshed draft could not be read; a
   /// retry must fetch the draft again instead of uploading a second copy.
   bool uploaded = false;
+
+  /// Version the upload receipt accepted. A later confirmation read may see a
+  /// newer version written by someone else; that is a fence, not a new
+  /// baseline for local input.
+  int? confirmedVersion;
 }
 
 /// Draft editor state. It owns no business fact: the server draft is
@@ -543,6 +548,7 @@ class SpaceComposeController extends ChangeNotifier {
         draft: draft,
         localOrder: localOrder,
         serverBefore: serverBefore,
+        receiptVersion: item.confirmedVersion,
       );
     } catch (failure) {
       item.error = '上传结果待确认';
@@ -565,7 +571,33 @@ class SpaceComposeController extends ChangeNotifier {
     required SpaceDraft draft,
     required List<String> localOrder,
     required List<String> serverBefore,
+    int? receiptVersion,
   }) {
+    final List<String> serverNow = draft.images
+        .map((SpaceImage i) => i.imageId)
+        .toList();
+    final List<String> intentOrder = _mergeUploadOrder(
+      _order,
+      serverBefore,
+      draft.images,
+    );
+    final bool advanced =
+        receiptVersion != null && draft.version > receiptVersion;
+    final bool localMatchesServer =
+        text.text == draft.text && listEquals(intentOrder, serverNow);
+    if (advanced && !localMatchesServer) {
+      // The upload receipt accepted one version; a confirmation read that sees
+      // a newer version means another writer committed afterwards. Adopting it
+      // as the local baseline would let the next autosave overwrite them.
+      _order = intentOrder;
+      _images = _imagesForOrder(draft.images, _order);
+      _version = draft.version;
+      _baselineVersion = receiptVersion;
+      phase = DraftSavePhase.conflict;
+      error = '草稿已在别处更新；本机输入已保留，不会被覆盖';
+      _persist(dirty: true);
+      return;
+    }
     final bool textDirty = text.text != draft.text;
     final bool orderChanged = !listEquals(_order, localOrder);
     if (!textDirty && !orderChanged) {
@@ -613,8 +645,10 @@ class SpaceComposeController extends ChangeNotifier {
         filename: item.filename,
         bytes: item.bytes,
       );
-      _version = operation.resourceVersion ?? version;
+      final int receiptVersion = operation.resourceVersion ?? version;
+      _version = receiptVersion;
       item.uploaded = true;
+      item.confirmedVersion = receiptVersion;
       final SpaceDraft draft = await gateway.getDraft(id);
       _version = draft.version;
       _serverText = draft.text;
@@ -624,6 +658,7 @@ class SpaceComposeController extends ChangeNotifier {
         draft: draft,
         localOrder: localOrder,
         serverBefore: serverBefore,
+        receiptVersion: receiptVersion,
       );
     } on AuthFailure catch (failure) {
       if (failure.code == 'version_conflict') {
