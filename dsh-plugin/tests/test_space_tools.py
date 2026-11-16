@@ -1,5 +1,6 @@
 """Shared-schema transport doubles; real process/host gates live in probes/space*.py."""
 
+import base64
 import json
 
 import httpx
@@ -29,6 +30,15 @@ async def test_discovery_exact_contract_and_no_internal_replay():
     assert set(tools) == set(SPACE_TOOLS)
     assert len(tools) == 24
     for name, model in SPACE_TOOLS.items():
+        if name == "space_add_image":
+            # The single tool whose input is not the wire shape: a model cannot
+            # push megabytes of base64 through a tool call, so it hands over a
+            # path and the adapter reads the bytes. Every contract field must
+            # still be offered, plus the file source.
+            properties = tools[name].inputSchema["properties"]
+            assert set(model.model_json_schema()["properties"]) <= set(properties)
+            assert {"path", "base64", "filename"} <= set(properties)
+            continue
         assert tools[name].inputSchema == model.model_json_schema()
         assert "untrusted" in tools[name].description
         assert "expected_identity" not in tools[name].inputSchema["properties"]
@@ -68,6 +78,90 @@ async def test_image_bytes_and_stale_identity_fence():
         assert result.isError == stale
         assert any(b.type == "image" for b in result.content) == (not stale)
         assert "base64" not in result.structuredContent
+
+
+@pytest.mark.asyncio
+async def test_add_image_reads_a_local_path_into_wire_base64(tmp_path):
+    payload = b"\x89PNG\r\n\x1a\n" + b"pixels" * 512
+    image = tmp_path / "shot.png"
+    image.write_bytes(payload)
+    seen = {}
+
+    def handle(request):
+        assert request.url.path == "/v2/space/add_image"
+        body = json.loads(request.content)
+        space.LOCAL_REQUESTS["add_image"].model_validate(body)
+        seen.update(body)
+        result = {
+            "identity": IDENTITY,
+            "result": {
+                "operation_id": "operation-1",
+                "action": "add_image",
+                "resource_id": "img",
+            },
+        }
+        space.LOCAL_RESPONSES["add_image"].model_validate(result)
+        return httpx.Response(200, json=result)
+
+    client = GuardedTransport(
+        "http://127.0.0.1",
+        "A" * 43,
+        IDENTITY,
+        transport=httpx.MockTransport(handle),
+    )
+    result = await invoke_space(
+        client,
+        "space_add_image",
+        {
+            "operation_id": "operation-1",
+            "draft_id": "draft-1",
+            "expected_version": 1,
+            "path": str(image),
+        },
+    )
+    assert not result.isError, result.model_dump_json()
+    assert seen["base64"] == base64.b64encode(payload).decode()
+    assert seen["filename"] == "shot.png"
+    assert "path" not in seen
+
+
+@pytest.mark.asyncio
+async def test_add_image_rejects_unusable_path_and_ambiguous_source(tmp_path):
+    def unreachable(request):
+        raise AssertionError("no request may reach the client")
+
+    client = GuardedTransport(
+        "http://127.0.0.1",
+        "A" * 43,
+        IDENTITY,
+        transport=httpx.MockTransport(unreachable),
+    )
+    base = {
+        "operation_id": "operation-1",
+        "draft_id": "draft-1",
+        "expected_version": 1,
+    }
+    missing = await invoke_space(
+        client, "space_add_image", {**base, "path": str(tmp_path / "nope.png")}
+    )
+    assert missing.isError
+    assert missing.structuredContent["error"]["code"] == "validation_error"
+
+    image = tmp_path / "shot.png"
+    image.write_bytes(b"\x89PNG\r\n\x1a\n")
+    both = await invoke_space(
+        client, "space_add_image", {**base, "path": str(image), "base64": "AAAA"}
+    )
+    assert both.isError
+    assert both.structuredContent["error"]["code"] == "validation_error"
+
+    empty = tmp_path / "empty.png"
+    empty.write_bytes(b"")
+    blank = await invoke_space(
+        client, "space_add_image", {**base, "path": str(empty)}
+    )
+    assert blank.isError
+    assert blank.structuredContent["error"]["code"] == "validation_error"
 
 
 @pytest.mark.asyncio
