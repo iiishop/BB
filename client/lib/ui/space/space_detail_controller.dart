@@ -22,6 +22,8 @@ class SpaceDetailController extends ChangeNotifier {
     this.onSessionExpired,
     this.onPostDeleted,
     this.isTombstoned,
+    this.isDeletedComment,
+    this.onCommentDeleted,
   });
 
   final SpaceGateway gateway;
@@ -35,6 +37,14 @@ class SpaceDetailController extends ChangeNotifier {
   /// Tells whether the owner controller already observed a deletion. A detail
   /// response captured before that event must not render deleted content.
   final bool Function(String postId)? isTombstoned;
+
+  /// Same lookup for comments: late root/reply/context pages, and the post's
+  /// preview branches, must not revive a deleted comment body.
+  final bool Function(String commentId)? isDeletedComment;
+
+  /// Propagates a locally deleted comment so feed previews and notification
+  /// snippets redact it exactly like a remote `comment.deleted` event.
+  final void Function(String postId, String commentId)? onCommentDeleted;
 
   SpacePhase phase = SpacePhase.loading;
   SpacePost? post;
@@ -60,6 +70,12 @@ class SpaceDetailController extends ChangeNotifier {
   bool posting = false;
   String? actionError;
 
+  final Set<String> _deletedComments = <String>{};
+
+  bool _isCommentDeleted(String commentId) =>
+      _deletedComments.contains(commentId) ||
+      (isDeletedComment?.call(commentId) ?? false);
+
   bool _disposed = false;
   bool _loading = false;
 
@@ -81,12 +97,23 @@ class SpaceDetailController extends ChangeNotifier {
       post = null;
       return null;
     }
-    final SpaceReference? reference = loaded.reference;
+    SpacePost result = loaded;
+    final SpaceReference? reference = result.reference;
     if (reference != null && (isTombstoned?.call(reference.postId) ?? false)) {
-      return spacePostWithScrubbedReference(loaded, reference.postId);
+      result = spacePostWithScrubbedReference(result, reference.postId);
     }
-    return loaded;
+    return spacePostWithScrubbedComments(result, _isCommentDeleted);
   }
+
+  SpaceComment _admitComment(SpaceComment comment) =>
+      _isCommentDeleted(comment.commentId)
+      ? spaceCommentTombstone(comment)
+      : comment;
+
+  List<SpaceComment> _admitComments(Iterable<SpaceComment> comments) =>
+      <SpaceComment>[
+        for (final SpaceComment comment in comments) _admitComment(comment),
+      ];
 
   Future<void> load() async {
     if (_loading || deleted) {
@@ -178,7 +205,7 @@ class SpaceDetailController extends ChangeNotifier {
       );
       roots
         ..clear()
-        ..addAll(page.items);
+        ..addAll(_admitComments(page.items));
       rootsCursor = page.nextCursor;
       rootsHasMore = page.hasMore;
       final Map<String, SpaceBranch> previews = <String, SpaceBranch>{
@@ -214,7 +241,11 @@ class SpaceDetailController extends ChangeNotifier {
       final Set<String> seen = roots
           .map((SpaceComment c) => c.commentId)
           .toSet();
-      roots.addAll(page.items.where((SpaceComment c) => seen.add(c.commentId)));
+      roots.addAll(
+        _admitComments(page.items).where(
+          (SpaceComment c) => seen.add(c.commentId),
+        ),
+      );
       rootsCursor = page.nextCursor;
       rootsHasMore = page.hasMore;
       _notify();
@@ -248,7 +279,9 @@ class SpaceDetailController extends ChangeNotifier {
           .toSet();
       replies[rootId] = <SpaceComment>[
         ...existing,
-        ...page.items.where((SpaceComment c) => seen.add(c.commentId)),
+        ..._admitComments(page.items).where(
+          (SpaceComment c) => seen.add(c.commentId),
+        ),
       ];
       repliesCursor[rootId] = page.nextCursor;
       repliesHasMore[rootId] = page.hasMore;
@@ -266,15 +299,25 @@ class SpaceDetailController extends ChangeNotifier {
       final SpaceCommentContext loaded = await gateway.commentContext(
         commentId,
       );
-      context = loaded;
+      context = SpaceCommentContext(
+        postId: loaded.postId,
+        root: _admitComment(loaded.root),
+        target: _admitComment(loaded.target),
+        parent: loaded.parent == null
+            ? null
+            : _admitComment(loaded.parent!),
+        nearby: _admitComments(loaded.nearby),
+        beforeCursor: loaded.beforeCursor,
+        afterCursor: loaded.afterCursor,
+      );
       highlightedCommentId = commentId;
-      final String rootId = loaded.root.commentId;
+      final String rootId = context!.root.commentId;
       if (!roots.any((SpaceComment c) => c.commentId == rootId)) {
-        roots.insert(0, loaded.root);
+        roots.insert(0, context!.root);
       }
       final List<SpaceComment> contextItems = <SpaceComment>[
-        loaded.target,
-        ...loaded.nearby,
+        context!.target,
+        ...context!.nearby,
       ];
       final Map<String, SpaceComment> merged = <String, SpaceComment>{
         for (final SpaceComment c in replies[rootId] ?? <SpaceComment>[])
@@ -372,6 +415,23 @@ class SpaceDetailController extends ChangeNotifier {
     );
   }
 
+  Future<void> refreshAfterMutation() async {
+    try {
+      final SpacePost loaded = await gateway.getPost(postId, visitId: visitId);
+      final SpacePost? admitted = _admitPost(loaded);
+      if (admitted == null) {
+        _notify();
+        return;
+      }
+      post = admitted;
+      await _refreshComments();
+      _notify();
+    } catch (failure) {
+      actionError = spaceErrorText(failure);
+      _notify();
+    }
+  }
+
   Future<String?> submitComment(String text, {String? replyToId}) async {
     final String trimmed = text.trim();
     if (trimmed.isEmpty || posting) {
@@ -408,6 +468,7 @@ class SpaceDetailController extends ChangeNotifier {
             'space-del-comment-$visitId-${DateTime.now().microsecondsSinceEpoch}',
       );
       _tombstoneComment(commentId);
+      onCommentDeleted?.call(postId, commentId);
       _notify();
     } catch (failure) {
       actionError = spaceErrorText(failure);
@@ -416,50 +477,49 @@ class SpaceDetailController extends ChangeNotifier {
   }
 
   void _tombstoneComment(String commentId) {
+    _deletedComments.add(commentId);
     for (int i = 0; i < roots.length; i++) {
       if (roots[i].commentId == commentId) {
-        roots[i] = _tombstone(roots[i]);
+        roots[i] = spaceCommentTombstone(roots[i]);
       }
     }
     for (final MapEntry<String, List<SpaceComment>> entry in replies.entries) {
       final List<SpaceComment> items = entry.value;
       for (int i = 0; i < items.length; i++) {
         if (items[i].commentId == commentId) {
-          items[i] = _tombstone(items[i]);
+          items[i] = spaceCommentTombstone(items[i]);
         }
       }
     }
-  }
-
-  SpaceComment _tombstone(SpaceComment comment) => SpaceComment(
-    commentId: comment.commentId,
-    postId: comment.postId,
-    rootId: comment.rootId,
-    replyToId: comment.replyToId,
-    replyToAuthor: comment.replyToAuthor,
-    author: comment.author,
-    createdAt: comment.createdAt,
-    text: null,
-    deleted: true,
-    canDelete: false,
-  );
-
-  Future<void> refreshAfterMutation() async {
-    try {
-      final SpacePost loaded = await gateway.getPost(postId, visitId: visitId);
-      final SpacePost? admitted = _admitPost(loaded);
-      if (admitted == null) {
-        _notify();
-        return;
-      }
-      post = admitted;
-      await _refreshComments();
-      _notify();
-    } catch (failure) {
-      actionError = spaceErrorText(failure);
-      _notify();
+    final SpaceCommentContext? current = context;
+    if (current != null) {
+      context = SpaceCommentContext(
+        postId: current.postId,
+        root: current.root.commentId == commentId
+            ? spaceCommentTombstone(current.root)
+            : current.root,
+        target: current.target.commentId == commentId
+            ? spaceCommentTombstone(current.target)
+            : current.target,
+        parent: current.parent?.commentId == commentId
+            ? spaceCommentTombstone(current.parent!)
+            : current.parent,
+        nearby: <SpaceComment>[
+          for (final SpaceComment comment in current.nearby)
+            comment.commentId == commentId
+                ? spaceCommentTombstone(comment)
+                : comment,
+        ],
+        beforeCursor: current.beforeCursor,
+        afterCursor: current.afterCursor,
+      );
+    }
+    final SpacePost? currentPost = post;
+    if (currentPost != null) {
+      post = spacePostWithScrubbedComments(currentPost, _isCommentDeleted);
     }
   }
+
 
   Future<bool> deletePost() async {
     try {

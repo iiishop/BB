@@ -75,6 +75,12 @@ class FakeSpaceGateway implements SpaceGateway {
   Completer<void>? setLikeGate;
   bool failSetLikeAfterGate = false;
 
+  /// Delays one root-reply page after the server read it, so a comment deletion
+  /// event can be applied before the stale page returns.
+  bool holdReplies = false;
+  Completer<void>? repliesCaptured;
+  Completer<void>? repliesGate;
+
   final List<String> calls = <String>[];
   final List<({String postId, String? visitId})> getPostCalls =
       <({String postId, String? visitId})>[];
@@ -154,8 +160,21 @@ class FakeSpaceGateway implements SpaceGateway {
     int limit = 20,
   }) async {
     _record('list_comments');
-    return commentPages['$postId|${rootId ?? ''}|${cursor ?? ''}'] ??
+    final SpacePageComment page =
+        commentPages['$postId|${rootId ?? ''}|${cursor ?? ''}'] ??
         spacePageComment(const <SpaceComment>[]);
+    if (holdReplies && rootId != null) {
+      holdReplies = false;
+      final Completer<void>? captured = repliesCaptured;
+      if (captured != null && !captured.isCompleted) {
+        captured.complete();
+      }
+      final Completer<void>? gate = repliesGate;
+      if (gate != null) {
+        await gate.future;
+      }
+    }
+    return page;
   }
 
   @override

@@ -1,0 +1,168 @@
+INFO:     Started server process [9]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:39129 (Press CTRL+C to quit)
+storage_lock_retry phase=BEGIN IMMEDIATE sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_recovered phase=BEGIN IMMEDIATE attempts=2 wait_ms=8.7
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=3 wait_ms=26.1
+storage_lock_retry phase=BEGIN IMMEDIATE sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_recovered phase=BEGIN IMMEDIATE attempts=5 wait_ms=145.8
+storage_lock_retry phase=BEGIN IMMEDIATE sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_recovered phase=BEGIN IMMEDIATE attempts=2 wait_ms=9.0
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=5 wait_ms=117.5
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=2 wait_ms=6.0
+storage_lock_retry phase=BEGIN IMMEDIATE sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_recovered phase=BEGIN IMMEDIATE attempts=6 wait_ms=173.6
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=2 wait_ms=8.4
+storage_lock_retry phase=BEGIN IMMEDIATE sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_recovered phase=BEGIN IMMEDIATE attempts=3 wait_ms=22.1
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=2 wait_ms=6.8
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=2999.9
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=2 wait_ms=9.4
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=2999.9
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=3 wait_ms=18.6
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=2 wait_ms=9.5
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=3 wait_ms=22.7
+storage_lock_retry phase=BEGIN IMMEDIATE sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_recovered phase=BEGIN IMMEDIATE attempts=2 wait_ms=8.0
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_retry phase=COMMIT sqlite_error=SQLITE_BUSY budget_ms=2998.5
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=2999.9
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_recovered phase=COMMIT attempts=2 wait_ms=18.9
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=3 wait_ms=21.9
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=3 wait_ms=26.0
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=3 wait_ms=25.8
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=5 wait_ms=125.9
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=3 wait_ms=29.6
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_retry phase=BEGIN IMMEDIATE sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_recovered phase=BEGIN IMMEDIATE attempts=2 wait_ms=9.5
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=3 wait_ms=20.4
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=3 wait_ms=24.5
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=4 wait_ms=44.4
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=2999.9
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=3 wait_ms=18.9
+storage_lock_retry phase=BEGIN IMMEDIATE sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=2 wait_ms=6.9
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=6 wait_ms=189.9
+storage_lock_recovered phase=BEGIN IMMEDIATE attempts=5 wait_ms=99.9
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=2 wait_ms=8.6
+storage_lock_retry phase=COMMIT sqlite_error=SQLITE_BUSY budget_ms=2999.1
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=2999.1
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=2998.8
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=2998.9
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=2999.9
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_retry phase=BEGIN IMMEDIATE sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_recovered phase=COMMIT attempts=2 wait_ms=21.0
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=3 wait_ms=25.1
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=3 wait_ms=26.4
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=3 wait_ms=22.3
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=3 wait_ms=27.3
+storage_lock_recovered phase=BEGIN IMMEDIATE attempts=3 wait_ms=20.9
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=2999.0
+storage_lock_retry phase=COMMIT sqlite_error=SQLITE_BUSY budget_ms=2978.0
+storage_lock_recovered phase=COMMIT attempts=2 wait_ms=18.0
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=3 wait_ms=20.9
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=4 wait_ms=65.3
+storage_lock_retry phase=COMMIT sqlite_error=SQLITE_BUSY budget_ms=2999.2
+storage_lock_retry phase=BEGIN IMMEDIATE sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_recovered phase=COMMIT attempts=2 wait_ms=20.1
+storage_lock_recovered phase=BEGIN IMMEDIATE attempts=3 wait_ms=24.7
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=3 wait_ms=20.0
+storage_lock_retry phase=COMMIT sqlite_error=SQLITE_BUSY budget_ms=2974.0
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_retry phase=BEGIN IMMEDIATE sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_retry phase=BEGIN IMMEDIATE sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_recovered phase=COMMIT attempts=2 wait_ms=18.5
+storage_lock_recovered phase=BEGIN IMMEDIATE attempts=3 wait_ms=17.9
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=2999.9
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=2 wait_ms=8.6
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=2 wait_ms=9.7
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=4 wait_ms=59.4
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=5 wait_ms=109.2
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=3 wait_ms=17.3
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=2 wait_ms=10.0
+storage_lock_retry phase=COMMIT sqlite_error=SQLITE_BUSY budget_ms=2999.4
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_retry phase=BEGIN IMMEDIATE sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_recovered phase=COMMIT attempts=2 wait_ms=17.2
+storage_lock_recovered phase=BEGIN IMMEDIATE attempts=2 wait_ms=9.4
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=2 wait_ms=9.3
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=4 wait_ms=53.8
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_recovered phase=BEGIN IMMEDIATE attempts=7 wait_ms=245.4
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=3 wait_ms=23.8
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=4 wait_ms=56.8
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=6 wait_ms=173.5
+storage_lock_retry phase=COMMIT sqlite_error=SQLITE_BUSY budget_ms=2999.4
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=2999.8
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_recovered phase=COMMIT attempts=2 wait_ms=21.4
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=3 wait_ms=17.4
+storage_lock_retry phase=BEGIN IMMEDIATE sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_retry phase=COMMIT sqlite_error=SQLITE_BUSY budget_ms=2998.8
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=2999.8
+storage_lock_recovered phase=COMMIT attempts=2 wait_ms=6.6
+storage_lock_recovered phase=BEGIN IMMEDIATE attempts=2 wait_ms=9.5
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=3 wait_ms=24.8
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=4 wait_ms=49.5
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=5 wait_ms=116.5
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=4 wait_ms=62.2
+storage_lock_retry phase=BEGIN IMMEDIATE sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=4 wait_ms=63.7
+storage_lock_retry phase=COMMIT sqlite_error=SQLITE_BUSY budget_ms=2998.8
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=2999.8
+storage_lock_retry phase=BEGIN IMMEDIATE sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_recovered phase=COMMIT attempts=2 wait_ms=27.4
+storage_lock_recovered phase=BEGIN IMMEDIATE attempts=2 wait_ms=5.8
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_recovered phase=BEGIN IMMEDIATE attempts=4 wait_ms=53.1
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=4 wait_ms=62.4
+storage_lock_retry phase=BEGIN IMMEDIATE sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_recovered phase=BEGIN IMMEDIATE attempts=2 wait_ms=8.6
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_retry phase=COMMIT sqlite_error=SQLITE_BUSY budget_ms=2999.6
+storage_lock_recovered phase=COMMIT attempts=2 wait_ms=21.1
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=4 wait_ms=43.4
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=3 wait_ms=25.1
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=8 wait_ms=363.5
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=5 wait_ms=116.2
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=3000.0
+storage_lock_retry phase=COMMIT sqlite_error=SQLITE_BUSY budget_ms=2998.8
+storage_lock_retry phase=SELECT rootpage FROM sqlite_schema LIMIT 1 sqlite_error=SQLITE_BUSY budget_ms=2999.9
+storage_lock_recovered phase=COMMIT attempts=2 wait_ms=7.0
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=2 wait_ms=7.6
+storage_lock_recovered phase=SELECT rootpage FROM sqlite_schema LIMIT 1 attempts=4 wait_ms=64.1
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [9]

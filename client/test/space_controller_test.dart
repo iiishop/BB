@@ -356,6 +356,159 @@ void main() {
   );
 
   test(
+    'comment deletion scrubs feed previews and notification snippets',
+    () async {
+      final FakeSpaceGateway gateway = FakeSpaceGateway();
+      final SpaceComment root = spaceComment(
+        commentId: 'comment-1',
+        postId: 'post-1',
+        text: 'deleted comment secret',
+      );
+      final SpaceComment child = spaceComment(
+        commentId: 'comment-2',
+        postId: 'post-1',
+        rootId: 'comment-1',
+        replyToId: 'comment-1',
+        text: 'surviving child',
+      );
+      final SpacePost post = spacePost(
+        postId: 'post-1',
+        previewComments: <SpaceBranch>[
+          spaceBranch(root: root, replies: <SpaceComment>[child]),
+        ],
+      );
+      gateway.posts['post-1'] = post;
+      gateway.postPages[''] = spacePagePost(<SpacePost>[post]);
+      gateway.notificationPage = spacePageNotification(<SpaceNotification>[
+        spaceNotification(
+          notificationId: 'n1',
+          kind: 'comment',
+          postId: 'post-1',
+          commentId: 'comment-1',
+          snippet: 'deleted comment secret',
+        ),
+      ]);
+      gateway.overviewResult = spaceOverview(latestEventId: 1);
+      final SpaceController controller = controllerFor(gateway);
+      await controller.start();
+      await controller.loadNotifications(reset: true);
+      expect(
+        controller.posts.single.previewComments.single.root.text,
+        'deleted comment secret',
+      );
+      expect(controller.notifications.single.snippet, 'deleted comment secret');
+
+      gateway.eventPages.add(
+        spaceEventPage(<SpaceEvent>[
+          spaceEvent(
+            eventId: 2,
+            type: 'comment.deleted',
+            postId: 'post-1',
+            commentId: 'comment-1',
+          ),
+        ]),
+      );
+      await controller.pollEventsOnce();
+
+      final SpaceBranch preview =
+          controller.posts.single.previewComments.single;
+      expect(preview.root.text, isNull);
+      expect(preview.root.deleted, isTrue);
+      expect(preview.replies.single.commentId, 'comment-2');
+      expect(preview.replies.single.text, 'surviving child');
+      expect(controller.notifications.single.snippet, isNull);
+
+      // A stale notification page must not put the body back either.
+      await controller.loadNotifications(reset: true);
+      expect(controller.notifications.single.snippet, isNull);
+    },
+  );
+
+  test(
+    'late reply page cannot revive a deleted comment',
+    () async {
+      final FakeSpaceGateway gateway = FakeSpaceGateway();
+      final SpaceComment root = spaceComment(
+        commentId: 'root',
+        postId: 'post-1',
+        text: 'root',
+      );
+      final SpaceComment reply = spaceComment(
+        commentId: 'reply',
+        postId: 'post-1',
+        rootId: 'root',
+        replyToId: 'root',
+        text: 'deleted reply secret',
+      );
+      final SpaceComment child = spaceComment(
+        commentId: 'child',
+        postId: 'post-1',
+        rootId: 'root',
+        replyToId: 'reply',
+        text: 'surviving child',
+      );
+      final SpacePost post = spacePost(
+        postId: 'post-1',
+        previewComments: <SpaceBranch>[
+          spaceBranch(
+            root: root,
+            replies: <SpaceComment>[reply, child],
+          ),
+        ],
+      );
+      gateway.posts['post-1'] = post;
+      gateway.postPages[''] = spacePagePost(<SpacePost>[post]);
+      gateway.commentPages['post-1||'] = spacePageComment(
+        <SpaceComment>[root],
+      );
+      gateway.commentPages['post-1|root|'] = spacePageComment(
+        <SpaceComment>[reply, child],
+      );
+      gateway.overviewResult = spaceOverview(latestEventId: 1);
+      final SpaceController controller = controllerFor(gateway);
+      await controller.start();
+      final SpaceDetailController detail = (await controller.openPost(
+        'post-1',
+      ))!;
+
+      gateway.holdReplies = true;
+      gateway.repliesCaptured = Completer<void>();
+      gateway.repliesGate = Completer<void>();
+      final Future<void> expanding = detail.expandReplies('root');
+      await gateway.repliesCaptured!.future;
+      gateway.eventPages.add(
+        spaceEventPage(<SpaceEvent>[
+          spaceEvent(
+            eventId: 2,
+            type: 'comment.deleted',
+            postId: 'post-1',
+            commentId: 'reply',
+          ),
+        ]),
+      );
+      await controller.pollEventsOnce();
+      expect(
+        detail.replies['root']!
+            .singleWhere((SpaceComment c) => c.commentId == 'reply')
+            .text,
+        isNull,
+      );
+      gateway.repliesGate!.complete();
+      await expanding;
+
+      final List<SpaceComment> replies = detail.replies['root']!;
+      expect(
+        replies.singleWhere((SpaceComment c) => c.commentId == 'reply').text,
+        isNull,
+      );
+      expect(
+        replies.singleWhere((SpaceComment c) => c.commentId == 'child').text,
+        'surviving child',
+      );
+    },
+  );
+
+  test(
     'post.deleted event removes the post and invalidates its images',
     () async {
       final FakeSpaceGateway gateway = FakeSpaceGateway();

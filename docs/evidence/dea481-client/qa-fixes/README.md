@@ -274,3 +274,56 @@ The rollback probe source is copied byte-for-byte from Forge's
 `docs/evidence/dea481-qa-round4/rollback_tombstone_probe_test.dart`
 (`round5/rollback_tombstone_probe_test.dart`); Forge's bundle keeps the
 pre-fix 0/2 evidence. The 12 skips are unchanged; no assertion was loosened.
+
+## Round 6: comment deletion invalidation (T08 / section 6.3)
+
+Sentinel's third QA round kept the old twelve counterexamples green but found
+two more P1s in `SPACE-DELETION-LATE-WRITE` at the comment entry (**0/2,
+exit 1, both target assertions**):
+
+1. **Feed preview and notification snippet kept a deleted comment.** A comment
+   was deleted and the real event consumed; `SpaceController` only forwarded
+   the event to an open detail, so the feed branch still rendered
+   `deleted comment secret` and the loaded notification kept the same snippet.
+2. **A late reply page revived a deleted reply.** The reply page was read
+   before the deletion, the real event was consumed, then the stale page
+   returned and wrote the old body back into the detail's reply list.
+
+**Common fix.** Comment deletion now has the same invalidation boundary as post
+deletion:
+
+- `SpaceController` keeps deleted-comment tombstones fed by remote
+  `comment.deleted` events and by local deletion (the detail propagates it via
+  `onCommentDeleted`). Every public snapshot that embeds a comment is admitted
+  through one filter: feed previews, pending page, notification snippets and
+  late notification pages, plus detail preview/root/reply/context pages.
+- Deleted comments keep their identity, `replyToId`, `replyToAuthor` and
+  `rootId`; only text/actions are removed, so surviving children and reply
+  targets remain navigable (server documents the same placeholder).
+- `SpaceDetailController` applies the same lookup to initial roots,
+  `loadMoreRoots`, `expandReplies`, `_loadContext`/context merge and the post's
+  preview branches, so a page captured before the deletion cannot restore the
+  body.
+
+`contract_gap = none`; owner and sole fix author Muse; Forge remains the only
+integrator.
+
+Regressions were added to the existing `test/space_controller_test.dart`
+entry: a `comment.deleted` event redacts the feed preview root and loaded plus
+reloaded notification snippets while keeping the live child comment, and a
+late reply page after a deletion event keeps the reply redacted while keeping
+the surviving child and its reply target.
+
+## Round 6 verification (same fixed tree)
+
+| Check | Command | Result | Log/exit |
+| --- | --- | --- | --- |
+| Analyzer | `flutter analyze` | exit 0, no issues | `round6/analyze.log`, `round6/analyze.exit` |
+| Focused Space suite | same 9 files | exit 0, **72 passed** | `round6/space-tests.log`, `round6/space-tests.exit` |
+| Full client suite | `flutter test` | exit 0, **696 passed, 12 skipped** | `round6/flutter-test-all.log`, `round6/flutter-test-all.exit` |
+| Real probes | `python3 run_real_probes.py` (12 probes: prior ten + Sentinel's two comment-deletion probes) | exit 0, **12 passed** | `round6/real-probes.log`, `round6/real-probes.exit`, `round6/server.log` |
+
+The comment-deletion probe source is copied byte-for-byte from Sentinel's
+`dea481-sentinel-qa3-d3dbda1.zip` (`round6/sentinel_round3_test.dart`); that
+bundle keeps the pre-fix 0/2 evidence. The 12 skips are unchanged; no assertion
+was loosened.
