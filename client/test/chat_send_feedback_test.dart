@@ -169,12 +169,14 @@ class _HistoryScopeService extends FakeChatService {
   @override
   Future<MessagePage> loadConversation({
     required String peerAccount,
-    int afterPosition = 0,
+    int? afterPosition,
+    int? beforePosition,
     int limit = 50,
   }) async {
     final MessagePage snapshot = await super.loadConversation(
       peerAccount: peerAccount,
       afterPosition: afterPosition,
+      beforePosition: beforePosition,
       limit: limit,
     );
     final Completer<void>? pending = historyGate;

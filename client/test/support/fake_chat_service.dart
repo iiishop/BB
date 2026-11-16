@@ -59,6 +59,9 @@ class FakeChatService extends ChatService {
   final List<String> savedPaths = <String>[];
   final List<String> sentTexts = <String>[];
   final List<int> conversationCalls = <int>[];
+
+  /// Boundary of each backward (`before_position`) fetch, null for forward.
+  final List<int?> beforeCalls = <int?>[];
   final List<String> mediaBytesCalls = <String>[];
   final List<String> sendSeeds = <String>[];
   final List<String> bodyOperationIds = <String>[];
@@ -181,7 +184,8 @@ class FakeChatService extends ChatService {
   @override
   Future<MessagePage> loadConversation({
     required String peerAccount,
-    int afterPosition = 0,
+    int? afterPosition,
+    int? beforePosition,
     int limit = 50,
   }) async {
     final List<ChatMessage> all =
@@ -189,21 +193,40 @@ class FakeChatService extends ChatService {
           ..sort((ChatMessage a, ChatMessage b) {
             return a.position.compareTo(b.position);
           });
-    conversationCalls.add(afterPosition);
-    final List<ChatMessage> remaining = all
-        .where((ChatMessage message) => message.position > afterPosition)
-        .toList();
+    conversationCalls.add(afterPosition ?? 0);
+    beforeCalls.add(beforePosition);
     final int effectiveLimit = pageSize != null && pageSize! < limit
         ? pageSize!
         : limit;
-    final List<ChatMessage> page = remaining.take(effectiveLimit).toList();
-    if (gate != null && gateAtPosition == afterPosition) {
+    final bool backward = beforePosition != null;
+    final List<ChatMessage> candidates = backward
+        ? all
+              .where(
+                (ChatMessage message) => message.position < beforePosition,
+              )
+              .toList()
+        : all
+              .where(
+                (ChatMessage message) =>
+                    message.position > (afterPosition ?? 0),
+              )
+              .toList();
+    // Backward pages keep the newest slice of everything before the boundary.
+    final int start = candidates.length > effectiveLimit
+        ? candidates.length - effectiveLimit
+        : 0;
+    final List<ChatMessage> page = backward
+        ? candidates.sublist(start)
+        : candidates.take(effectiveLimit).toList();
+    if (gate != null && gateAtPosition == (afterPosition ?? 0)) {
       await gate!.future;
     }
     return MessagePage(
       items: page,
-      nextPosition: page.isEmpty ? afterPosition : page.last.position,
-      hasMore: remaining.length > page.length,
+      nextPosition: page.isEmpty
+          ? (backward ? beforePosition : (afterPosition ?? 0))
+          : (backward ? page.first.position : page.last.position),
+      hasMore: candidates.length > page.length,
     );
   }
 

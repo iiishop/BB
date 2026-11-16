@@ -642,7 +642,8 @@ class ChatService {
 
   Future<MessagePage> loadConversation({
     required String peerAccount,
-    int afterPosition = 0,
+    int? afterPosition,
+    int? beforePosition,
     int limit = 50,
   }) async {
     final AuthIdentity? captured = session.identity;
@@ -653,6 +654,7 @@ class ChatService {
       token: captured.token,
       account: peerAccount,
       afterPosition: afterPosition,
+      beforePosition: beforePosition,
       limit: limit.clamp(1, 100),
     );
     await ledger.observeMessageAssociations(
