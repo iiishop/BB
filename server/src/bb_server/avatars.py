@@ -16,6 +16,8 @@ from PIL import Image, UnidentifiedImageError
 
 from bb_server.storage import connection
 
+from .media_thumbnails import encode_stream
+
 logger = logging.getLogger(__name__)
 
 
@@ -81,8 +83,29 @@ def normalize_image(data: bytes) -> bytes:
         ) from None
 
 
+THUMB_SUFFIX = "-thumb.jpg"
+
+
+def thumb_name(name: str) -> str:
+    return name[: -len(".png")] + THUMB_SUFFIX
+
+
+def thumbnail(png: bytes) -> bytes:
+    """Downscaled copy for lists and bubbles, using the media thumbnail policy.
+
+    Originals stay at upload resolution — a phone photo became a 700 KB PNG and
+    every cold client paid for it. Same 512 px / JPEG / byte-cap encoder the chat
+    attachments use, so there is one derivative policy rather than two.
+    """
+    return encode_stream(io.BytesIO(png))
+
+
+AVATAR_NAME = re.compile(r"[0-9a-f]{32}\.png")
+AVATAR_THUMB = re.compile(r"[0-9a-f]{32}-thumb\.jpg")
+
+
 def avatar_file(directory: Path, name: str) -> Path:
-    if not re.fullmatch(r"[0-9a-f]{32}\.png", name):
+    if not (AVATAR_NAME.fullmatch(name) or AVATAR_THUMB.fullmatch(name)):
         raise OSError("Invalid stored avatar key")
     path = directory / name
     if path.is_symlink():
@@ -92,12 +115,14 @@ def avatar_file(directory: Path, name: str) -> Path:
 
 def remove_file(directory: Path, name: str | None):
     if name:
-        try:
-            avatar_file(directory, name).unlink(missing_ok=True)
-        except OSError:
-            # The DB already committed. An orphan is harmless and can be cleaned
-            # offline; never report a committed update as failed and invite retry.
-            logger.warning("avatar_orphan_cleanup_failed")
+        for candidate in (name, thumb_name(name)):
+            try:
+                avatar_file(directory, candidate).unlink(missing_ok=True)
+            except OSError:
+                # The DB already committed. An orphan is harmless and can be
+                # cleaned offline; never report a committed update as failed and
+                # invite retry.
+                logger.warning("avatar_orphan_cleanup_failed")
 
 
 def replace_avatar(database: Path, directory: Path, account: str, png: bytes | None):
@@ -109,11 +134,18 @@ def replace_avatar(database: Path, directory: Path, account: str, png: bytes | N
             old = db.execute(
                 "SELECT avatar_path FROM users WHERE account=?", (account,)
             ).fetchone()[0]
-            if name:
+            if name and png is not None:
                 directory.mkdir(parents=True, exist_ok=True)
                 with avatar_file(directory, name).open("xb") as file:
                     created = True
                     file.write(png)
+                    file.flush()
+                    os.fsync(file.fileno())
+                # Derivative written next to the original: lists and bubbles ask
+                # for this one, profile detail keeps the original.
+                with avatar_file(directory, thumb_name(name)).open("xb") as file:
+                    created = True
+                    file.write(thumbnail(png))
                     file.flush()
                     os.fsync(file.fileno())
                 if os.name != "nt":
@@ -137,7 +169,14 @@ def replace_avatar(database: Path, directory: Path, account: str, png: bytes | N
     }
 
 
-def read_avatar(database: Path, directory: Path, account: str):
+def read_avatar(
+    database: Path, directory: Path, account: str, variant: str = "original"
+) -> tuple[bytes, str, str]:
+    """Stored avatar bytes, its version tag and the media type.
+
+    ``variant="thumb"`` returns the derivative when one exists; uploads made
+    before derivatives shipped fall back to the original instead of 404.
+    """
     with connection(database, write=True) as db:
         # Serialize file lookup/read with replacement so the old file cannot be
         # removed between the lookup and read, including across server workers.
@@ -147,10 +186,22 @@ def read_avatar(database: Path, directory: Path, account: str):
         if row is None:
             raise ContractError(404, "not_found", "用户不存在")
         if row["avatar_path"]:
-            return avatar_file(directory, row["avatar_path"]).read_bytes(), row[
-                "avatar_version"
-            ]
-    return identicon(account), default_version(account)
+            name = row["avatar_path"]
+            version = row["avatar_version"]
+            if variant == "thumb":
+                try:
+                    data = avatar_file(directory, thumb_name(name)).read_bytes()
+                    return data, version + THUMB_SUFFIX, "image/jpeg"
+                except OSError:
+                    pass
+            return avatar_file(directory, name).read_bytes(), version, "image/png"
+    if variant == "thumb":
+        return (
+            thumbnail(identicon(account)),
+            default_version(account) + THUMB_SUFFIX,
+            "image/jpeg",
+        )
+    return identicon(account), default_version(account), "image/png"
 
 
 def etag_matches(header: str | None, etag: str) -> bool:

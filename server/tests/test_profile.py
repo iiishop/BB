@@ -380,3 +380,51 @@ def test_storage_key_collision_does_not_remove_an_existing_avatar(
     assert upload(api, headers, image_bytes(color="blue")).status_code == 503
     assert existing.exists()
     assert api.get(f"/avatars/{account}.png", headers=headers).content == original
+
+
+def photo_bytes(size=(1600, 1200)) -> bytes:
+    """A large high-entropy image: the case that made stored avatars ~700 KB."""
+    output = io.BytesIO()
+    Image.effect_noise(size, 64).convert("RGB").save(output, format="PNG")
+    return output.getvalue()
+
+
+def test_upload_stores_a_smaller_derivative_and_serves_it(profile_api):
+    api, path, account, headers = profile_api
+    assert upload(api, headers, photo_bytes()).status_code == 200
+
+    originals = list(path.parent.rglob("*.png"))
+    derivatives = list(path.parent.rglob("*-thumb.jpg"))
+    assert len(originals) == 1
+    assert len(derivatives) == 1
+    assert derivatives[0].stat().st_size < originals[0].stat().st_size
+
+    original = api.get(f"/avatars/{account}.png", headers=headers)
+    thumb = api.get(f"/avatars/{account}.png?variant=thumb", headers=headers)
+    assert thumb.status_code == 200
+    assert thumb.headers["content-type"] == "image/jpeg"
+    assert len(thumb.content) < len(original.content)
+    # Distinct cache identities, so a stale thumbnail ETag cannot mask a re-upload.
+    assert thumb.headers["etag"] != original.headers["etag"]
+
+
+def test_avatar_without_a_derivative_falls_back_to_the_original(profile_api):
+    api, path, account, headers = profile_api
+    assert upload(api, headers, photo_bytes((800, 600))).status_code == 200
+    for derivative in path.parent.rglob("*-thumb.jpg"):
+        derivative.unlink()
+
+    response = api.get(f"/avatars/{account}.png?variant=thumb", headers=headers)
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/png"
+    assert response.content == api.get(
+        f"/avatars/{account}.png", headers=headers
+    ).content
+
+
+def test_unknown_variant_serves_the_original(profile_api):
+    api, _, account, headers = profile_api
+    assert upload(api, headers, photo_bytes((400, 300))).status_code == 200
+    response = api.get(f"/avatars/{account}.png?variant=huge", headers=headers)
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/png"

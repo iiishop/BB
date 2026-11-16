@@ -67,7 +67,10 @@ class SpaceAvatarStore extends ChangeNotifier {
 
   Future<void> _request(String account) async {
     try {
-      final AvatarImage image = await profile.loadAvatar(account: account);
+      final AvatarImage image = await profile.loadAvatar(
+        account: account,
+        thumb: true,
+      );
       if (image.bytes.isEmpty) {
         _failed.add(account);
       } else {

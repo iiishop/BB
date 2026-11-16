@@ -113,7 +113,8 @@ class _HomeViewState extends State<HomeView> {
     });
     try {
       final Profile profile = await widget.profile.loadProfile();
-      final AvatarImage image = await widget.profile.loadAvatar();
+      // Rail avatar is 48 px; the original can be hundreds of KB.
+      final AvatarImage image = await widget.profile.loadAvatar(thumb: true);
       if (!mounted) {
         return;
       }

@@ -25,6 +25,10 @@ class FakeProfileGateway implements ProfileGateway {
   final Map<String, Uint8List> avatars = <String, Uint8List>{};
   final Map<String, int> loadAvatarByAccount = <String, int>{};
   final List<String> loadAvatarAccounts = <String>[];
+
+  /// Variant requested on each [loadAvatar] call: lists and bubbles ask for the
+  /// derivative, profile detail asks for the original.
+  final List<bool> thumbCalls = <bool>[];
   AuthFailure? failure;
   AuthFailure? avatarFailure;
   AuthFailure? avatarUpdateFailure;
@@ -49,10 +53,15 @@ class FakeProfileGateway implements ProfileGateway {
   }
 
   @override
-  Future<AvatarImage> loadAvatar({String? account, AuthIdentity? captured}) async {
+  Future<AvatarImage> loadAvatar({
+    String? account,
+    AuthIdentity? captured,
+    bool thumb = false,
+  }) async {
     loadAvatarCalls += 1;
     final String target = account ?? profile.account;
     loadAvatarAccounts.add(target);
+    thumbCalls.add(thumb);
     loadAvatarByAccount[target] = (loadAvatarByAccount[target] ?? 0) + 1;
     if (avatarDelay > Duration.zero) {
       await Future<void>.delayed(avatarDelay);

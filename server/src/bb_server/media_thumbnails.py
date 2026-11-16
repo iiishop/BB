@@ -15,7 +15,12 @@ from PIL import Image, ImageOps
 _generation_slots = threading.BoundedSemaphore(2)
 
 
-def encode(source: Path) -> bytes:
+def encode_stream(source) -> bytes:
+    """Downscaled JPEG from any PIL-openable source: a path or an in-memory stream.
+
+    Avatars reuse this so both surfaces share one size/codec policy instead of
+    growing a second thumbnail implementation.
+    """
     with Image.open(source) as image:
         # Only the first frame is a preview. JPEG draft avoids a full-size decode
         # where the codec supports it; thumbnail preserves aspect and never upscales.
@@ -39,6 +44,10 @@ def encode(source: Path) -> bytes:
             (max(1, pixels.width // 2), max(1, pixels.height // 2)),
             Image.Resampling.LANCZOS,
         )
+
+
+def encode(source: Path) -> bytes:
+    return encode_stream(source)
 
 
 def thumbnail(directory: Path, media_id: str) -> tuple[Path, str]:

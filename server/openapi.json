@@ -612,6 +612,16 @@
               "type": "string",
               "title": "Account"
             }
+          },
+          {
+            "name": "variant",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "original",
+              "title": "Variant"
+            }
           }
         ],
         "responses": {
