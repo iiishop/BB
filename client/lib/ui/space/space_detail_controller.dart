@@ -21,6 +21,7 @@ class SpaceDetailController extends ChangeNotifier {
     this.focusCommentId,
     this.onSessionExpired,
     this.onPostDeleted,
+    this.isTombstoned,
   });
 
   final SpaceGateway gateway;
@@ -30,6 +31,10 @@ class SpaceDetailController extends ChangeNotifier {
   final String? focusCommentId;
   final VoidCallback? onSessionExpired;
   final void Function(String postId)? onPostDeleted;
+
+  /// Tells whether the owner controller already observed a deletion. A detail
+  /// response captured before that event must not render deleted content.
+  final bool Function(String postId)? isTombstoned;
 
   SpacePhase phase = SpacePhase.loading;
   SpacePost? post;
@@ -67,6 +72,22 @@ class SpaceDetailController extends ChangeNotifier {
     }
   }
 
+  /// Returns the post to render, or null when a deletion was already observed.
+  SpacePost? _admitPost(SpacePost loaded) {
+    if (isTombstoned?.call(loaded.postId) ?? false) {
+      deleted = true;
+      phase = SpacePhase.error;
+      error = '这条说说已被删除';
+      post = null;
+      return null;
+    }
+    final SpaceReference? reference = loaded.reference;
+    if (reference != null && (isTombstoned?.call(reference.postId) ?? false)) {
+      return spacePostWithScrubbedReference(loaded, reference.postId);
+    }
+    return loaded;
+  }
+
   Future<void> load() async {
     if (_loading || deleted) {
       return;
@@ -76,7 +97,12 @@ class SpaceDetailController extends ChangeNotifier {
     _notify();
     try {
       final SpacePost loaded = await gateway.getPost(postId, visitId: visitId);
-      post = loaded;
+      final SpacePost? admitted = _admitPost(loaded);
+      if (admitted == null) {
+        _notify();
+        return;
+      }
+      post = admitted;
       phase = SpacePhase.ready;
       error = null;
       offline = false;
@@ -116,7 +142,12 @@ class SpaceDetailController extends ChangeNotifier {
     }
     try {
       final SpacePost loaded = await gateway.getPost(postId, visitId: visitId);
-      post = loaded;
+      final SpacePost? admitted = _admitPost(loaded);
+      if (admitted == null) {
+        _notify();
+        return;
+      }
+      post = admitted;
       _notify();
     } catch (_) {
       // The invalidation event is retried by the next explicit refresh.
@@ -393,7 +424,12 @@ class SpaceDetailController extends ChangeNotifier {
   Future<void> refreshAfterMutation() async {
     try {
       final SpacePost loaded = await gateway.getPost(postId, visitId: visitId);
-      post = loaded;
+      final SpacePost? admitted = _admitPost(loaded);
+      if (admitted == null) {
+        _notify();
+        return;
+      }
+      post = admitted;
       await _refreshComments();
       _notify();
     } catch (failure) {

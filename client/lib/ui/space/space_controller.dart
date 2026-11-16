@@ -74,6 +74,9 @@ class SpaceController extends ChangeNotifier {
 
   int? _eventCursor;
   bool _eventsReady = false;
+  /// Posts whose deletion was already observed. Late responses captured before
+  /// that point must not reinsert them or restore their reference snapshots.
+  final Set<String> _tombstones = <String>{};
   bool _polling = false;
   Timer? _timer;
   bool _disposed = false;
@@ -133,16 +136,17 @@ class SpaceController extends ChangeNotifier {
   Future<void> _loadFeedFirst({required bool explicit}) async {
     try {
       final SpacePagePost page = await gateway.listPosts(limit: 20);
+      final List<SpacePost> admitted = _admitIncoming(page.items);
       final bool wasOffline = offline;
       if (explicit) {
         posts
           ..clear()
-          ..addAll(page.items);
+          ..addAll(admitted);
         pendingNewPosts = 0;
         _pendingPage = <SpacePost>[];
       } else {
         final Set<String> known = posts.map((SpacePost p) => p.postId).toSet();
-        final List<SpacePost> fresh = page.items
+        final List<SpacePost> fresh = admitted
             .where((SpacePost p) => !known.contains(p.postId))
             .toList();
         if (fresh.isNotEmpty) {
@@ -217,7 +221,9 @@ class SpaceController extends ChangeNotifier {
         limit: 20,
       );
       final Set<String> seen = posts.map((SpacePost p) => p.postId).toSet();
-      posts.addAll(page.items.where((SpacePost p) => seen.add(p.postId)));
+      posts.addAll(
+        _admitIncoming(page.items).where((SpacePost p) => seen.add(p.postId)),
+      );
       nextCursor = page.nextCursor;
       hasMore = page.hasMore;
       offline = false;
@@ -237,12 +243,17 @@ class SpaceController extends ChangeNotifier {
     if (_pendingPage.isEmpty) {
       return;
     }
-    final Set<String> incoming = _pendingPage
-        .map((SpacePost p) => p.postId)
-        .toSet();
+    final List<SpacePost> admitted = _admitIncoming(_pendingPage);
+    if (admitted.isEmpty) {
+      _pendingPage = <SpacePost>[];
+      pendingNewPosts = 0;
+      _notify();
+      return;
+    }
+    final Set<String> incoming = admitted.map((SpacePost p) => p.postId).toSet();
     posts
       ..removeWhere((SpacePost p) => incoming.contains(p.postId))
-      ..insertAll(0, _pendingPage);
+      ..insertAll(0, admitted);
     _pendingPage = <SpacePost>[];
     pendingNewPosts = 0;
     phase = posts.isEmpty ? SpacePhase.empty : SpacePhase.ready;
@@ -339,6 +350,7 @@ class SpaceController extends ChangeNotifier {
         focusCommentId: focusCommentId,
         onSessionExpired: onSessionExpired,
         onPostDeleted: _handlePostDeleted,
+        isTombstoned: _isTombstoned,
       );
       _details[postId] = controller;
     }
@@ -384,6 +396,7 @@ class SpaceController extends ChangeNotifier {
   }
 
   void _handlePostDeleted(String postId) {
+    _tombstones.add(postId);
     posts.removeWhere((SpacePost p) => p.postId == postId);
     _pendingPage.removeWhere((SpacePost p) => p.postId == postId);
     _scrubReferencesTo(postId);
@@ -391,6 +404,23 @@ class SpaceController extends ChangeNotifier {
       phase = SpacePhase.empty;
     }
     _notify();
+  }
+
+  bool _isTombstoned(String postId) => _tombstones.contains(postId);
+
+  SpacePost _scrubIncoming(SpacePost post) {
+    final SpaceReference? reference = post.reference;
+    if (reference == null || !_tombstones.contains(reference.postId)) {
+      return post;
+    }
+    return spacePostWithScrubbedReference(post, reference.postId);
+  }
+
+  List<SpacePost> _admitIncoming(Iterable<SpacePost> items) {
+    return <SpacePost>[
+      for (final SpacePost post in items)
+        if (!_tombstones.contains(post.postId)) _scrubIncoming(post),
+    ];
   }
 
   /// A deleted post can still be embedded as a reference card in other loaded
@@ -704,6 +734,7 @@ class SpaceController extends ChangeNotifier {
               images.invalidateImage(referenceImage.imageId);
             }
           }
+          _tombstones.add(postId);
           posts.removeWhere((SpacePost p) => p.postId == postId);
           _pendingPage.removeWhere((SpacePost p) => p.postId == postId);
           _details[postId]?.onDeletedEvent();

@@ -71,6 +71,7 @@ try:
         '.qa-artifacts/probes/space_defect_probe_test.dart',
         '.qa-artifacts/probes/adjacent_draft_probe_test.dart',
         '.qa-artifacts/probes/upload_conflict_probe_test.dart',
+        '.qa-artifacts/probes/sentinel_round2_test.dart',
         '--reporter=expanded',
     ]
     run_log = (out / 'real-probes.log').open('w')

@@ -1,0 +1,10 @@
+00:00 +0: loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/space_defect_probe_test.dart
+00:00 +0: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/space_defect_probe_test.dart: real T02 delayed save publishes visible text
+00:01 +1: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/space_defect_probe_test.dart: real T02 delayed save publishes visible text
+00:01 +2: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/space_defect_probe_test.dart: real T02 delayed save publishes visible text
+00:01 +3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/space_defect_probe_test.dart: real T02 delayed save publishes visible text
+00:01 +4: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/space_defect_probe_test.dart: real T02 delayed save publishes visible text
+00:01 +5: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/space_defect_probe_test.dart: real T02 delayed save publishes visible text
+00:02 +6: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/space_defect_probe_test.dart: real T02 dirty reopen preserves conflicting server version
+00:02 +7: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/space_defect_probe_test.dart: real T07 replay removes cached repost source text
+00:02 +8: All tests passed!

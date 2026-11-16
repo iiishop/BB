@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:bb_client/models/auth_models.dart';
 import 'package:bb_client/models/space_models.dart';
 import 'package:bb_client/ui/space/space_controller.dart';
@@ -149,6 +151,99 @@ void main() {
       expect(cached.reference!.deleted, isTrue);
       expect(cached.reference!.text, isNull);
       expect(cached.reference!.author, isNull);
+    },
+  );
+
+  test(
+    'stale refresh response cannot resurrect a deleted post or reference',
+    () async {
+      final FakeSpaceGateway gateway = FakeSpaceGateway();
+      final SpacePost source = spacePost(
+        postId: 'post-1',
+        text: 'source secret',
+      );
+      final SpacePost repost = spacePost(
+        postId: 'post-2',
+        text: 'repost',
+        reference: SpaceReference(
+          postId: 'post-1',
+          deleted: false,
+          author: source.author,
+          text: 'source secret',
+          image: null,
+        ),
+      );
+      gateway.posts['post-1'] = source;
+      gateway.posts['post-2'] = repost;
+      gateway.postPages[''] = spacePagePost(<SpacePost>[source, repost]);
+      gateway.overviewResult = spaceOverview(latestEventId: 1);
+      final SpaceController controller = controllerFor(gateway);
+      await controller.start();
+
+      gateway.holdListPosts = true;
+      gateway.listPostsCaptured = Completer<void>();
+      gateway.listPostsGate = Completer<void>();
+      final Future<void> refreshing = controller.refresh();
+      await gateway.listPostsCaptured!.future;
+      gateway.eventPages.add(
+        spaceEventPage(<SpaceEvent>[
+          spaceEvent(eventId: 2, type: 'post.deleted', postId: 'post-1'),
+        ]),
+      );
+      await controller.pollEventsOnce();
+      gateway.listPostsGate!.complete();
+      await refreshing;
+
+      expect(
+        controller.posts.any((SpacePost p) => p.postId == 'post-1'),
+        isFalse,
+      );
+      expect(
+        controller.posts
+            .singleWhere((SpacePost p) => p.postId == 'post-2')
+            .reference!
+            .text,
+        isNull,
+      );
+    },
+  );
+
+  test(
+    'stale detail response keeps a deleted reference invalidated',
+    () async {
+      final FakeSpaceGateway gateway = FakeSpaceGateway();
+      final SpacePost source = spacePost(
+        postId: 'post-1',
+        text: 'source secret',
+      );
+      final SpacePost repost = spacePost(
+        postId: 'post-2',
+        text: 'repost',
+        reference: SpaceReference(
+          postId: 'post-1',
+          deleted: false,
+          author: source.author,
+          text: 'source secret',
+          image: null,
+        ),
+      );
+      gateway.posts['post-2'] = repost;
+      final Set<String> tombstones = <String>{};
+      final SpaceDetailController detail = SpaceDetailController(
+        gateway: gateway,
+        store: SpaceLocalStore(scopeKey: gateway.scopeKey),
+        postId: 'post-2',
+        visitId: 'visit-1',
+        isTombstoned: (String id) => tombstones.contains(id),
+      );
+      addTearDown(detail.dispose);
+      await detail.load();
+      expect(detail.post!.reference!.text, 'source secret');
+
+      tombstones.add('post-1');
+      await detail.refreshFacts();
+      expect(detail.post!.reference!.deleted, isTrue);
+      expect(detail.post!.reference!.text, isNull);
     },
   );
 
