@@ -645,6 +645,101 @@ void main() {
     },
   );
 
+  test('local delete invalidates its owned image caches', () async {
+    final FakeSpaceGateway gateway = FakeSpaceGateway();
+    final SpacePost deleted = spacePost(
+      postId: 'post-1',
+      images: <SpaceImage>[spaceImage(imageId: 'img-1')],
+    );
+    final SpacePost live = spacePost(
+      postId: 'post-2',
+      images: <SpaceImage>[spaceImage(imageId: 'img-2')],
+    );
+    gateway.posts['post-1'] = deleted;
+    gateway.posts['post-2'] = live;
+    gateway.postPages[''] = spacePagePost(<SpacePost>[deleted, live]);
+    gateway.overviewResult = spaceOverview(latestEventId: 1);
+    final SpaceController controller = controllerFor(gateway);
+    await controller.start();
+    await controller.images.load('img-1', variant: 'original');
+    await controller.images.load('img-1');
+    await controller.images.load('img-2', variant: 'original');
+    expect(controller.images.cached('img-1', variant: 'original'), isNotNull);
+
+    expect(
+      await controller.deletePost(
+        controller.posts.singleWhere(
+          (SpacePost p) => p.postId == 'post-1',
+        ),
+      ),
+      isTrue,
+    );
+
+    expect(controller.images.cached('img-1', variant: 'original'), isNull);
+    expect(controller.images.cached('img-1'), isNull);
+    expect(controller.images.cached('img-2', variant: 'original'), isNotNull);
+  });
+
+  test(
+    'deleting a post opened outside the feed invalidates its image cache',
+    () async {
+      final FakeSpaceGateway gateway = FakeSpaceGateway();
+      final SpacePost old = spacePost(
+        postId: 'old',
+        images: <SpaceImage>[spaceImage(imageId: 'img-old')],
+      );
+      final SpacePost live = spacePost(
+        postId: 'live',
+        images: <SpaceImage>[spaceImage(imageId: 'img-live')],
+      );
+      gateway.posts['old'] = old;
+      gateway.posts['live'] = live;
+      gateway.postPages[''] = spacePagePost(<SpacePost>[live]);
+      gateway.overviewResult = spaceOverview(latestEventId: 1);
+      final SpaceController controller = controllerFor(gateway);
+      await controller.start();
+      final SpaceDetailController detail = (await controller.openPost(
+        'old',
+      ))!;
+      await controller.images.load('img-old', variant: 'original');
+      await controller.images.load('img-live', variant: 'original');
+
+      gateway.eventPages.add(
+        spaceEventPage(<SpaceEvent>[
+          spaceEvent(eventId: 2, type: 'post.deleted', postId: 'old'),
+        ]),
+      );
+      await controller.pollEventsOnce();
+
+      expect(controller.images.cached('img-old', variant: 'original'), isNull);
+      expect(detail.deleted, isTrue);
+      expect(
+        controller.images.cached('img-live', variant: 'original'),
+        isNotNull,
+      );
+    },
+  );
+
+  test('detail local delete invalidates its owned images', () async {
+    final FakeSpaceGateway gateway = FakeSpaceGateway();
+    final SpacePost old = spacePost(
+      postId: 'old',
+      images: <SpaceImage>[spaceImage(imageId: 'img-old')],
+    );
+    gateway.posts['old'] = old;
+    gateway.postPages[''] = spacePagePost(<SpacePost>[]);
+    gateway.overviewResult = spaceOverview(latestEventId: 1);
+    final SpaceController controller = controllerFor(gateway);
+    await controller.start();
+    final SpaceDetailController detail = (await controller.openPost('old'))!;
+    await controller.images.load('img-old', variant: 'original');
+    expect(controller.images.cached('img-old', variant: 'original'), isNotNull);
+
+    expect(await detail.deletePost(), isTrue);
+
+    expect(controller.images.cached('img-old', variant: 'original'), isNull);
+  });
+
   test(
     'post.deleted event removes the post and invalidates its images',
     () async {

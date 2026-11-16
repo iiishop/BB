@@ -435,3 +435,50 @@ probe asserts a real 700 ms debounce has not fired during setup, and under
 parallel probe load that timing is not reliable. The serial run is the recorded
 evidence; it is not a skipped or weakened assertion. The 12 opt-in skips are
 unchanged.
+
+## Round 9: deletion entry points must invalidate owned images before dropping snapshots
+
+Sentinel's sixth QA round kept the previous image probes green but found two P1
+deletion entry points in `SPACE-DELETION-LATE-WRITE` (**0/2, exit 1**):
+
+1. **Local delete of a feed post left the original image cached.** Caching the
+   original, calling `SpaceController.deletePost`, then replaying the real
+   deletion event: the server returned 404 and the feed entry was gone, but the
+   bytes were still cached because the list record was removed before image
+   invalidation and the later event could no longer find the image owner.
+2. **A detail opened outside the first feed page kept its original image.** The
+   post was absent from the home list; `_applyEvent` looked for the image owner
+   only in `posts`, and `SpaceDetailController.onDeletedEvent` cleared the
+   detail without notifying the shared image loader.
+
+**Common fix.** `SpaceController._invalidateImagesForPostId` collects the owning
+snapshot from the feed, the pending page and the open detail, invalidating every
+owned image plus a reference image, and runs **before** that snapshot is
+removed. Both the remote `post.deleted` event and the local
+`_handlePostDeleted` path call it; a local delete from a detail flows through
+the same `onPostDeleted` callback before the detail is cleared. Per-image
+invalidation leaves unrelated surviving images cached.
+
+`contract_gap = none`; owner and sole fix author Muse; Forge remains the only
+integrator.
+
+Regressions were added to the existing `test/space_controller_test.dart` entry:
+local feed deletion invalidates original and thumbnail caches while an unrelated
+live image stays cached; a post opened only in a detail has its original
+invalidated on the deletion event; a detail-local delete invalidates its owned
+image.
+
+## Round 9 verification (same fixed tree)
+
+| Check | Command | Result | Log/exit |
+| --- | --- | --- | --- |
+| Analyzer | `flutter analyze` | exit 0, no issues | `round9/analyze.log`, `round9/analyze.exit` |
+| Focused Space suite | same 9 files | exit 0, **80 passed** | `round9/space-tests.log`, `round9/space-tests.exit` |
+| Full client suite | `flutter test` | exit 0, **704 passed, 12 skipped** | `round9/flutter-test-all.log`, `round9/flutter-test-all.exit` |
+| Real probes | `python3 run_real_probes.py` (19 probes, **`-j 1`**) | exit 0, **19 passed** | `round9/real-probes.log`, `round9/real-probes.exit`, `round9/server.log` |
+
+The round-6 probe source is copied byte-for-byte from Sentinel's
+`dea481-sentinel-qa6-ec65ac4.zip` (`round9/sentinel_round6_test.dart`); that
+bundle keeps the pre-fix 0/2 evidence. Probes stay serial because one
+upload-conflict probe asserts a real 700 ms debounce has not fired during
+setup; the recorded run is not skipped or weakened.
