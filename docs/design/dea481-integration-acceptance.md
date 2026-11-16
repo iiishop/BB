@@ -2,12 +2,12 @@
 
 Approved source is revision 1 in `dea481-approved-space.md`; original
 source/ownership mapping remains in `dea481-acceptance.md`. Code candidate:
-`6a4f0e096ace18da9eeea0e06f74a513b634e065` (second client QA repairs).
-The previous five counterexamples pass, but an actual upload-confirmation race
-still overwrites a newer external writer. Do not advance to automated_qa.
-See `docs/evidence/dea481-qa-round2/` for the new fixed-version
-evidence and bounded rework. This matrix maps evidence to portions
-of the approved cases. It does not mark the complete cases accepted.
+`ed901e02e9626cd91e193439aed205b9fb79423d` (third client QA repairs).
+All six confirmed counterexamples now pass against real isolated FastAPI and
+SpaceService, with their original assertions and source bytes preserved.
+See `docs/evidence/dea481-qa-round3/` for fresh combined evidence, coverage
+limits and package mapping. This matrix maps evidence to portions of the
+approved cases; it does not mark complete cases accepted.
 
 Evidence roots: **S** = `docs/evidence/dea481/` (unchanged server, 459 tests);
 **C** = `docs/evidence/dea481-client/` (Muse UI and screenshots, tested `d3856e3`);
@@ -27,19 +27,20 @@ and locally verified with the same plugin working directory in
 runtime test results and packages are reused with explicit tree/byte checks;
 new CI and the linked Windows package run are not claimed as completed.
 
-The second QA repairs are integrated. New execution: analyze PASS, 693 client
-passes / 12 skips, 14 Linux integration passes, and all five unchanged prior
-real probes PASS. An additional real upload-confirmation probe FAILS: a newer
-external writer's commit is silently overwritten after the read version becomes
-the pending local input's save baseline. T02/T17 remain unaccepted. The shared
-mechanism rework table and explicit coverage limits are in the new README.
-No new UI test package is issued for this failing candidate; previous UI binaries
-must not be represented as this runtime.
+The third QA repairs are integrated. **R** = `docs/evidence/dea481-qa-round3/`:
+analyze PASS, 694 client passes / 12 skips, 14 Linux integration passes and six
+unchanged real probes PASS. R supersedes earlier client suites for this runtime.
+The upload confirmation now preserves its receipt version boundary and conflicts
+on a newer differing server draft; previous failure logs remain versioned.
+Fresh Linux/Android test packages are mapped to this code SHA; unchanged local
+API and DSH artifacts retain their original byte/source provenance. Independent
+QA remains responsible for complete T01–T17 evaluation, including the bounded
+untested interleavings listed in R's README.
 
 | Case / approved source | Implementer / concrete evidence | Remaining verification or issue |
 | --- | --- | --- |
 | T01 §2, §9 | Forge S ten-image/order/publish; Muse `space_compose_test`, `space_feed_test`, `space_detail_test`; I native ten images and provider bytes, real gateway | Independent combined visual/user-path QA; real device/model limits remain |
-| T02 §2.1, §7.3 | S CAS/lost-reply/publish guards; Muse local-intent reconciliation; all five prior real probes now pass | **FAIL:** upload confirmation rebases pending local input onto a newer external writer's version and overwrites it. Muse owns version-boundary correction; no QA handoff yet |
+| T02 §2.1, §7.3 | S CAS/lost-reply/publish guards; Muse local-intent reconciliation; R six real probes pass, including upload receipt version fence | Independent QA of remaining interleavings; confirmation-read retry shares the tested helper but lacks a separate real retry-race probe |
 | T03 §7.3 | S fixed equal-timestamp pagination counterexample; Muse `space_controller_test`, `space_feed_test` | QA multi-page scroll/refresh on target platforms |
 | T04 §4.1 | S arbitrary depth and preview/pagination; Muse `space_detail_test`, C detail screenshots | Visual multi-level interaction QA |
 | T05 §5.3 | S exact recipient/context; Muse `space_notifications_test`, `space_detail_test`; I gateway notifications | Independent notification navigation/focus |
@@ -54,13 +55,13 @@ must not be represented as this runtime.
 | T14 §3.4 | Muse `space_shell_test`, `space_compose_test`, detail resize state; C narrow/wide/fold-sized screenshots | **Real folding/Android runtime NOT RUN**; APK build only |
 | T15 §8 | Forge sole schema/local adapter; A 114 plugin/46 targeted tests; I stock DSH 24 tools, ordered images, actual bytes | **Real model interpretation NOT RUN** |
 | T16 §8.3–4 | S auth/durable facts; A lost-reply/identity ledger; I real installed-host restart/settings persistence/disable/uninstall/no republish | **Real model/adversarial content and rendered native settings UI NOT RUN** |
-| T17 §3, §7.4 | Muse controller/feed/shell/auth-generation/capability tests; V final suite and five avatar regressions; I real auth regression; A account/consumer isolation | Initials-only avatar gap fixed by `4038c1f`; V real upload/render fails on old release and passes on new. QA account/server-switch UI and old-server experience |
+| T17 §3, §7.4 | Muse controller/feed/shell/auth-generation/capability tests; R final suite and five avatar regressions; I real auth regression; A account/consumer isolation | Initials-only avatar gap fixed by `4038c1f`; V real upload/render fails on old release and passes on new. QA account/server-switch UI and old-server experience |
 
 Forge owns service/state/contract corrections and sole integration. Muse owns
 independent UI corrections. The shared SpaceAvatar path (feed/detail/comments/
 people) now uses the existing authorized Profile entry; widget tests cover the
 shared store and root-Navigator likes sheet, while real release evidence covers
 feed upload/render. Visitors use the same sheet wrapper; that path has no separate
-real-release click test. Delivery Squad decides the next combined candidate and routes
-the fixed full candidate through automated_qa to Sentinel. No extra QA mention,
+real-release click test. Muse's registered once-only wakeup consumes Forge's final reply, verifies the
+new candidate and owns the automated_qa handoff to Sentinel. No extra QA mention,
 acceptance waiver, workflow transition, main merge or deployment is made here.

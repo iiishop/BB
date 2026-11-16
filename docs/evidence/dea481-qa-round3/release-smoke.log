@@ -1,0 +1,3 @@
+/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/docs/evidence/dea481-qa-round3/release_smoke.py:72: DeprecationWarning: Image.Image.getdata is deprecated and will be removed in Pillow 14 (2027-10-15). Use get_flattened_data instead.
+  colored = sum(r > 200 and 20 < g < 60 and 90 < b < 150 for r, g, b in crop.getdata())
+{"release_process_alive": true, "synthetic_post_count": 1, "window": "WINDOW=4194309\nX=1\nY=22\nWIDTH=1440\nHEIGHT=900\nSCREEN=0\n", "screenshot": "release-space.png", "scope": "Linux real release smoke, not a target-device acceptance"}

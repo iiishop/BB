@@ -1,0 +1,26 @@
+{
+  "candidate": "ed901e02e9626cd91e193439aed205b9fb79423d",
+  "developer_head": "e009647bd93fb1f4142f5b1d1e4827db95076c41",
+  "unchanged_paths": [
+    "server",
+    "dsh-plugin",
+    "client/bin",
+    "client/lib/services",
+    "client/lib/models",
+    "client/lib/config",
+    "client/pubspec.yaml",
+    "client/pubspec.lock",
+    ".github",
+    "client/windows"
+  ],
+  "ui_tree_matches_developer": true,
+  "ancestors_verified": [
+    "d402ba8",
+    "593e48f",
+    "4038c1f",
+    "0114e2c",
+    "2e5f758",
+    "9415fb8",
+    "e009647"
+  ]
+}
