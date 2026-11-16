@@ -355,6 +355,58 @@ void main() {
     },
   );
 
+  test(
+    'failed upload confirmation retry keeps a removed image removed',
+    () async {
+      final FakeSpaceGateway gateway = FakeSpaceGateway();
+      final SpaceOperation created = await gateway.createDraft(
+        operationId: 'create',
+        text: 'initial',
+      );
+      final String draftId = created.resourceId!;
+      await gateway.addImage(
+        draftId: draftId,
+        operationId: 'image-a',
+        expectedVersion: 1,
+        filename: 'a.png',
+        bytes: spaceTinyPng,
+      );
+      final SpaceComposeController controller = SpaceComposeController(
+        gateway: gateway,
+        store: SpaceLocalStore(scopeKey: gateway.scopeKey),
+        draftId: draftId,
+        picker: () async => PickedSpaceImage(
+          bytes: spaceTinyPng,
+          filename: 'b.png',
+        ),
+      );
+      addTearDown(controller.dispose);
+      await controller.start();
+      final String removedId = controller.images.single.imageId;
+
+      gateway.addImageCommitted = Completer<SpaceOperation>();
+      gateway.addImageGate = Completer<void>();
+      final Future<void> uploading = controller.addImage();
+      await gateway.addImageCommitted!.future;
+      await controller.removeImage(removedId);
+      expect(controller.images, isEmpty);
+      expect(controller.phase, DraftSavePhase.conflict);
+
+      // The first confirmation read fails; the retry must still reconcile
+      // against the image intent captured when the upload was admitted.
+      gateway.failNext('get_draft', upstreamUnavailable);
+      gateway.addImageGate!.complete();
+      await uploading;
+      expect(controller.pending.single.uploaded, isTrue);
+      await controller.retryUpload(controller.pending.single);
+
+      expect(
+        controller.images.any((SpaceImage i) => i.imageId == removedId),
+        isFalse,
+      );
+    },
+  );
+
   testWidgets('offline input stays local and survives reopening the draft', (
     WidgetTester tester,
   ) async {

@@ -180,3 +180,57 @@ The upload-conflict probe source is copied byte-for-byte from Forge's
 `docs/evidence/dea481-qa-round2/upload_conflict_probe_test.dart`
 (`round3/upload_conflict_probe_test.dart`). The 12 skips are unchanged; no
 assertion was loosened.
+
+## Round 4: Sentinel rejection on candidate `35c9223`
+
+Sentinel re-verified the six existing real-service probes as **6/6 passed**, then
+found two new P1 failures (**0/2, exit 1, both target assertions**):
+
+1. **T02/T17 upload-retry restored a removed image.** Draft had image A; upload
+   B committed but its receipt was delayed; A was removed during the upload and
+   a real old-version save returned `version_conflict`; the confirmation read
+   then failed once, and the retry restored A. `_refreshDraftImages` re-read the
+   local order at retry time, so `_reconcileAfterUpload` saw "no local change".
+   This is the fourth instance of `root_cause_id=SPACE-DRAFT-ACK-LOCAL-STATE`.
+2. **T07 a stale refresh response resurrected deleted content.** A refresh page
+   was read from the server but delayed; another operation deleted A, the client
+   applied the real deletion event (A gone, B's reference text cleared); the old
+   page then reinserted A through `_loadFeedFirst`. Deletion invalidation only
+   covered the then-current cache, not late-arriving writes.
+
+**Fixes (common boundary, not per-probe):**
+
+- `PendingDraftImage` now records `localOrderAtAdmission` /
+  `serverOrderAtAdmission`. `_refreshDraftImages` reconciles with that snapshot,
+  so an image removed during the upload stays removed across a failed
+  confirmation read and retry; a retry that sees a genuinely newer external
+  version still conflicts.
+- `SpaceController` keeps a deletion tombstone set fed by both remote
+  `post.deleted` events and local deletion. Every incoming feed write is
+  admitted through one filter: initial/refresh replacement, `loadMore` append,
+  and pending-page application drop tombstoned posts and scrub references to a
+  tombstoned post. `SpaceDetailController` receives the same lookup, rejects a
+  late detail response whose post is tombstoned, and scrubs a moved reference
+  before rendering it. A response captured before deletion cannot restore the
+  deleted post or its text.
+- `contract_gap=none`; owner and sole fix author Muse; Forge remains the only
+  integrator.
+
+Regressions were added to the existing entries `test/space_compose_test.dart`
+(failed confirmation retry keeps a removed image removed) and
+`test/space_controller_test.dart` (stale refresh cannot resurrect a deleted
+post/reference; stale detail keeps a deleted reference invalidated).
+
+## Round 4 verification (same fixed tree)
+
+| Check | Command | Result | Log/exit |
+| --- | --- | --- | --- |
+| Analyzer | `flutter analyze` | exit 0, no issues | `round4/analyze.log`, `round4/analyze.exit` |
+| Focused Space suite | same 9 files | exit 0, **68 passed** | `round4/space-tests.log`, `round4/space-tests.exit` |
+| Full client suite | `flutter test` | exit 0, **692 passed, 12 skipped** | `round4/flutter-test-all.log`, `round4/flutter-test-all.exit` |
+| Real probes | `python3 run_real_probes.py` (8 probes: the prior six + Sentinel round-2's two) | exit 0, **8 passed** | `round4/real-probes.log`, `round4/real-probes.exit`, `round4/server.log` |
+
+The round-2 probe source is copied byte-for-byte from Sentinel's
+`dea481-sentinel-qa2-35c9223f.zip` (`round4/sentinel_round2_test.dart`); that
+bundle keeps the pre-fix 0/2 evidence. The 12 skips are unchanged; no assertion
+was loosened.

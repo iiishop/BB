@@ -47,6 +47,12 @@ class PendingDraftImage {
   /// newer version written by someone else; that is a fence, not a new
   /// baseline for local input.
   int? confirmedVersion;
+
+  /// Local image intent when the upload started. A confirmation retry must
+  /// reconcile against this snapshot, not against whatever _order holds by
+  /// then, or an image removed during the upload is treated as "no change".
+  List<String> localOrderAtAdmission = <String>[];
+  List<String> serverOrderAtAdmission = <String>[];
 }
 
 /// Draft editor state. It owns no business fact: the server draft is
@@ -534,8 +540,12 @@ class SpaceComposeController extends ChangeNotifier {
     if (id == null) {
       return;
     }
-    final List<String> localOrder = List<String>.of(_order);
-    final List<String> serverBefore = List<String>.of(_serverOrder);
+    final List<String> localOrder = List<String>.of(
+      item.localOrderAtAdmission,
+    );
+    final List<String> serverBefore = List<String>.of(
+      item.serverOrderAtAdmission,
+    );
     item.uploading = true;
     _notify();
     try {
@@ -634,6 +644,8 @@ class SpaceComposeController extends ChangeNotifier {
     }
     final List<String> localOrder = List<String>.of(_order);
     final List<String> serverBefore = List<String>.of(_serverOrder);
+    item.localOrderAtAdmission = List<String>.of(_order);
+    item.serverOrderAtAdmission = List<String>.of(_serverOrder);
     item.uploading = true;
     item.error = null;
     _notify();

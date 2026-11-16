@@ -63,6 +63,12 @@ class FakeSpaceGateway implements SpaceGateway {
   Completer<SpaceOperation>? addImageCommitted;
   Completer<void>? addImageGate;
 
+  /// Delays one `listPosts` response after the page was read, so a test can
+  /// apply a deletion event before the stale page lands.
+  bool holdListPosts = false;
+  Completer<void>? listPostsCaptured;
+  Completer<void>? listPostsGate;
+
   final List<String> calls = <String>[];
   final List<({String postId, String? visitId})> getPostCalls =
       <({String postId, String? visitId})>[];
@@ -107,7 +113,20 @@ class FakeSpaceGateway implements SpaceGateway {
     bool unreadOnly = false,
   }) async {
     _record('list_posts');
-    return postPages[cursor ?? ''] ?? spacePagePost(const <SpacePost>[]);
+    final SpacePagePost page =
+        postPages[cursor ?? ''] ?? spacePagePost(const <SpacePost>[]);
+    if (holdListPosts) {
+      holdListPosts = false;
+      final Completer<void>? captured = listPostsCaptured;
+      if (captured != null && !captured.isCompleted) {
+        captured.complete();
+      }
+      final Completer<void>? gate = listPostsGate;
+      if (gate != null) {
+        await gate.future;
+      }
+    }
+    return page;
   }
 
   @override

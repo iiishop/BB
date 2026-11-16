@@ -198,3 +198,19 @@ on `PendingDraftImage.confirmedVersion` so confirmation retries preserve the
 same fence. Regression added to `test/space_compose_test.dart`; all six real
 probes pass (`docs/evidence/dea481-client/qa-fixes/round3/`). Current suite:
 689 passed / 12 skipped, Space 65 passed.
+
+### Late-response fences (`SPACE-DRAFT-ACK-LOCAL-STATE`, round 4)
+
+Sentinel's second QA round found two late-response holes. The draft editor now
+stores the local and server image order at upload admission on
+`PendingDraftImage`, so a failed confirmation read and retry reconcile against
+the original intent instead of the current order — an image removed during the
+upload stays removed, while a genuinely newer external version still conflicts.
+
+The feed and detail controllers keep deletion tombstones: every incoming feed
+write (initial/refresh replacement, pagination append, pending-page apply) is
+filtered against them, references to a deleted post are scrubbed, and a late
+detail response for a deleted post or reference cannot restore it. Regressions
+are in `test/space_compose_test.dart` and `test/space_controller_test.dart`; all
+eight real probes pass (`docs/evidence/dea481-client/qa-fixes/round4/`).
+Current suite: 692 passed / 12 skipped, Space 68 passed.
