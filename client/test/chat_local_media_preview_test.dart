@@ -140,4 +140,52 @@ void main() {
     expect(chat.mediaBytesCalls, isNot(contains('peer-image')));
     expect(chat.originalCalls, isEmpty);
   });
+
+  testWidgets('a visible image asks for its preview once, not on every rebuild', (
+    WidgetTester tester,
+  ) async {
+    final ChatMessage withImage = ChatMessage(
+      id: 'm1',
+      position: 1,
+      senderAccount: _bob.account,
+      targetAccount: _self.account,
+      createdAt: DateTime.utc(2026, 1, 1, 12),
+      kind: ChatMessageKind.body,
+      parts: <MessagePart>[ImagePart('media-1')],
+    );
+    final FakeChatService chat = FakeChatService(
+      self: _self,
+      users: const <ChatUser>[_bob],
+      conversations: <String, List<ChatMessage>>{
+        _bob.account: <ChatMessage>[withImage],
+      },
+    );
+
+    tester.view.physicalSize = const Size(430, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    Widget build() => MaterialApp(
+      home: ChatPage(peer: _bob, chat: chat, profile: FakeProfileGateway()),
+    );
+
+    await tester.pumpWidget(build());
+    await tester.pumpAndSettle();
+    final int afterFirstBuild = chat.listPreviewCalls.length;
+    expect(afterFirstBuild, greaterThan(0));
+
+    // A rebuild and a poll tick must not re-fetch the same image: creating the
+    // future inside build did exactly that on every ancestor setState.
+    await tester.pumpWidget(build());
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pumpAndSettle();
+
+    expect(
+      chat.listPreviewCalls.length,
+      afterFirstBuild,
+      reason: '同一条消息的图片只请求一次，rebuild 不该重拉 media',
+    );
+    expect(tester.takeException(), isNull);
+  });
 }

@@ -657,10 +657,19 @@ class ChatService {
       beforePosition: beforePosition,
       limit: limit.clamp(1, 100),
     );
-    await ledger.observeMessageAssociations(
-      captured.account,
-      page.items,
-      peerAccount: peerAccount,
+    // Bookkeeping only, and it must not delay the first frame: every message
+    // carrying an operation id costs a local read (often a write too), serially,
+    // so awaiting it here put up to 200 local round trips in front of the open.
+    unawaited(
+      ledger
+          .observeMessageAssociations(
+            captured.account,
+            page.items,
+            peerAccount: peerAccount,
+          )
+          // The page is already rendered; a ledger problem is reconciled on the
+          // next load and must never surface as a failed conversation.
+          .catchError((Object _) {}),
     );
     if (!session.isCurrent(captured)) {
       throw unauthenticated;
