@@ -70,10 +70,10 @@ def test_read_snapshot_acquisition_recovers_from_exclusive_lock(tmp_path, monkey
     with external_lock(path, "EXCLUSIVE") as release:
         timer = threading.Timer(1.3, release)
 
-        def boundary(db, statement, deadline):
+        def boundary(db, statement):
             if statement.startswith("SELECT"):
                 timer.start()
-            return original(db, statement, deadline)
+            return original(db, statement)
 
         monkeypatch.setattr(storage, "_lock_statement", boundary)
         try:
@@ -110,7 +110,8 @@ def test_login_recovers_after_more_than_old_timeout(tmp_path, caplog, monkeypatc
             finally:
                 timer.join()
             assert result.status_code == 200
-        assert "storage_lock_recovered" in caplog.text
+        # SQLite waited internally; no application-level retry line is expected.
+        assert "storage_lock_retry" not in caplog.text
         with sqlite3.connect(path) as db:
             assert db.execute("SELECT count(*) FROM sessions").fetchone()[0] == 2
 
@@ -145,10 +146,10 @@ def test_commit_busy_retries_same_body_and_expiry_rolls_back(tmp_path, monkeypat
     entered = threading.Event()
     original = storage._lock_statement
 
-    def boundary(db, statement, deadline):
+    def boundary(db, statement):
         if statement == "COMMIT":
             entered.set()
-        return original(db, statement, deadline)
+        return original(db, statement)
 
     monkeypatch.setattr(storage, "_lock_statement", boundary)
     calls = []
