@@ -1,0 +1,35 @@
+{"protocolVersion":"0.1.1","runnerVersion":null,"pid":1014153,"type":"start","time":0}
+{"suite":{"id":0,"platform":"vm","path":"/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/BB/client/.qa-artifacts/probes/sentinel_round5_test.dart"},"type":"suite","time":0}
+{"test":{"id":1,"name":"loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/BB/client/.qa-artifacts/probes/sentinel_round5_test.dart","suiteID":0,"groupIDs":[],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":null},"type":"testStart","time":0}
+{"count":5,"time":3,"type":"allSuites"}
+{"testID":1,"result":"success","skipped":false,"hidden":true,"type":"testDone","time":1460}
+{"group":{"id":2,"suiteID":0,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":1,"line":null,"column":null,"url":null},"type":"group","time":1462}
+{"test":{"id":3,"name":"T07 deleted image cannot reenter cache through a late response","suiteID":0,"groupIDs":[2],"metadata":{"skip":false,"skipReason":null},"line":37,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/BB/client/.qa-artifacts/probes/sentinel_round5_test.dart"},"type":"testStart","time":1462}
+{"testID":3,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":1830}
+{"suite":{"id":4,"platform":"vm","path":"/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/BB/client/.qa-artifacts/probes/sentinel_round5_widget_test.dart"},"type":"suite","time":1844}
+{"test":{"id":5,"name":"loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/BB/client/.qa-artifacts/probes/sentinel_round5_widget_test.dart","suiteID":4,"groupIDs":[],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":null},"type":"testStart","time":1844}
+{"testID":5,"result":"success","skipped":false,"hidden":true,"type":"testDone","time":2357}
+{"group":{"id":6,"suiteID":4,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":1,"line":null,"column":null,"url":null},"type":"group","time":2357}
+{"test":{"id":7,"name":"T07 open viewer stops displaying image after deletion event","suiteID":4,"groupIDs":[6],"metadata":{"skip":false,"skipReason":null},"line":174,"column":5,"url":"package:flutter_test/src/widget_tester.dart","root_line":11,"root_column":3,"root_url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/BB/client/.qa-artifacts/probes/sentinel_round5_widget_test.dart"},"type":"testStart","time":2357}
+{"testID":7,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":3038}
+{"suite":{"id":8,"platform":"vm","path":"/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/BB/client/.qa-artifacts/probes/sentinel_round6_test.dart"},"type":"suite","time":3048}
+{"test":{"id":9,"name":"loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/BB/client/.qa-artifacts/probes/sentinel_round6_test.dart","suiteID":8,"groupIDs":[],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":null},"type":"testStart","time":3048}
+{"testID":9,"result":"success","skipped":false,"hidden":true,"type":"testDone","time":3387}
+{"group":{"id":10,"suiteID":8,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":2,"line":null,"column":null,"url":null},"type":"group","time":3388}
+{"test":{"id":11,"name":"T07 local delete followed by replay clears own original cache","suiteID":8,"groupIDs":[10],"metadata":{"skip":false,"skipReason":null},"line":9,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/BB/client/.qa-artifacts/probes/sentinel_round6_test.dart"},"type":"testStart","time":3388}
+{"testID":11,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":3735}
+{"test":{"id":12,"name":"T07 deletion of detail outside first feed page clears original cache","suiteID":8,"groupIDs":[10],"metadata":{"skip":false,"skipReason":null},"line":29,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/BB/client/.qa-artifacts/probes/sentinel_round6_test.dart"},"type":"testStart","time":3735}
+{"testID":12,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":4742}
+{"suite":{"id":13,"platform":"vm","path":"/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/BB/client/.qa-artifacts/probes/detail_reference_image_probe_test.dart"},"type":"suite","time":4752}
+{"test":{"id":14,"name":"loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/BB/client/.qa-artifacts/probes/detail_reference_image_probe_test.dart","suiteID":13,"groupIDs":[],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":null},"type":"testStart","time":4752}
+{"testID":14,"result":"success","skipped":false,"hidden":true,"type":"testDone","time":5054}
+{"group":{"id":15,"suiteID":13,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":1,"line":null,"column":null,"url":null},"type":"group","time":5054}
+{"test":{"id":16,"name":"T07 detail-only repost source deletion invalidates both image variants","suiteID":13,"groupIDs":[15],"metadata":{"skip":false,"skipReason":null},"line":9,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/BB/client/.qa-artifacts/probes/detail_reference_image_probe_test.dart"},"type":"testStart","time":5054}
+{"testID":16,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":6328}
+{"suite":{"id":17,"platform":"vm","path":"/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/BB/client/.qa-artifacts/probes/closed_detail_image_probe_test.dart"},"type":"suite","time":6337}
+{"test":{"id":18,"name":"loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/BB/client/.qa-artifacts/probes/closed_detail_image_probe_test.dart","suiteID":17,"groupIDs":[],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":null},"type":"testStart","time":6337}
+{"testID":18,"result":"success","skipped":false,"hidden":true,"type":"testDone","time":6699}
+{"group":{"id":19,"suiteID":17,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":1,"line":null,"column":null,"url":null},"type":"group","time":6700}
+{"test":{"id":20,"name":"T07 closing all details retains deletion authority over cached source images","suiteID":17,"groupIDs":[19],"metadata":{"skip":false,"skipReason":null},"line":9,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/BB/client/.qa-artifacts/probes/closed_detail_image_probe_test.dart"},"type":"testStart","time":6700}
+{"testID":20,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":8181}
+{"success":true,"type":"done","time":8192}

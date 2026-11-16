@@ -2,12 +2,13 @@
 
 Approved source is revision 1 in `dea481-approved-space.md`; original
 source/ownership mapping remains in `dea481-acceptance.md`. Code candidate:
-`ae99e76280eb0edc68e7388d29dd6f1c5a618cae` (tenth client QA repairs).
-The two detail-owner image-cache failures now pass unchanged. Requested 21
-checks plus two original retry controls pass (23 total, 22 real-service and one
-fixture-network viewer widget). See `docs/evidence/dea481-qa-round10/` for logs,
-source/version mapping and bounded coverage. Earlier failures are preserved.
-This maps portions of approved cases, not complete acceptance.
+`3b20470da74c661f40e2f934b013f62b8ef765e4` (eleventh client QA repair).
+The live-source viewer now survives deletion of its repost. Requested 23 probes
+plus two retry controls pass (25 total). This includes two fixture-network widgets
+and one real exploratory cache probe excluded by Sentinel as current-UI
+unreachable; do not count that exploration as a defect or user acceptance proof.
+See `docs/evidence/dea481-qa-round11/` for original failures, source mapping and
+coverage classification. This maps portions of cases, not complete acceptance.
 
 Evidence roots: **S** = `docs/evidence/dea481/` (unchanged server, 459 tests);
 **C** = `docs/evidence/dea481-client/` (Muse UI and screenshots, tested `d3856e3`);
@@ -27,16 +28,16 @@ and locally verified with the same plugin working directory in
 runtime test results and packages are reused with explicit tree/byte checks;
 new CI and the linked Windows package run are not claimed as completed.
 
-The tenth QA repairs are integrated. **R** = `docs/evidence/dea481-qa-round10/`:
-analyze PASS, 711 client passes / 12 skips, 14 Linux integration passes.
-Requested 21 checks pass (20 real-service + one fixture-network viewer widget);
-two original real retry controls also pass, 23 total, zero probe skips.
-Controller-owned post/image associations now outlive back/close of details;
-both original returned-reference and closed-owner real cases pass without source
-or assertion changes. Equivalent permanent cases run in the existing controller
-suite. Feed/detail admission observes own image IDs and deletion invalidates the
-recorded IDs through the existing generation mechanism. No new disk/wire store.
-Fresh UI/source packages use this runtime, superseding 6ff6f82 UI binaries.
+The eleventh repair is integrated. **R** = `docs/evidence/dea481-qa-round11/`:
+analyze PASS, 712 client passes / 12 skips, 14 Linux integration passes.
+Requested 23 probes pass: 20 prior real-service checks, two actual page/polling
+widgets with fixture transport and one excluded real exploratory reference-cache
+check. Two retained real retry controls also pass: 25 total, zero skips/errors.
+Deleting a repost now invalidates only its own image IDs. References are scrubbed
+and their images invalidated only when the source is deleted, including open
+details. The added permanent regression is in the existing detail widget suite;
+controller tests are unchanged in this delivery. All previous owner-lifetime
+failures still pass. Fresh UI/source packages supersede ae99e76 UI binaries.
 Independent QA retains complete T01–T17 acceptance and remaining lifecycle checks.
 
 | Case / approved source | Implementer / concrete evidence | Remaining verification or issue |
@@ -47,7 +48,7 @@ Independent QA retains complete T01–T17 acceptance and remaining lifecycle che
 | T04 §4.1 | S arbitrary depth and preview/pagination; Muse `space_detail_test`, C detail screenshots | Visual multi-level interaction QA |
 | T05 §5.3 | S exact recipient/context; Muse `space_notifications_test`, `space_detail_test`; I gateway notifications | Independent notification navigation/focus |
 | T06 §4.2 | S direct reference/counts; Muse controller/detail navigation tests; A shared contract path | Manual back-stack/reference UX |
-| T07 §6.1–3 | S tombstones/protected media/shared blob; Muse controller/detail invalidation; I TCP delete invalidation and host deleted-image refusal; R stale refresh passes | R returned-reference and closed-detail cache probes now pass unchanged, both variants removed and unrelated image preserved; original 0/2 retained. Native save dialog, deletion during save, untested lifecycle combinations and target-platform QA remain |
+| T07 §6.1–3 | S tombstones/protected media/shared blob; Muse controller/detail invalidation; I TCP delete invalidation and host deleted-image refusal; R stale refresh passes | R prior owner-lifetime probes pass; new fixture widget preserves live A viewer when repost B is deleted. Exploratory reference-cache check is UI-unreachable and excluded from acceptance. Native save dialog, deletion during save, untested lifecycle combinations and target-platform QA remain |
 | T08 §6.2 | S delete-parent/retain-descendants ACL; Muse detail/controller placeholder/reply tests; R real loaded-preview/notification redaction and delayed reply-page probes | Independent rendered long-thread verification and remaining context/notification race combinations |
 | T09 §5.1–2 | S sparse read/visit idempotency; Muse controller lifecycle tests; I installed host explicit read and visit dedup | Device foreground/background lifecycle |
 | T10 §5.2 | S author-only visitor query/no visit notification; I real gateway 403 and TCP identity checks | UI people-page navigation QA |

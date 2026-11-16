@@ -1,0 +1,71 @@
+{
+  "candidate_sha": "16681978cebc45eb25fe8cc765ac0716e524d2b4",
+  "rules": [
+    {
+      "id": "known0",
+      "rule": "T07 deleted image cannot reenter cache through a late response",
+      "entry": "SpaceController deletion entry to SpaceImageLoader cache and viewer",
+      "status": "tested",
+      "run": "known/run.json",
+      "testcase": {
+        "classname": ".qa-artifacts/probes/sentinel_round5_test.dart",
+        "name": "T07 deleted image cannot reenter cache through a late response"
+      }
+    },
+    {
+      "id": "known1",
+      "rule": "T07 open viewer stops displaying image after deletion event",
+      "entry": "SpaceController deletion entry to SpaceImageLoader cache and viewer",
+      "status": "tested",
+      "run": "known/run.json",
+      "testcase": {
+        "classname": ".qa-artifacts/probes/sentinel_round5_widget_test.dart",
+        "name": "T07 open viewer stops displaying image after deletion event"
+      }
+    },
+    {
+      "id": "known2",
+      "rule": "T07 local delete followed by replay clears own original cache",
+      "entry": "SpaceController deletion entry to SpaceImageLoader cache and viewer",
+      "status": "tested",
+      "run": "known/run.json",
+      "testcase": {
+        "classname": ".qa-artifacts/probes/sentinel_round6_test.dart",
+        "name": "T07 local delete followed by replay clears own original cache"
+      }
+    },
+    {
+      "id": "known3",
+      "rule": "T07 deletion of detail outside first feed page clears original cache",
+      "entry": "SpaceController deletion entry to SpaceImageLoader cache and viewer",
+      "status": "tested",
+      "run": "known/run.json",
+      "testcase": {
+        "classname": ".qa-artifacts/probes/sentinel_round6_test.dart",
+        "name": "T07 deletion of detail outside first feed page clears original cache"
+      }
+    },
+    {
+      "id": "known4",
+      "rule": "T07 detail-only repost source deletion invalidates both image variants",
+      "entry": "SpaceController deletion entry to SpaceImageLoader cache and viewer",
+      "status": "tested",
+      "run": "known/run.json",
+      "testcase": {
+        "classname": ".qa-artifacts/probes/detail_reference_image_probe_test.dart",
+        "name": "T07 detail-only repost source deletion invalidates both image variants"
+      }
+    },
+    {
+      "id": "known5",
+      "rule": "T07 closing all details retains deletion authority over cached source images",
+      "entry": "SpaceController deletion entry to SpaceImageLoader cache and viewer",
+      "status": "tested",
+      "run": "known/run.json",
+      "testcase": {
+        "classname": ".qa-artifacts/probes/closed_detail_image_probe_test.dart",
+        "name": "T07 closing all details retains deletion authority over cached source images"
+      }
+    }
+  ]
+}

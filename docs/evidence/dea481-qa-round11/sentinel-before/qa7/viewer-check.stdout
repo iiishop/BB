@@ -1,0 +1,1 @@
+{"status": "rejected", "candidate_sha": "16681978cebc45eb25fe8cc765ac0716e524d2b4", "gaps": ["environment/runner error is not an assertion counterexample"], "evidence_paths": ["../qa7/viewer-report.json"]}

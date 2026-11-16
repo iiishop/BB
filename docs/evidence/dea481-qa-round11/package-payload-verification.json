@@ -1,0 +1,8 @@
+{
+  "bb-space-test-0.0.2+dea481.3b20470-linux-x86_64.tar.gz": {
+    "payload_files_identical_to_smoked_build": 21
+  },
+  "bb-space-test_0.0.2+dea481.3b20470_amd64.deb": {
+    "payload_files_identical_to_smoked_build": 21
+  }
+}
