@@ -2,10 +2,11 @@
 
 import base64
 import json
+from pathlib import Path
 
 from bb_auth_contract import ContractError, space, structural_error
 from mcp.types import CallToolResult, ImageContent, TextContent
-from pydantic import ValidationError
+from pydantic import Field, ValidationError, model_validator
 
 # HTTP replay is an internal adapter primitive, not an autonomous wakeup tool.
 SPACE_TOOLS = {
@@ -51,7 +52,78 @@ DETAILS = {
     "space_ack_notifications": "Acknowledge only each explicitly selected notification_id and the version actually observed.",
     "space_mark_read": "Explicitly mark only selected post_ids read; independent from visits and interaction notifications.",
     "space_list_visitors": "Author-only visitor detail; other accounts may query get_view_summary total only.",
+    "space_add_image": "Append one image to a draft. Pass a local file path (preferred) and this adapter reads the bytes itself; inline base64 works for callers that already hold the bytes. Supply exactly one.",
 }
+
+
+class AddImageInput(space.AddImage):
+    """Tool-level input for space_add_image.
+
+    ``base64`` is the HTTP body's wire format, not something a model can
+    produce: a 1.4 MB photo becomes roughly 1.9 MB of text, far past any
+    tool-call budget, and two tool calls cannot hand raw bytes to each other.
+    A local agent therefore hands over a path and the adapter reads the file.
+    """
+
+    base64: str = Field(
+        default="",
+        max_length=4 * ((space.MAX_IMAGE_BYTES + 2) // 3),
+        description="Inline image bytes, base64-encoded. Only for callers that already hold the bytes in the conversation.",
+    )
+    filename: str = Field(
+        default="",
+        max_length=255,
+        description="File name kept with the upload. Defaults to the source file's name.",
+    )
+    path: str = Field(
+        default="",
+        max_length=4096,
+        description="Local absolute path to the image. This adapter reads the file and uploads it — use this rather than pasting base64.",
+    )
+
+    @model_validator(mode="after")
+    def one_source(self):
+        if bool(self.base64) == bool(self.path):
+            raise ValueError("supply exactly one of path or base64")
+        return self
+
+
+TOOL_SCHEMAS = {
+    "space_" + name: model.model_json_schema()
+    for name, model in space.REQUESTS.items()
+    if name != "read_events"
+}
+TOOL_SCHEMAS["space_add_image"] = AddImageInput.model_json_schema()
+
+
+def materialize_image(tool_input):
+    """Read a tool-level image input into the contract's wire payload."""
+    data = tool_input.base64
+    filename = tool_input.filename
+    if tool_input.path:
+        file = Path(tool_input.path).expanduser()
+        if not file.is_file():
+            raise ContractError(422, "validation_error", "image path is not a readable file")
+        size = file.stat().st_size
+        if size == 0:
+            raise ContractError(422, "validation_error", "image file is empty")
+        if size > space.MAX_IMAGE_BYTES:
+            raise ContractError(
+                413,
+                "payload_too_large",
+                f"image is {size} bytes; limit is {space.MAX_IMAGE_BYTES}",
+            )
+        data = base64.b64encode(file.read_bytes()).decode()
+        filename = filename or file.name
+    if not filename:
+        raise ContractError(422, "validation_error", "filename is required with inline base64")
+    return space.AddImage(
+        operation_id=tool_input.operation_id,
+        draft_id=tool_input.draft_id,
+        expected_version=tool_input.expected_version,
+        filename=filename,
+        base64=data,
+    ).model_dump()
 
 
 def description(name):
@@ -66,7 +138,12 @@ async def invoke_space(client, name, arguments):
 
     try:
         try:
-            payload = SPACE_TOOLS[name].model_validate(arguments).model_dump()
+            if name == "space_add_image":
+                # The tool input carries a path or inline bytes; the contract
+                # payload always carries base64.
+                payload = materialize_image(AddImageInput.model_validate(arguments))
+            else:
+                payload = SPACE_TOOLS[name].model_validate(arguments).model_dump()
         except ValidationError as error:
             raise structural_error(error.errors(include_input=False)) from None
         body = await client.call(name, payload)

@@ -15,7 +15,7 @@ from mcp.server.lowlevel import Server
 from mcp.types import CallToolResult, TextContent, Tool, ToolAnnotations
 from pydantic import ValidationError
 
-from .space_tools import SPACE_TOOLS, description, invoke_space
+from .space_tools import SPACE_TOOLS, TOOL_SCHEMAS, description, invoke_space
 
 
 class LocalClient:
@@ -136,13 +136,13 @@ def create_server(client: LocalClient, guarded=None) -> Server:
             )
             for name, model in TOOL_MODELS.items()
         ] + [Tool(name=name, description=description(name),
-                  inputSchema=model.model_json_schema(),
+                  inputSchema=TOOL_SCHEMAS[name],
                   annotations=ToolAnnotations(
-                      readOnlyHint='operation_id' not in model.model_fields and name != 'space_get_post',
+                      readOnlyHint='operation_id' not in SPACE_TOOLS[name].model_fields and name != 'space_get_post',
                       destructiveHint='delete' in name,
                       idempotentHint=True,
                       openWorldHint=True,
-                  )) for name, model in SPACE_TOOLS.items()]
+                  )) for name in SPACE_TOOLS]
 
     # The shared parser emits the agreed structured 422 envelope, including missing/type.
     @server.call_tool(validate_input=False)
