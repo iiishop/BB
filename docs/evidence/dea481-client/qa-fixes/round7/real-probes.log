@@ -1,0 +1,17 @@
+00:00 +0: loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/space_defect_probe_test.dart
+00:00 +0: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/space_defect_probe_test.dart: real T02 delayed save publishes visible text
+00:01 +1: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/space_defect_probe_test.dart: real T02 delayed save publishes visible text
+00:01 +2: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/space_defect_probe_test.dart: real T02 delayed save publishes visible text
+00:01 +3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/space_defect_probe_test.dart: real T02 delayed save publishes visible text
+00:02 +4: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/space_defect_probe_test.dart: real T02 delayed save publishes visible text
+00:02 +5: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/space_defect_probe_test.dart: real T02 delayed save publishes visible text
+00:02 +6: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/space_defect_probe_test.dart: real T02 delayed save publishes visible text
+00:02 +7: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/sentinel_round4_test.dart: deleted comment notification must match unavailable server state after late page
+00:02 +8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/sentinel_round4_test.dart: deleted comment notification must match unavailable server state after late page
+00:02 +9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/sentinel_round4_test.dart: deleted comment notification must match unavailable server state after late page
+00:03 +10: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/sentinel_round4_test.dart: deleted comment notification must match unavailable server state after late page
+00:03 +11: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/sentinel_round4_test.dart: deleted comment notification must match unavailable server state after late page
+00:03 +12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/sentinel_round4_test.dart: deleted comment notification must match unavailable server state after late page
+00:03 +13: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/sentinel_round4_controls_test.dart: deleting repost source preserves notification to surviving repost target
+00:03 +14: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/.qa-artifacts/probes/sentinel_round4_test.dart: post deletion invalidates loaded and late notification snapshots
+00:03 +15: All tests passed!
