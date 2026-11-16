@@ -1,0 +1,94 @@
+I001 [*] Import block is un-sorted or un-formatted
+  --> tests/test_profile_stdio.py:3:1
+   |
+ 1 |   """Real stdio/HTTP transport; logical-client responses are explicit test doubles."""
+ 2 |
+ 3 | / import json
+ 4 | | import sys
+ 5 | | import threading
+ 6 | | from datetime import timedelta
+ 7 | | from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+ 8 | |
+ 9 | | from bb_dsh_plugin.guarded import TOOL_MODELS
+10 | | from bb_dsh_plugin.space_tools import SPACE_TOOLS
+11 | | from guarded_fixture import IDENTITY, OWNER
+12 | | from mcp import ClientSession, StdioServerParameters
+13 | | from mcp.client.stdio import stdio_client
+14 | | from test_profile_contract import PNG
+   | |_____________________________________^
+help: Organize imports
+   |
+8  |
+   - from bb_dsh_plugin.guarded import TOOL_MODELS
+   - from bb_dsh_plugin.space_tools import SPACE_TOOLS
+9  | from guarded_fixture import IDENTITY, OWNER
+--------------------------------------------------------------------------------
+13 |
+14 + from bb_dsh_plugin.guarded import TOOL_MODELS
+15 + from bb_dsh_plugin.space_tools import SPACE_TOOLS
+16 +
+17 |
+   |
+
+I001 [*] Import block is un-sorted or un-formatted
+  --> tests/test_space_tools.py:3:1
+   |
+ 1 |   """Shared-schema transport doubles; real process/host gates live in probes/space*.py."""
+ 2 |
+ 3 | / import json
+ 4 | |
+ 5 | | import httpx
+ 6 | | import pytest
+ 7 | | from bb_auth_contract import space
+ 8 | | from bb_dsh_plugin.guarded import AwaitingBinding, GuardedTransport
+ 9 | | from bb_dsh_plugin.plugin import LocalClient, create_server
+10 | | from bb_dsh_plugin.space_tools import SPACE_TOOLS, invoke_space
+11 | | from mcp.types import ListToolsRequest
+   | |______________________________________^
+12 |
+13 |   IDENTITY = {
+   |
+help: Organize imports
+   |
+7  | from bb_auth_contract import space
+8  + from mcp.types import ListToolsRequest
+9  +
+10 | from bb_dsh_plugin.guarded import AwaitingBinding, GuardedTransport
+11 | from bb_dsh_plugin.plugin import LocalClient, create_server
+12 | from bb_dsh_plugin.space_tools import SPACE_TOOLS, invoke_space
+   - from mcp.types import ListToolsRequest
+13 |
+   |
+
+I001 [*] Import block is un-sorted or un-formatted
+  --> tests/test_stdio.py:3:1
+   |
+ 1 |   """Real MCP stdio + HTTP transport; the HTTP client endpoint here is a test double."""
+ 2 |
+ 3 | / import json
+ 4 | | import sys
+ 5 | | import threading
+ 6 | | from datetime import timedelta
+ 7 | | from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+ 8 | |
+ 9 | | from bb_dsh_plugin.guarded import TOOL_MODELS
+10 | | from bb_dsh_plugin.space_tools import SPACE_TOOLS
+11 | | from mcp import ClientSession, StdioServerParameters
+12 | | from mcp.client.stdio import stdio_client
+   | |_________________________________________^
+help: Organize imports
+   |
+8  |
+   - from bb_dsh_plugin.guarded import TOOL_MODELS
+   - from bb_dsh_plugin.space_tools import SPACE_TOOLS
+9  | from mcp import ClientSession, StdioServerParameters
+10 | from mcp.client.stdio import stdio_client
+11 |
+12 + from bb_dsh_plugin.guarded import TOOL_MODELS
+13 + from bb_dsh_plugin.space_tools import SPACE_TOOLS
+14 +
+15 |
+   |
+
+Found 3 errors.
+[*] 3 fixable with `--fix`.

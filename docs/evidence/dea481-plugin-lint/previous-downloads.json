@@ -1,0 +1,43 @@
+[
+  {
+    "id": "01a1e1ae-f7e0-702c-bd38-d73e8a1867ce",
+    "attachments": [
+      {
+        "filename": "README.md",
+        "markdown_url": "https://multica.ai/api/attachments/01a1e1ae-cba5-71c6-8d83-30e85abda140/download"
+      },
+      {
+        "filename": "SHA256SUMS",
+        "markdown_url": "https://multica.ai/api/attachments/01a1e1ae-ccd9-7c64-9df5-2e54c7c3c9bb/download"
+      },
+      {
+        "filename": "dea481-avatar-integration-evidence.zip",
+        "markdown_url": "https://multica.ai/api/attachments/01a1e1ae-d22d-7bd4-a457-b4b2f6d5e7e7/download"
+      },
+      {
+        "filename": "bb-space-source-b3f391a.zip",
+        "markdown_url": "https://multica.ai/api/attachments/01a1e1ae-d5e5-76a7-bf56-77a76b1ea943/download"
+      },
+      {
+        "filename": "bb-space-bundle-542cfad.zip",
+        "markdown_url": "https://multica.ai/api/attachments/01a1e1ae-d846-7833-996e-8309f6d8d531/download"
+      },
+      {
+        "filename": "bb-client-api-542cfad-linux-x64.tar.gz",
+        "markdown_url": "https://multica.ai/api/attachments/01a1e1ae-db94-7936-b72a-224b4eedca0d/download"
+      },
+      {
+        "filename": "bb-space-b3f391a-android-arm64-test.apk",
+        "markdown_url": "https://multica.ai/api/attachments/01a1e1ae-e491-7966-b3b8-5416d73ec69b/download"
+      },
+      {
+        "filename": "bb-space-test-0.0.2+dea481.b3f391a-linux-x86_64.tar.gz",
+        "markdown_url": "https://multica.ai/api/attachments/01a1e1ae-ee7a-7824-930f-703e4b7adc25/download"
+      },
+      {
+        "filename": "bb-space-test_0.0.2+dea481.b3f391a_amd64.deb",
+        "markdown_url": "https://multica.ai/api/attachments/01a1e1ae-f655-7157-a6df-3a2a68a2bcee/download"
+      }
+    ]
+  }
+]

@@ -2,7 +2,8 @@
 
 Approved source is revision 1 in `dea481-approved-space.md`; original
 source/ownership mapping remains in `dea481-acceptance.md`. Code candidate:
-`b3f391af7d64252b5cc3ced39e9a4ba4f1c94cc9` (avatar integration). This matrix maps evidence to portions
+`0114e2c1d298570df98fad1a47c308be55f08d54` (plugin test import correction;
+runtime sources unchanged from avatar integration `b3f391a`). This matrix maps evidence to portions
 of the approved cases. It does not mark the complete cases accepted.
 
 Evidence roots: **S** = `docs/evidence/dea481/` (unchanged server, 459 tests);
@@ -15,6 +16,13 @@ real gateway, real TCP/native host, packages). **V** =
 refreshed UI packages). V supersedes I for changed UI; source equivalence in
 V permits explicit reuse for unchanged boundaries. UI tests below are all in
 `client/test/` and included in V's final run unless explicitly opt-in.
+
+The full plugin lint entry failed in CI on the previous delivery. This is fixed
+and locally verified with the same plugin working directory in
+`docs/evidence/dea481-plugin-lint/` (Ruff 0.17.4, full `src tests` PASS;
+114 pytest passes, zero skips). Only three test import blocks changed. Existing
+runtime test results and packages are reused with explicit tree/byte checks;
+new CI and the linked Windows package run are not claimed as completed.
 
 | Case / approved source | Implementer / concrete evidence | Remaining verification or issue |
 | --- | --- | --- |
