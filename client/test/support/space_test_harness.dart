@@ -1,6 +1,7 @@
 import 'dart:ui' show DisplayFeature, DisplayFeatureState, DisplayFeatureType;
 
 import 'package:bb_client/app.dart';
+import 'package:bb_client/services/profile_service.dart';
 import 'package:bb_client/ui/space/space_local_store.dart';
 import 'package:bb_client/ui/space/space_page.dart';
 import 'package:flutter/material.dart';
@@ -30,6 +31,7 @@ DisplayFeature horizontalHinge(double y, double width) => DisplayFeature(
 Future<void> pumpSpacePage(
   WidgetTester tester, {
   required FakeSpaceGateway gateway,
+  ProfileGateway? profile,
   Size size = spacePhone,
   List<DisplayFeature> features = const <DisplayFeature>[],
   bool settle = true,
@@ -61,6 +63,7 @@ Future<void> pumpSpacePage(
           key: pageKey,
           gateway: gateway,
           store: store ?? SpaceLocalStore(scopeKey: gateway.scopeKey),
+          profile: profile,
           onSessionExpired: onSessionExpired,
           pollInterval: pollInterval,
           autoPoll: autoPoll,

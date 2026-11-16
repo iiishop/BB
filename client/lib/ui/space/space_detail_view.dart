@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../app.dart';
 import '../../models/space_models.dart';
+import 'space_avatars.dart';
 import 'space_controller.dart';
 import 'space_detail_controller.dart';
 import 'space_format.dart';
@@ -245,8 +246,10 @@ class _SpaceDetailViewState extends State<SpaceDetailView> {
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (BuildContext context) =>
-          SpaceVisitorsSheet(load: _detail.loadVisitors, postId: post.postId),
+      builder: (BuildContext context) => _withAvatars(
+        context,
+        SpaceVisitorsSheet(load: _detail.loadVisitors, postId: post.postId),
+      ),
     );
   }
 
@@ -256,8 +259,19 @@ class _SpaceDetailViewState extends State<SpaceDetailView> {
       isScrollControlled: true,
       showDragHandle: true,
       builder: (BuildContext context) =>
-          SpaceLikesSheet(load: _detail.loadLikes),
+          _withAvatars(context, SpaceLikesSheet(load: _detail.loadLikes)),
     );
+  }
+
+  /// A bottom sheet builds on the root Navigator, outside this page's
+  /// [SpaceAvatarScope] subtree; hand the existing store to it explicitly so
+  /// the like/visitor rows show the same authorized avatar bytes.
+  Widget _withAvatars(BuildContext sheetContext, Widget child) {
+    final SpaceAvatarStore? avatars = SpaceAvatarScope.read(context);
+    if (avatars == null) {
+      return child;
+    }
+    return SpaceAvatarScope(store: avatars, child: child);
   }
 
   @override

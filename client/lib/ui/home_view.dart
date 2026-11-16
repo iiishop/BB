@@ -449,6 +449,7 @@ class _HomeViewState extends State<HomeView> {
               key: ValueKey<String>('space-${space.scopeKey}'),
               gateway: space,
               store: SpaceLocalStore.shared(scopeKey: space.scopeKey),
+              profile: widget.profile,
               onSessionExpired: widget.onSessionExpired,
             ),
           ),

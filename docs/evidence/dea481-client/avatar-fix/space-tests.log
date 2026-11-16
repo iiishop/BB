@@ -1,0 +1,77 @@
+Resolving dependencies...
+Downloading packages...
+  code_assets 1.2.1 (2.2.0 available)
+  cross_file 0.3.5+5 (0.4.0 available)
+  hooks 2.0.2 (2.2.0 available)
+  material_color_utilities 0.13.0 (0.13.1 available)
+  meta 1.18.3 (1.19.0 available)
+  objective_c 9.5.0 (9.6.4 available)
+  record_use 0.6.0 (1.1.1 available)
+  test_api 0.7.12 (0.7.15 available)
+  vector_math 2.4.0 (2.4.4 available)
+  video_player_android 2.12.2 (2.12.4 available)
+  video_player_avfoundation 2.12.3 (2.12.4 available)
+Got dependencies!
+11 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+00:00 +0: loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_avatar_test.dart
+00:00 +0: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_avatar_test.dart: feed avatar renders the authorized Profile bytes, once
+00:00 +1: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_avatar_test.dart: feed avatar renders the authorized Profile bytes, once
+00:00 +2: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_avatar_test.dart: feed avatar renders the authorized Profile bytes, once
+00:00 +3: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_avatar_test.dart: feed avatar renders the authorized Profile bytes, once
+00:00 +4: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_avatar_test.dart: feed avatar renders the authorized Profile bytes, once
+00:00 +5: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_avatar_test.dart: feed avatar renders the authorized Profile bytes, once
+00:00 +6: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_avatar_test.dart: feed avatar renders the authorized Profile bytes, once
+00:00 +7: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_avatar_test.dart: feed avatar renders the authorized Profile bytes, once
+00:00 +8: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_avatar_test.dart: feed avatar renders the authorized Profile bytes, once
+00:00 +9: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_avatar_test.dart: feed avatar renders the authorized Profile bytes, once
+00:00 +10: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_avatar_test.dart: feed avatar renders the authorized Profile bytes, once
+00:00 +11: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_avatar_test.dart: feed avatar renders the authorized Profile bytes, once
+00:00 +12: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_avatar_test.dart: feed avatar renders the authorized Profile bytes, once
+00:00 +13: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_avatar_test.dart: feed avatar renders the authorized Profile bytes, once
+00:00 +14: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_avatar_test.dart: feed avatar renders the authorized Profile bytes, once
+00:00 +15: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_smoke_test.dart: feed renders a post from contract-valid fixtures
+00:00 +16: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_smoke_test.dart: feed renders a post from contract-valid fixtures
+00:00 +17: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_smoke_test.dart: feed renders a post from contract-valid fixtures
+00:00 +18: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_feed_test.dart: feed shows loading then contract-valid posts
+00:01 +19: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_feed_test.dart: feed shows loading then contract-valid posts
+00:01 +20: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_feed_test.dart: feed shows loading then contract-valid posts
+00:01 +21: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_detail_test.dart: replies use one indent level and keep the real reply target
+00:01 +22: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_detail_test.dart: replies use one indent level and keep the real reply target
+00:01 +23: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_detail_test.dart: replies use one indent level and keep the real reply target
+00:02 +24: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_compose_test.dart: draft autosaves, images reorder and publish returns a post id
+00:02 +25: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_compose_test.dart: draft autosaves, images reorder and publish returns a post id
+00:02 +26: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_compose_test.dart: draft autosaves, images reorder and publish returns a post id
+00:02 +27: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_compose_test.dart: draft autosaves, images reorder and publish returns a post id
+00:02 +28: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_compose_test.dart: draft autosaves, images reorder and publish returns a post id
+00:02 +29: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_compose_test.dart: draft autosaves, images reorder and publish returns a post id
+00:02 +30: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_compose_test.dart: draft autosaves, images reorder and publish returns a post id
+00:02 +31: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_compose_test.dart: draft autosaves, images reorder and publish returns a post id
+00:02 +32: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_shell_test.dart: phone uses the bottom chat/space bar and keeps both states
+00:02 +33: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_shell_test.dart: phone uses the bottom chat/space bar and keeps both states
+00:02 +34: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_shell_test.dart: phone uses the bottom chat/space bar and keeps both states
+00:02 +35: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_shell_test.dart: phone uses the bottom chat/space bar and keeps both states
+00:02 +36: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_shell_test.dart: phone uses the bottom chat/space bar and keeps both states
+00:03 +37: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_shell_test.dart: phone uses the bottom chat/space bar and keeps both states
+00:03 +38: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_shell_test.dart: phone uses the bottom chat/space bar and keeps both states
+00:03 +39: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_detail_test.dart: author sees visitor details; a non-author sees the denial
+00:03 +40: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_detail_test.dart: author sees visitor details; a non-author sees the denial
+00:03 +41: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_compose_test.dart: offline input stays local and survives reopening the draft
+00:03 +42: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_compose_test.dart: offline input stays local and survives reopening the draft
+00:03 +43: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_shell_test.dart: resizing phone/PC/fold keeps the open detail and its input
+00:03 +44: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_shell_test.dart: resizing phone/PC/fold keeps the open detail and its input
+00:03 +45: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_shell_test.dart: resizing phone/PC/fold keeps the open detail and its input
+00:03 +46: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_shell_test.dart: resizing phone/PC/fold keeps the open detail and its input
+00:03 +47: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_shell_test.dart: resizing phone/PC/fold keeps the open detail and its input
+00:03 +48: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_detail_test.dart: form factor change keeps post, reply target, text and visit
+00:03 +49: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_detail_test.dart: form factor change keeps post, reply target, text and visit
+00:03 +50: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_shell_test.dart: wide screen uses the narrow rail, not the phone bar
+00:03 +51: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_compose_test.dart: publish retries with the same operation id after an unknown result
+00:04 +52: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_detail_test.dart: viewer index survives a resize
+00:04 +53: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_detail_test.dart: viewer index survives a resize
+00:04 +54: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_compose_test.dart: discard deletes the draft and its local buffer
+00:04 +55: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_compose_test.dart: discard deletes the draft and its local buffer
+00:04 +56: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_detail_test.dart: reference navigation keeps a local back history
+00:04 +57: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_detail_test.dart: reference navigation keeps a local back history
+00:04 +58: /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-3b7c69547e25/workdir/BB/client/test/space_detail_test.dart: author deletion closes detail and removes the feed card
+00:04 +59: All tests passed!
