@@ -193,7 +193,7 @@ void main() {
         final WindowsClipboardMediaReader reader = WindowsClipboardMediaReader(
           runner: (String script, String outputPath) async {
             await File(outputPath).writeAsString(listing);
-            return true;
+            return const WindowsClipboardProbeOutcome.success();
           },
         );
         final ClipboardPaste paste = await reader.read();
@@ -228,7 +228,7 @@ void main() {
       final WindowsClipboardMediaReader reader = WindowsClipboardMediaReader(
         runner: (String script, String outputPath) async {
           await File(outputPath).writeAsString('IMAGE\t${raw.path}');
-          return true;
+          return const WindowsClipboardProbeOutcome.success();
         },
       );
 
@@ -663,7 +663,7 @@ void main() {
         final WindowsClipboardMediaReader reader = WindowsClipboardMediaReader(
           runner: (String script, String outputPath) async {
             await File(outputPath).writeAsString('FILE\t${file.path}');
-            return true;
+            return const WindowsClipboardProbeOutcome.success();
           },
         );
         final ClipboardPaste? paste = await tester.runAsync(reader.read);
@@ -697,6 +697,101 @@ void main() {
       },
     );
   });
+  group('Windows probe encoding (DEA-480)', () {
+    test('strict UTF-8 decoding of localized PowerShell stderr reproduces the '
+        'user-visible missing extension byte error', () async {
+      // Windows PowerShell 5.1 writes localized console/stderr text in the
+      // OEM code page. The old probe decoded it as strict UTF-8, so the real
+      // probe failure was replaced by this FormatException.
+      await expectLater(
+        Process.run(
+          'sh',
+          <String>[r"-c", r"printf 'err: \304\343' >&2; exit 7"],
+          stdoutEncoding: utf8,
+          stderrEncoding: utf8,
+        ),
+        throwsA(
+          isA<FormatException>().having(
+            (FormatException error) => error.message,
+            'message',
+            'Missing extension byte',
+          ),
+        ),
+      );
+    }, skip: Platform.isWindows ? 'POSIX shell fixture' : false);
+
+    test(
+      'the probe reports localized non-UTF-8 stderr instead of throwing',
+      () async {
+        final WindowsClipboardProbeOutcome outcome =
+            await runWindowsClipboardProbe(
+              'irrelevant',
+              executables: const <String>['fake-powershell'],
+              processRunner: (String executable, List<String> arguments) =>
+                  Process.run(
+                    'sh',
+                    <String>[r'-c', r"printf 'err: \304\343' >&2; exit 7"],
+                    stdoutEncoding: null,
+                    stderrEncoding: null,
+                  ),
+            );
+        expect(outcome.ok, isFalse);
+        expect(outcome.detail, contains('退出码 7'));
+      },
+      skip: Platform.isWindows ? 'POSIX shell fixture' : false,
+    );
+
+    test('listing decoding accepts UTF-8, UTF-8 BOM and UTF-16 BOM', () {
+      const String listing = 'FILE\tC:\\Users\\me\\图 片.png';
+      expect(decodeWindowsClipboardListing(utf8.encode(listing)), listing);
+      expect(
+        decodeWindowsClipboardListing(<int>[
+          0xEF,
+          0xBB,
+          0xBF,
+          ...utf8.encode(listing),
+        ]),
+        listing,
+      );
+      final List<int> utf16 = <int>[0xFF, 0xFE];
+      for (final int unit in listing.codeUnits) {
+        utf16.add(unit & 0xFF);
+        utf16.add((unit >> 8) & 0xFF);
+      }
+      expect(decodeWindowsClipboardListing(utf16), listing);
+      expect(
+        () =>
+            decodeWindowsClipboardListing(<int>[0x46, 0x49, 0x4C, 0x45, 0xC4]),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
+    test(
+      'a non-UTF-8 listing is reported without the raw decode message',
+      () async {
+        final WindowsClipboardMediaReader reader = WindowsClipboardMediaReader(
+          runner: (String script, String outputPath) async {
+            await File(outputPath)
+                .writeAsBytes(<int>[0x46, 0x49, 0x4C, 0x45, 0x09, 0xC4]);
+            return const WindowsClipboardProbeOutcome.success();
+          },
+        );
+        final ClipboardPaste paste = await reader.read();
+        expect(paste.files, isEmpty);
+        expect(paste.problems.single, contains('不是 UTF-8/UTF-16'));
+      },
+    );
+
+    test('a failed probe surfaces its diagnostic detail', () async {
+      final WindowsClipboardMediaReader reader = WindowsClipboardMediaReader(
+        runner: (String script, String outputPath) async =>
+            const WindowsClipboardProbeOutcome.failure('退出码 1，拒绝访问'),
+      );
+      final ClipboardPaste paste = await reader.read();
+      expect(paste.files, isEmpty);
+      expect(paste.problems.single, contains('退出码 1，拒绝访问'));
+    });
+  });
 }
 
 PickedMedia _binaryAttachment() => PickedMedia(
@@ -705,4 +800,7 @@ PickedMedia _binaryAttachment() => PickedMedia(
   mimeType: 'application/octet-stream',
 );
 
-Future<bool> _failingProbe(String script, String outputPath) async => false;
+Future<WindowsClipboardProbeOutcome> _failingProbe(
+  String script,
+  String outputPath,
+) async => const WindowsClipboardProbeOutcome.failure('退出码 1，拒绝访问');

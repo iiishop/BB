@@ -194,7 +194,7 @@ jobs:
           flutter build windows --release
       - name: Windows 单元测试（应用目录解析 + 粘贴准备）
         working-directory: client
-        run: flutter test test/ffmpeg_tool_test.dart test/chat_clipboard_paste_test.dart test/release_update_test.dart
+        run: flutter test test/ffmpeg_tool_test.dart test/chat_clipboard_paste_test.dart test/release_update_test.dart test/windows_clipboard_native_test.dart
       - name: 打包、ZIP 内容检查与无系统 FFmpeg 冒烟
         shell: pwsh
         run: |
