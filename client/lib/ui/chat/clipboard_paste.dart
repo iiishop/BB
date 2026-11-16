@@ -423,10 +423,17 @@ class WindowsClipboardMediaReader implements ClipboardMediaReader {
       final String outputPath =
           '${temporaryDirectory.path}${Platform.pathSeparator}clipboard.txt';
       final String script = buildWindowsClipboardScript(outputPath);
-      final bool ok = await run(script, outputPath);
-      if (!ok) {
-        return const ClipboardPaste(
-          problems: <String>['无法读取 Windows 剪贴板（剪贴板探测失败）'],
+      final WindowsClipboardProbeOutcome outcome = await run(
+        script,
+        outputPath,
+      );
+      if (!outcome.ok) {
+        return ClipboardPaste(
+          problems: <String>[
+            outcome.detail.isEmpty
+                ? '无法读取 Windows 剪贴板（剪贴板探测失败）'
+                : '无法读取 Windows 剪贴板（剪贴板探测失败：${outcome.detail}）',
+          ],
         );
       }
       final List<WindowsClipboardEntry> entries = await _readListing(
@@ -434,6 +441,8 @@ class WindowsClipboardMediaReader implements ClipboardMediaReader {
       );
       final ClipboardPaste paste = await _collect(entries);
       return paste;
+    } on FormatException catch (error) {
+      return ClipboardPaste(problems: <String>[error.message]);
     } on FileSystemException {
       return const ClipboardPaste(
         problems: <String>['无法读取 Windows 剪贴板（临时目录不可用）'],
@@ -456,7 +465,14 @@ class WindowsClipboardMediaReader implements ClipboardMediaReader {
     if (!await listing.exists()) {
       return const <WindowsClipboardEntry>[];
     }
-    return parseWindowsClipboardListing(await listing.readAsString());
+    final Uint8List bytes = await listing.readAsBytes();
+    try {
+      return parseWindowsClipboardListing(decodeWindowsClipboardListing(bytes));
+    } on FormatException {
+      throw FormatException(
+        '无法读取 Windows 剪贴板（列表不是 UTF-8/UTF-16，${bytes.length} 字节）',
+      );
+    }
   }
 
   static Future<ClipboardPaste> _collect(
@@ -542,42 +558,151 @@ class WindowsClipboardMediaReader implements ClipboardMediaReader {
     }
   }
 
-  static Future<bool> _runPowerShell(String script, String outputPath) async {
-    final String encoded = _encodePowerShell(script);
-    for (final String executable in const <String>[
-      'powershell.exe',
-      'pwsh.exe',
-    ]) {
-      try {
-        final ProcessResult result = await Process.run(
-          executable,
-          <String>[
-            '-NoProfile',
-            '-NonInteractive',
-            '-STA',
-            '-WindowStyle',
-            'Hidden',
-            '-EncodedCommand',
-            encoded,
-          ],
-          stdoutEncoding: utf8,
-          stderrEncoding: utf8,
-        );
-        if (result.exitCode == 0) {
-          return true;
-        }
-      } on ProcessException {
-        continue;
-      }
-    }
-    return false;
-  }
+  static Future<WindowsClipboardProbeOutcome> _runPowerShell(
+    String script,
+    String outputPath,
+  ) => runWindowsClipboardProbe(script);
 }
 
-/// Runs the clipboard probe script. Returns true when the script completed.
-typedef WindowsClipboardScriptRunner = Future<bool> Function(
-  String script,
-  String outputPath,
+/// Runs the PowerShell clipboard probe.
+///
+/// Windows PowerShell 5.1 writes console and error text in the active ANSI/OEM
+/// code page, so strict UTF-8 decoding of the child streams turned every
+/// localized PowerShell error into `FormatException: Missing extension byte`
+/// and hid the real probe failure. The streams are kept as raw bytes here and
+/// decoded leniently only for the diagnostic detail; the exit code stays the
+/// control signal.
+@visibleForTesting
+Future<WindowsClipboardProbeOutcome> runWindowsClipboardProbe(
+  String script, {
+  List<String> executables = const <String>['powershell.exe', 'pwsh.exe'],
+  WindowsClipboardProcessRunner? processRunner,
+}) async {
+  final String encoded = _encodePowerShell(script);
+  final WindowsClipboardProcessRunner run = processRunner ?? _runProbeProcess;
+  final List<String> arguments = <String>[
+    '-NoProfile',
+    '-NonInteractive',
+    '-STA',
+    '-WindowStyle',
+    'Hidden',
+    '-EncodedCommand',
+    encoded,
+  ];
+  String lastDetail = '';
+  for (final String executable in executables) {
+    try {
+      final ProcessResult result = await run(executable, arguments);
+      if (result.exitCode == 0) {
+        return const WindowsClipboardProbeOutcome.success();
+      }
+      lastDetail = _describeProbeFailure(result);
+    } on ProcessException catch (error) {
+      lastDetail = error.message;
+    }
+  }
+  return WindowsClipboardProbeOutcome.failure(lastDetail);
+}
+
+Future<ProcessResult> _runProbeProcess(
+  String executable,
+  List<String> arguments,
+) => Process.run(
+  executable,
+  arguments,
+  stdoutEncoding: null,
+  stderrEncoding: null,
+);
+
+String _describeProbeFailure(ProcessResult result) {
+  final StringBuffer detail = StringBuffer('退出码 ${result.exitCode}');
+  final String stderr = _probeStreamText(result.stderr);
+  if (stderr.isNotEmpty) {
+    detail.write('，$stderr');
+  }
+  return detail.toString();
+}
+
+String _probeStreamText(Object? raw) {
+  if (raw is! List<int> || raw.isEmpty) {
+    return '';
+  }
+  String text;
+  try {
+    text = utf8.decode(raw);
+  } on FormatException {
+    // Diagnostic only: never let a localized code page become a second
+    // failure. The exit code and the decoded prefix are still reported.
+    text = utf8.decode(raw, allowMalformed: true);
+  }
+  final String firstLine = const LineSplitter()
+      .convert(text)
+      .firstWhere((String line) => line.trim().isNotEmpty, orElse: () => '')
+      .trim();
+  return firstLine.length <= 200
+      ? firstLine
+      : '${firstLine.substring(0, 200)}…';
+}
+
+/// Decodes the probe listing file.
+///
+/// The probe writes UTF-8 without a BOM. A UTF-8 or UTF-16 BOM is also
+/// accepted because a host/redirect change must not surface as a raw
+/// `Missing extension byte` that hides the real state; any other byte sequence
+/// fails with an explicit encoding message.
+String decodeWindowsClipboardListing(List<int> bytes) {
+  if (bytes.length >= 3 &&
+      bytes[0] == 0xEF &&
+      bytes[1] == 0xBB &&
+      bytes[2] == 0xBF) {
+    return utf8.decode(bytes.sublist(3));
+  }
+  if (bytes.length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE) {
+    return _decodeUtf16(bytes.sublist(2), littleEndian: true);
+  }
+  if (bytes.length >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF) {
+    return _decodeUtf16(bytes.sublist(2), littleEndian: false);
+  }
+  return utf8.decode(bytes);
+}
+
+String _decodeUtf16(List<int> bytes, {required bool littleEndian}) {
+  if (bytes.length.isOdd) {
+    throw const FormatException('UTF-16 list has an odd byte length');
+  }
+  final StringBuffer buffer = StringBuffer();
+  for (int i = 0; i < bytes.length; i += 2) {
+    final int unit = littleEndian
+        ? bytes[i] | (bytes[i + 1] << 8)
+        : (bytes[i] << 8) | bytes[i + 1];
+    buffer.writeCharCode(unit);
+  }
+  return buffer.toString();
+}
+
+/// Outcome of one native clipboard probe invocation.
+class WindowsClipboardProbeOutcome {
+  const WindowsClipboardProbeOutcome.success() : ok = true, detail = '';
+
+  const WindowsClipboardProbeOutcome.failure(this.detail) : ok = false;
+
+  final bool ok;
+
+  /// Human-readable failure detail; empty when [ok] is true.
+  final String detail;
+}
+
+/// Runs the clipboard probe script. Tests inject this seam.
+typedef WindowsClipboardScriptRunner =
+    Future<WindowsClipboardProbeOutcome> Function(
+      String script,
+      String outputPath,
+    );
+
+/// Spawns one probe process; overridden in tests.
+typedef WindowsClipboardProcessRunner = Future<ProcessResult> Function(
+  String executable,
+  List<String> arguments,
 );
 
 class WindowsClipboardEntry {
@@ -598,6 +723,8 @@ String buildWindowsClipboardScript(String outputPath) {
 }
 
 const String _windowsClipboardTemplate = r'''
+$utf8 = New-Object System.Text.UTF8Encoding($false)
+try { [Console]::OutputEncoding = $utf8 } catch { }
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
@@ -619,7 +746,6 @@ if ($clip::ContainsFileDropList()) {
     $lines.Add('IMAGE' + [char]9 + $png)
   }
 }
-$utf8 = New-Object System.Text.UTF8Encoding($false)
 [System.IO.File]::WriteAllLines($out, $lines, $utf8)
 ''';
 

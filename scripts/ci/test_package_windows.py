@@ -110,6 +110,19 @@ class ValidateBundleTests(unittest.TestCase):
             self.assertEqual(report["ffmpeg_version"], FFMPEG_VERSION)
             self.assertEqual(report["ffmpeg_commit"], FFMPEG_COMMIT)
 
+    def test_rejects_bundle_without_update_payload(self) -> None:
+        # The dependency-only check must not require these, but the final
+        # bundle still must; keep the update payload requirement honest.
+        with tempfile.TemporaryDirectory() as temporary:
+            bundle = make_bundle(Path(temporary) / "bundle")
+            (bundle / "bb_updater.exe").unlink()
+            with self.assertRaisesRegex(RuntimeError, "missing bb_updater.exe"):
+                self.validate(bundle)
+            (bundle / "bb_updater.exe").write_bytes(b"MZ" + b"\0" * 512)
+            (bundle / "bb-build.json").unlink()
+            with self.assertRaisesRegex(RuntimeError, "missing bb-build.json"):
+                self.validate(bundle)
+
     def test_rejects_ffmpeg_changed_after_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             bundle = make_bundle(
@@ -193,7 +206,10 @@ class DependencyTests(unittest.TestCase):
     def test_validate_dependency_without_app(self):
         with tempfile.TemporaryDirectory() as temporary:
             bundle = make_bundle(Path(temporary) / 'bundle')
-            (bundle / 'bb_client.exe').unlink()
+            # The staging dependency check runs before the app build, so none
+            # of the application payload exists yet.
+            for relative in pkg.APP_REQUIRED_RELATIVE:
+                (bundle / relative).unlink()
             self.assertTrue(hasattr(pkg, 'validate_ffmpeg'))
             report = pkg.validate_ffmpeg(bundle, min_ffmpeg_bytes=8)
             self.assertEqual(report['ffmpeg_sha256'], pkg.sha256_file(bundle / pkg.FFMPEG_RELATIVE))
