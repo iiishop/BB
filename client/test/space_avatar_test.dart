@@ -1,5 +1,6 @@
 import 'package:bb_client/models/auth_models.dart';
 import 'package:bb_client/models/space_models.dart';
+import 'package:bb_client/ui/space/space_avatars.dart';
 import 'package:bb_client/ui/space/space_page.dart';
 import 'package:bb_client/ui/space/space_people_sheets.dart';
 import 'package:flutter/material.dart';
@@ -152,5 +153,50 @@ void main() {
     expect(find.text('e'), findsOneWidget);
     expect(find.byType(Image), findsNothing);
     expect(find.byKey(SpacePage.pageKey), findsOneWidget);
+  });
+
+  testWidgets('explicit refresh revalidates author avatars', (
+    WidgetTester tester,
+  ) async {
+    final FakeProfileGateway profile = FakeProfileGateway();
+    final FakeSpaceGateway gateway = feedWith(<SpacePost>[
+      spacePost(
+        postId: 'post-1',
+        author: authorWithAvatar('40000007', 'frank'),
+        text: '换过头像的用户',
+      ),
+    ]);
+
+    await pumpSpacePage(tester, gateway: gateway, profile: profile);
+    expect(profile.loadAvatarCalls, 1);
+
+    // 头像 store 按「每次访问每个账号只问一次」缓存，页内换头像本来是看不到的。
+    // 显式刷新必须重新校验一次（服务端 304 兜底，没变就是零成本）。
+    await tester.drag(
+      find.byKey(SpacePage.feedListKey),
+      const Offset(0, 320),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+
+    expect(profile.loadAvatarCalls, greaterThan(1));
+    expect(profile.loadAvatarAccounts.last, '40000007');
+  });
+
+  test('reset drops cached avatar bytes so the next load revalidates', () async {
+    final FakeProfileGateway profile = FakeProfileGateway();
+    final SpaceAvatarStore store = SpaceAvatarStore(profile: profile);
+
+    await store.ensureLoaded('40000008');
+    expect(profile.loadAvatarCalls, 1);
+    expect(store.bytesFor('40000008'), isNotNull);
+
+    store.reset();
+    expect(store.bytesFor('40000008'), isNull);
+
+    await store.ensureLoaded('40000008');
+    expect(profile.loadAvatarCalls, 2);
+    store.dispose();
   });
 }

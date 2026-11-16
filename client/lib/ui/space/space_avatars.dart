@@ -45,6 +45,26 @@ class SpaceAvatarStore extends ChangeNotifier {
     );
   }
 
+  /// Drops every per-visit result so the next build revalidates each author
+  /// against the server.
+  ///
+  /// This store asks at most once per account per visit, which is right for a
+  /// rebuild storm but wrong for an explicit refresh: an author may have
+  /// changed their avatar while this page stayed open. Revalidation is cheap —
+  /// [ProfileGateway.loadAvatar] sends `If-None-Match`, so an unchanged avatar
+  /// costs a 304 and keeps the cached bytes.
+  void reset() {
+    if (_bytes.isEmpty && _failed.isEmpty && _requests.isEmpty) {
+      return;
+    }
+    _bytes.clear();
+    _failed.clear();
+    _requests.clear();
+    if (!_disposed) {
+      notifyListeners();
+    }
+  }
+
   Future<void> _request(String account) async {
     try {
       final AvatarImage image = await profile.loadAvatar(account: account);
