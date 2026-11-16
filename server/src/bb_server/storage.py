@@ -10,65 +10,55 @@ LOCK_WAIT_SECONDS = 3.0
 logger = logging.getLogger(__name__)
 
 
-def _lock_statement(db, statement, deadline):
-    """Retry only BUSY at a transaction boundary, never the operation body.
+def _lock_statement(db, statement):
+    """Run a transaction-boundary statement, letting SQLite wait for the lock.
 
-    SQLite keeps a transaction active when COMMIT returns BUSY. IO/LOCKED/other
-    errors are not retried. One budget covers acquisition, body time and commit.
+    The connection carries `busy_timeout` = LOCK_WAIT_SECONDS, so collisions are
+    retried inside the C layer instead of unwinding to Python on every attempt.
+    A BUSY that escapes anyway means the lock was held for the whole budget: that
+    is a real stall and belongs upstream as 503, not a tighter retry loop here.
+
+    SQLite keeps a transaction active when COMMIT returns BUSY. IO/LOCKED and any
+    other error are never retried.
     """
     started = time.monotonic()
-    attempts = 0
-    while True:
-        attempts += 1
-        try:
-            db.execute(statement)
-            if attempts > 1:
-                logger.warning(
-                    "storage_lock_recovered phase=%s attempts=%d wait_ms=%.1f",
-                    statement,
-                    attempts,
-                    (time.monotonic() - started) * 1000,
-                )
-            return
-        except sqlite3.Error as error:
-            if getattr(error, "sqlite_errorcode", 0) & 255 != sqlite3.SQLITE_BUSY:
-                raise
-            elapsed = (time.monotonic() - started) * 1000
-            error.storage_attempts = attempts
-            error.storage_wait_ms = round(elapsed, 1)
-            error.storage_phase = statement
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                raise
-            if attempts == 1:
-                logger.warning(
-                    "storage_lock_retry phase=%s sqlite_error=SQLITE_BUSY budget_ms=%.1f",
-                    statement,
-                    remaining * 1000,
-                )
-            delay = min(0.01 * 2 ** min(attempts - 1, 4), 0.1)
-            time.sleep(min(remaining, random.uniform(delay / 2, delay)))
+    try:
+        db.execute(statement)
+    except sqlite3.Error as error:
+        if getattr(error, "sqlite_errorcode", 0) & 255 != sqlite3.SQLITE_BUSY:
+            raise
+        error.storage_attempts = 1
+        error.storage_wait_ms = round((time.monotonic() - started) * 1000, 1)
+        error.storage_phase = statement
+        logger.warning(
+            "storage_lock_exhausted phase=%s budget_ms=%.1f",
+            statement,
+            LOCK_WAIT_SECONDS * 1000,
+        )
+        raise
 
 
 @contextmanager
 def connection(path: Path, *, write=False):
-    db = sqlite3.connect(path, timeout=0, isolation_level=None)
+    # `timeout` is SQLite's busy_timeout: the lock wait happens inside the C
+    # layer, so a collision no longer unwinds to Python and re-runs the statement.
+    # Every route in this server is a sync `def`, so FastAPI dispatches it to the
+    # threadpool — a waiting connection never blocks the event loop.
+    db = sqlite3.connect(path, timeout=LOCK_WAIT_SECONDS, isolation_level=None)
     db.row_factory = sqlite3.Row
     try:
         db.execute("PRAGMA foreign_keys=ON")
-        deadline = time.monotonic() + LOCK_WAIT_SECONDS
         if write:
-            _lock_statement(db, "BEGIN IMMEDIATE", deadline)
+            _lock_statement(db, "BEGIN IMMEDIATE")
         else:
             db.execute("PRAGMA query_only=ON")
             db.execute("BEGIN")
             # BEGIN is deferred: acquire the SHARED snapshot before yielding.
             # A pending/exclusive writer may block this, even for a read route.
-            # Retry acquisition only; never rerun a partially executed body.
-            _lock_statement(db, "SELECT rootpage FROM sqlite_schema LIMIT 1", deadline)
+            _lock_statement(db, "SELECT rootpage FROM sqlite_schema LIMIT 1")
         yield db
         if write:
-            _lock_statement(db, "COMMIT", deadline)
+            _lock_statement(db, "COMMIT")
         else:
             db.commit()
     except BaseException:
