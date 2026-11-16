@@ -8,9 +8,11 @@ import 'package:flutter/material.dart';
 import '../../app.dart';
 import '../../models/auth_models.dart';
 import '../../models/profile_models.dart';
+import '../../services/avatar_source.dart';
 import '../../services/profile_service.dart';
 import '../../validation/profile_rules.dart';
 import '../widgets/profile_avatar.dart';
+import 'avatar_picker.dart';
 
 /// Which of the three Profile presentations applies.
 enum ProfilePanelMode {
@@ -86,6 +88,9 @@ Future<ProfilePanelResult?> openProfilePanel(
   Profile? initialProfile,
   Uint8List? initialAvatar,
   required Future<LogoutResult> Function() onLogout,
+  AvatarImagePicker? avatarPicker,
+  AvatarDecodeCheck? avatarDecodeCheck,
+  AvatarSourceReader? avatarSourceReader,
 }) {
   return showGeneralDialog<ProfilePanelResult>(
     context: context,
@@ -108,6 +113,9 @@ Future<ProfilePanelResult?> openProfilePanel(
             initialProfile: initialProfile,
             initialAvatar: initialAvatar,
             onLogout: onLogout,
+            avatarPicker: avatarPicker,
+            avatarDecodeCheck: avatarDecodeCheck,
+            avatarSourceReader: avatarSourceReader,
           );
         },
     transitionBuilder:
@@ -216,6 +224,9 @@ class _ResponsiveProfileFrame extends StatelessWidget {
     required this.initialProfile,
     required this.initialAvatar,
     required this.onLogout,
+    this.avatarPicker,
+    this.avatarDecodeCheck,
+    this.avatarSourceReader,
   });
 
   final ProfileGateway gateway;
@@ -223,6 +234,9 @@ class _ResponsiveProfileFrame extends StatelessWidget {
   final Profile? initialProfile;
   final Uint8List? initialAvatar;
   final Future<LogoutResult> Function() onLogout;
+  final AvatarImagePicker? avatarPicker;
+  final AvatarDecodeCheck? avatarDecodeCheck;
+  final AvatarSourceReader? avatarSourceReader;
 
   @override
   Widget build(BuildContext context) {
@@ -234,6 +248,9 @@ class _ResponsiveProfileFrame extends StatelessWidget {
       initialProfile: initialProfile,
       initialAvatar: initialAvatar,
       onLogout: onLogout,
+      avatarPicker: avatarPicker,
+      avatarDecodeCheck: avatarDecodeCheck,
+      avatarSourceReader: avatarSourceReader,
     );
     if (mode == ProfilePanelMode.mobile) {
       return Material(
@@ -335,6 +352,9 @@ class ProfilePanel extends StatefulWidget {
     this.initialProfile,
     this.initialAvatar,
     required this.onLogout,
+    this.avatarPicker,
+    this.avatarDecodeCheck,
+    this.avatarSourceReader,
   });
 
   final ProfilePanelMode mode;
@@ -346,6 +366,17 @@ class ProfilePanel extends StatefulWidget {
   /// Server-side logout + local clear, supplied by the host so this panel stays
   /// independent of the auth implementation.
   final Future<LogoutResult> Function() onLogout;
+
+  /// Platform image chooser; defaults to the native `file_selector` chooser.
+  /// Tests and hosts can substitute one.
+  final AvatarImagePicker? avatarPicker;
+
+  /// Decodability check for a candidate image; defaults to the engine decoder.
+  final AvatarDecodeCheck? avatarDecodeCheck;
+
+  /// Local path reader used for the preview and candidate validation; defaults
+  /// to [DefaultAvatarSourceReader].
+  final AvatarSourceReader? avatarSourceReader;
 
   static const Key panelKey = Key('profile-panel');
   static const Key closeButtonKey = Key('profile-close');
@@ -520,24 +551,33 @@ class _ProfilePanelState extends State<ProfilePanel> {
   }
 
   Future<void> _changeAvatar() async {
-    final ({String source, String value})? source =
-        await showDialog<({String source, String value})>(
-          context: context,
-          builder: (BuildContext context) => const _AvatarSourceDialog(),
-        );
-    if (source == null) {
+    // Android has no typeable path: the local entry is the system gallery.
+    final bool galleryMode =
+        Theme.of(context).platform == TargetPlatform.android;
+    final _AvatarChoice? choice = await showDialog<_AvatarChoice>(
+      context: context,
+      builder: (BuildContext context) => _AvatarSourceDialog(
+        picker: widget.avatarPicker ?? const FileSelectorAvatarImagePicker(),
+        decodeCheck: widget.avatarDecodeCheck ?? isDecodableAvatarImage,
+        reader: widget.avatarSourceReader ?? DefaultAvatarSourceReader(),
+        galleryMode: galleryMode,
+      ),
+    );
+    if (choice == null) {
       return;
     }
     setState(() => _busy = true);
     try {
       final AvatarInfo info;
-      switch (source.source) {
+      switch (choice.source) {
         case 'path':
-          info = await widget.gateway.updateAvatarFromPath(source.value);
+          info = await widget.gateway.updateAvatarFromPath(choice.value);
         case 'url':
-          info = await widget.gateway.updateAvatarFromUrl(source.value);
+          info = await widget.gateway.updateAvatarFromUrl(choice.value);
+        case 'bytes':
+          info = await widget.gateway.updateAvatarFromBytes(choice.bytes!);
         default:
-          info = await widget.gateway.updateAvatarFromBase64(source.value);
+          info = await widget.gateway.updateAvatarFromBase64(choice.value);
       }
       if (!mounted) {
         return;
@@ -1013,50 +1053,359 @@ class _TextEditDialogState extends State<_TextEditDialog> {
   }
 }
 
+/// The dialog's chosen avatar source.
+///
+/// `bytes` is set only for platform-picked image data that has no usable
+/// filesystem path (Android returns a content URI). Every other source keeps the
+/// existing path/url/base64 contract.
+typedef _AvatarChoice = ({String source, String value, Uint8List? bytes});
+
 enum _AvatarSourceKind { path, url, base64 }
 
 class _AvatarSourceDialog extends StatefulWidget {
-  const _AvatarSourceDialog();
+  const _AvatarSourceDialog({
+    required this.picker,
+    required this.decodeCheck,
+    required this.reader,
+    required this.galleryMode,
+  });
+
+  final AvatarImagePicker picker;
+  final AvatarDecodeCheck decodeCheck;
+  final AvatarSourceReader reader;
+
+  /// Android has no typeable path: the local entry is the system gallery.
+  final bool galleryMode;
 
   static const Key fieldKey = Key('avatar-source-field');
   static const Key applyKey = Key('avatar-source-apply');
+  static const Key pickFileKey = Key('avatar-pick-file');
+  static const Key pickGalleryKey = Key('avatar-pick-gallery');
+  static const Key previewKey = Key('avatar-preview');
+  static const Key previewErrorKey = Key('avatar-preview-error');
+  static const Key errorKey = Key('avatar-pick-error');
 
   @override
   State<_AvatarSourceDialog> createState() => _AvatarSourceDialogState();
 }
 
 class _AvatarSourceDialogState extends State<_AvatarSourceDialog> {
-  _AvatarSourceKind _kind = _AvatarSourceKind.path;
+  /// Wait for typing to settle before reading the file for the preview.
+  static const Duration _debounceDelay = Duration(milliseconds: 350);
+
   final TextEditingController _controller = TextEditingController();
+
+  _AvatarSourceKind _kind = _AvatarSourceKind.path;
   String? _error;
+  String? _previewError;
+  Uint8List? _previewBytes;
+  String? _previewedPath;
+  Uint8List? _galleryBytes;
+  String? _galleryName;
+  Timer? _debounceTimer;
 
-  static const Map<_AvatarSourceKind, String> _labels =
-      <_AvatarSourceKind, String>{
-        _AvatarSourceKind.path: '本机路径',
-        _AvatarSourceKind.url: '图片链接',
-        _AvatarSourceKind.base64: 'Base64',
-      };
+  /// In-flight preview/validation reads. The preview spinner shows while this
+  /// is non-zero, and every read releases exactly one unit in `finally` — even
+  /// when a source switch or a newer edit made its result stale. Busy state is
+  /// owned by the operation that started it, never by the invalidation path
+  /// (DEA-482 QA: a stale pick left the picker disabled forever).
+  int _pendingReads = 0;
 
-  static const Map<_AvatarSourceKind, String> _hints =
-      <_AvatarSourceKind, String>{
-        _AvatarSourceKind.path: '例如 /home/me/avatar.png（绝对路径，仅客户端读取）',
-        _AvatarSourceKind.url: 'https://…（客户端下载，只接受 PNG/JPEG/WebP，≤5MB）',
-        _AvatarSourceKind.base64: '原始 base64 或 data:image/png;base64,…',
-      };
+  /// In-flight platform picks plus their validation, counted for the same
+  /// ownership reason as [_pendingReads].
+  int _pendingPicks = 0;
+
+  bool get _reading => _pendingReads > 0;
+
+  bool get _picking => _pendingPicks > 0;
+
+  /// The candidate the dialog currently represents. Every user action that
+  /// changes it — typing (immediately, not after the debounce), switching the
+  /// source kind, or starting a new pick — bumps this generation. Async work
+  /// captures the generation it started for and may only land while that
+  /// generation is still current, so a late pick decode can never overwrite a
+  /// newer typed path and a stale read can never replace the preview.
+  ///
+  /// Busy state is separate: see [_pendingReads]/[_pendingPicks].
+  int _generation = 0;
+
+  bool get _isPathKind => _kind == _AvatarSourceKind.path;
+
+  String get _pathLabel => widget.galleryMode ? '本机图片' : '本机路径';
+
+  String get _hint {
+    switch (_kind) {
+      case _AvatarSourceKind.path:
+        return widget.galleryMode
+            ? '从系统相册选择 PNG/JPEG/WebP 图片（≤ 5 MB）；选择后点「应用」才会更新头像。'
+            : '输入绝对路径或点「选择图片」；预览无误后点「应用」才会更新头像。';
+      case _AvatarSourceKind.url:
+        return 'https://…（客户端下载，只接受 PNG/JPEG/WebP，≤5MB）';
+      case _AvatarSourceKind.base64:
+        return '原始 base64 或 data:image/png;base64,…';
+    }
+  }
 
   @override
   void dispose() {
+    _debounceTimer?.cancel();
     _controller.dispose();
     super.dispose();
   }
 
-  void _apply() {
-    final String value = _controller.text.trim();
-    if (value.isEmpty) {
-      setState(() => _error = '请填写内容');
+  void _selectKind(Set<_AvatarSourceKind> selection) {
+    final _AvatarSourceKind kind = selection.first;
+    if (kind == _kind) {
       return;
     }
-    Navigator.of(context).pop((source: _kind.name, value: value));
+    _debounceTimer?.cancel();
+    _generation += 1;
+    setState(() {
+      _kind = kind;
+      _error = null;
+      _previewError = null;
+      _previewBytes = null;
+      _previewedPath = null;
+      _galleryBytes = null;
+      _galleryName = null;
+    });
+  }
+
+  void _onPathChanged(String value) {
+    _debounceTimer?.cancel();
+    // Ownership changes with the first keystroke, not after the debounce: a
+    // pick/decode/preview read started for the previous text must not land on
+    // the newly typed candidate. The timer below only delays starting the new
+    // preview read.
+    final int generation = ++_generation;
+    final String path = value.trim();
+    setState(() {
+      _error = null;
+      _previewBytes = null;
+      _previewedPath = null;
+      _previewError = null;
+    });
+    if (path.isEmpty) {
+      return;
+    }
+    _debounceTimer = Timer(
+      _debounceDelay,
+      () => unawaited(_loadPathPreview(path, generation)),
+    );
+  }
+
+  Future<void> _loadPathPreview(String path, int generation) async {
+    setState(() {
+      _pendingReads += 1;
+      _previewError = null;
+    });
+    try {
+      final Uint8List bytes = await _validatePathBytes(path);
+      if (!mounted || generation != _generation) {
+        return;
+      }
+      setState(() {
+        _previewBytes = bytes;
+        _previewedPath = path;
+      });
+    } catch (error) {
+      if (!mounted || generation != _generation) {
+        return;
+      }
+      setState(() {
+        _previewBytes = null;
+        _previewedPath = null;
+        _previewError = _errorMessage(error);
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _pendingReads -= 1);
+      }
+    }
+  }
+
+  /// Reads and validates a typed/selected path through the same reader the
+  /// upload uses, then proves the bytes actually decode.
+  Future<Uint8List> _validatePathBytes(String path) async {
+    final Uint8List bytes = await widget.reader.readPath(path);
+    if (!await widget.decodeCheck(bytes)) {
+      throw const AvatarPickFailure('这个文件无法解码为图片，请换一张');
+    }
+    return bytes;
+  }
+
+  Future<void> _pick() async {
+    if (_picking) {
+      return;
+    }
+    // A new pick represents a new candidate; results for the previous typed
+    // text or an older pick are invalid from here on.
+    final int generation = ++_generation;
+    setState(() {
+      _pendingPicks += 1;
+      _error = null;
+    });
+    try {
+      final AvatarPick? pick = await _requestPick();
+      if (pick == null || !mounted) {
+        // Cancelling the system dialog keeps the typed path, the preview and
+        // the current avatar untouched.
+        return;
+      }
+      await _applyPick(pick, generation);
+    } finally {
+      // Runs for cancel, stale results and failures alike: the operation that
+      // started the busy state always releases it.
+      if (mounted) {
+        setState(() => _pendingPicks -= 1);
+      }
+    }
+  }
+
+  Future<AvatarPick?> _requestPick() async {
+    try {
+      return await widget.picker.pickImage();
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _error = widget.galleryMode
+              ? '无法打开系统相册，请稍后重试'
+              : '无法打开系统文件选择器，请稍后重试';
+        });
+      }
+      return null;
+    }
+  }
+
+  Future<void> _applyPick(AvatarPick selected, int generation) async {
+    try {
+      // The platform picked this file, but its bytes still go through the same
+      // size/magic/decode checks as a typed path.
+      final Uint8List bytes =
+          selected.bytes ?? await widget.reader.readPath(selected.path ?? '');
+      validateAvatarBytes(bytes, sourceField: 'path');
+      if (!await widget.decodeCheck(bytes)) {
+        throw const AvatarPickFailure('这个文件无法解码为图片，请换一张');
+      }
+      if (!mounted || generation != _generation) {
+        return;
+      }
+      setState(() {
+        _error = null;
+        _previewError = null;
+        _previewBytes = bytes;
+        if (widget.galleryMode) {
+          _galleryBytes = bytes;
+          _galleryName = selected.name;
+          _previewedPath = null;
+        } else {
+          _galleryBytes = null;
+          _galleryName = null;
+          final String? path = selected.path;
+          if (path != null && path.isNotEmpty) {
+            // Keep the path field and the picked file in sync; the field stays
+            // the single source of truth for the desktop entry.
+            _controller.text = path;
+            _previewedPath = path;
+          } else {
+            _previewedPath = null;
+          }
+        }
+      });
+    } catch (error) {
+      if (!mounted || generation != _generation) {
+        return;
+      }
+      setState(() {
+        _previewBytes = null;
+        _previewedPath = null;
+        _galleryBytes = null;
+        _galleryName = null;
+        _previewError = _errorMessage(error);
+      });
+    }
+  }
+
+  Future<void> _apply() async {
+    if (widget.galleryMode && _isPathKind) {
+      final Uint8List? bytes = _galleryBytes;
+      if (bytes == null) {
+        setState(() => _error = '请先从相册选择图片');
+        return;
+      }
+      Navigator.of(context).pop<_AvatarChoice>((
+        source: 'bytes',
+        value: _galleryName ?? '',
+        bytes: bytes,
+      ));
+      return;
+    }
+    if (!_isPathKind) {
+      final String value = _controller.text.trim();
+      if (value.isEmpty) {
+        setState(() => _error = '请填写内容');
+        return;
+      }
+      Navigator.of(context)
+          .pop<_AvatarChoice>((source: _kind.name, value: value, bytes: null));
+      return;
+    }
+    final String path = _controller.text.trim();
+    if (path.isEmpty) {
+      setState(() => _error = '请填写图片路径或点「选择图片」');
+      return;
+    }
+    if (path == _previewedPath &&
+        _previewBytes != null &&
+        _previewError == null) {
+      Navigator.of(context)
+          .pop<_AvatarChoice>((source: 'path', value: path, bytes: null));
+      return;
+    }
+    final int generation = _generation;
+    setState(() {
+      _pendingReads += 1;
+      _error = null;
+    });
+    try {
+      final Uint8List bytes = await _validatePathBytes(path);
+      if (!mounted || generation != _generation) {
+        return;
+      }
+      setState(() {
+        _previewBytes = bytes;
+        _previewedPath = path;
+        _previewError = null;
+      });
+      Navigator.of(context)
+          .pop<_AvatarChoice>((source: 'path', value: path, bytes: null));
+    } catch (error) {
+      if (!mounted || generation != _generation) {
+        return;
+      }
+      setState(() {
+        _previewBytes = null;
+        _previewedPath = null;
+        _previewError = _errorMessage(error);
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _pendingReads -= 1);
+      }
+    }
+  }
+
+  /// User-facing message only; raw exceptions never reach the dialog.
+  String _errorMessage(Object error) {
+    if (error is AuthFailure) {
+      return error.fields.isNotEmpty
+          ? error.fields.first.message
+          : error.message;
+    }
+    if (error is AvatarPickFailure) {
+      return error.message;
+    }
+    return '无法读取该图片，请稍后重试';
   }
 
   @override
@@ -1068,45 +1417,49 @@ class _AvatarSourceDialogState extends State<_AvatarSourceDialog> {
         borderRadius: BorderRadius.circular(AppRadius.card),
       ),
       title: Text('更换头像', style: text.titleMedium),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            SegmentedButton<_AvatarSourceKind>(
-              segments: _AvatarSourceKind.values
-                  .map(
-                    (_AvatarSourceKind kind) =>
-                        ButtonSegment<_AvatarSourceKind>(
-                          value: kind,
-                          label: Text(_labels[kind]!),
-                        ),
-                  )
-                  .toList(growable: false),
-              selected: <_AvatarSourceKind>{_kind},
-              showSelectedIcon: false,
-              onSelectionChanged: (Set<_AvatarSourceKind> selection) {
-                setState(() {
-                  _kind = selection.first;
-                  _error = null;
-                });
-              },
-            ),
-            const SizedBox(height: AppSpacing.md),
-            TextField(
-              key: _AvatarSourceDialog.fieldKey,
-              controller: _controller,
-              minLines: 2,
-              maxLines: 5,
-              decoration: InputDecoration(
-                hintText: _hints[_kind],
-                errorText: _error,
+      // A long path must not stretch the dialog: keep it a stable width and let
+      // the text field scroll/wrap inside instead (verified in the real Linux
+      // entry with a ~90-character Chinese path).
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 360),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              SegmentedButton<_AvatarSourceKind>(
+                segments: _AvatarSourceKind.values
+                    .map(
+                      (_AvatarSourceKind kind) =>
+                          ButtonSegment<_AvatarSourceKind>(
+                            value: kind,
+                            label: Text(_labelFor(kind)),
+                          ),
+                    )
+                    .toList(growable: false),
+                selected: <_AvatarSourceKind>{_kind},
+                showSelectedIcon: false,
+                onSelectionChanged: _selectKind,
               ),
-              onChanged: (_) => setState(() => _error = null),
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            Text(_hints[_kind]!, style: text.bodySmall),
-          ],
+              const SizedBox(height: AppSpacing.md),
+              if (_isPathKind)
+                ..._buildPathEntry(text)
+              else
+                TextField(
+                  key: _AvatarSourceDialog.fieldKey,
+                  controller: _controller,
+                  minLines: 2,
+                  maxLines: 5,
+                  decoration: InputDecoration(
+                    hintText: _hint,
+                    errorText: _error,
+                  ),
+                  onChanged: (_) => setState(() => _error = null),
+                ),
+              const SizedBox(height: AppSpacing.sm),
+              Text(_hint, style: text.bodySmall),
+            ],
+          ),
         ),
       ),
       actions: <Widget>[
@@ -1123,8 +1476,120 @@ class _AvatarSourceDialogState extends State<_AvatarSourceDialog> {
       ],
     );
   }
-}
 
+  String _labelFor(_AvatarSourceKind kind) {
+    return switch (kind) {
+      _AvatarSourceKind.path => _pathLabel,
+      _AvatarSourceKind.url => '图片链接',
+      _AvatarSourceKind.base64 => 'Base64',
+    };
+  }
+
+  List<Widget> _buildPathEntry(TextTheme text) {
+    return <Widget>[
+      if (widget.galleryMode) ...<Widget>[
+        Align(
+          alignment: Alignment.centerLeft,
+          child: FilledButton.tonalIcon(
+            key: _AvatarSourceDialog.pickGalleryKey,
+            onPressed: _picking ? null : _pick,
+            style: FilledButton.styleFrom(minimumSize: const Size(0, 44)),
+            icon: const Icon(Icons.photo_library_outlined, size: 18),
+            label: Text(_picking ? '正在打开相册…' : '从相册选择'),
+          ),
+        ),
+        if (_galleryName != null)
+          Padding(
+            padding: const EdgeInsets.only(top: AppSpacing.xs),
+            child: Text(
+              '已选择：$_galleryName',
+              style: text.bodySmall,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        if (_error != null)
+          Padding(
+            padding: const EdgeInsets.only(top: AppSpacing.xs),
+            child: Text(
+              _error!,
+              key: _AvatarSourceDialog.errorKey,
+              style: text.bodySmall?.copyWith(color: AppColors.danger),
+            ),
+          ),
+      ] else
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Expanded(
+              child: TextField(
+                key: _AvatarSourceDialog.fieldKey,
+                controller: _controller,
+                minLines: 2,
+                maxLines: 5,
+                decoration: InputDecoration(
+                  hintText: '例如 /home/me/avatar.png',
+                  errorText: _error,
+                ),
+                onChanged: _onPathChanged,
+              ),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: OutlinedButton(
+                key: _AvatarSourceDialog.pickFileKey,
+                onPressed: _picking ? null : _pick,
+                style: OutlinedButton.styleFrom(minimumSize: const Size(0, 44)),
+                child: Text(_picking ? '选择中…' : '选择图片'),
+              ),
+            ),
+          ],
+        ),
+      const SizedBox(height: AppSpacing.sm),
+      Center(
+        child: Container(
+          key: _AvatarSourceDialog.previewKey,
+          width: 112,
+          height: 112,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: AppColors.accentSoft,
+            border: Border.all(color: AppColors.border),
+          ),
+          child: _reading
+              ? const SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : _previewError != null
+              ? const Icon(
+                  Icons.broken_image_outlined,
+                  color: AppColors.danger,
+                  size: 28,
+                )
+              : ProfileAvatar(
+                  bytes: _previewBytes,
+                  size: 96,
+                  showBorder: false,
+                ),
+        ),
+      ),
+      if (_previewError != null)
+        Padding(
+          padding: const EdgeInsets.only(top: AppSpacing.xs),
+          child: Text(
+            _previewError!,
+            key: _AvatarSourceDialog.previewErrorKey,
+            style: text.bodySmall?.copyWith(color: AppColors.danger),
+            textAlign: TextAlign.center,
+          ),
+        ),
+    ];
+  }
+}
 class _AccountLookupDialog extends StatefulWidget {
   const _AccountLookupDialog();
 

@@ -103,6 +103,11 @@ FFmpeg（`ffmpeg/ffmpeg.exe`，LGPL-2.1+，仅内部解码组件 + zlib；应用
   Unicode code point），签名 trim 后 0–49，显式 `null` 表示清空。
 - 头像三来源（互斥，必须且只能一个）：本机绝对路径、http(s) URL（客户端下载、手动逐跳
   校验重定向、超时、≤5MB、仅 PNG/JPEG/WebP）、原始或 `data:image/...;base64,`。
+- 本机图片来源按平台区分（DEA-482，`docs/dea482-avatar-picker.md`）：Android 用系统相册
+  选择器（`file_selector` 的 `ACTION_OPEN_DOCUMENT` + 图片类型过滤，不申请存储/相册权限，
+  按选择结果读字节上传，不假定存在真实路径）；桌面保留手填绝对路径并新增「选择图片」原生
+  文件对话框。两个入口共用同一读取、≤5MB/magic bytes 校验、真实解码预览与「应用」提交链：
+  选择只更新字段/预览，点「应用」才上传；取消选择、取消对话框与上传失败都不改服务端头像。
 - 缓存目录默认是会话文件同级的 `avatar-cache/`，可用 `BB_AVATAR_CACHE_DIR` 覆盖。
 
 ## STEP-3 Chat 客户端

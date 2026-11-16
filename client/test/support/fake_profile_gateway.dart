@@ -27,6 +27,7 @@ class FakeProfileGateway implements ProfileGateway {
   final List<String> loadAvatarAccounts = <String>[];
   AuthFailure? failure;
   AuthFailure? avatarFailure;
+  AuthFailure? avatarUpdateFailure;
   Duration avatarDelay = Duration.zero;
   AuthFailure? saveFailure;
 
@@ -75,6 +76,15 @@ class FakeProfileGateway implements ProfileGateway {
   }
 
   @override
+  Future<AvatarInfo> updateAvatarFromBytes(
+    Uint8List bytes, {
+    AuthIdentity? captured,
+  }) async {
+    avatarSources.add('bytes:${bytes.length}');
+    return _avatarUpdate();
+  }
+
+  @override
   Future<AvatarInfo> updateAvatarFromUrl(String url, {AuthIdentity? captured}) async {
     avatarSources.add('url:$url');
     return _avatarUpdate();
@@ -87,6 +97,10 @@ class FakeProfileGateway implements ProfileGateway {
   }
 
   AvatarInfo _avatarUpdate() {
+    final AuthFailure? error = avatarUpdateFailure;
+    if (error != null) {
+      throw error;
+    }
     final int next =
         (int.tryParse(profile.avatarVersion.replaceAll('v', '')) ?? 1) + 1;
     profile = Profile(
