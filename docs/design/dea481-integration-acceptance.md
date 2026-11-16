@@ -2,12 +2,12 @@
 
 Approved source is revision 1 in `dea481-approved-space.md`; original
 source/ownership mapping remains in `dea481-acceptance.md`. Code candidate:
-`ec71e5112f76d3f0eab0c3d7dc2c82ea9754b3e6` (fifth client QA repairs).
-Ten original counterexamples and two retry controls now pass. The previous
-feed/detail rollback failures are preserved alongside the unchanged passing
-probes. See `docs/evidence/dea481-qa-round5/` for fixed-version checks, scope,
-package mapping and remaining verification limits. This matrix maps portions
-of approved cases, not complete acceptance.
+`dbabb06217f894656d70c432aeaac51a4af8159d` (sixth client QA repairs).
+Twelve original counterexamples and two retry controls now pass. The newest
+comment cache/late-page failures and all older failures remain preserved.
+See `docs/evidence/dea481-qa-round6/` for fixed-version checks, coverage limits
+and package mapping. This matrix maps portions of approved cases, not complete
+acceptance.
 
 Evidence roots: **S** = `docs/evidence/dea481/` (unchanged server, 459 tests);
 **C** = `docs/evidence/dea481-client/` (Muse UI and screenshots, tested `d3856e3`);
@@ -27,14 +27,14 @@ and locally verified with the same plugin working directory in
 runtime test results and packages are reused with explicit tree/byte checks;
 new CI and the linked Windows package run are not claimed as completed.
 
-The fifth QA repairs are integrated. **R** = `docs/evidence/dea481-qa-round5/`:
-analyze PASS, 699 client passes / 12 skips, 14 Linux integration passes, ten
-unchanged real counterexamples PASS and two original confirmation-retry controls
-PASS. Like rollback preserves the current reference/deletion facts and changes
-only like fields. Fresh UI packages use this runtime; old ed901e0 UI binaries
-are superseded. R's coverage table distinguishes real probes, unit tests,
-shared tested admission helpers and untested permutations. Independent QA still
-owns whole T01–T17 evaluation; no complete acceptance is asserted here.
+The sixth QA repairs are integrated. **R** = `docs/evidence/dea481-qa-round6/`:
+analyze PASS, 701 client passes / 12 skips, 14 Linux integration passes, twelve
+unchanged counterexamples PASS and two original confirmation-retry controls PASS.
+Comment tombstones now redact feed/pending previews, notification snippets and
+incoming detail root/reply/context snapshots while retaining surviving descendants.
+Fresh UI packages use this runtime; old ec71e51 UI binaries are superseded.
+R separates real probes, unit cases, shared helpers and untested permutations.
+Independent QA still owns whole T01–T17 evaluation.
 
 | Case / approved source | Implementer / concrete evidence | Remaining verification or issue |
 | --- | --- | --- |
@@ -45,7 +45,7 @@ owns whole T01–T17 evaluation; no complete acceptance is asserted here.
 | T05 §5.3 | S exact recipient/context; Muse `space_notifications_test`, `space_detail_test`; I gateway notifications | Independent notification navigation/focus |
 | T06 §4.2 | S direct reference/counts; Muse controller/detail navigation tests; A shared contract path | Manual back-stack/reference UX |
 | T07 §6.1–3 | S tombstones/protected media/shared blob; Muse controller/detail invalidation; I TCP delete invalidation and host deleted-image refusal; R stale refresh passes | R feed/detail rollback and stale refresh probes pass. Independent offline/cache/lifecycle and target-platform QA remains |
-| T08 §6.2 | S delete-parent/retain-descendants ACL; Muse `space_detail_test` placeholder/reply tests | Independent rendered long-thread verification |
+| T08 §6.2 | S delete-parent/retain-descendants ACL; Muse detail/controller placeholder/reply tests; R real loaded-preview/notification redaction and delayed reply-page probes | Independent rendered long-thread verification and remaining context/notification race combinations |
 | T09 §5.1–2 | S sparse read/visit idempotency; Muse controller lifecycle tests; I installed host explicit read and visit dedup | Device foreground/background lifecycle |
 | T10 §5.2 | S author-only visitor query/no visit notification; I real gateway 403 and TCP identity checks | UI people-page navigation QA |
 | T11 §5.3 | S membership/ack race; Muse notifications tests; I real gateway like/ack; A local explicit acknowledgment | Independent aggregate notification UX |

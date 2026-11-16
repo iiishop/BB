@@ -1,0 +1,27 @@
+{
+  "candidate_sha": "d3dbda161e3404128f428decbfd6baa7d50fcb17",
+  "rules": [
+    {
+      "id": "adjacent0",
+      "rule": "T08 comment deletion scrubs loaded feed and notification snippets",
+      "entry": "SpaceController event/response admission; SpaceDetailController comments; compose upload recovery",
+      "status": "tested",
+      "run": "adjacent/run.json",
+      "testcase": {
+        "classname": ".qa-artifacts/probes/sentinel_round3_test.dart",
+        "name": "T08 comment deletion scrubs loaded feed and notification snippets"
+      }
+    },
+    {
+      "id": "adjacent1",
+      "rule": "T08 late replies response cannot revive a deleted comment",
+      "entry": "SpaceController event/response admission; SpaceDetailController comments; compose upload recovery",
+      "status": "tested",
+      "run": "adjacent/run.json",
+      "testcase": {
+        "classname": ".qa-artifacts/probes/sentinel_round3_test.dart",
+        "name": "T08 late replies response cannot revive a deleted comment"
+      }
+    }
+  ]
+}
