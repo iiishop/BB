@@ -246,6 +246,72 @@ void main() {
     expect(gateway.drafts[draftId]!.text, 'other device edit');
   });
 
+  test('image removed while a save is in flight stays removed', () async {
+    final FakeSpaceGateway gateway = FakeSpaceGateway();
+    final SpaceOperation created = await gateway.createDraft(
+      operationId: 'create',
+      text: 'initial',
+    );
+    final String draftId = created.resourceId!;
+    await gateway.addImage(
+      draftId: draftId,
+      operationId: 'image',
+      expectedVersion: 1,
+      filename: 'test.png',
+      bytes: spaceTinyPng,
+    );
+    final SpaceComposeController controller = SpaceComposeController(
+      gateway: gateway,
+      store: SpaceLocalStore(scopeKey: gateway.scopeKey),
+      draftId: draftId,
+    );
+    addTearDown(controller.dispose);
+    await controller.start();
+    final String imageId = controller.images.single.imageId;
+
+    gateway.updateDraftCommitted = Completer<void>();
+    gateway.updateDraftGate = Completer<void>();
+    controller.text.text = 'first saved edit';
+    controller.onTextChanged();
+    final Future<void> saving = controller.saveNow();
+    await gateway.updateDraftCommitted!.future;
+    await controller.removeImage(imageId);
+    expect(controller.images, isEmpty);
+    gateway.updateDraftGate!.complete();
+    await saving;
+    await Future<void>.delayed(const Duration(milliseconds: 900));
+
+    // The older receipt carries the removed image; it must not restore it and
+    // the follow-up save must delete it on the server.
+    expect(controller.images, isEmpty);
+    expect(gateway.drafts[draftId]!.images, isEmpty);
+  });
+
+  test('image upload confirmation keeps already-dirty text', () async {
+    final FakeSpaceGateway gateway = FakeSpaceGateway();
+    final SpaceComposeController controller = SpaceComposeController(
+      gateway: gateway,
+      store: SpaceLocalStore(scopeKey: gateway.scopeKey),
+      picker: () async => PickedSpaceImage(
+        bytes: spaceTinyPng,
+        filename: 'p.png',
+      ),
+    );
+    addTearDown(controller.dispose);
+    await controller.start();
+    controller.text.text = 'unsaved before image selection';
+    controller.onTextChanged();
+    await controller.addImage();
+
+    expect(controller.images, hasLength(1));
+    expect(controller.text.text, 'unsaved before image selection');
+    await controller.saveNow();
+    expect(
+      gateway.drafts[controller.id!]!.text,
+      'unsaved before image selection',
+    );
+  });
+
   testWidgets('offline input stays local and survives reopening the draft', (
     WidgetTester tester,
   ) async {
