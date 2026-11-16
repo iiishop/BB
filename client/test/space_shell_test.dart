@@ -90,6 +90,19 @@ Future<void> pumpHome(
   await tester.pumpAndSettle();
 }
 
+/// Opacity currently applied to the floating profile entry.
+double profileEntryOpacity(WidgetTester tester) {
+  final AnimatedOpacity opacity = tester.widget<AnimatedOpacity>(
+    find
+        .ancestor(
+          of: find.byKey(HomeView.avatarEntryKey),
+          matching: find.byType(AnimatedOpacity),
+        )
+        .first,
+  );
+  return opacity.opacity;
+}
+
 void main() {
   setUp(SpaceLocalStore.resetForTest);
 
@@ -175,6 +188,28 @@ void main() {
     await tester.tap(find.byKey(HomeView.navSpaceKey));
     await tester.pumpAndSettle();
     expect(find.byKey(SpacePage.pageKey), findsOneWidget);
+  });
+
+  testWidgets('wide shell hides the floating profile entry the rail owns', (
+    WidgetTester tester,
+  ) async {
+    final FakeSpaceGateway gateway = shellGateway();
+    await pumpHome(tester, gateway: gateway, size: spaceWide);
+
+    // The rail carries the profile entry, so the floating one fades out and
+    // slides toward the rail instead of competing for the same corner.
+    expect(find.byKey(HomeView.railAvatarKey), findsOneWidget);
+    expect(profileEntryOpacity(tester), 0);
+  });
+
+  testWidgets('phone keeps the floating profile entry and has no rail', (
+    WidgetTester tester,
+  ) async {
+    final FakeSpaceGateway gateway = shellGateway();
+    await pumpHome(tester, gateway: gateway);
+
+    expect(find.byKey(HomeView.railAvatarKey), findsNothing);
+    expect(profileEntryOpacity(tester), 1);
   });
 
   testWidgets('wide space shows master-detail and restores the single feed', (
