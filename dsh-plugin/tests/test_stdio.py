@@ -10,6 +10,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 from bb_dsh_plugin.guarded import TOOL_MODELS
+from bb_dsh_plugin.space_tools import SPACE_TOOLS
 
 
 async def test_stdio_eight_tools_and_stateless_http(tmp_path):
@@ -58,7 +59,7 @@ async def test_stdio_eight_tools_and_stateless_http(tmp_path):
         ):
             await session.initialize()
             tools = await session.list_tools()
-            assert {tool.name for tool in tools.tools} == set(TOOL_MODELS) | {
+            assert {tool.name for tool in tools.tools} == set(TOOL_MODELS) | set(SPACE_TOOLS) | {
                 "register_account",
                 "login_account",
                 "view_avatar",

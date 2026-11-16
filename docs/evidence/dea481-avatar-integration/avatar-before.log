@@ -1,0 +1,7 @@
+/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/docs/evidence/dea481-avatar-integration/release_smoke.py:72: DeprecationWarning: Image.Image.getdata is deprecated and will be removed in Pillow 14 (2027-10-15). Use get_flattened_data instead.
+  colored = sum(r > 200 and 20 < g < 60 and 90 < b < 150 for r, g, b in crop.getdata())
+Traceback (most recent call last):
+  File "/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/docs/evidence/dea481-avatar-integration/release_smoke.py", line 73, in <module>
+    assert colored > 500, f"actual uploaded avatar not rendered: {colored} pixels"
+           ^^^^^^^^^^^^^
+AssertionError: actual uploaded avatar not rendered: 0 pixels

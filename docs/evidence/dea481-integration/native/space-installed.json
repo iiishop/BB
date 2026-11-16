@@ -1,0 +1,12 @@
+{
+  "installed_space": "PASS",
+  "tools": 24,
+  "ten_images_ordered": true,
+  "image_bytes_at_provider": true,
+  "model": "deterministic double; no semantic claim",
+  "explicit_read": true,
+  "visits_deduplicated": true,
+  "restart_no_republish": true,
+  "disabled_tools_removed": true,
+  "uninstall_restart": true
+}

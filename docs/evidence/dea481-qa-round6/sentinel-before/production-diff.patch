@@ -1,0 +1,388 @@
+diff --git a/client/lib/ui/space/space_compose_controller.dart b/client/lib/ui/space/space_compose_controller.dart
+index e4023ec..81ab2e2 100644
+--- a/client/lib/ui/space/space_compose_controller.dart
++++ b/client/lib/ui/space/space_compose_controller.dart
+@@ -47,6 +47,12 @@ class PendingDraftImage {
+   /// newer version written by someone else; that is a fence, not a new
+   /// baseline for local input.
+   int? confirmedVersion;
++
++  /// Local image intent when the upload started. A confirmation retry must
++  /// reconcile against this snapshot, not against whatever _order holds by
++  /// then, or an image removed during the upload is treated as "no change".
++  List<String> localOrderAtAdmission = <String>[];
++  List<String> serverOrderAtAdmission = <String>[];
+ }
+ 
+ /// Draft editor state. It owns no business fact: the server draft is
+@@ -534,8 +540,12 @@ class SpaceComposeController extends ChangeNotifier {
+     if (id == null) {
+       return;
+     }
+-    final List<String> localOrder = List<String>.of(_order);
+-    final List<String> serverBefore = List<String>.of(_serverOrder);
++    final List<String> localOrder = List<String>.of(
++      item.localOrderAtAdmission,
++    );
++    final List<String> serverBefore = List<String>.of(
++      item.serverOrderAtAdmission,
++    );
+     item.uploading = true;
+     _notify();
+     try {
+@@ -634,6 +644,8 @@ class SpaceComposeController extends ChangeNotifier {
+     }
+     final List<String> localOrder = List<String>.of(_order);
+     final List<String> serverBefore = List<String>.of(_serverOrder);
++    item.localOrderAtAdmission = List<String>.of(_order);
++    item.serverOrderAtAdmission = List<String>.of(_serverOrder);
+     item.uploading = true;
+     item.error = null;
+     _notify();
+diff --git a/client/lib/ui/space/space_controller.dart b/client/lib/ui/space/space_controller.dart
+index 583d550..d3dd92b 100644
+--- a/client/lib/ui/space/space_controller.dart
++++ b/client/lib/ui/space/space_controller.dart
+@@ -74,6 +74,9 @@ class SpaceController extends ChangeNotifier {
+ 
+   int? _eventCursor;
+   bool _eventsReady = false;
++  /// Posts whose deletion was already observed. Late responses captured before
++  /// that point must not reinsert them or restore their reference snapshots.
++  final Set<String> _tombstones = <String>{};
+   bool _polling = false;
+   Timer? _timer;
+   bool _disposed = false;
+@@ -133,16 +136,17 @@ class SpaceController extends ChangeNotifier {
+   Future<void> _loadFeedFirst({required bool explicit}) async {
+     try {
+       final SpacePagePost page = await gateway.listPosts(limit: 20);
++      final List<SpacePost> admitted = _admitIncoming(page.items);
+       final bool wasOffline = offline;
+       if (explicit) {
+         posts
+           ..clear()
+-          ..addAll(page.items);
++          ..addAll(admitted);
+         pendingNewPosts = 0;
+         _pendingPage = <SpacePost>[];
+       } else {
+         final Set<String> known = posts.map((SpacePost p) => p.postId).toSet();
+-        final List<SpacePost> fresh = page.items
++        final List<SpacePost> fresh = admitted
+             .where((SpacePost p) => !known.contains(p.postId))
+             .toList();
+         if (fresh.isNotEmpty) {
+@@ -217,7 +221,9 @@ class SpaceController extends ChangeNotifier {
+         limit: 20,
+       );
+       final Set<String> seen = posts.map((SpacePost p) => p.postId).toSet();
+-      posts.addAll(page.items.where((SpacePost p) => seen.add(p.postId)));
++      posts.addAll(
++        _admitIncoming(page.items).where((SpacePost p) => seen.add(p.postId)),
++      );
+       nextCursor = page.nextCursor;
+       hasMore = page.hasMore;
+       offline = false;
+@@ -237,12 +243,17 @@ class SpaceController extends ChangeNotifier {
+     if (_pendingPage.isEmpty) {
+       return;
+     }
+-    final Set<String> incoming = _pendingPage
+-        .map((SpacePost p) => p.postId)
+-        .toSet();
++    final List<SpacePost> admitted = _admitIncoming(_pendingPage);
++    if (admitted.isEmpty) {
++      _pendingPage = <SpacePost>[];
++      pendingNewPosts = 0;
++      _notify();
++      return;
++    }
++    final Set<String> incoming = admitted.map((SpacePost p) => p.postId).toSet();
+     posts
+       ..removeWhere((SpacePost p) => incoming.contains(p.postId))
+-      ..insertAll(0, _pendingPage);
++      ..insertAll(0, admitted);
+     _pendingPage = <SpacePost>[];
+     pendingNewPosts = 0;
+     phase = posts.isEmpty ? SpacePhase.empty : SpacePhase.ready;
+@@ -276,7 +287,14 @@ class SpaceController extends ChangeNotifier {
+         (SpacePost p) => p.postId == post.postId,
+       );
+       if (current >= 0) {
+-        posts[current] = original;
++        // Revert only the like fields on the live snapshot. Restoring the
++        // whole captured object would resurrect deleted text/reference facts
++        // when a deletion event arrived while the request was in flight.
++        posts[current] = _withLikeFields(
++          posts[current],
++          liked: original.liked,
++          likeCount: original.likeCount,
++        );
+       }
+       feedError = spaceErrorText(failure);
+     }
+@@ -285,24 +303,38 @@ class SpaceController extends ChangeNotifier {
+ 
+   SpacePost _withLike(SpacePost original, bool desired) {
+     final int delta = desired == original.liked ? 0 : (desired ? 1 : -1);
+-    return SpacePost(
+-      postId: original.postId,
+-      author: original.author,
+-      createdAt: original.createdAt,
+-      text: original.text,
+-      images: original.images,
+-      reference: original.reference,
++    return _withLikeFields(
++      original,
+       liked: desired,
+-      read: original.read,
+       likeCount: original.likeCount + delta,
+-      commentCount: original.commentCount,
+-      rootCount: original.rootCount,
+-      repostCount: original.repostCount,
+-      viewCount: original.viewCount,
+-      canDelete: original.canDelete,
+-      canListVisitors: original.canListVisitors,
+-      previewComments: original.previewComments,
+-      remainingRoots: original.remainingRoots,
++    );
++  }
++
++  /// Copies [target] (so its current deletion/reference facts win) and only
++  /// overrides the like fields.
++  SpacePost _withLikeFields(
++    SpacePost target, {
++    required bool liked,
++    required int likeCount,
++  }) {
++    return SpacePost(
++      postId: target.postId,
++      author: target.author,
++      createdAt: target.createdAt,
++      text: target.text,
++      images: target.images,
++      reference: target.reference,
++      liked: liked,
++      read: target.read,
++      likeCount: likeCount,
++      commentCount: target.commentCount,
++      rootCount: target.rootCount,
++      repostCount: target.repostCount,
++      viewCount: target.viewCount,
++      canDelete: target.canDelete,
++      canListVisitors: target.canListVisitors,
++      previewComments: target.previewComments,
++      remainingRoots: target.remainingRoots,
+     );
+   }
+ 
+@@ -339,6 +371,7 @@ class SpaceController extends ChangeNotifier {
+         focusCommentId: focusCommentId,
+         onSessionExpired: onSessionExpired,
+         onPostDeleted: _handlePostDeleted,
++        isTombstoned: _isTombstoned,
+       );
+       _details[postId] = controller;
+     }
+@@ -384,6 +417,7 @@ class SpaceController extends ChangeNotifier {
+   }
+ 
+   void _handlePostDeleted(String postId) {
++    _tombstones.add(postId);
+     posts.removeWhere((SpacePost p) => p.postId == postId);
+     _pendingPage.removeWhere((SpacePost p) => p.postId == postId);
+     _scrubReferencesTo(postId);
+@@ -393,6 +427,23 @@ class SpaceController extends ChangeNotifier {
+     _notify();
+   }
+ 
++  bool _isTombstoned(String postId) => _tombstones.contains(postId);
++
++  SpacePost _scrubIncoming(SpacePost post) {
++    final SpaceReference? reference = post.reference;
++    if (reference == null || !_tombstones.contains(reference.postId)) {
++      return post;
++    }
++    return spacePostWithScrubbedReference(post, reference.postId);
++  }
++
++  List<SpacePost> _admitIncoming(Iterable<SpacePost> items) {
++    return <SpacePost>[
++      for (final SpacePost post in items)
++        if (!_tombstones.contains(post.postId)) _scrubIncoming(post),
++    ];
++  }
++
+   /// A deleted post can still be embedded as a reference card in other loaded
+   /// posts and open details. Reduce every cached snapshot to the deleted
+   /// placeholder and drop the source image from the shared cache.
+@@ -704,6 +755,7 @@ class SpaceController extends ChangeNotifier {
+               images.invalidateImage(referenceImage.imageId);
+             }
+           }
++          _tombstones.add(postId);
+           posts.removeWhere((SpacePost p) => p.postId == postId);
+           _pendingPage.removeWhere((SpacePost p) => p.postId == postId);
+           _details[postId]?.onDeletedEvent();
+diff --git a/client/lib/ui/space/space_detail_controller.dart b/client/lib/ui/space/space_detail_controller.dart
+index 2414fee..d59b656 100644
+--- a/client/lib/ui/space/space_detail_controller.dart
++++ b/client/lib/ui/space/space_detail_controller.dart
+@@ -21,6 +21,7 @@ class SpaceDetailController extends ChangeNotifier {
+     this.focusCommentId,
+     this.onSessionExpired,
+     this.onPostDeleted,
++    this.isTombstoned,
+   });
+ 
+   final SpaceGateway gateway;
+@@ -31,6 +32,10 @@ class SpaceDetailController extends ChangeNotifier {
+   final VoidCallback? onSessionExpired;
+   final void Function(String postId)? onPostDeleted;
+ 
++  /// Tells whether the owner controller already observed a deletion. A detail
++  /// response captured before that event must not render deleted content.
++  final bool Function(String postId)? isTombstoned;
++
+   SpacePhase phase = SpacePhase.loading;
+   SpacePost? post;
+   String? error;
+@@ -67,6 +72,22 @@ class SpaceDetailController extends ChangeNotifier {
+     }
+   }
+ 
++  /// Returns the post to render, or null when a deletion was already observed.
++  SpacePost? _admitPost(SpacePost loaded) {
++    if (isTombstoned?.call(loaded.postId) ?? false) {
++      deleted = true;
++      phase = SpacePhase.error;
++      error = '这条说说已被删除';
++      post = null;
++      return null;
++    }
++    final SpaceReference? reference = loaded.reference;
++    if (reference != null && (isTombstoned?.call(reference.postId) ?? false)) {
++      return spacePostWithScrubbedReference(loaded, reference.postId);
++    }
++    return loaded;
++  }
++
+   Future<void> load() async {
+     if (_loading || deleted) {
+       return;
+@@ -76,7 +97,12 @@ class SpaceDetailController extends ChangeNotifier {
+     _notify();
+     try {
+       final SpacePost loaded = await gateway.getPost(postId, visitId: visitId);
+-      post = loaded;
++      final SpacePost? admitted = _admitPost(loaded);
++      if (admitted == null) {
++        _notify();
++        return;
++      }
++      post = admitted;
+       phase = SpacePhase.ready;
+       error = null;
+       offline = false;
+@@ -116,7 +142,12 @@ class SpaceDetailController extends ChangeNotifier {
+     }
+     try {
+       final SpacePost loaded = await gateway.getPost(postId, visitId: visitId);
+-      post = loaded;
++      final SpacePost? admitted = _admitPost(loaded);
++      if (admitted == null) {
++        _notify();
++        return;
++      }
++      post = admitted;
+       _notify();
+     } catch (_) {
+       // The invalidation event is retried by the next explicit refresh.
+@@ -286,7 +317,16 @@ class SpaceDetailController extends ChangeNotifier {
+       actionError = null;
+       return true;
+     } catch (failure) {
+-      post = current;
++      final SpacePost? latest = post;
++      if (latest != null && !deleted && !(isTombstoned?.call(postId) ?? false)) {
++        // Only revert the like fields on the live snapshot; a deletion event
++        // during the request must not be undone by the old captured object.
++        post = _withLikeFields(
++          latest,
++          liked: current.liked,
++          likeCount: current.likeCount,
++        );
++      }
+       actionError = spaceErrorText(failure);
+       return false;
+     } finally {
+@@ -297,24 +337,38 @@ class SpaceDetailController extends ChangeNotifier {
+ 
+   SpacePost _postWithLike(SpacePost original, {required bool desired}) {
+     final int delta = desired == original.liked ? 0 : (desired ? 1 : -1);
+-    return SpacePost(
+-      postId: original.postId,
+-      author: original.author,
+-      createdAt: original.createdAt,
+-      text: original.text,
+-      images: original.images,
+-      reference: original.reference,
++    return _withLikeFields(
++      original,
+       liked: desired,
+-      read: original.read,
+       likeCount: original.likeCount + delta,
+-      commentCount: original.commentCount,
+-      rootCount: original.rootCount,
+-      repostCount: original.repostCount,
+-      viewCount: original.viewCount,
+-      canDelete: original.canDelete,
+-      canListVisitors: original.canListVisitors,
+-      previewComments: original.previewComments,
+-      remainingRoots: original.remainingRoots,
++    );
++  }
++
++  /// Copies [target] so current deletion/reference facts win, overriding only
++  /// the like fields.
++  SpacePost _withLikeFields(
++    SpacePost target, {
++    required bool liked,
++    required int likeCount,
++  }) {
++    return SpacePost(
++      postId: target.postId,
++      author: target.author,
++      createdAt: target.createdAt,
++      text: target.text,
++      images: target.images,
++      reference: target.reference,
++      liked: liked,
++      read: target.read,
++      likeCount: likeCount,
++      commentCount: target.commentCount,
++      rootCount: target.rootCount,
++      repostCount: target.repostCount,
++      viewCount: target.viewCount,
++      canDelete: target.canDelete,
++      canListVisitors: target.canListVisitors,
++      previewComments: target.previewComments,
++      remainingRoots: target.remainingRoots,
+     );
+   }
+ 
+@@ -393,7 +447,12 @@ class SpaceDetailController extends ChangeNotifier {
+   Future<void> refreshAfterMutation() async {
+     try {
+       final SpacePost loaded = await gateway.getPost(postId, visitId: visitId);
+-      post = loaded;
++      final SpacePost? admitted = _admitPost(loaded);
++      if (admitted == null) {
++        _notify();
++        return;
++      }
++      post = admitted;
+       await _refreshComments();
+       _notify();
+     } catch (failure) {

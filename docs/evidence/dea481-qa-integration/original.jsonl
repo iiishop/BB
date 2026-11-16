@@ -1,0 +1,13 @@
+{"protocolVersion":"0.1.1","runnerVersion":null,"pid":841398,"type":"start","time":0}
+{"suite":{"id":0,"platform":"vm","path":"/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/.qa-artifacts/forge-qa-integration/space_defect_probe_test.dart"},"type":"suite","time":0}
+{"test":{"id":1,"name":"loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/.qa-artifacts/forge-qa-integration/space_defect_probe_test.dart","suiteID":0,"groupIDs":[],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":null},"type":"testStart","time":0}
+{"count":1,"time":3,"type":"allSuites"}
+{"testID":1,"result":"success","skipped":false,"hidden":true,"type":"testDone","time":1180}
+{"group":{"id":2,"suiteID":0,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":3,"line":null,"column":null,"url":null},"type":"group","time":1181}
+{"test":{"id":3,"name":"real T02 delayed save publishes visible text","suiteID":0,"groupIDs":[2],"metadata":{"skip":false,"skipReason":null},"line":56,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/.qa-artifacts/forge-qa-integration/space_defect_probe_test.dart"},"type":"testStart","time":1182}
+{"testID":3,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":3065}
+{"test":{"id":4,"name":"real T02 dirty reopen preserves conflicting server version","suiteID":0,"groupIDs":[2],"metadata":{"skip":false,"skipReason":null},"line":80,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/.qa-artifacts/forge-qa-integration/space_defect_probe_test.dart"},"type":"testStart","time":3065}
+{"testID":4,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":3191}
+{"test":{"id":5,"name":"real T07 replay removes cached repost source text","suiteID":0,"groupIDs":[2],"metadata":{"skip":false,"skipReason":null},"line":100,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/.qa-artifacts/forge-qa-integration/space_defect_probe_test.dart"},"type":"testStart","time":3191}
+{"testID":5,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":3334}
+{"success":true,"type":"done","time":3348}

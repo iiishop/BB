@@ -1,0 +1,26 @@
+{
+  "client/lib/ui/space/space_controller.dart": {
+    "5d84787": "d30032571b8d30e0a5e0853a03d96ecc09676c05",
+    "ec65ac4cf46186623ee7d69d4f5ec53193519f10": "d30032571b8d30e0a5e0853a03d96ecc09676c05"
+  },
+  "client/lib/ui/space/space_detail_controller.dart": {
+    "5d84787": "e3ebff3cb41c1cd9690acb4a492bcf5d66f34abb",
+    "ec65ac4cf46186623ee7d69d4f5ec53193519f10": "e3ebff3cb41c1cd9690acb4a492bcf5d66f34abb"
+  },
+  "client/lib/ui/space/space_compose_controller.dart": {
+    "5d84787": "81ab2e2c3241f65a2ec01cf81148e387f22dcd72",
+    "ec65ac4cf46186623ee7d69d4f5ec53193519f10": "81ab2e2c3241f65a2ec01cf81148e387f22dcd72"
+  },
+  "client/pubspec.lock": {
+    "5d84787": "1f6b0b19a09629263b0b5a57df3fbb3445a5a724",
+    "ec65ac4cf46186623ee7d69d4f5ec53193519f10": "1f6b0b19a09629263b0b5a57df3fbb3445a5a724"
+  },
+  "server": {
+    "5d84787": "8d2147fd7be48cd30227fbddf851e2e157e936d5",
+    "ec65ac4cf46186623ee7d69d4f5ec53193519f10": "8d2147fd7be48cd30227fbddf851e2e157e936d5"
+  },
+  "dsh-plugin": {
+    "5d84787": "4c0ca3326016f7e76e3efb8f8cbb6fb94f2d4010",
+    "ec65ac4cf46186623ee7d69d4f5ec53193519f10": "4c0ca3326016f7e76e3efb8f8cbb6fb94f2d4010"
+  }
+}

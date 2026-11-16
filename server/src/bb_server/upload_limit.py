@@ -12,13 +12,20 @@ class UploadLimit:
     async def __call__(self, scope, receive, send):
         if (
             scope["type"] != "http"
-            or scope["path"] not in ("/me/avatar", "/media")
+            or (
+                scope["path"] not in ("/me/avatar", "/media")
+                and not scope["path"].startswith("/space/")
+            )
             or scope["method"] != "POST"
         ):
             return await self.app(scope, receive, send)
         limit = (
             MAX_AVATAR_BYTES if scope["path"] == "/me/avatar" else 32 * 1024 * 1024
         ) + 64 * 1024  # bounded multipart overhead
+        if scope["path"].startswith("/space/"):
+            limit = (
+                48 * 1024 * 1024 if scope["path"] == "/space/add_image" else 1024 * 1024
+            )
         length = dict(scope.get("headers", [])).get(b"content-length")
         if length and length.isdigit() and int(length) > limit:
             error = ContractError(413, "payload_too_large", "上传请求体过大")

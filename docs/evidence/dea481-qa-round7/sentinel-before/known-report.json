@@ -1,0 +1,159 @@
+{
+  "candidate_sha": "00ab236dc96ff056398974d0584a75215b1036a4",
+  "rules": [
+    {
+      "id": "known0",
+      "rule": "real T02 delayed save publishes visible text",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "known/run.json",
+      "testcase": {
+        "classname": ".qa-artifacts/probes/space_defect_probe_test.dart",
+        "name": "real T02 delayed save publishes visible text"
+      }
+    },
+    {
+      "id": "known1",
+      "rule": "real T02 image removal during save must survive the older receipt",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "known/run.json",
+      "testcase": {
+        "classname": ".qa-artifacts/probes/adjacent_draft_probe_test.dart",
+        "name": "real T02 image removal during save must survive the older receipt"
+      }
+    },
+    {
+      "id": "known2",
+      "rule": "real T02 upload confirmation must fence a newer external writer",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "known/run.json",
+      "testcase": {
+        "classname": ".qa-artifacts/probes/upload_conflict_probe_test.dart",
+        "name": "real T02 upload confirmation must fence a newer external writer"
+      }
+    },
+    {
+      "id": "known3",
+      "rule": "T02 failed upload confirmation retry preserves local image removal",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "known/run.json",
+      "testcase": {
+        "classname": ".qa-artifacts/probes/sentinel_round2_test.dart",
+        "name": "T02 failed upload confirmation retry preserves local image removal"
+      }
+    },
+    {
+      "id": "known4",
+      "rule": "confirmation retry with external writer=false",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "known/run.json",
+      "testcase": {
+        "classname": ".qa-artifacts/probes/sentinel_round2_controls_test.dart",
+        "name": "confirmation retry with external writer=false"
+      }
+    },
+    {
+      "id": "known5",
+      "rule": "T07 like rollback cannot restore deleted reference detail=false",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "known/run.json",
+      "testcase": {
+        "classname": ".qa-artifacts/probes/rollback_tombstone_probe_test.dart",
+        "name": "T07 like rollback cannot restore deleted reference detail=false"
+      }
+    },
+    {
+      "id": "known6",
+      "rule": "T07 stale refresh response cannot restore a deleted post or reference",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "known/run.json",
+      "testcase": {
+        "classname": ".qa-artifacts/probes/sentinel_round2_test.dart",
+        "name": "T07 stale refresh response cannot restore a deleted post or reference"
+      }
+    },
+    {
+      "id": "known7",
+      "rule": "T08 comment deletion scrubs loaded feed and notification snippets",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "known/run.json",
+      "testcase": {
+        "classname": ".qa-artifacts/probes/sentinel_round3_test.dart",
+        "name": "T08 comment deletion scrubs loaded feed and notification snippets"
+      }
+    },
+    {
+      "id": "known8",
+      "rule": "confirmation retry with external writer=true",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "known/run.json",
+      "testcase": {
+        "classname": ".qa-artifacts/probes/sentinel_round2_controls_test.dart",
+        "name": "confirmation retry with external writer=true"
+      }
+    },
+    {
+      "id": "known9",
+      "rule": "real T02 upload must not erase already-dirty text",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "known/run.json",
+      "testcase": {
+        "classname": ".qa-artifacts/probes/adjacent_draft_probe_test.dart",
+        "name": "real T02 upload must not erase already-dirty text"
+      }
+    },
+    {
+      "id": "known10",
+      "rule": "T08 late replies response cannot revive a deleted comment",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "known/run.json",
+      "testcase": {
+        "classname": ".qa-artifacts/probes/sentinel_round3_test.dart",
+        "name": "T08 late replies response cannot revive a deleted comment"
+      }
+    },
+    {
+      "id": "known11",
+      "rule": "real T02 dirty reopen preserves conflicting server version",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "known/run.json",
+      "testcase": {
+        "classname": ".qa-artifacts/probes/space_defect_probe_test.dart",
+        "name": "real T02 dirty reopen preserves conflicting server version"
+      }
+    },
+    {
+      "id": "known12",
+      "rule": "T07 like rollback cannot restore deleted reference detail=true",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "known/run.json",
+      "testcase": {
+        "classname": ".qa-artifacts/probes/rollback_tombstone_probe_test.dart",
+        "name": "T07 like rollback cannot restore deleted reference detail=true"
+      }
+    },
+    {
+      "id": "known13",
+      "rule": "real T07 replay removes cached repost source text",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "known/run.json",
+      "testcase": {
+        "classname": ".qa-artifacts/probes/space_defect_probe_test.dart",
+        "name": "real T07 replay removes cached repost source text"
+      }
+    }
+  ]
+}

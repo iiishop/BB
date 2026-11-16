@@ -1,0 +1,16 @@
+{
+  "candidate_sha": "16681978cebc45eb25fe8cc765ac0716e524d2b4",
+  "rules": [
+    {
+      "id": "live-source-viewer",
+      "rule": "deleting repost must preserve live source viewer",
+      "entry": "SpacePage navigation/polling to shared image loader and viewer",
+      "status": "tested",
+      "run": "viewer/run.json",
+      "testcase": {
+        "classname": ".qa-artifacts/probes/sentinel_round7_viewer_test.dart",
+        "name": "T07 deleting repost preserves open viewer of live source"
+      }
+    }
+  ]
+}

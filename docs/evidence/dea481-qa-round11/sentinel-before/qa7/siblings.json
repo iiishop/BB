@@ -1,0 +1,12 @@
+[
+  {
+    "agent_id": "253eba7b-7a73-4e25-927a-3dc8379a5b56",
+    "created_at": "2026-11-16T02:52:58Z",
+    "issue_id": "01a1e14a-0fc3-7933-a635-9885f20393a5",
+    "issue_identifier": "DEA-481",
+    "issue_title": "BB 空间第一版：三形态客户端、服务端与现有 DSH 插件扩展",
+    "started_at": "2026-11-16T02:52:58Z",
+    "status": "running",
+    "task_id": "01a1e245-a767-7851-9d57-0f4b997ecd1b"
+  }
+]

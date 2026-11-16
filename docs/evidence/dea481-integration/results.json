@@ -1,0 +1,190 @@
+{
+  "run": "01a1e18e-7f37-7935-b50d-53ed329e6126",
+  "code_sha": "542cfadcb38e6b60856c2e371d921443cba53a4c",
+  "checks": [
+    {
+      "name": "flutter-final",
+      "command": "xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 QA_LOG_DIR=\"$PWD/docs/evidence/dea481-integration/flutter-final\" bash scripts/run_flutter_tests.sh client",
+      "cwd": "repository root unless command starts cd client",
+      "source": "542cfadcb38e6b60856c2e371d921443cba53a4c",
+      "exit_code": 0,
+      "log": "flutter-final-entry.log",
+      "analyze": 0,
+      "passed": 683,
+      "skipped": 12,
+      "linux_integration_passed": 14
+    },
+    {
+      "name": "gateway-final",
+      "command": "uv run --project dsh-plugin --locked python docs/evidence/dea481-integration/real_gateway.py",
+      "cwd": "repository root unless command starts cd client",
+      "source": "542cfadcb38e6b60856c2e371d921443cba53a4c",
+      "exit_code": 0,
+      "log": "real-gateway-final.jsonl",
+      "passed": 6,
+      "skipped": 0
+    },
+    {
+      "name": "gateway-before",
+      "command": "same four test files and isolated Live() orchestration as real_gateway.py",
+      "cwd": "repository root unless command starts cd client",
+      "source": "d2211e2bab3f6a79e54d2777103d9f8b1d782cad",
+      "exit_code": 1,
+      "log": "real-gateway-before.jsonl",
+      "passed": 5,
+      "failed": 1,
+      "skipped": 0,
+      "scope": "pre-existing invalid-token fixture failed to replace newer generation"
+    },
+    {
+      "name": "gateway-after-fixture",
+      "command": "same four test files and isolated Live() orchestration as real_gateway.py",
+      "cwd": "repository root unless command starts cd client",
+      "source": "51f90c1bb6ff6221b8a1bcf6ca2dac41f25e324e",
+      "exit_code": 0,
+      "log": "real-gateway.jsonl",
+      "passed": 6,
+      "skipped": 0
+    },
+    {
+      "name": "standalone-tcp",
+      "command": "uv run --project dsh-plugin --locked python dsh-plugin/probes/space_live.py",
+      "cwd": "repository root unless command starts cd client",
+      "source": "d2211e2bab3f6a79e54d2777103d9f8b1d782cad",
+      "exit_code": 0,
+      "log": "tcp.log",
+      "scope": "reuse at final code: precise paths identical in scope.json"
+    },
+    {
+      "name": "native-dsh",
+      "command": "uv run --project dsh-plugin --locked python dsh-plugin/probes/space_host.py docs/evidence/dea481-integration/native --runtime /home/iiishop/.local/lib/node_modules/@deepseek-ai/dsh",
+      "cwd": "repository root unless command starts cd client",
+      "source": "d2211e2bab3f6a79e54d2777103d9f8b1d782cad",
+      "exit_code": 0,
+      "log": "native/native.log",
+      "scope": "stock host; deterministic provider; unchanged relevant paths and host hashes"
+    },
+    {
+      "name": "linux-release",
+      "command": "cd client && flutter build linux --release --no-pub",
+      "cwd": "repository root unless command starts cd client",
+      "source": "542cfadcb38e6b60856c2e371d921443cba53a4c",
+      "exit_code": 0,
+      "log": "build-linux-final.log"
+    },
+    {
+      "name": "linux-packages",
+      "command": "bash scripts/ci/package-linux.sh --bundle client/build/linux/x64/release/bundle --out ../dea481-artifacts --version 0.0.2+dea481.542cfad --deb --pkg bb-space-test",
+      "cwd": "repository root unless command starts cd client",
+      "source": "542cfadcb38e6b60856c2e371d921443cba53a4c",
+      "exit_code": 0,
+      "log": "package-linux.log"
+    },
+    {
+      "name": "linux-release-smoke",
+      "command": "xvfb-run -a -s '-screen 0 1920x1080x24' env LIBGL_ALWAYS_SOFTWARE=1 GDK_BACKEND=x11 uv run --project dsh-plugin --locked python docs/evidence/dea481-integration/release_smoke.py",
+      "cwd": "repository root unless command starts cd client",
+      "source": "542cfadcb38e6b60856c2e371d921443cba53a4c",
+      "exit_code": 0,
+      "log": "release-smoke.log",
+      "scope": "real release window, Openbox and real isolated API; script added in evidence-only descendant"
+    },
+    {
+      "name": "android-before",
+      "command": "cd client && flutter build apk --release --target-platform android-arm64 --no-pub",
+      "cwd": "repository root unless command starts cd client",
+      "source": "542cfadcb38e6b60856c2e371d921443cba53a4c",
+      "exit_code": 1,
+      "log": "build-android.log",
+      "scope": "failed stale generated plugin registrant; not a device result"
+    },
+    {
+      "name": "android-final",
+      "command": "cd client && flutter build apk --release --target-platform android-arm64",
+      "cwd": "repository root unless command starts cd client",
+      "source": "542cfadcb38e6b60856c2e371d921443cba53a4c",
+      "exit_code": 0,
+      "log": "build-android-retry.log",
+      "scope": "test APK only; lockfiles unchanged; no device attached"
+    },
+    {
+      "name": "apk-signature",
+      "command": "/home/iiishop/Android/Sdk/build-tools/36.0.0/apksigner verify --verbose --print-certs client/build/app/outputs/flutter-apk/app-release.apk",
+      "cwd": "repository root unless command starts cd client",
+      "source": "542cfadcb38e6b60856c2e371d921443cba53a4c",
+      "exit_code": 0,
+      "log": "apk-signature.log",
+      "scope": "public debug certificate; not production signing"
+    },
+    {
+      "name": "dart-compile-before",
+      "command": "cd client && dart compile exe bin/bb_client_api.dart -o ../../dea481-artifacts/bb-client-api-linux-x64-542cfad",
+      "cwd": "repository root unless command starts cd client",
+      "source": "542cfadcb38e6b60856c2e371d921443cba53a4c",
+      "exit_code": 255,
+      "log": "build-dart.log",
+      "scope": "unsupported build hooks; supported SDK builder below"
+    },
+    {
+      "name": "dart-build",
+      "command": "cd client && dart build cli --target bin/bb_client_api.dart --output ../../dea481-artifacts/bb-client-api-542cfad",
+      "cwd": "repository root unless command starts cd client",
+      "source": "542cfadcb38e6b60856c2e371d921443cba53a4c",
+      "exit_code": 0,
+      "log": "build-dart-cli.log"
+    },
+    {
+      "name": "compiled-cli",
+      "command": "uv run --project dsh-plugin --locked python docs/evidence/dea481-integration/compiled_cli.py ../dea481-artifacts/bb-client-api-542cfad/bundle/bin/bb_client_api",
+      "cwd": "repository root unless command starts cd client",
+      "source": "542cfadcb38e6b60856c2e371d921443cba53a4c",
+      "exit_code": 0,
+      "log": "compiled-cli.log",
+      "scope": "actual compiled binary with real API; synthetic accounts"
+    },
+    {
+      "name": "bundle",
+      "command": "uv run --project dsh-plugin --locked python dsh-plugin/build_bundle.py ../dea481-artifacts/bb-space-bundle-542cfad",
+      "cwd": "repository root unless command starts cd client",
+      "source": "542cfadcb38e6b60856c2e371d921443cba53a4c",
+      "exit_code": 0,
+      "log": "bundle-build-final.log"
+    }
+  ],
+  "client_evidence_hashes_verified": 41,
+  "environment": {
+    "Flutter": "3.47.9",
+    "Dart": "3.13.7",
+    "DSH": "0.2.1-rc.5",
+    "Node": "26.8.2",
+    "Linux": "Arch x86_64",
+    "glibc": "2.44",
+    "Android SDK": "36.0.0",
+    "connected_android_devices": 0
+  },
+  "reused": [
+    {
+      "source": "d402ba8cecdfdbfb421eef23165483b24f3bd1a3",
+      "evidence": "../dea481/results.json",
+      "scope": "entire server tree identical",
+      "passed": 459,
+      "skipped": 0
+    },
+    {
+      "source": "87c3807caa70b58914caf28c21b18d47386dfd15",
+      "evidence": "../dea481-agent/checks.json",
+      "scope": "plugin and relevant client service/DTO/lock trees identical",
+      "plugin_passed": 114,
+      "plugin_skipped": 0
+    }
+  ],
+  "open_ui_issue": "SpaceAvatar ignores real avatarUrl; initials only",
+  "not_run": [
+    "Windows build/runtime/package",
+    "Android device runtime",
+    "real foldable device",
+    "real model semantics/adversarial content",
+    "rendered native DSH settings interaction this run"
+  ],
+  "network_ws": "unavailable in locked server environment; HTTP replay passed"
+}

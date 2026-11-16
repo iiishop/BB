@@ -1,0 +1,40 @@
+[✓] Flutter (Channel stable, 3.47.9, on Arch Linux 7.2.4-arch1-2, locale C.UTF-8) [96ms]
+    • Flutter version 3.47.9 on channel stable at /home/iiishop/flutter
+    • Upstream repository https://github.com/flutter/flutter.git
+    • Framework revision c197ca5199 (2 weeks ago), 2026-10-29 10:10:20 -0400
+    • Engine revision 89c39edfdf
+    • Dart version 3.13.7
+    • DevTools version 2.60.0
+    • Feature flags: enable-web, enable-linux-desktop, enable-macos-desktop, enable-windows-desktop, enable-android, enable-ios, cli-animations, enable-native-assets, enable-record-use, enable-swift-package-manager, omit-legacy-version-file, enable-lldb-debugging, enable-uiscene-migration
+
+[✓] Android toolchain - develop for Android devices (Android SDK version 36.0.0) [309ms]
+    • Android SDK at /home/iiishop/Android/Sdk
+    • Emulator version unknown
+    • Platform android-36, build-tools 36.0.0
+    ! Multiple adb binaries found. This can cause conflicts and device detection issues:
+        - /home/iiishop/Android/Sdk/platform-tools/adb
+        - /usr/bin/adb
+    • Java binary at: /usr/lib/jvm/java-17-openjdk/bin/java
+      This JDK is specified in your Flutter configuration.
+      To change the current JDK, run: `flutter config --jdk-dir="path/to/jdk"`.
+    • Java version OpenJDK Runtime Environment (build 17.0.21.0.3+1)
+    • All Android licenses accepted.
+
+[✗] Chrome - develop for the web (Cannot find Chrome executable at google-chrome) [185ms]
+    ! Cannot find Chrome. Try setting CHROME_EXECUTABLE to a Chrome executable.
+
+[✓] Linux toolchain - develop for Linux desktop [597ms]
+    • clang version 22.1.8
+    • cmake version 4.4.3
+    • ninja version 1.13.2
+    • pkg-config version 3.0.7
+    • GL_EXT_framebuffer_blit: no
+    • GL_EXT_texture_format_BGRA8888: no
+
+[✓] Connected device (1 available) [286ms]
+    • Linux (desktop) • linux • linux-x64 • Arch Linux 7.2.4-arch1-2
+
+[✓] Network resources [650ms]
+    • All expected network resources are available.
+
+! Doctor found issues in 1 category.

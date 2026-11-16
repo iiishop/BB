@@ -1,0 +1,7 @@
+Using CPython 3.13.15
+Creating virtual environment at: dsh-plugin/.venv
+   Building bb-dsh-plugin @ file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/dsh-plugin
+      Built bb-dsh-plugin @ file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/dsh-plugin
+Installed 38 packages in 5ms
+/tmp/multica-task-602284633/bb-space-wpyeuft7/bundle
+stock DSH installed Space lifecycle PASS

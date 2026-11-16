@@ -1,0 +1,21 @@
+{"protocolVersion":"0.1.1","runnerVersion":null,"pid":853293,"type":"start","time":0}
+{"suite":{"id":0,"platform":"vm","path":"/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/.qa-artifacts/forge-round2/space_defect_probe_test.dart"},"type":"suite","time":0}
+{"test":{"id":1,"name":"loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/.qa-artifacts/forge-round2/space_defect_probe_test.dart","suiteID":0,"groupIDs":[],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":null},"type":"testStart","time":0}
+{"suite":{"id":2,"platform":"vm","path":"/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/.qa-artifacts/forge-round2/adjacent_draft_probe_test.dart"},"type":"suite","time":4}
+{"test":{"id":3,"name":"loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/.qa-artifacts/forge-round2/adjacent_draft_probe_test.dart","suiteID":2,"groupIDs":[],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":null},"type":"testStart","time":4}
+{"count":2,"time":4,"type":"allSuites"}
+{"testID":1,"result":"success","skipped":false,"hidden":true,"type":"testDone","time":1192}
+{"group":{"id":4,"suiteID":0,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":3,"line":null,"column":null,"url":null},"type":"group","time":1194}
+{"test":{"id":5,"name":"real T02 delayed save publishes visible text","suiteID":0,"groupIDs":[4],"metadata":{"skip":false,"skipReason":null},"line":56,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/.qa-artifacts/forge-round2/space_defect_probe_test.dart"},"type":"testStart","time":1194}
+{"testID":3,"result":"success","skipped":false,"hidden":true,"type":"testDone","time":1400}
+{"group":{"id":6,"suiteID":2,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":2,"line":null,"column":null,"url":null},"type":"group","time":1400}
+{"test":{"id":7,"name":"real T02 image removal during save must survive the older receipt","suiteID":2,"groupIDs":[6],"metadata":{"skip":false,"skipReason":null},"line":14,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/.qa-artifacts/forge-round2/adjacent_draft_probe_test.dart"},"type":"testStart","time":1400}
+{"testID":7,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2436}
+{"test":{"id":8,"name":"real T02 upload must not erase already-dirty text","suiteID":2,"groupIDs":[6],"metadata":{"skip":false,"skipReason":null},"line":38,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/.qa-artifacts/forge-round2/adjacent_draft_probe_test.dart"},"type":"testStart","time":2437}
+{"testID":8,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2575}
+{"testID":5,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":3110}
+{"test":{"id":9,"name":"real T02 dirty reopen preserves conflicting server version","suiteID":0,"groupIDs":[4],"metadata":{"skip":false,"skipReason":null},"line":80,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/.qa-artifacts/forge-round2/space_defect_probe_test.dart"},"type":"testStart","time":3110}
+{"testID":9,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":3230}
+{"test":{"id":10,"name":"real T07 replay removes cached repost source text","suiteID":0,"groupIDs":[4],"metadata":{"skip":false,"skipReason":null},"line":100,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/.qa-artifacts/forge-round2/space_defect_probe_test.dart"},"type":"testStart","time":3230}
+{"testID":10,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":3368}
+{"success":true,"type":"done","time":3378}

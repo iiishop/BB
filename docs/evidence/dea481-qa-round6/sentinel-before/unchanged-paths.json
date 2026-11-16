@@ -1,0 +1,8 @@
+{
+  "server": true,
+  "dsh-plugin": true,
+  "client/lib/services": true,
+  "client/pubspec.lock": true,
+  "client/pubspec.yaml": true,
+  "scripts/run_flutter_tests.sh": true
+}

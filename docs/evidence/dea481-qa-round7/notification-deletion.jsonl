@@ -1,0 +1,11 @@
+{"protocolVersion":"0.1.1","runnerVersion":null,"pid":941714,"type":"start","time":0}
+{"suite":{"id":0,"platform":"vm","path":"/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/.qa-artifacts/forge-round7/sentinel_round4_test.dart"},"type":"suite","time":0}
+{"test":{"id":1,"name":"loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/.qa-artifacts/forge-round7/sentinel_round4_test.dart","suiteID":0,"groupIDs":[],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":null},"type":"testStart","time":0}
+{"count":1,"time":3,"type":"allSuites"}
+{"testID":1,"result":"success","skipped":false,"hidden":true,"type":"testDone","time":1171}
+{"group":{"id":2,"suiteID":0,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":2,"line":null,"column":null,"url":null},"type":"group","time":1173}
+{"test":{"id":3,"name":"deleted comment notification must match unavailable server state after late page","suiteID":0,"groupIDs":[2],"metadata":{"skip":false,"skipReason":null},"line":31,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/.qa-artifacts/forge-round7/sentinel_round4_test.dart"},"type":"testStart","time":1173}
+{"testID":3,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":1520}
+{"test":{"id":4,"name":"post deletion invalidates loaded and late notification snapshots","suiteID":0,"groupIDs":[2],"metadata":{"skip":false,"skipReason":null},"line":62,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/.qa-artifacts/forge-round7/sentinel_round4_test.dart"},"type":"testStart","time":1520}
+{"testID":4,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":1781}
+{"success":true,"type":"done","time":1797}

@@ -1,0 +1,36 @@
+Resolving dependencies...
+Downloading packages...
+  code_assets 1.2.1 (2.2.0 available)
+  cross_file 0.3.5+5 (0.4.0 available)
+  hooks 2.0.2 (2.2.0 available)
+  material_color_utilities 0.13.0 (0.13.1 available)
+  meta 1.18.3 (1.19.0 available)
+  objective_c 9.5.0 (9.6.4 available)
+  record_use 0.6.0 (1.1.1 available)
+  test_api 0.7.12 (0.7.15 available)
+  vector_math 2.4.0 (2.4.4 available)
+  video_player_android 2.12.2 (2.12.4 available)
+  video_player_avfoundation 2.12.3 (2.12.4 available)
+Got dependencies!
+11 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+00:00 +0: loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/integration_test/auth_flow_test.dart
+Building Linux application...                                   
+✓ Built build/linux/x64/debug/bundle/bb_mobile
+00:00 +0: (setUpAll)
+00:00 +0: real HTTP: register → account → copy → login → signed in
+00:02 +1: real HTTP: wrong password shows the shared 401 message
+00:03 +2: restart: a persisted credential restores the session
+00:04 +3: restart: an expired credential is cleared and returns to login
+00:04 +4: wide and compact viewports switch layout without overflow
+00:05 +5: a storage failure after a real server login is not success
+00:06 +6: real HTTP + Linux render: Profile edit, avatar upload and logout
+00:11 +7: real HTTP + Linux: STEP-2 Profile edits, live reflow, avatar path and logout
+00:19 +8: real HTTP + Linux: heartbeat failures keep the session and banner
+00:20 +9: real HTTP + Linux: resized Profile panel exits to the left
+00:22 +10: restart: an unreachable server keeps the credential and warns
+00:22 +11: real HTTP: users home opens chat, image renders, text sends
+00:25 +12: real ffmpeg: pasted video gets a real cover and mixes with text
+00:27 +13: real FVP Linux: click plays frames, Range and releases
+00:29 +14: (tearDownAll)
+00:29 +14: All tests passed!

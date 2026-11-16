@@ -1,0 +1,206 @@
+[
+  {
+    "id": "known0",
+    "candidate_sha": "16681978cebc45eb25fe8cc765ac0716e524d2b4",
+    "command": [
+      "flutter",
+      "test",
+      "--no-pub",
+      ".qa-artifacts/probes/sentinel_round5_test.dart",
+      ".qa-artifacts/probes/sentinel_round5_widget_test.dart",
+      ".qa-artifacts/probes/sentinel_round6_test.dart",
+      ".qa-artifacts/probes/detail_reference_image_probe_test.dart",
+      ".qa-artifacts/probes/closed_detail_image_probe_test.dart",
+      "-j",
+      "1",
+      "--reporter=json"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": ".qa-artifacts/probes/sentinel_round5_test.dart",
+      "name": "T07 deleted image cannot reenter cache through a late response"
+    },
+    "tests": 6,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 6,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/qa7/known/run.json",
+      "/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/qa7/known/output.log",
+      "/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/qa7/known/flutter.jsonl"
+    ]
+  },
+  {
+    "id": "known1",
+    "candidate_sha": "16681978cebc45eb25fe8cc765ac0716e524d2b4",
+    "command": [
+      "flutter",
+      "test",
+      "--no-pub",
+      ".qa-artifacts/probes/sentinel_round5_test.dart",
+      ".qa-artifacts/probes/sentinel_round5_widget_test.dart",
+      ".qa-artifacts/probes/sentinel_round6_test.dart",
+      ".qa-artifacts/probes/detail_reference_image_probe_test.dart",
+      ".qa-artifacts/probes/closed_detail_image_probe_test.dart",
+      "-j",
+      "1",
+      "--reporter=json"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": ".qa-artifacts/probes/sentinel_round5_widget_test.dart",
+      "name": "T07 open viewer stops displaying image after deletion event"
+    },
+    "tests": 6,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 6,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/qa7/known/run.json",
+      "/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/qa7/known/output.log",
+      "/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/qa7/known/flutter.jsonl"
+    ]
+  },
+  {
+    "id": "known2",
+    "candidate_sha": "16681978cebc45eb25fe8cc765ac0716e524d2b4",
+    "command": [
+      "flutter",
+      "test",
+      "--no-pub",
+      ".qa-artifacts/probes/sentinel_round5_test.dart",
+      ".qa-artifacts/probes/sentinel_round5_widget_test.dart",
+      ".qa-artifacts/probes/sentinel_round6_test.dart",
+      ".qa-artifacts/probes/detail_reference_image_probe_test.dart",
+      ".qa-artifacts/probes/closed_detail_image_probe_test.dart",
+      "-j",
+      "1",
+      "--reporter=json"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": ".qa-artifacts/probes/sentinel_round6_test.dart",
+      "name": "T07 local delete followed by replay clears own original cache"
+    },
+    "tests": 6,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 6,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/qa7/known/run.json",
+      "/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/qa7/known/output.log",
+      "/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/qa7/known/flutter.jsonl"
+    ]
+  },
+  {
+    "id": "known3",
+    "candidate_sha": "16681978cebc45eb25fe8cc765ac0716e524d2b4",
+    "command": [
+      "flutter",
+      "test",
+      "--no-pub",
+      ".qa-artifacts/probes/sentinel_round5_test.dart",
+      ".qa-artifacts/probes/sentinel_round5_widget_test.dart",
+      ".qa-artifacts/probes/sentinel_round6_test.dart",
+      ".qa-artifacts/probes/detail_reference_image_probe_test.dart",
+      ".qa-artifacts/probes/closed_detail_image_probe_test.dart",
+      "-j",
+      "1",
+      "--reporter=json"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": ".qa-artifacts/probes/sentinel_round6_test.dart",
+      "name": "T07 deletion of detail outside first feed page clears original cache"
+    },
+    "tests": 6,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 6,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/qa7/known/run.json",
+      "/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/qa7/known/output.log",
+      "/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/qa7/known/flutter.jsonl"
+    ]
+  },
+  {
+    "id": "known4",
+    "candidate_sha": "16681978cebc45eb25fe8cc765ac0716e524d2b4",
+    "command": [
+      "flutter",
+      "test",
+      "--no-pub",
+      ".qa-artifacts/probes/sentinel_round5_test.dart",
+      ".qa-artifacts/probes/sentinel_round5_widget_test.dart",
+      ".qa-artifacts/probes/sentinel_round6_test.dart",
+      ".qa-artifacts/probes/detail_reference_image_probe_test.dart",
+      ".qa-artifacts/probes/closed_detail_image_probe_test.dart",
+      "-j",
+      "1",
+      "--reporter=json"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": ".qa-artifacts/probes/detail_reference_image_probe_test.dart",
+      "name": "T07 detail-only repost source deletion invalidates both image variants"
+    },
+    "tests": 6,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 6,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/qa7/known/run.json",
+      "/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/qa7/known/output.log",
+      "/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/qa7/known/flutter.jsonl"
+    ]
+  },
+  {
+    "id": "known5",
+    "candidate_sha": "16681978cebc45eb25fe8cc765ac0716e524d2b4",
+    "command": [
+      "flutter",
+      "test",
+      "--no-pub",
+      ".qa-artifacts/probes/sentinel_round5_test.dart",
+      ".qa-artifacts/probes/sentinel_round5_widget_test.dart",
+      ".qa-artifacts/probes/sentinel_round6_test.dart",
+      ".qa-artifacts/probes/detail_reference_image_probe_test.dart",
+      ".qa-artifacts/probes/closed_detail_image_probe_test.dart",
+      "-j",
+      "1",
+      "--reporter=json"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": ".qa-artifacts/probes/closed_detail_image_probe_test.dart",
+      "name": "T07 closing all details retains deletion authority over cached source images"
+    },
+    "tests": 6,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 6,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/qa7/known/run.json",
+      "/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/qa7/known/output.log",
+      "/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/qa7/known/flutter.jsonl"
+    ]
+  }
+]

@@ -1,0 +1,18 @@
+{
+  "candidate": "6a4f0e096ace18da9eeea0e06f74a513b634e065",
+  "developer_head": "9415fb8a04126bcf7c336030a81383f9d6a8581a",
+  "unchanged_paths": [
+    "server",
+    "dsh-plugin",
+    "client/bin",
+    "client/lib/services",
+    "client/lib/models",
+    "client/lib/config",
+    "client/pubspec.yaml",
+    "client/pubspec.lock",
+    ".github",
+    "client/windows"
+  ],
+  "ui_tree_matches_developer": true,
+  "all_expected_ancestors_present": true
+}

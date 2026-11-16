@@ -1,0 +1,105 @@
+........................................................................ [ 67%]
+......................F...........F                                      [100%]
+=================================== FAILURES ===================================
+_____________ test_six_profile_tools_via_stdio_without_credentials _____________
+  + Exception Group Traceback (most recent call last):
+  |   File "/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/dsh-plugin/tests/test_profile_stdio.py", line 81, in test_six_profile_tools_via_stdio_without_credentials
+  |     stdio_client(parameters) as (read, write),
+  |     ~~~~~~~~~~~~^^^^^^^^^^^^
+  |   File "/home/iiishop/.local/share/uv/python/cpython-3.13.15-linux-x86_64-gnu/lib/python3.13/contextlib.py", line 235, in __aexit__
+  |     await self.gen.athrow(value)
+  |   File "/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/dsh-plugin/.venv/lib/python3.13/site-packages/mcp/client/stdio/__init__.py", line 183, in stdio_client
+  |     anyio.create_task_group() as tg,
+  |     ~~~~~~~~~~~~~~~~~~~~~~~^^
+  |   File "/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/dsh-plugin/.venv/lib/python3.13/site-packages/anyio/_backends/_asyncio.py", line 871, in __aexit__
+  |     raise BaseExceptionGroup(
+  |         "unhandled errors in a TaskGroup", self._exceptions
+  |     ) from None
+  | ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)
+  +-+---------------- 1 ----------------
+    | Exception Group Traceback (most recent call last):
+    |   File "/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/dsh-plugin/tests/test_profile_stdio.py", line 82, in test_six_profile_tools_via_stdio_without_credentials
+    |     ClientSession(
+    |     ~~~~~~~~~~~~~^
+    |         read, write, read_timeout_seconds=timedelta(seconds=10)
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |     ) as session,
+    |     ^
+    |   File "/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/dsh-plugin/.venv/lib/python3.13/site-packages/mcp/shared/session.py", line 238, in __aexit__
+    |     return await self._task_group.__aexit__(exc_type, exc_val, exc_tb)
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/dsh-plugin/.venv/lib/python3.13/site-packages/anyio/_backends/_asyncio.py", line 871, in __aexit__
+    |     raise BaseExceptionGroup(
+    |         "unhandled errors in a TaskGroup", self._exceptions
+    |     ) from None
+    | ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)
+    +-+---------------- 1 ----------------
+      | Traceback (most recent call last):
+      |   File "/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/dsh-plugin/tests/test_profile_stdio.py", line 88, in test_six_profile_tools_via_stdio_without_credentials
+      |     assert {tool.name for tool in tools} == set(TOOL_MODELS) | {
+      |     ...<2 lines>...
+      |     }
+      | AssertionError: assert {'get_context...sations', ...} == {'get_context...sations', ...}
+      |   
+      |   Extra items in the left set:
+      |   'space_get_view_summary'
+      |   'space_list_drafts'
+      |   'space_update_draft'
+      |   'space_get_operation'
+      |   'space_list_comments'...
+      |   
+      |   ...Full output truncated, use '-vv' to show
+      +------------------------------------
+__________________ test_stdio_eight_tools_and_stateless_http ___________________
+  + Exception Group Traceback (most recent call last):
+  |   File "/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/dsh-plugin/tests/test_stdio.py", line 54, in test_stdio_eight_tools_and_stateless_http
+  |     stdio_client(parameters) as (read, write),
+  |     ~~~~~~~~~~~~^^^^^^^^^^^^
+  |   File "/home/iiishop/.local/share/uv/python/cpython-3.13.15-linux-x86_64-gnu/lib/python3.13/contextlib.py", line 235, in __aexit__
+  |     await self.gen.athrow(value)
+  |   File "/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/dsh-plugin/.venv/lib/python3.13/site-packages/mcp/client/stdio/__init__.py", line 183, in stdio_client
+  |     anyio.create_task_group() as tg,
+  |     ~~~~~~~~~~~~~~~~~~~~~~~^^
+  |   File "/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/dsh-plugin/.venv/lib/python3.13/site-packages/anyio/_backends/_asyncio.py", line 871, in __aexit__
+  |     raise BaseExceptionGroup(
+  |         "unhandled errors in a TaskGroup", self._exceptions
+  |     ) from None
+  | ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)
+  +-+---------------- 1 ----------------
+    | Exception Group Traceback (most recent call last):
+    |   File "/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/dsh-plugin/tests/test_stdio.py", line 55, in test_stdio_eight_tools_and_stateless_http
+    |     ClientSession(
+    |     ~~~~~~~~~~~~~^
+    |         read, write, read_timeout_seconds=timedelta(seconds=10)
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |     ) as session,
+    |     ^
+    |   File "/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/dsh-plugin/.venv/lib/python3.13/site-packages/mcp/shared/session.py", line 238, in __aexit__
+    |     return await self._task_group.__aexit__(exc_type, exc_val, exc_tb)
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/dsh-plugin/.venv/lib/python3.13/site-packages/anyio/_backends/_asyncio.py", line 871, in __aexit__
+    |     raise BaseExceptionGroup(
+    |         "unhandled errors in a TaskGroup", self._exceptions
+    |     ) from None
+    | ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)
+    +-+---------------- 1 ----------------
+      | Traceback (most recent call last):
+      |   File "/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/dsh-plugin/tests/test_stdio.py", line 61, in test_stdio_eight_tools_and_stateless_http
+      |     assert {tool.name for tool in tools.tools} == set(TOOL_MODELS) | {
+      |     ...<8 lines>...
+      |     }
+      | AssertionError: assert {'get_context...sations', ...} == {'get_context...sations', ...}
+      |   
+      |   Extra items in the left set:
+      |   'space_get_view_summary'
+      |   'space_list_drafts'
+      |   'space_update_draft'
+      |   'space_get_operation'
+      |   'space_list_comments'...
+      |   
+      |   ...Full output truncated, use '-vv' to show
+      +------------------------------------
+=========================== short test summary info ============================
+FAILED dsh-plugin/tests/test_profile_stdio.py::test_six_profile_tools_via_stdio_without_credentials
+FAILED dsh-plugin/tests/test_stdio.py::test_stdio_eight_tools_and_stateless_http
+2 failed, 105 passed in 3.49s

@@ -1,0 +1,16 @@
+{
+  "candidate_sha": "5d84787a2c50413d20d54fd698ac9546c4de96ac",
+  "rules": [
+    {
+      "id": "adjacent0",
+      "rule": "T07 deleted image cannot reenter cache through a late response",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "adjacent/run.json",
+      "testcase": {
+        "classname": ".qa-artifacts/probes/sentinel_round5_test.dart",
+        "name": "T07 deleted image cannot reenter cache through a late response"
+      }
+    }
+  ]
+}

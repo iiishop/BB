@@ -1,0 +1,614 @@
+[
+  {
+    "id": "known0",
+    "candidate_sha": "5d84787a2c50413d20d54fd698ac9546c4de96ac",
+    "command": [
+      "flutter",
+      "test",
+      "--no-pub",
+      ".qa-artifacts/probes/space_defect_probe_test.dart",
+      ".qa-artifacts/probes/adjacent_draft_probe_test.dart",
+      ".qa-artifacts/probes/upload_conflict_probe_test.dart",
+      ".qa-artifacts/probes/sentinel_round2_test.dart",
+      ".qa-artifacts/probes/sentinel_round2_controls_test.dart",
+      ".qa-artifacts/probes/rollback_tombstone_probe_test.dart",
+      ".qa-artifacts/probes/sentinel_round3_test.dart",
+      ".qa-artifacts/probes/sentinel_round4_test.dart",
+      ".qa-artifacts/probes/sentinel_round4_controls_test.dart",
+      "--reporter=json"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": ".qa-artifacts/probes/space_defect_probe_test.dart",
+      "name": "real T02 delayed save publishes visible text"
+    },
+    "tests": 17,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 17,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "../qa5/known/run.json",
+      "../qa5/known/output.log",
+      "../qa5/known/flutter.jsonl"
+    ]
+  },
+  {
+    "id": "known1",
+    "candidate_sha": "5d84787a2c50413d20d54fd698ac9546c4de96ac",
+    "command": [
+      "flutter",
+      "test",
+      "--no-pub",
+      ".qa-artifacts/probes/space_defect_probe_test.dart",
+      ".qa-artifacts/probes/adjacent_draft_probe_test.dart",
+      ".qa-artifacts/probes/upload_conflict_probe_test.dart",
+      ".qa-artifacts/probes/sentinel_round2_test.dart",
+      ".qa-artifacts/probes/sentinel_round2_controls_test.dart",
+      ".qa-artifacts/probes/rollback_tombstone_probe_test.dart",
+      ".qa-artifacts/probes/sentinel_round3_test.dart",
+      ".qa-artifacts/probes/sentinel_round4_test.dart",
+      ".qa-artifacts/probes/sentinel_round4_controls_test.dart",
+      "--reporter=json"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": ".qa-artifacts/probes/adjacent_draft_probe_test.dart",
+      "name": "real T02 image removal during save must survive the older receipt"
+    },
+    "tests": 17,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 17,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "../qa5/known/run.json",
+      "../qa5/known/output.log",
+      "../qa5/known/flutter.jsonl"
+    ]
+  },
+  {
+    "id": "known2",
+    "candidate_sha": "5d84787a2c50413d20d54fd698ac9546c4de96ac",
+    "command": [
+      "flutter",
+      "test",
+      "--no-pub",
+      ".qa-artifacts/probes/space_defect_probe_test.dart",
+      ".qa-artifacts/probes/adjacent_draft_probe_test.dart",
+      ".qa-artifacts/probes/upload_conflict_probe_test.dart",
+      ".qa-artifacts/probes/sentinel_round2_test.dart",
+      ".qa-artifacts/probes/sentinel_round2_controls_test.dart",
+      ".qa-artifacts/probes/rollback_tombstone_probe_test.dart",
+      ".qa-artifacts/probes/sentinel_round3_test.dart",
+      ".qa-artifacts/probes/sentinel_round4_test.dart",
+      ".qa-artifacts/probes/sentinel_round4_controls_test.dart",
+      "--reporter=json"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": ".qa-artifacts/probes/upload_conflict_probe_test.dart",
+      "name": "real T02 upload confirmation must fence a newer external writer"
+    },
+    "tests": 17,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 17,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "../qa5/known/run.json",
+      "../qa5/known/output.log",
+      "../qa5/known/flutter.jsonl"
+    ]
+  },
+  {
+    "id": "known3",
+    "candidate_sha": "5d84787a2c50413d20d54fd698ac9546c4de96ac",
+    "command": [
+      "flutter",
+      "test",
+      "--no-pub",
+      ".qa-artifacts/probes/space_defect_probe_test.dart",
+      ".qa-artifacts/probes/adjacent_draft_probe_test.dart",
+      ".qa-artifacts/probes/upload_conflict_probe_test.dart",
+      ".qa-artifacts/probes/sentinel_round2_test.dart",
+      ".qa-artifacts/probes/sentinel_round2_controls_test.dart",
+      ".qa-artifacts/probes/rollback_tombstone_probe_test.dart",
+      ".qa-artifacts/probes/sentinel_round3_test.dart",
+      ".qa-artifacts/probes/sentinel_round4_test.dart",
+      ".qa-artifacts/probes/sentinel_round4_controls_test.dart",
+      "--reporter=json"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": ".qa-artifacts/probes/sentinel_round2_test.dart",
+      "name": "T02 failed upload confirmation retry preserves local image removal"
+    },
+    "tests": 17,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 17,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "../qa5/known/run.json",
+      "../qa5/known/output.log",
+      "../qa5/known/flutter.jsonl"
+    ]
+  },
+  {
+    "id": "known4",
+    "candidate_sha": "5d84787a2c50413d20d54fd698ac9546c4de96ac",
+    "command": [
+      "flutter",
+      "test",
+      "--no-pub",
+      ".qa-artifacts/probes/space_defect_probe_test.dart",
+      ".qa-artifacts/probes/adjacent_draft_probe_test.dart",
+      ".qa-artifacts/probes/upload_conflict_probe_test.dart",
+      ".qa-artifacts/probes/sentinel_round2_test.dart",
+      ".qa-artifacts/probes/sentinel_round2_controls_test.dart",
+      ".qa-artifacts/probes/rollback_tombstone_probe_test.dart",
+      ".qa-artifacts/probes/sentinel_round3_test.dart",
+      ".qa-artifacts/probes/sentinel_round4_test.dart",
+      ".qa-artifacts/probes/sentinel_round4_controls_test.dart",
+      "--reporter=json"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": ".qa-artifacts/probes/sentinel_round2_controls_test.dart",
+      "name": "confirmation retry with external writer=false"
+    },
+    "tests": 17,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 17,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "../qa5/known/run.json",
+      "../qa5/known/output.log",
+      "../qa5/known/flutter.jsonl"
+    ]
+  },
+  {
+    "id": "known5",
+    "candidate_sha": "5d84787a2c50413d20d54fd698ac9546c4de96ac",
+    "command": [
+      "flutter",
+      "test",
+      "--no-pub",
+      ".qa-artifacts/probes/space_defect_probe_test.dart",
+      ".qa-artifacts/probes/adjacent_draft_probe_test.dart",
+      ".qa-artifacts/probes/upload_conflict_probe_test.dart",
+      ".qa-artifacts/probes/sentinel_round2_test.dart",
+      ".qa-artifacts/probes/sentinel_round2_controls_test.dart",
+      ".qa-artifacts/probes/rollback_tombstone_probe_test.dart",
+      ".qa-artifacts/probes/sentinel_round3_test.dart",
+      ".qa-artifacts/probes/sentinel_round4_test.dart",
+      ".qa-artifacts/probes/sentinel_round4_controls_test.dart",
+      "--reporter=json"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": ".qa-artifacts/probes/sentinel_round3_test.dart",
+      "name": "T08 comment deletion scrubs loaded feed and notification snippets"
+    },
+    "tests": 17,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 17,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "../qa5/known/run.json",
+      "../qa5/known/output.log",
+      "../qa5/known/flutter.jsonl"
+    ]
+  },
+  {
+    "id": "known6",
+    "candidate_sha": "5d84787a2c50413d20d54fd698ac9546c4de96ac",
+    "command": [
+      "flutter",
+      "test",
+      "--no-pub",
+      ".qa-artifacts/probes/space_defect_probe_test.dart",
+      ".qa-artifacts/probes/adjacent_draft_probe_test.dart",
+      ".qa-artifacts/probes/upload_conflict_probe_test.dart",
+      ".qa-artifacts/probes/sentinel_round2_test.dart",
+      ".qa-artifacts/probes/sentinel_round2_controls_test.dart",
+      ".qa-artifacts/probes/rollback_tombstone_probe_test.dart",
+      ".qa-artifacts/probes/sentinel_round3_test.dart",
+      ".qa-artifacts/probes/sentinel_round4_test.dart",
+      ".qa-artifacts/probes/sentinel_round4_controls_test.dart",
+      "--reporter=json"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": ".qa-artifacts/probes/rollback_tombstone_probe_test.dart",
+      "name": "T07 like rollback cannot restore deleted reference detail=false"
+    },
+    "tests": 17,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 17,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "../qa5/known/run.json",
+      "../qa5/known/output.log",
+      "../qa5/known/flutter.jsonl"
+    ]
+  },
+  {
+    "id": "known7",
+    "candidate_sha": "5d84787a2c50413d20d54fd698ac9546c4de96ac",
+    "command": [
+      "flutter",
+      "test",
+      "--no-pub",
+      ".qa-artifacts/probes/space_defect_probe_test.dart",
+      ".qa-artifacts/probes/adjacent_draft_probe_test.dart",
+      ".qa-artifacts/probes/upload_conflict_probe_test.dart",
+      ".qa-artifacts/probes/sentinel_round2_test.dart",
+      ".qa-artifacts/probes/sentinel_round2_controls_test.dart",
+      ".qa-artifacts/probes/rollback_tombstone_probe_test.dart",
+      ".qa-artifacts/probes/sentinel_round3_test.dart",
+      ".qa-artifacts/probes/sentinel_round4_test.dart",
+      ".qa-artifacts/probes/sentinel_round4_controls_test.dart",
+      "--reporter=json"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": ".qa-artifacts/probes/sentinel_round2_test.dart",
+      "name": "T07 stale refresh response cannot restore a deleted post or reference"
+    },
+    "tests": 17,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 17,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "../qa5/known/run.json",
+      "../qa5/known/output.log",
+      "../qa5/known/flutter.jsonl"
+    ]
+  },
+  {
+    "id": "known8",
+    "candidate_sha": "5d84787a2c50413d20d54fd698ac9546c4de96ac",
+    "command": [
+      "flutter",
+      "test",
+      "--no-pub",
+      ".qa-artifacts/probes/space_defect_probe_test.dart",
+      ".qa-artifacts/probes/adjacent_draft_probe_test.dart",
+      ".qa-artifacts/probes/upload_conflict_probe_test.dart",
+      ".qa-artifacts/probes/sentinel_round2_test.dart",
+      ".qa-artifacts/probes/sentinel_round2_controls_test.dart",
+      ".qa-artifacts/probes/rollback_tombstone_probe_test.dart",
+      ".qa-artifacts/probes/sentinel_round3_test.dart",
+      ".qa-artifacts/probes/sentinel_round4_test.dart",
+      ".qa-artifacts/probes/sentinel_round4_controls_test.dart",
+      "--reporter=json"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": ".qa-artifacts/probes/sentinel_round4_test.dart",
+      "name": "deleted comment notification must match unavailable server state after late page"
+    },
+    "tests": 17,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 17,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "../qa5/known/run.json",
+      "../qa5/known/output.log",
+      "../qa5/known/flutter.jsonl"
+    ]
+  },
+  {
+    "id": "known9",
+    "candidate_sha": "5d84787a2c50413d20d54fd698ac9546c4de96ac",
+    "command": [
+      "flutter",
+      "test",
+      "--no-pub",
+      ".qa-artifacts/probes/space_defect_probe_test.dart",
+      ".qa-artifacts/probes/adjacent_draft_probe_test.dart",
+      ".qa-artifacts/probes/upload_conflict_probe_test.dart",
+      ".qa-artifacts/probes/sentinel_round2_test.dart",
+      ".qa-artifacts/probes/sentinel_round2_controls_test.dart",
+      ".qa-artifacts/probes/rollback_tombstone_probe_test.dart",
+      ".qa-artifacts/probes/sentinel_round3_test.dart",
+      ".qa-artifacts/probes/sentinel_round4_test.dart",
+      ".qa-artifacts/probes/sentinel_round4_controls_test.dart",
+      "--reporter=json"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": ".qa-artifacts/probes/sentinel_round4_controls_test.dart",
+      "name": "deleting repost source preserves notification to surviving repost target"
+    },
+    "tests": 17,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 17,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "../qa5/known/run.json",
+      "../qa5/known/output.log",
+      "../qa5/known/flutter.jsonl"
+    ]
+  },
+  {
+    "id": "known10",
+    "candidate_sha": "5d84787a2c50413d20d54fd698ac9546c4de96ac",
+    "command": [
+      "flutter",
+      "test",
+      "--no-pub",
+      ".qa-artifacts/probes/space_defect_probe_test.dart",
+      ".qa-artifacts/probes/adjacent_draft_probe_test.dart",
+      ".qa-artifacts/probes/upload_conflict_probe_test.dart",
+      ".qa-artifacts/probes/sentinel_round2_test.dart",
+      ".qa-artifacts/probes/sentinel_round2_controls_test.dart",
+      ".qa-artifacts/probes/rollback_tombstone_probe_test.dart",
+      ".qa-artifacts/probes/sentinel_round3_test.dart",
+      ".qa-artifacts/probes/sentinel_round4_test.dart",
+      ".qa-artifacts/probes/sentinel_round4_controls_test.dart",
+      "--reporter=json"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": ".qa-artifacts/probes/sentinel_round2_controls_test.dart",
+      "name": "confirmation retry with external writer=true"
+    },
+    "tests": 17,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 17,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "../qa5/known/run.json",
+      "../qa5/known/output.log",
+      "../qa5/known/flutter.jsonl"
+    ]
+  },
+  {
+    "id": "known11",
+    "candidate_sha": "5d84787a2c50413d20d54fd698ac9546c4de96ac",
+    "command": [
+      "flutter",
+      "test",
+      "--no-pub",
+      ".qa-artifacts/probes/space_defect_probe_test.dart",
+      ".qa-artifacts/probes/adjacent_draft_probe_test.dart",
+      ".qa-artifacts/probes/upload_conflict_probe_test.dart",
+      ".qa-artifacts/probes/sentinel_round2_test.dart",
+      ".qa-artifacts/probes/sentinel_round2_controls_test.dart",
+      ".qa-artifacts/probes/rollback_tombstone_probe_test.dart",
+      ".qa-artifacts/probes/sentinel_round3_test.dart",
+      ".qa-artifacts/probes/sentinel_round4_test.dart",
+      ".qa-artifacts/probes/sentinel_round4_controls_test.dart",
+      "--reporter=json"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": ".qa-artifacts/probes/adjacent_draft_probe_test.dart",
+      "name": "real T02 upload must not erase already-dirty text"
+    },
+    "tests": 17,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 17,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "../qa5/known/run.json",
+      "../qa5/known/output.log",
+      "../qa5/known/flutter.jsonl"
+    ]
+  },
+  {
+    "id": "known12",
+    "candidate_sha": "5d84787a2c50413d20d54fd698ac9546c4de96ac",
+    "command": [
+      "flutter",
+      "test",
+      "--no-pub",
+      ".qa-artifacts/probes/space_defect_probe_test.dart",
+      ".qa-artifacts/probes/adjacent_draft_probe_test.dart",
+      ".qa-artifacts/probes/upload_conflict_probe_test.dart",
+      ".qa-artifacts/probes/sentinel_round2_test.dart",
+      ".qa-artifacts/probes/sentinel_round2_controls_test.dart",
+      ".qa-artifacts/probes/rollback_tombstone_probe_test.dart",
+      ".qa-artifacts/probes/sentinel_round3_test.dart",
+      ".qa-artifacts/probes/sentinel_round4_test.dart",
+      ".qa-artifacts/probes/sentinel_round4_controls_test.dart",
+      "--reporter=json"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": ".qa-artifacts/probes/sentinel_round3_test.dart",
+      "name": "T08 late replies response cannot revive a deleted comment"
+    },
+    "tests": 17,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 17,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "../qa5/known/run.json",
+      "../qa5/known/output.log",
+      "../qa5/known/flutter.jsonl"
+    ]
+  },
+  {
+    "id": "known13",
+    "candidate_sha": "5d84787a2c50413d20d54fd698ac9546c4de96ac",
+    "command": [
+      "flutter",
+      "test",
+      "--no-pub",
+      ".qa-artifacts/probes/space_defect_probe_test.dart",
+      ".qa-artifacts/probes/adjacent_draft_probe_test.dart",
+      ".qa-artifacts/probes/upload_conflict_probe_test.dart",
+      ".qa-artifacts/probes/sentinel_round2_test.dart",
+      ".qa-artifacts/probes/sentinel_round2_controls_test.dart",
+      ".qa-artifacts/probes/rollback_tombstone_probe_test.dart",
+      ".qa-artifacts/probes/sentinel_round3_test.dart",
+      ".qa-artifacts/probes/sentinel_round4_test.dart",
+      ".qa-artifacts/probes/sentinel_round4_controls_test.dart",
+      "--reporter=json"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": ".qa-artifacts/probes/space_defect_probe_test.dart",
+      "name": "real T02 dirty reopen preserves conflicting server version"
+    },
+    "tests": 17,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 17,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "../qa5/known/run.json",
+      "../qa5/known/output.log",
+      "../qa5/known/flutter.jsonl"
+    ]
+  },
+  {
+    "id": "known14",
+    "candidate_sha": "5d84787a2c50413d20d54fd698ac9546c4de96ac",
+    "command": [
+      "flutter",
+      "test",
+      "--no-pub",
+      ".qa-artifacts/probes/space_defect_probe_test.dart",
+      ".qa-artifacts/probes/adjacent_draft_probe_test.dart",
+      ".qa-artifacts/probes/upload_conflict_probe_test.dart",
+      ".qa-artifacts/probes/sentinel_round2_test.dart",
+      ".qa-artifacts/probes/sentinel_round2_controls_test.dart",
+      ".qa-artifacts/probes/rollback_tombstone_probe_test.dart",
+      ".qa-artifacts/probes/sentinel_round3_test.dart",
+      ".qa-artifacts/probes/sentinel_round4_test.dart",
+      ".qa-artifacts/probes/sentinel_round4_controls_test.dart",
+      "--reporter=json"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": ".qa-artifacts/probes/rollback_tombstone_probe_test.dart",
+      "name": "T07 like rollback cannot restore deleted reference detail=true"
+    },
+    "tests": 17,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 17,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "../qa5/known/run.json",
+      "../qa5/known/output.log",
+      "../qa5/known/flutter.jsonl"
+    ]
+  },
+  {
+    "id": "known15",
+    "candidate_sha": "5d84787a2c50413d20d54fd698ac9546c4de96ac",
+    "command": [
+      "flutter",
+      "test",
+      "--no-pub",
+      ".qa-artifacts/probes/space_defect_probe_test.dart",
+      ".qa-artifacts/probes/adjacent_draft_probe_test.dart",
+      ".qa-artifacts/probes/upload_conflict_probe_test.dart",
+      ".qa-artifacts/probes/sentinel_round2_test.dart",
+      ".qa-artifacts/probes/sentinel_round2_controls_test.dart",
+      ".qa-artifacts/probes/rollback_tombstone_probe_test.dart",
+      ".qa-artifacts/probes/sentinel_round3_test.dart",
+      ".qa-artifacts/probes/sentinel_round4_test.dart",
+      ".qa-artifacts/probes/sentinel_round4_controls_test.dart",
+      "--reporter=json"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": ".qa-artifacts/probes/space_defect_probe_test.dart",
+      "name": "real T07 replay removes cached repost source text"
+    },
+    "tests": 17,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 17,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "../qa5/known/run.json",
+      "../qa5/known/output.log",
+      "../qa5/known/flutter.jsonl"
+    ]
+  },
+  {
+    "id": "known16",
+    "candidate_sha": "5d84787a2c50413d20d54fd698ac9546c4de96ac",
+    "command": [
+      "flutter",
+      "test",
+      "--no-pub",
+      ".qa-artifacts/probes/space_defect_probe_test.dart",
+      ".qa-artifacts/probes/adjacent_draft_probe_test.dart",
+      ".qa-artifacts/probes/upload_conflict_probe_test.dart",
+      ".qa-artifacts/probes/sentinel_round2_test.dart",
+      ".qa-artifacts/probes/sentinel_round2_controls_test.dart",
+      ".qa-artifacts/probes/rollback_tombstone_probe_test.dart",
+      ".qa-artifacts/probes/sentinel_round3_test.dart",
+      ".qa-artifacts/probes/sentinel_round4_test.dart",
+      ".qa-artifacts/probes/sentinel_round4_controls_test.dart",
+      "--reporter=json"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": ".qa-artifacts/probes/sentinel_round4_test.dart",
+      "name": "post deletion invalidates loaded and late notification snapshots"
+    },
+    "tests": 17,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 17,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "../qa5/known/run.json",
+      "../qa5/known/output.log",
+      "../qa5/known/flutter.jsonl"
+    ]
+  }
+]

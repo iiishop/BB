@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="2" time="1.153" timestamp="2026-11-15T22:35:02.021752+00:00" hostname="iiishop-Arch"><testcase classname="tests.test_space" name="test_t03_equal_timestamp_new_post_is_excluded_until_refresh" time="0.433"><failure message="AssertionError: assert ['00000000000...000000000001'] == ['00000000000...000000000258']&#10;  &#10;  Left contains one more item: '00000000000000000000000000000001'&#10;  Use -v to get more diff">setup = &lt;isolated space fixture; credentials omitted&gt;
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7fc8c2f709d0&gt;
+
+    def test_t03_equal_timestamp_new_post_is_excluded_until_refresh(setup, monkeypatch):
+        api, _, (a, b, _), _ = setup
+        from bb_server import space_store
+        from types import SimpleNamespace
+        # Exact IDs make the new same-time row sort below the saved anchor.
+        ids = iter([f"{n:032x}" for n in (100, 900, 101, 800, 102, 700, 103, 600, 104, 1)])
+        monkeypatch.setattr(space_store, "uuid", SimpleNamespace(uuid4=lambda: SimpleNamespace(hex=next(ids))))
+        baseline = [publish(api, a, str(i)) for i in range(4)]
+        first = call(api, b, "list_posts", limit=2)
+        fresh = publish(api, a, "same timestamp new row")
+        rest = call(api, b, "list_posts", cursor=first["next_cursor"], limit=100)
+&gt;       assert [p["post_id"] for p in first["items"] + rest["items"]] == list(reversed(sorted(baseline)))
+E       AssertionError: assert ['00000000000...000000000001'] == ['00000000000...000000000258']
+E         
+E         Left contains one more item: '00000000000000000000000000000001'
+E         Use -v to get more diff
+
+server/tests/test_space.py:140: AssertionError</failure></testcase><testcase classname="tests.test_space" name="test_t06_t07_reposts_delete_scrub_media_and_shared_blob" time="0.424"><failure message="assert False&#10; +  where False = any(&lt;generator object test_t06_t07_reposts_delete_scrub_media_and_shared_blob.&lt;locals&gt;.&lt;genexpr&gt; at 0x7fc8c1e86670&gt;)">setup = &lt;isolated space fixture; credentials omitted&gt;
+
+    def test_t06_t07_reposts_delete_scrub_media_and_shared_blob(setup):
+        api, path, (a, b, c), _ = setup
+        did = call(api, a, "create_draft", text="erase_original_secret")["resource_id"]
+        mid = add(api, a, did, 1)["resource_id"]
+        original = call(api, a, "publish_draft", draft_id=did, expected_version=2)["resource_id"]
+        other = call(api, a, "create_draft", text="independent")["resource_id"]
+        other_mid = add(api, a, other, 1)["resource_id"]
+        second = publish(api, b, "B own text", original)
+        third = publish(api, c, "C own text", second)
+        cid = call(api, b, "create_comment", post_id=original, text="erase_comment_secret")["resource_id"]
+        call(api, c, "set_like", post_id=original, liked=True)
+        call(api, b, "get_post", post_id=original, visit_id="visit")
+        call(api, b, "mark_read", post_ids=[original])
+        assert call(api, c, "get_post", post_id=third)["reference"]["post_id"] == second
+        assert [n["target_post_id"] for n in call(api, b, "list_notifications")["items"]] == [third]
+        thumb = api.get(f"/space/images/{mid}?variant=thumb", headers=b[1])
+        assert thumb.status_code == 200
+        call(api, a, "delete_post", post_id=original)
+        for action, args in (("get_post", {"post_id": original}), ("list_comments", {"post_id": original}),
+                             ("list_likes", {"post_id": original}), ("list_visitors", {"post_id": original}),
+                             ("get_comment_context", {"comment_id": cid})):
+            call(api, a, action, status=404, **args)
+        assert api.get(f"/space/images/{mid}", headers=a[1]).status_code == 404
+        assert api.get(f"/space/images/{mid}?variant=thumb", headers={**b[1], "If-None-Match": '"anything"'}).status_code == 404
+        assert api.get(f"/space/images/{other_mid}", headers=a[1]).content == png()
+        ref = call(api, c, "get_post", post_id=second)["reference"]
+        assert ref["deleted"] and ref["text"] is ref["image"] is ref["author"] is None
+        notices = call(api, a, "list_notifications")["items"]
+        assert any(n["kind"] == "repost" and n["accessible"] and n["snippet"] == "B own text" for n in notices)
+        assert any(n["kind"] == "comment" and n["deleted"] and n["snippet"] is None for n in notices)
+&gt;       assert any(n["kind"] == "like" and n["deleted"] and n["actor_count"] == 0 for n in notices)
+E       assert False
+E        +  where False = any(&lt;generator object test_t06_t07_reposts_delete_scrub_media_and_shared_blob.&lt;locals&gt;.&lt;genexpr&gt; at 0x7fc8c1e86670&gt;)
+
+server/tests/test_space.py:205: AssertionError</failure></testcase></testsuite></testsuites>

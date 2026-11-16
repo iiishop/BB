@@ -1,0 +1,69 @@
+{
+  "run": "01a1e1ec-18e4-70c6-8a16-2b452db1ec79",
+  "candidate": "73254369a1b54aa46b86565d430c9f7db6806e91",
+  "developer_head": "2308ca61fc9b35756a2e2bc6a8295544537c5a9f",
+  "full_suite": {
+    "flutter-test": {
+      "passed": 697,
+      "skipped": 12
+    },
+    "linux-integration": {
+      "passed": 14,
+      "skipped": 0
+    }
+  },
+  "real_probes": {
+    "original-eight": {
+      "passed": 8,
+      "failed": 0,
+      "skipped": 0,
+      "exit_code": 0,
+      "tests": [
+        "T02 failed upload confirmation retry preserves local image removal",
+        "T07 stale refresh response cannot restore a deleted post or reference",
+        "real T02 image removal during save must survive the older receipt",
+        "real T02 upload must not erase already-dirty text",
+        "real T02 upload confirmation must fence a newer external writer",
+        "real T02 delayed save publishes visible text",
+        "real T02 dirty reopen preserves conflicting server version",
+        "real T07 replay removes cached repost source text"
+      ]
+    },
+    "controls": {
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "exit_code": 0,
+      "tests": [
+        "confirmation retry with external writer=false",
+        "confirmation retry with external writer=true"
+      ]
+    },
+    "rollback-tombstone": {
+      "passed": 0,
+      "failed": 2,
+      "skipped": 0,
+      "exit_code": 1,
+      "tests": [
+        "T07 like rollback cannot restore deleted reference detail=false",
+        "T07 like rollback cannot restore deleted reference detail=true"
+      ]
+    }
+  },
+  "probe_hashes": {
+    "docs/evidence/dea481-client/qa-fixes/space_defect_probe_test.dart": "28f70598526dda61cb2a026bdccac7f8268976b981676cbf54af9c0c97df8ca7",
+    "docs/evidence/dea481-qa-integration/adjacent_draft_probe_test.dart": "9a60e91853f624ba2f999fbd9b3b56d24e0d0197274ac0943ee3fbdfe8e3bcb3",
+    "docs/evidence/dea481-qa-round2/upload_conflict_probe_test.dart": "61494756dd165f33d089c5b020be8d3393416c7cf4394b85832c2a9ba461017d",
+    "docs/evidence/dea481-qa-round4/sentinel-before/sentinel_round2_test.dart": "3278627eedf7dcee6af88261b9626b5a1ae3687811e92942c6c54f88dc4c45a2",
+    "docs/evidence/dea481-qa-round4/sentinel-before/sentinel_round2_controls_test.dart": "71c8d68ba57ec744ecc6f2813bd349e7e6dd9a340a1e7f26df1c343d080df1f1",
+    "docs/evidence/dea481-qa-round4/rollback_tombstone_probe_test.dart": "69b12255a899a403fb9c6938ad662d79d3b534050f1b90241262abc4f0c5f851"
+  },
+  "commands": {
+    "flutter": "xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 QA_LOG_DIR=\"$PWD/docs/evidence/dea481-qa-round4/flutter\" bash scripts/run_flutter_tests.sh client",
+    "original-eight": "uv run --project server --locked python docs/evidence/dea481-qa-round4/run_probes.py original-eight",
+    "controls": "uv run --project server --locked python docs/evidence/dea481-qa-round4/run_probes.py controls",
+    "rollback-tombstone": "uv run --project server --locked python docs/evidence/dea481-qa-round4/run_probes.py rollback-tombstone"
+  },
+  "decision": "Do not hand off to QA: feed/detail like rollback restores deleted reference content.",
+  "new_ui_packages": "Not built for known-failing candidate; old UI binaries do not represent this runtime."
+}

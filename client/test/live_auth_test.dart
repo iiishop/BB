@@ -108,8 +108,13 @@ void main() {
           account: first.account,
           username: username,
           token: 'not-a-valid-token',
+          // This is an intentional replacement fixture, not an old-generation
+          // repair (which SessionStore correctly refuses after a real login).
+          assignGeneration: true,
         ),
       );
+      expect((await store.read())?.token, 'not-a-valid-token',
+          reason: 'the invalid credential must actually be persisted');
       final AuthService expired = AuthService(
         api: api,
         session: AuthSession(),

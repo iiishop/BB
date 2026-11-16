@@ -1,0 +1,21 @@
+{
+  "candidate_sha": "5d84787a2c50413d20d54fd698ac9546c4de96ac",
+  "dirty": "",
+  "source_unchanged": true,
+  "after_sha": "5d84787a2c50413d20d54fd698ac9546c4de96ac",
+  "tracked_after": "",
+  "cwd": "/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/BB/client",
+  "command": [
+    "flutter",
+    "test",
+    "--no-pub",
+    ".qa-artifacts/probes/sentinel_round5_test.dart",
+    "--reporter=json"
+  ],
+  "exit_code": 1,
+  "artifacts": {
+    "output.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "flutter.jsonl": "c9595dfe9f7f71caa52efb7c6af94025de9ee6fe9ae51d26feac578e8f512498"
+  },
+  "format": "flutter-json"
+}

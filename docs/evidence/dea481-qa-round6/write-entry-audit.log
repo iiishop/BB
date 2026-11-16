@@ -1,0 +1,40 @@
+client/lib/ui/space/space_controller.dart:53:  List<SpacePost> _pendingPage = <SpacePost>[];
+client/lib/ui/space/space_controller.dart:151:        _pendingPage = <SpacePost>[];
+client/lib/ui/space/space_controller.dart:158:          _pendingPage = fresh;
+client/lib/ui/space/space_controller.dart:248:    if (_pendingPage.isEmpty) {
+client/lib/ui/space/space_controller.dart:251:    final List<SpacePost> admitted = _admitIncoming(_pendingPage);
+client/lib/ui/space/space_controller.dart:253:      _pendingPage = <SpacePost>[];
+client/lib/ui/space/space_controller.dart:262:    _pendingPage = <SpacePost>[];
+client/lib/ui/space/space_controller.dart:429:    _pendingPage.removeWhere((SpacePost p) => p.postId == postId);
+client/lib/ui/space/space_controller.dart:487:    for (int i = 0; i < _pendingPage.length; i++) {
+client/lib/ui/space/space_controller.dart:488:      _pendingPage[i] = spacePostWithScrubbedComments(
+client/lib/ui/space/space_controller.dart:489:        _pendingPage[i],
+client/lib/ui/space/space_controller.dart:494:      notifications[i] = _scrubNotification(notifications[i]);
+client/lib/ui/space/space_controller.dart:511:        final SpacePost post = list[i];
+client/lib/ui/space/space_controller.dart:525:    scrub(_pendingPage);
+client/lib/ui/space/space_controller.dart:667:        final SpaceNotification n = notifications[i];
+client/lib/ui/space/space_controller.dart:670:          notifications[i] = _notificationRead(n);
+client/lib/ui/space/space_controller.dart:822:          _pendingPage.removeWhere((SpacePost p) => p.postId == postId);
+client/lib/ui/space/space_detail_controller.dart:97:      post = null;
+client/lib/ui/space/space_detail_controller.dart:123:    phase = post == null ? SpacePhase.loading : phase;
+client/lib/ui/space/space_detail_controller.dart:132:      post = admitted;
+client/lib/ui/space/space_detail_controller.dart:152:        phase = post == null ? SpacePhase.error : phase;
+client/lib/ui/space/space_detail_controller.dart:158:      phase = post == null ? SpacePhase.error : phase;
+client/lib/ui/space/space_detail_controller.dart:177:      post = admitted;
+client/lib/ui/space/space_detail_controller.dart:219:          replies[root.commentId] = List<SpaceComment>.of(preview.replies);
+client/lib/ui/space/space_detail_controller.dart:244:      roots.addAll(
+client/lib/ui/space/space_detail_controller.dart:275:          ? (replies[rootId] ?? <SpaceComment>[])
+client/lib/ui/space/space_detail_controller.dart:280:      replies[rootId] = <SpaceComment>[
+client/lib/ui/space/space_detail_controller.dart:302:      context = SpaceCommentContext(
+client/lib/ui/space/space_detail_controller.dart:315:      if (!roots.any((SpaceComment c) => c.commentId == rootId)) {
+client/lib/ui/space/space_detail_controller.dart:316:        roots.insert(0, context!.root);
+client/lib/ui/space/space_detail_controller.dart:323:        for (final SpaceComment c in replies[rootId] ?? <SpaceComment>[])
+client/lib/ui/space/space_detail_controller.dart:327:      replies[rootId] = merged.values.toList()
+client/lib/ui/space/space_detail_controller.dart:351:    post = _postWithLike(current, desired: desired);
+client/lib/ui/space/space_detail_controller.dart:367:        post = _withLikeFields(
+client/lib/ui/space/space_detail_controller.dart:426:      post = admitted;
+client/lib/ui/space/space_detail_controller.dart:481:    for (int i = 0; i < roots.length; i++) {
+client/lib/ui/space/space_detail_controller.dart:496:      context = SpaceCommentContext(
+client/lib/ui/space/space_detail_controller.dart:519:      post = spacePostWithScrubbedComments(currentPost, _isCommentDeleted);
+client/lib/ui/space/space_detail_controller.dart:561:    post = null;
+client/lib/ui/space/space_detail_controller.dart:580:    post = scrubbed;

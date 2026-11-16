@@ -1,0 +1,4 @@
+stage	status	exit_code
+analyze	PASS	0
+flutter-test	PASS	0
+linux-integration	PASS	0

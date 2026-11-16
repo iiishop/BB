@@ -1,0 +1,27 @@
+{
+  "candidate_sha": "00ab236dc96ff056398974d0584a75215b1036a4",
+  "rules": [
+    {
+      "id": "adjacent0",
+      "rule": "deleted comment notification must match unavailable server state after late page",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "adjacent/run.json",
+      "testcase": {
+        "classname": ".qa-artifacts/probes/sentinel_round4_test.dart",
+        "name": "deleted comment notification must match unavailable server state after late page"
+      }
+    },
+    {
+      "id": "adjacent1",
+      "rule": "post deletion invalidates loaded and late notification snapshots",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "adjacent/run.json",
+      "testcase": {
+        "classname": ".qa-artifacts/probes/sentinel_round4_test.dart",
+        "name": "post deletion invalidates loaded and late notification snapshots"
+      }
+    }
+  ]
+}

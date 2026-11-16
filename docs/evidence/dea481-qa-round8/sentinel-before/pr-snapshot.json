@@ -1,0 +1,47 @@
+{
+  "auto_complete": {
+    "issue_disabled": true,
+    "pull_request_ids": [],
+    "state": "issue_disabled",
+    "target_status": "done",
+    "workspace_enabled": true
+  },
+  "pull_requests": [
+    {
+      "additions": 75651,
+      "author_avatar_url": "https://avatars.githubusercontent.com/u/30495867?v=4",
+      "author_login": "iiishop",
+      "branch": "agent/forge/dea-481-integration",
+      "changed_files": 730,
+      "checks_conclusion": "pending",
+      "checks_failed": 0,
+      "checks_passed": 7,
+      "checks_pending": 1,
+      "checks_rollup": "pending",
+      "checks_running": 1,
+      "checks_total": 8,
+      "closed_at": null,
+      "deletions": 858,
+      "failed_check_names": [],
+      "html_url": "https://github.com/iiishop/BB/pull/35",
+      "id": "db787d9b-5678-46d8-8802-770c165bae32",
+      "link_source": "title",
+      "merge_state_status": "unstable",
+      "mergeable": "mergeable",
+      "mergeable_state": "unstable",
+      "merged_at": null,
+      "number": 35,
+      "pr_created_at": "2026-11-15T22:43:51Z",
+      "pr_updated_at": "2026-11-16T02:04:24Z",
+      "provider": "github",
+      "repo_name": "BB",
+      "repo_owner": "iiishop",
+      "snapshot_available": true,
+      "snapshot_fetched_at": "2026-11-16T02:08:31Z",
+      "snapshot_stale": false,
+      "state": "draft",
+      "title": "DEA-481: integrate Space client, transactional server and existing DSH tools",
+      "workspace_id": "2a8a7e5b-31c5-441a-a371-60c9c9e52ffd"
+    }
+  ]
+}

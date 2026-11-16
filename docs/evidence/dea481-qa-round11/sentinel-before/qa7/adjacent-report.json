@@ -1,0 +1,16 @@
+{
+  "candidate_sha": "16681978cebc45eb25fe8cc765ac0716e524d2b4",
+  "rules": [
+    {
+      "id": "adjacent0",
+      "rule": "T07 reference preview alone retains deletion authority without opening source",
+      "entry": "SpaceController deletion entry to SpaceImageLoader cache and viewer",
+      "status": "tested",
+      "run": "adjacent/run.json",
+      "testcase": {
+        "classname": ".qa-artifacts/probes/sentinel_round7_test.dart",
+        "name": "T07 reference preview alone retains deletion authority without opening source"
+      }
+    }
+  ]
+}

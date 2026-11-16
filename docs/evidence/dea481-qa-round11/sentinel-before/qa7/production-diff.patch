@@ -1,0 +1,151 @@
+diff --git a/client/lib/ui/space/space_controller.dart b/client/lib/ui/space/space_controller.dart
+index d300325..ec2bd0f 100644
+--- a/client/lib/ui/space/space_controller.dart
++++ b/client/lib/ui/space/space_controller.dart
+@@ -82,6 +82,11 @@ class SpaceController extends ChangeNotifier {
+   /// embeds a comment (feed preview, pending page, notification snippet, detail
+   /// page/context) must redact it, including late responses.
+   final Set<String> _deletedComments = <String>{};
++
++  /// Post id -> owned image ids. Kept beyond the visible snapshot lifetime so
++  /// deleting a post after its detail was closed can still revoke cached
++  /// thumbnails/originals and cancel in-flight loads.
++  final Map<String, List<String>> _ownedImageIds = <String, List<String>>{};
+   bool _polling = false;
+   Timer? _timer;
+   bool _disposed = false;
+@@ -379,6 +384,7 @@ class SpaceController extends ChangeNotifier {
+         isTombstoned: _isTombstoned,
+         isDeletedComment: _isDeletedComment,
+         onCommentDeleted: _handleCommentDeleted,
++        onPostObserved: _recordOwnedImages,
+       );
+       _details[postId] = controller;
+     }
+@@ -425,6 +431,9 @@ class SpaceController extends ChangeNotifier {
+ 
+   void _handlePostDeleted(String postId) {
+     _tombstones.add(postId);
++    // Invalidate the owned image bytes before removing the last snapshot that
++    // still knows which images belong to this post.
++    _invalidateImagesForPostId(postId);
+     posts.removeWhere((SpacePost p) => p.postId == postId);
+     _pendingPage.removeWhere((SpacePost p) => p.postId == postId);
+     _scrubReferencesTo(postId);
+@@ -435,6 +444,46 @@ class SpaceController extends ChangeNotifier {
+     _notify();
+   }
+ 
++  /// Drops every cached thumbnail/original owned by [postId], wherever the
++  /// owning snapshot currently lives (feed, pending page or an open detail).
++  /// Call this before removing that snapshot.
++  void _invalidateImagesForPostId(String postId) {
++    void invalidate(SpacePost? post) {
++      if (post == null || post.postId != postId) {
++        return;
++      }
++      for (final SpaceImage image in post.images) {
++        images.invalidateImage(image.imageId);
++      }
++      final SpaceImage? referenceImage = post.reference?.image;
++      if (referenceImage != null) {
++        images.invalidateImage(referenceImage.imageId);
++      }
++    }
++
++    for (final SpacePost post in posts) {
++      invalidate(post);
++    }
++    for (final SpacePost post in _pendingPage) {
++      invalidate(post);
++    }
++    invalidate(_details[postId]?.post);
++    // Snapshots can be gone (detail backed out or closed) before the deletion
++    // event arrives; the recorded ownership still knows which bytes to revoke.
++    for (final String imageId in _ownedImageIds.remove(postId) ?? <String>[]) {
++      images.invalidateImage(imageId);
++    }
++  }
++
++  void _recordOwnedImages(SpacePost post) {
++    if (post.images.isEmpty) {
++      return;
++    }
++    _ownedImageIds[post.postId] = <String>[
++      for (final SpaceImage image in post.images) image.imageId,
++    ];
++  }
++
+   bool _isTombstoned(String postId) => _tombstones.contains(postId);
+ 
+   bool _isDeletedComment(String commentId) =>
+@@ -446,7 +495,9 @@ class SpaceController extends ChangeNotifier {
+     if (reference != null && _tombstones.contains(reference.postId)) {
+       result = spacePostWithScrubbedReference(result, reference.postId);
+     }
+-    return spacePostWithScrubbedComments(result, _isDeletedComment);
++    result = spacePostWithScrubbedComments(result, _isDeletedComment);
++    _recordOwnedImages(result);
++    return result;
+   }
+ 
+   /// Mirrors the server's notification projection: a notification is
+@@ -807,23 +858,8 @@ class SpaceController extends ChangeNotifier {
+       case 'post.deleted':
+         final String? postId = event.postId;
+         if (postId != null) {
+-          SpacePost? removed;
+-          for (final SpacePost post in posts) {
+-            if (post.postId == postId) {
+-              removed = post;
+-              break;
+-            }
+-          }
+-          if (removed != null) {
+-            for (final SpaceImage image in removed.images) {
+-              images.invalidateImage(image.imageId);
+-            }
+-            final SpaceImage? referenceImage = removed.reference?.image;
+-            if (referenceImage != null) {
+-              images.invalidateImage(referenceImage.imageId);
+-            }
+-          }
+           _tombstones.add(postId);
++          _invalidateImagesForPostId(postId);
+           posts.removeWhere((SpacePost p) => p.postId == postId);
+           _pendingPage.removeWhere((SpacePost p) => p.postId == postId);
+           _details[postId]?.onDeletedEvent();
+diff --git a/client/lib/ui/space/space_detail_controller.dart b/client/lib/ui/space/space_detail_controller.dart
+index e3ebff3..80fa89f 100644
+--- a/client/lib/ui/space/space_detail_controller.dart
++++ b/client/lib/ui/space/space_detail_controller.dart
+@@ -24,6 +24,7 @@ class SpaceDetailController extends ChangeNotifier {
+     this.isTombstoned,
+     this.isDeletedComment,
+     this.onCommentDeleted,
++    this.onPostObserved,
+   });
+ 
+   final SpaceGateway gateway;
+@@ -46,6 +47,10 @@ class SpaceDetailController extends ChangeNotifier {
+   /// snippets redact it exactly like a remote `comment.deleted` event.
+   final void Function(String postId, String commentId)? onCommentDeleted;
+ 
++  /// Registers the post's owned images with the owner controller so a deletion
++  /// can revoke them even after this detail is backed out or closed.
++  final void Function(SpacePost post)? onPostObserved;
++
+   SpacePhase phase = SpacePhase.loading;
+   SpacePost? post;
+   String? error;
+@@ -102,7 +107,9 @@ class SpaceDetailController extends ChangeNotifier {
+     if (reference != null && (isTombstoned?.call(reference.postId) ?? false)) {
+       result = spacePostWithScrubbedReference(result, reference.postId);
+     }
+-    return spacePostWithScrubbedComments(result, _isCommentDeleted);
++    result = spacePostWithScrubbedComments(result, _isCommentDeleted);
++    onPostObserved?.call(result);
++    return result;
+   }
+ 
+   SpaceComment _admitComment(SpaceComment comment) =>

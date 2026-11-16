@@ -1,0 +1,104 @@
+{
+  "run": "01a1e205-1aaf-7344-9820-c1763ed3d6dd",
+  "candidate": "dbabb06217f894656d70c432aeaac51a4af8159d",
+  "developer_head": "bfb6f32c5f4bb3c60db0dc0e9a6cfe61017ebdfa",
+  "full_suite": {
+    "flutter-test": {
+      "passed": 701,
+      "skipped": 12
+    },
+    "linux-integration": {
+      "passed": 14,
+      "skipped": 0
+    }
+  },
+  "real_probes": {
+    "original-eight": {
+      "passed": 8,
+      "failed": 0,
+      "skipped": 0,
+      "exit_code": 0,
+      "tests": [
+        "T02 failed upload confirmation retry preserves local image removal",
+        "T07 stale refresh response cannot restore a deleted post or reference",
+        "real T02 image removal during save must survive the older receipt",
+        "real T02 upload must not erase already-dirty text",
+        "real T02 upload confirmation must fence a newer external writer",
+        "real T02 delayed save publishes visible text",
+        "real T02 dirty reopen preserves conflicting server version",
+        "real T07 replay removes cached repost source text"
+      ]
+    },
+    "controls": {
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "exit_code": 0,
+      "tests": [
+        "confirmation retry with external writer=false",
+        "confirmation retry with external writer=true"
+      ]
+    },
+    "rollback-tombstone": {
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "exit_code": 0,
+      "tests": [
+        "T07 like rollback cannot restore deleted reference detail=false",
+        "T07 like rollback cannot restore deleted reference detail=true"
+      ]
+    },
+    "comment-deletion": {
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "exit_code": 0,
+      "tests": [
+        "T08 comment deletion scrubs loaded feed and notification snippets",
+        "T08 late replies response cannot revive a deleted comment"
+      ]
+    }
+  },
+  "probe_hashes": {
+    "docs/evidence/dea481-client/qa-fixes/space_defect_probe_test.dart": "28f70598526dda61cb2a026bdccac7f8268976b981676cbf54af9c0c97df8ca7",
+    "docs/evidence/dea481-qa-integration/adjacent_draft_probe_test.dart": "9a60e91853f624ba2f999fbd9b3b56d24e0d0197274ac0943ee3fbdfe8e3bcb3",
+    "docs/evidence/dea481-qa-round2/upload_conflict_probe_test.dart": "61494756dd165f33d089c5b020be8d3393416c7cf4394b85832c2a9ba461017d",
+    "docs/evidence/dea481-qa-round4/sentinel-before/sentinel_round2_test.dart": "3278627eedf7dcee6af88261b9626b5a1ae3687811e92942c6c54f88dc4c45a2",
+    "docs/evidence/dea481-qa-round4/sentinel-before/sentinel_round2_controls_test.dart": "71c8d68ba57ec744ecc6f2813bd349e7e6dd9a340a1e7f26df1c343d080df1f1",
+    "docs/evidence/dea481-qa-round4/rollback_tombstone_probe_test.dart": "69b12255a899a403fb9c6938ad662d79d3b534050f1b90241262abc4f0c5f851",
+    "docs/evidence/dea481-qa-round6/sentinel-before/sentinel_round3_test.dart": "8d0283bd8ab3e759543293e034024a305f05cfe2c277668ae95d9669de21e73b"
+  },
+  "commands": {
+    "flutter": "xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 QA_LOG_DIR=\"$PWD/docs/evidence/dea481-qa-round6/flutter\" bash scripts/run_flutter_tests.sh client",
+    "original-eight": "uv run --project server --locked python docs/evidence/dea481-qa-round6/run_probes.py original-eight",
+    "controls": "uv run --project server --locked python docs/evidence/dea481-qa-round6/run_probes.py controls",
+    "rollback-tombstone": "uv run --project server --locked python docs/evidence/dea481-qa-round6/run_probes.py rollback-tombstone",
+    "comment-deletion": "uv run --project server --locked python docs/evidence/dea481-qa-round6/run_probes.py comment-deletion"
+  },
+  "decision": "Twelve original counterexamples and two retry controls pass; candidate for Muse verification and independent QA, not overall acceptance.",
+  "builds": {
+    "build-linux": {
+      "exit_code": 0
+    },
+    "build-android": {
+      "exit_code": 0
+    },
+    "package-linux": {
+      "exit_code": 0
+    },
+    "apk-signature": {
+      "exit_code": 0
+    },
+    "release-smoke": {
+      "exit_code": 0
+    }
+  },
+  "build_commands": {
+    "linux": "flutter build linux --release --no-pub (cwd client)",
+    "android": "flutter build apk --release --target-platform android-arm64 (cwd client)",
+    "package-linux": "bash scripts/ci/package-linux.sh --bundle client/build/linux/x64/release/bundle --out ../dea481-round6-artifacts --version 0.0.2+dea481.dbabb06 --deb --pkg bb-space-test",
+    "release-smoke": "xvfb-run -a -s '-screen 0 1920x1080x24' env LIBGL_ALWAYS_SOFTWARE=1 GDK_BACKEND=x11 uv run --project server --locked python docs/evidence/dea481-qa-round6/release_smoke.py",
+    "apk-signature": "/home/iiishop/Android/Sdk/build-tools/36.0.0/apksigner verify --verbose --print-certs client/build/app/outputs/flutter-apk/app-release.apk"
+  }
+}

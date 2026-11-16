@@ -1,0 +1,50 @@
+{
+  "previous-integration": {
+    "ref": "9f2acffa7d5beadad50800751b719347fe654d3c",
+    "paths": [
+      "server",
+      "dsh-plugin",
+      "client/bin",
+      "client/lib/services",
+      "client/lib/models",
+      "client/lib/config",
+      "client/lib/api",
+      "client/pubspec.yaml",
+      "client/pubspec.lock",
+      ".github",
+      "client/windows",
+      "client/test/windows_clipboard_native_diag_test.dart"
+    ],
+    "identical": true
+  },
+  "developer-head": {
+    "ref": "4038c1f1f16724dfa810c442f0a5d816dbaa1a64",
+    "paths": [
+      "client/lib/ui",
+      "client/test/space_avatar_test.dart",
+      "client/test/support/space_test_harness.dart"
+    ],
+    "identical": true
+  },
+  "skip-definitions": {
+    "ref": "542cfadcb38e6b60856c2e371d921443cba53a4c",
+    "paths": [
+      "client/test/live_auth_test.dart",
+      "client/test/live_chat_e2e_test.dart",
+      "client/test/live_media_contract_test.dart",
+      "client/test/space_real_api_test.dart",
+      "client/test/chat_screenshot_test.dart",
+      "client/test/profile_screenshot_test.dart",
+      "client/test/update_settings_screenshot_test.dart",
+      "client/test/space_screenshot_test.dart"
+    ],
+    "identical": true
+  },
+  "unchanged_host_files": 295,
+  "code_sha": "b3f391af7d64252b5cc3ced39e9a4ba4f1c94cc9",
+  "git_trees": {
+    "server": "8d2147fd7be48cd30227fbddf851e2e157e936d5",
+    "client": "3dd43d17eefc2ae5779fc0ee003aacee8defdc61",
+    "dsh-plugin": "96bfbf775ec0db595d47bd6f4a7aa098c41e3e46"
+  }
+}

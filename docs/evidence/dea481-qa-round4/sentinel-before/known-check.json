@@ -1,0 +1,182 @@
+[
+  {
+    "id": "known-1",
+    "candidate_sha": "35c9223f45613e916c9d6d5f90d510feba3f713d",
+    "command": [
+      "flutter",
+      "test",
+      "--no-pub",
+      ".qa-artifacts/probes/space_defect_probe_test.dart",
+      ".qa-artifacts/probes/adjacent_draft_probe_test.dart",
+      ".qa-artifacts/probes/upload_conflict_probe_test.dart",
+      "--reporter=json"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": ".qa-artifacts/probes/space_defect_probe_test.dart",
+      "name": "real T02 delayed save publishes visible text"
+    },
+    "tests": 6,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 6,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "../qa2/known/run.json",
+      "../qa2/known/output.log",
+      "../qa2/known/flutter.jsonl"
+    ]
+  },
+  {
+    "id": "known-2",
+    "candidate_sha": "35c9223f45613e916c9d6d5f90d510feba3f713d",
+    "command": [
+      "flutter",
+      "test",
+      "--no-pub",
+      ".qa-artifacts/probes/space_defect_probe_test.dart",
+      ".qa-artifacts/probes/adjacent_draft_probe_test.dart",
+      ".qa-artifacts/probes/upload_conflict_probe_test.dart",
+      "--reporter=json"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": ".qa-artifacts/probes/adjacent_draft_probe_test.dart",
+      "name": "real T02 image removal during save must survive the older receipt"
+    },
+    "tests": 6,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 6,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "../qa2/known/run.json",
+      "../qa2/known/output.log",
+      "../qa2/known/flutter.jsonl"
+    ]
+  },
+  {
+    "id": "known-3",
+    "candidate_sha": "35c9223f45613e916c9d6d5f90d510feba3f713d",
+    "command": [
+      "flutter",
+      "test",
+      "--no-pub",
+      ".qa-artifacts/probes/space_defect_probe_test.dart",
+      ".qa-artifacts/probes/adjacent_draft_probe_test.dart",
+      ".qa-artifacts/probes/upload_conflict_probe_test.dart",
+      "--reporter=json"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": ".qa-artifacts/probes/upload_conflict_probe_test.dart",
+      "name": "real T02 upload confirmation must fence a newer external writer"
+    },
+    "tests": 6,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 6,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "../qa2/known/run.json",
+      "../qa2/known/output.log",
+      "../qa2/known/flutter.jsonl"
+    ]
+  },
+  {
+    "id": "known-4",
+    "candidate_sha": "35c9223f45613e916c9d6d5f90d510feba3f713d",
+    "command": [
+      "flutter",
+      "test",
+      "--no-pub",
+      ".qa-artifacts/probes/space_defect_probe_test.dart",
+      ".qa-artifacts/probes/adjacent_draft_probe_test.dart",
+      ".qa-artifacts/probes/upload_conflict_probe_test.dart",
+      "--reporter=json"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": ".qa-artifacts/probes/adjacent_draft_probe_test.dart",
+      "name": "real T02 upload must not erase already-dirty text"
+    },
+    "tests": 6,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 6,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "../qa2/known/run.json",
+      "../qa2/known/output.log",
+      "../qa2/known/flutter.jsonl"
+    ]
+  },
+  {
+    "id": "known-5",
+    "candidate_sha": "35c9223f45613e916c9d6d5f90d510feba3f713d",
+    "command": [
+      "flutter",
+      "test",
+      "--no-pub",
+      ".qa-artifacts/probes/space_defect_probe_test.dart",
+      ".qa-artifacts/probes/adjacent_draft_probe_test.dart",
+      ".qa-artifacts/probes/upload_conflict_probe_test.dart",
+      "--reporter=json"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": ".qa-artifacts/probes/space_defect_probe_test.dart",
+      "name": "real T02 dirty reopen preserves conflicting server version"
+    },
+    "tests": 6,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 6,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "../qa2/known/run.json",
+      "../qa2/known/output.log",
+      "../qa2/known/flutter.jsonl"
+    ]
+  },
+  {
+    "id": "known-6",
+    "candidate_sha": "35c9223f45613e916c9d6d5f90d510feba3f713d",
+    "command": [
+      "flutter",
+      "test",
+      "--no-pub",
+      ".qa-artifacts/probes/space_defect_probe_test.dart",
+      ".qa-artifacts/probes/adjacent_draft_probe_test.dart",
+      ".qa-artifacts/probes/upload_conflict_probe_test.dart",
+      "--reporter=json"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": ".qa-artifacts/probes/space_defect_probe_test.dart",
+      "name": "real T07 replay removes cached repost source text"
+    },
+    "tests": 6,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 6,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "../qa2/known/run.json",
+      "../qa2/known/output.log",
+      "../qa2/known/flutter.jsonl"
+    ]
+  }
+]

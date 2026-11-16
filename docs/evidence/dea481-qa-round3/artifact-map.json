@@ -1,0 +1,56 @@
+[
+  {
+    "name": "bb-client-api-542cfad-linux-x64.tar.gz",
+    "bytes": 3394272,
+    "sha256": "d07fcc2e67dffe5b7bbd88c098fa93d8bafe6e854bdc51613be986f59c78047a",
+    "build_code_sha": "542cfadcb38e6b60856c2e371d921443cba53a4c",
+    "applies_to_candidate": "ed901e02e9626cd91e193439aed205b9fb79423d",
+    "reused_unchanged": true,
+    "download": "attached to current DEA-481 handoff"
+  },
+  {
+    "name": "bb-space-bundle-542cfad.zip",
+    "bytes": 105997,
+    "sha256": "1f1c14667516bec0b98d618ea767bb54f814d5fa0352257bcc49c0195d161993",
+    "build_code_sha": "542cfadcb38e6b60856c2e371d921443cba53a4c",
+    "applies_to_candidate": "ed901e02e9626cd91e193439aed205b9fb79423d",
+    "reused_unchanged": true,
+    "download": "attached to current DEA-481 handoff"
+  },
+  {
+    "name": "bb-space-ed901e0-android-arm64-test.apk",
+    "bytes": 23792102,
+    "sha256": "ba300bedb8624064c4728975663cf7fd2c27aafd8444b93110e2bc6b2ec36e84",
+    "build_code_sha": "ed901e02e9626cd91e193439aed205b9fb79423d",
+    "applies_to_candidate": "ed901e02e9626cd91e193439aed205b9fb79423d",
+    "reused_unchanged": false,
+    "download": "attached to current DEA-481 handoff"
+  },
+  {
+    "name": "bb-space-source-ed901e0.zip",
+    "bytes": 4041837,
+    "sha256": "8c51c9beefb35ce6f0390be2479af3d02f56b5fdca8da8317385a33253dd01fe",
+    "build_code_sha": "ed901e02e9626cd91e193439aed205b9fb79423d",
+    "applies_to_candidate": "ed901e02e9626cd91e193439aed205b9fb79423d",
+    "reused_unchanged": false,
+    "download": "attached to current DEA-481 handoff"
+  },
+  {
+    "name": "bb-space-test-0.0.2+dea481.ed901e0-linux-x86_64.tar.gz",
+    "bytes": 18789583,
+    "sha256": "eb718693da57fc2a5badf9aaba1e1dd1ecbd2545d2468736152cadf22aa42812",
+    "build_code_sha": "ed901e02e9626cd91e193439aed205b9fb79423d",
+    "applies_to_candidate": "ed901e02e9626cd91e193439aed205b9fb79423d",
+    "reused_unchanged": false,
+    "download": "attached to current DEA-481 handoff"
+  },
+  {
+    "name": "bb-space-test_0.0.2+dea481.ed901e0_amd64.deb",
+    "bytes": 14416740,
+    "sha256": "72384b24572f32ff6fe29043f924c3f08726e3fe8d348379f61342bab4b14464",
+    "build_code_sha": "ed901e02e9626cd91e193439aed205b9fb79423d",
+    "applies_to_candidate": "ed901e02e9626cd91e193439aed205b9fb79423d",
+    "reused_unchanged": false,
+    "download": "attached to current DEA-481 handoff"
+  }
+]

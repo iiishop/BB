@@ -1,0 +1,62 @@
+{
+  "path_equivalence": {
+    "server": true,
+    "dsh-plugin": true,
+    "client/lib/services": true,
+    "client/pubspec.lock": true,
+    "client/pubspec.yaml": true,
+    "scripts/run_flutter_tests.sh": true
+  },
+  "evidence": {
+    "plugin": {
+      "original_sha": "942dd46a601d4604cb9273c9830d472cda41378c",
+      "candidate_sha": "35c9223f45613e916c9d6d5f90d510feba3f713d",
+      "owner": "Sentinel prior turn",
+      "counts": {
+        "collected": 114,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "junit_sha256": "284fe4e1ec78c0cc6e402d4984de214c23beb77afe3e30f1d72ccf647387ee34",
+        "note": "XML manually checked: run --junit path resolved from repo root incorrectly, so capture receipt omits XML; original receipt kept unchanged."
+      },
+      "command": [
+        "uv",
+        "run",
+        "--locked",
+        "pytest",
+        "tests",
+        "--junitxml=../../qa/plugin.xml",
+        "-q"
+      ],
+      "exit_code": 0,
+      "reuse": "unchanged source/tests/lock plus same Python environment; no fresh PASS claim"
+    },
+    "server-space": {
+      "original_sha": "942dd46a601d4604cb9273c9830d472cda41378c",
+      "candidate_sha": "35c9223f45613e916c9d6d5f90d510feba3f713d",
+      "owner": "Sentinel prior turn",
+      "counts": {
+        "collected": 52,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "junit_sha256": "f3c71d1f53934e1e1e1365621018141d5faa25892c1d447e4e9608a2e1c2127e",
+        "note": "XML manually checked: run --junit path resolved from repo root incorrectly, so capture receipt omits XML; original receipt kept unchanged."
+      },
+      "command": [
+        "uv",
+        "run",
+        "--locked",
+        "pytest",
+        "tests/test_space.py",
+        "tests/test_space_live.py",
+        "tests/test_space_contract.py",
+        "--junitxml=../../qa/server-space.xml",
+        "-q"
+      ],
+      "exit_code": 0,
+      "reuse": "unchanged source/tests/lock plus same Python environment; no fresh PASS claim"
+    }
+  }
+}

@@ -1,0 +1,17 @@
+[
+  {
+    "file": "dsh-plugin/tests/test_profile_stdio.py",
+    "same_import_set": true,
+    "non_import_ast_identical": true
+  },
+  {
+    "file": "dsh-plugin/tests/test_space_tools.py",
+    "same_import_set": true,
+    "non_import_ast_identical": true
+  },
+  {
+    "file": "dsh-plugin/tests/test_stdio.py",
+    "same_import_set": true,
+    "non_import_ast_identical": true
+  }
+]

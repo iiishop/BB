@@ -1,0 +1,27 @@
+{
+  "new_ui_packages": false,
+  "old_ui_packages_apply": false,
+  "source_sha": "73254369a1b54aa46b86565d430c9f7db6806e91",
+  "source_file": "bb-space-source-7325436.zip",
+  "source_sha256": "260b817c0b79aa55ccd8fb74e18610693b3cc63869dfe30681e5fc963ca8e442",
+  "reused_unchanged_components": [
+    {
+      "name": "bb-client-api-542cfad-linux-x64.tar.gz",
+      "bytes": 3394272,
+      "sha256": "d07fcc2e67dffe5b7bbd88c098fa93d8bafe6e854bdc51613be986f59c78047a",
+      "build_code_sha": "542cfadcb38e6b60856c2e371d921443cba53a4c",
+      "applies_to_candidate": "73254369a1b54aa46b86565d430c9f7db6806e91",
+      "reused_unchanged": true,
+      "download": "Previously attached under original 542cfad filename; not a new build."
+    },
+    {
+      "name": "bb-space-bundle-542cfad.zip",
+      "bytes": 105997,
+      "sha256": "1f1c14667516bec0b98d618ea767bb54f814d5fa0352257bcc49c0195d161993",
+      "build_code_sha": "542cfadcb38e6b60856c2e371d921443cba53a4c",
+      "applies_to_candidate": "73254369a1b54aa46b86565d430c9f7db6806e91",
+      "reused_unchanged": true,
+      "download": "Previously attached under original 542cfad filename; not a new build."
+    }
+  ]
+}

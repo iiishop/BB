@@ -1,0 +1,10 @@
+{"protocolVersion":"0.1.1","runnerVersion":null,"pid":992074,"type":"start","time":0}
+{"suite":{"id":0,"platform":"vm","path":"/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/.qa-artifacts/forge-round9/detail_reference_image_probe_test.dart"},"type":"suite","time":0}
+{"test":{"id":1,"name":"loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/.qa-artifacts/forge-round9/detail_reference_image_probe_test.dart","suiteID":0,"groupIDs":[],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":null},"type":"testStart","time":0}
+{"count":1,"time":3,"type":"allSuites"}
+{"testID":1,"result":"success","skipped":false,"hidden":true,"type":"testDone","time":1216}
+{"group":{"id":2,"suiteID":0,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":1,"line":null,"column":null,"url":null},"type":"group","time":1217}
+{"test":{"id":3,"name":"T07 detail-only repost source deletion invalidates both image variants","suiteID":0,"groupIDs":[2],"metadata":{"skip":false,"skipReason":null},"line":9,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-01655ad7e799/workdir/BB/client/.qa-artifacts/forge-round9/detail_reference_image_probe_test.dart"},"type":"testStart","time":1218}
+{"testID":3,"error":"Expected: [false, false]\n  Actual: [true, true]\n   Which: at location [0] is <true> instead of <false>\ndetail-only reference removal must invalidate its cached source bytes before scrubbing the owner\n","stackTrace":"package:matcher                                                         expect\npackage:flutter_test/src/widget_tester.dart 473:18                      expect\n.qa-artifacts/forge-round9/detail_reference_image_probe_test.dart 47:5  main.<fn>\n","isFailure":true,"type":"error","time":1726}
+{"testID":3,"result":"failure","skipped":false,"hidden":false,"type":"testDone","time":1726}
+{"success":false,"type":"done","time":1742}

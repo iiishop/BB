@@ -1,0 +1,74 @@
+[
+  {
+    "file": "test/live_auth_test.dart",
+    "name": "live FastAPI auth register → login → persist → restore → expired credential",
+    "reason": "BB_LIVE_SERVER_URL 未设置：未执行真实 FastAPI 链路（SKIP，不算 PASS）",
+    "separately_exercised_real_api": true
+  },
+  {
+    "file": "test/live_chat_e2e_test.dart",
+    "name": "live chat chain ordered text/image send, real blocks, receipts, ACK gap and ACL",
+    "reason": "BB_LIVE_SERVER_URL 未设置：未执行真实 FastAPI 聊天链路（SKIP，不算 PASS）",
+    "separately_exercised_real_api": true
+  },
+  {
+    "file": "test/live_chat_e2e_test.dart",
+    "name": "live chat chain attachment metadata only, async download, durable event and video cover",
+    "reason": "BB_LIVE_SERVER_URL 未设置：未执行真实 FastAPI 聊天链路（SKIP，不算 PASS）",
+    "separately_exercised_real_api": true
+  },
+  {
+    "file": "test/live_chat_e2e_test.dart",
+    "name": "live chat chain wait returns an arriving message before timeout",
+    "reason": "BB_LIVE_SERVER_URL 未设置：未执行真实 FastAPI 聊天链路（SKIP，不算 PASS）",
+    "separately_exercised_real_api": true
+  },
+  {
+    "file": "test/live_media_contract_test.dart",
+    "name": "live media contract metadata, bounded thumbnail, original bytes and isolation",
+    "reason": "BB_LIVE_SERVER_URL 未设置：未执行真实 DEA-471 媒体链路（SKIP，不算 PASS）",
+    "separately_exercised_real_api": true
+  },
+  {
+    "file": "test/space_real_api_test.dart",
+    "name": "real HTTP round trip: draft, image, publish, comment, like, visits, delete",
+    "reason": "BB_SPACE_API_BASE 未设置：本次未运行真实 API 路径",
+    "separately_exercised_real_api": true
+  },
+  {
+    "file": "test/chat_screenshot_test.dart",
+    "name": "capture users home and chat thread in three form factors",
+    "reason": "QA_CHAT_SCREENSHOT_DIR and screenshot fonts/assets not configured for default test run",
+    "separately_exercised_real_api": false
+  },
+  {
+    "file": "test/chat_screenshot_test.dart",
+    "name": "capture local send feedback states (opt-in evidence)",
+    "reason": "QA_CHAT_SCREENSHOT_DIR and screenshot fonts/assets not configured for default test run",
+    "separately_exercised_real_api": false
+  },
+  {
+    "file": "test/profile_screenshot_test.dart",
+    "name": "capture narrow, wide and folded Profile presentations",
+    "reason": "QA_SCREENSHOT_DIR and screenshot fonts/assets not configured for default test run",
+    "separately_exercised_real_api": false
+  },
+  {
+    "file": "test/update_settings_screenshot_test.dart",
+    "name": "capture update settings states (opt-in evidence)",
+    "reason": "QA_UPDATE_SCREENSHOT_DIR and screenshot fonts/assets not configured for default test run",
+    "separately_exercised_real_api": false
+  },
+  {
+    "file": "test/space_screenshot_test.dart",
+    "name": "capture Space in three form factors",
+    "reason": "QA_SPACE_SCREENSHOT_DIR and screenshot fonts/assets not configured for default test run",
+    "separately_exercised_real_api": false
+  },
+  {
+    "file": "test/space_screenshot_test.dart",
+    "name": "capture the signed-in shell in three form factors",
+    "reason": "QA_SPACE_SCREENSHOT_DIR and screenshot fonts/assets not configured for default test run",
+    "separately_exercised_real_api": false
+  }
+]

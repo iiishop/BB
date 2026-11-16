@@ -1,0 +1,38 @@
+{
+  "candidate_sha": "942dd46a601d4604cb9273c9830d472cda41378c",
+  "rules": [
+    {
+      "id": "defect-1",
+      "rule": "real T02 delayed save publishes visible text",
+      "entry": "SpaceComposeController.start/saveNow/publish or SpaceController.pollEventsOnce",
+      "status": "tested",
+      "run": "real-probes/run.json",
+      "testcase": {
+        "classname": ".qa-artifacts/probes/sentinel_real_space_test.dart",
+        "name": "real T02 delayed save publishes visible text"
+      }
+    },
+    {
+      "id": "defect-2",
+      "rule": "real T02 dirty reopen preserves conflicting server version",
+      "entry": "SpaceComposeController.start/saveNow/publish or SpaceController.pollEventsOnce",
+      "status": "tested",
+      "run": "real-probes/run.json",
+      "testcase": {
+        "classname": ".qa-artifacts/probes/sentinel_real_space_test.dart",
+        "name": "real T02 dirty reopen preserves conflicting server version"
+      }
+    },
+    {
+      "id": "defect-3",
+      "rule": "real T07 replay removes cached repost source text",
+      "entry": "SpaceComposeController.start/saveNow/publish or SpaceController.pollEventsOnce",
+      "status": "tested",
+      "run": "real-probes/run.json",
+      "testcase": {
+        "classname": ".qa-artifacts/probes/sentinel_real_space_test.dart",
+        "name": "real T07 replay removes cached repost source text"
+      }
+    }
+  ]
+}

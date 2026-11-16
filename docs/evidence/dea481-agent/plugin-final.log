@@ -1,0 +1,4 @@
+warning: `VIRTUAL_ENV=server/.venv` does not match the project environment path `dsh-plugin/.venv` and will be ignored; use `--active` to target the active environment instead
+........................................................................ [ 63%]
+..........................................                               [100%]
+114 passed in 3.31s

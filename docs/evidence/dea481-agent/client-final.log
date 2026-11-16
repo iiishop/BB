@@ -1,0 +1,139 @@
+Resolving dependencies...
+Downloading packages...
+  code_assets 1.2.1 (2.2.0 available)
+  cross_file 0.3.5+5 (0.4.0 available)
+  hooks 2.0.2 (2.2.0 available)
+  material_color_utilities 0.13.0 (0.13.1 available)
+  meta 1.18.3 (1.19.0 available)
+  objective_c 9.5.0 (9.6.4 available)
+  record_use 0.6.0 (1.1.1 available)
+  test_api 0.7.12 (0.7.15 available)
+  vector_math 2.4.0 (2.4.4 available)
+  video_player_android 2.12.2 (2.12.4 available)
+  video_player_avfoundation 2.12.3 (2.12.4 available)
+Got dependencies!
+11 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+{"protocolVersion":"0.1.1","runnerVersion":null,"pid":705961,"type":"start","time":0}
+{"suite":{"id":0,"platform":"vm","path":"/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/space_service_test.dart"},"type":"suite","time":0}
+{"test":{"id":1,"name":"loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/space_service_test.dart","suiteID":0,"groupIDs":[],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":null},"type":"testStart","time":1}
+{"suite":{"id":2,"platform":"vm","path":"/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_ledger_io_rollback_test.dart"},"type":"suite","time":4}
+{"test":{"id":3,"name":"loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_ledger_io_rollback_test.dart","suiteID":2,"groupIDs":[],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":null},"type":"testStart","time":4}
+{"suite":{"id":4,"platform":"vm","path":"/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_ledger_commit_test.dart"},"type":"suite","time":4}
+{"test":{"id":5,"name":"loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_ledger_commit_test.dart","suiteID":4,"groupIDs":[],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":null},"type":"testStart","time":4}
+{"suite":{"id":6,"platform":"vm","path":"/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_v2_local_server_test.dart"},"type":"suite","time":5}
+{"test":{"id":7,"name":"loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_v2_local_server_test.dart","suiteID":6,"groupIDs":[],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":null},"type":"testStart","time":5}
+{"suite":{"id":8,"platform":"vm","path":"/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/local_v2_unauthorized_test.dart"},"type":"suite","time":5}
+{"test":{"id":9,"name":"loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/local_v2_unauthorized_test.dart","suiteID":8,"groupIDs":[],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":null},"type":"testStart","time":5}
+{"suite":{"id":10,"platform":"vm","path":"/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/profile_v2_local_server_test.dart"},"type":"suite","time":5}
+{"test":{"id":11,"name":"loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/profile_v2_local_server_test.dart","suiteID":10,"groupIDs":[],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":null},"type":"testStart","time":5}
+{"suite":{"id":12,"platform":"vm","path":"/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/session_race_local_server_test.dart"},"type":"suite","time":6}
+{"test":{"id":13,"name":"loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/session_race_local_server_test.dart","suiteID":12,"groupIDs":[],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":null},"type":"testStart","time":6}
+{"count":7,"time":6,"type":"allSuites"}
+{"testID":1,"result":"success","skipped":false,"hidden":true,"type":"testDone","time":1446}
+{"group":{"id":14,"suiteID":0,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":5,"line":null,"column":null,"url":null},"type":"group","time":1448}
+{"test":{"id":15,"name":"consumer cannot reuse another consumer operation ID on same server/account","suiteID":0,"groupIDs":[14],"metadata":{"skip":false,"skipReason":null},"line":67,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/space_service_test.dart"},"type":"testStart","time":1448}
+{"testID":15,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":1494}
+{"test":{"id":16,"name":"lost publish reply reconciles without sending a second mutation","suiteID":0,"groupIDs":[14],"metadata":{"skip":false,"skipReason":null},"line":83,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/space_service_test.dart"},"type":"testStart","time":1495}
+{"testID":16,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":1524}
+{"test":{"id":17,"name":"in-flight switch saves original receipt but fences result and cross-account query","suiteID":0,"groupIDs":[14],"metadata":{"skip":false,"skipReason":null},"line":118,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/space_service_test.dart"},"type":"testStart","time":1524}
+{"testID":17,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":1534}
+{"test":{"id":18,"name":"intent flush failure prevents IO and rollback survives cold reopen","suiteID":0,"groupIDs":[14],"metadata":{"skip":false,"skipReason":null},"line":153,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/space_service_test.dart"},"type":"testStart","time":1535}
+{"testID":3,"result":"success","skipped":false,"hidden":true,"type":"testDone","time":1538}
+{"group":{"id":19,"suiteID":2,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":2,"line":null,"column":null,"url":null},"type":"group","time":1538}
+{"test":{"id":20,"name":"failed ACK flush does not publish an unpersisted watermark","suiteID":2,"groupIDs":[19],"metadata":{"skip":false,"skipReason":null},"line":67,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_ledger_io_rollback_test.dart"},"type":"testStart","time":1538}
+{"testID":18,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":1544}
+{"test":{"id":21,"name":"schema rejects unknown fields, wrong type, duplicate images and blank comments","suiteID":0,"groupIDs":[14],"metadata":{"skip":false,"skipReason":null},"line":193,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/space_service_test.dart"},"type":"testStart","time":1544}
+{"testID":21,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":1547}
+{"testID":20,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":1589}
+{"test":{"id":22,"name":"failed bind flush does not publish an unpersisted revision","suiteID":2,"groupIDs":[19],"metadata":{"skip":false,"skipReason":null},"line":107,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_ledger_io_rollback_test.dart"},"type":"testStart","time":1590}
+{"testID":22,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":1603}
+{"testID":5,"result":"success","skipped":false,"hidden":true,"type":"testDone","time":1723}
+{"group":{"id":23,"suiteID":4,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":26,"line":null,"column":null,"url":null},"type":"group","time":1723}
+{"test":{"id":24,"name":"setServerEventCursor: repeated failure, retry and cold reopen agree","suiteID":4,"groupIDs":[23],"metadata":{"skip":false,"skipReason":null},"line":309,"column":5,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_ledger_commit_test.dart"},"type":"testStart","time":1723}
+{"testID":24,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":1806}
+{"test":{"id":25,"name":"setConsumerEventCursor: repeated failure, retry and cold reopen agree","suiteID":4,"groupIDs":[23],"metadata":{"skip":false,"skipReason":null},"line":309,"column":5,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_ledger_commit_test.dart"},"type":"testStart","time":1807}
+{"testID":25,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":1844}
+{"test":{"id":26,"name":"setSubscriptionCursor: repeated failure, retry and cold reopen agree","suiteID":4,"groupIDs":[23],"metadata":{"skip":false,"skipReason":null},"line":309,"column":5,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_ledger_commit_test.dart"},"type":"testStart","time":1845}
+{"testID":26,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":1870}
+{"test":{"id":27,"name":"discovery: repeated failure, retry and cold reopen agree","suiteID":4,"groupIDs":[23],"metadata":{"skip":false,"skipReason":null},"line":309,"column":5,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_ledger_commit_test.dart"},"type":"testStart","time":1871}
+{"testID":27,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":1900}
+{"test":{"id":28,"name":"subscribe: repeated failure, retry and cold reopen agree","suiteID":4,"groupIDs":[23],"metadata":{"skip":false,"skipReason":null},"line":309,"column":5,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_ledger_commit_test.dart"},"type":"testStart","time":1901}
+{"testID":28,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":1925}
+{"test":{"id":29,"name":"saveOperation: repeated failure, retry and cold reopen agree","suiteID":4,"groupIDs":[23],"metadata":{"skip":false,"skipReason":null},"line":309,"column":5,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_ledger_commit_test.dart"},"type":"testStart","time":1926}
+{"testID":29,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":1953}
+{"test":{"id":30,"name":"saveDownload: repeated failure, retry and cold reopen agree","suiteID":4,"groupIDs":[23],"metadata":{"skip":false,"skipReason":null},"line":309,"column":5,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_ledger_commit_test.dart"},"type":"testStart","time":1953}
+{"testID":30,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":1980}
+{"test":{"id":31,"name":"saveDownloadOperation: repeated failure, retry and cold reopen agree","suiteID":4,"groupIDs":[23],"metadata":{"skip":false,"skipReason":null},"line":309,"column":5,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_ledger_commit_test.dart"},"type":"testStart","time":1980}
+{"testID":7,"result":"success","skipped":false,"hidden":true,"type":"testDone","time":1989}
+{"group":{"id":32,"suiteID":6,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":8,"line":null,"column":null,"url":null},"type":"group","time":1990}
+{"test":{"id":33,"name":"negotiate and status keep the strict v2 envelope","suiteID":6,"groupIDs":[32],"metadata":{"skip":false,"skipReason":null},"line":119,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_v2_local_server_test.dart"},"type":"testStart","time":1990}
+{"testID":31,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2001}
+{"test":{"id":34,"name":"enrollConsumer: repeated failure, retry and cold reopen agree","suiteID":4,"groupIDs":[23],"metadata":{"skip":false,"skipReason":null},"line":309,"column":5,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_ledger_commit_test.dart"},"type":"testStart","time":2001}
+{"testID":9,"result":"success","skipped":false,"hidden":true,"type":"testDone","time":2007}
+{"group":{"id":35,"suiteID":8,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":2,"line":null,"column":null,"url":null},"type":"group","time":2007}
+{"test":{"id":36,"name":"a genuine current-credential 401 runs the invalidation callback","suiteID":8,"groupIDs":[35],"metadata":{"skip":false,"skipReason":null},"line":137,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/local_v2_unauthorized_test.dart"},"type":"testStart","time":2007}
+{"testID":34,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2018}
+{"test":{"id":37,"name":"bindConsumerOwner: repeated failure, retry and cold reopen agree","suiteID":4,"groupIDs":[23],"metadata":{"skip":false,"skipReason":null},"line":309,"column":5,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_ledger_commit_test.dart"},"type":"testStart","time":2019}
+{"testID":37,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2044}
+{"test":{"id":38,"name":"bindConsumer-create: repeated failure, retry and cold reopen agree","suiteID":4,"groupIDs":[23],"metadata":{"skip":false,"skipReason":null},"line":309,"column":5,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_ledger_commit_test.dart"},"type":"testStart","time":2044}
+{"testID":38,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2072}
+{"test":{"id":39,"name":"bindConsumer-update: repeated failure, retry and cold reopen agree","suiteID":4,"groupIDs":[23],"metadata":{"skip":false,"skipReason":null},"line":309,"column":5,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_ledger_commit_test.dart"},"type":"testStart","time":2073}
+{"testID":33,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2079}
+{"test":{"id":40,"name":"owner capability enrollment is idempotent and hash-only","suiteID":6,"groupIDs":[32],"metadata":{"skip":false,"skipReason":null},"line":162,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_v2_local_server_test.dart"},"type":"testStart","time":2079}
+{"testID":11,"result":"success","skipped":false,"hidden":true,"type":"testDone","time":2097}
+{"group":{"id":41,"suiteID":10,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":2,"line":null,"column":null,"url":null},"type":"group","time":2097}
+{"test":{"id":42,"name":"six guarded profile routes preserve params, media and product rules","suiteID":10,"groupIDs":[41],"metadata":{"skip":false,"skipReason":null},"line":137,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/profile_v2_local_server_test.dart"},"type":"testStart","time":2097}
+{"testID":39,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2100}
+{"test":{"id":43,"name":"setConsumedThrough: repeated failure, retry and cold reopen agree","suiteID":4,"groupIDs":[23],"metadata":{"skip":false,"skipReason":null},"line":309,"column":5,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_ledger_commit_test.dart"},"type":"testStart","time":2100}
+{"testID":43,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2124}
+{"test":{"id":44,"name":"commitAck: repeated failure, retry and cold reopen agree","suiteID":4,"groupIDs":[23],"metadata":{"skip":false,"skipReason":null},"line":309,"column":5,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_ledger_commit_test.dart"},"type":"testStart","time":2124}
+{"testID":44,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2154}
+{"test":{"id":45,"name":"prepareReceipt: repeated failure, retry and cold reopen agree","suiteID":4,"groupIDs":[23],"metadata":{"skip":false,"skipReason":null},"line":309,"column":5,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_ledger_commit_test.dart"},"type":"testStart","time":2154}
+{"testID":36,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2172}
+{"test":{"id":46,"name":"an old 401 cannot clear a concurrently established new login","suiteID":8,"groupIDs":[35],"metadata":{"skip":false,"skipReason":null},"line":154,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/local_v2_unauthorized_test.dart"},"type":"testStart","time":2173}
+{"testID":40,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2177}
+{"test":{"id":47,"name":"bind uses owner + revision CAS and one of two competitors wins","suiteID":6,"groupIDs":[32],"metadata":{"skip":false,"skipReason":null},"line":255,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_v2_local_server_test.dart"},"type":"testStart","time":2178}
+{"testID":45,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2181}
+{"test":{"id":48,"name":"discardUnconfirmedReceipts: repeated failure, retry and cold reopen agree","suiteID":4,"groupIDs":[23],"metadata":{"skip":false,"skipReason":null},"line":309,"column":5,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_ledger_commit_test.dart"},"type":"testStart","time":2181}
+{"testID":13,"result":"success","skipped":false,"hidden":true,"type":"testDone","time":2208}
+{"group":{"id":49,"suiteID":12,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":1,"line":null,"column":null,"url":null},"type":"group","time":2209}
+{"test":{"id":50,"name":"delayed old-session Profile 401 keeps the newly logged-in session","suiteID":12,"groupIDs":[49],"metadata":{"skip":false,"skipReason":null},"line":45,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/session_race_local_server_test.dart"},"type":"testStart","time":2209}
+{"testID":48,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2211}
+{"test":{"id":51,"name":"confirmPresentationAttempt: repeated failure, retry and cold reopen agree","suiteID":4,"groupIDs":[23],"metadata":{"skip":false,"skipReason":null},"line":309,"column":5,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_ledger_commit_test.dart"},"type":"testStart","time":2211}
+{"testID":47,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2235}
+{"test":{"id":52,"name":"restart keeps the consumer but invalidates the old generation","suiteID":6,"groupIDs":[32],"metadata":{"skip":false,"skipReason":null},"line":315,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_v2_local_server_test.dart"},"type":"testStart","time":2236}
+{"testID":51,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2246}
+{"test":{"id":53,"name":"confirmReceipts: repeated failure, retry and cold reopen agree","suiteID":4,"groupIDs":[23],"metadata":{"skip":false,"skipReason":null},"line":309,"column":5,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_ledger_commit_test.dart"},"type":"testStart","time":2246}
+{"testID":53,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2276}
+{"test":{"id":54,"name":"recordConfirmation: repeated failure, retry and cold reopen agree","suiteID":4,"groupIDs":[23],"metadata":{"skip":false,"skipReason":null},"line":309,"column":5,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_ledger_commit_test.dart"},"type":"testStart","time":2277}
+{"testID":54,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2300}
+{"test":{"id":55,"name":"finishDownload: repeated failure, retry and cold reopen agree","suiteID":4,"groupIDs":[23],"metadata":{"skip":false,"skipReason":null},"line":309,"column":5,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_ledger_commit_test.dart"},"type":"testStart","time":2301}
+{"testID":55,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2322}
+{"test":{"id":56,"name":"deliverPendingEvents: repeated failure, retry and cold reopen agree","suiteID":4,"groupIDs":[23],"metadata":{"skip":false,"skipReason":null},"line":309,"column":5,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_ledger_commit_test.dart"},"type":"testStart","time":2323}
+{"testID":52,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2337}
+{"test":{"id":57,"name":"business replies wrap the validated identity and isolate consumers","suiteID":6,"groupIDs":[32],"metadata":{"skip":false,"skipReason":null},"line":439,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_v2_local_server_test.dart"},"type":"testStart","time":2338}
+{"testID":56,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2352}
+{"test":{"id":58,"name":"appendLocalEvent: repeated failure, retry and cold reopen agree","suiteID":4,"groupIDs":[23],"metadata":{"skip":false,"skipReason":null},"line":309,"column":5,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_ledger_commit_test.dart"},"type":"testStart","time":2352}
+{"testID":58,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2377}
+{"test":{"id":59,"name":"ready failure retains durable pending and cold retry finishes it","suiteID":4,"groupIDs":[23],"metadata":{"skip":false,"skipReason":null},"line":354,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_ledger_commit_test.dart"},"type":"testStart","time":2377}
+{"testID":46,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2387}
+{"testID":59,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2399}
+{"test":{"id":60,"name":"readers wait for pending/ready commit and cannot see failed ready","suiteID":4,"groupIDs":[23],"metadata":{"skip":false,"skipReason":null},"line":410,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_ledger_commit_test.dart"},"type":"testStart","time":2400}
+{"testID":60,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2414}
+{"test":{"id":61,"name":"validation error rolls back implicit consumer creation","suiteID":4,"groupIDs":[23],"metadata":{"skip":false,"skipReason":null},"line":463,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_ledger_commit_test.dart"},"type":"testStart","time":2415}
+{"testID":61,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2425}
+{"test":{"id":62,"name":"failed initial load remains retryable","suiteID":4,"groupIDs":[23],"metadata":{"skip":false,"skipReason":null},"line":487,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_ledger_commit_test.dart"},"type":"testStart","time":2426}
+{"testID":62,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2435}
+{"testID":42,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2435}
+{"test":{"id":63,"name":"owner and identity are required; retired profile routes are 404","suiteID":10,"groupIDs":[41],"metadata":{"skip":false,"skipReason":null},"line":183,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/profile_v2_local_server_test.dart"},"type":"testStart","time":2437}
+{"testID":57,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2484}
+{"test":{"id":64,"name":"strict validation runs before auth and never echoes input","suiteID":6,"groupIDs":[32],"metadata":{"skip":false,"skipReason":null},"line":644,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_v2_local_server_test.dart"},"type":"testStart","time":2484}
+{"testID":64,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2502}
+{"test":{"id":65,"name":"v2 events carry version 2 and their origin identity","suiteID":6,"groupIDs":[32],"metadata":{"skip":false,"skipReason":null},"line":743,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_v2_local_server_test.dart"},"type":"testStart","time":2502}
+{"testID":63,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2519}
+{"testID":50,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2535}
+{"testID":65,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2559}
+{"test":{"id":66,"name":"v2 downloads keep their origin identity","suiteID":6,"groupIDs":[32],"metadata":{"skip":false,"skipReason":null},"line":805,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-484-9251ede81d30/workdir/BB/client/test/chat_v2_local_server_test.dart"},"type":"testStart","time":2560}
+{"testID":66,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2613}
+{"success":true,"type":"done","time":2624}

@@ -1,0 +1,26 @@
+{
+  "client/lib/ui/space/space_controller.dart": {
+    "ec65ac4": "d30032571b8d30e0a5e0853a03d96ecc09676c05",
+    "16681978cebc45eb25fe8cc765ac0716e524d2b4": "ec2bd0f6a0bf2f171501be6a923e45b60c50e29c"
+  },
+  "client/lib/ui/space/space_detail_controller.dart": {
+    "ec65ac4": "e3ebff3cb41c1cd9690acb4a492bcf5d66f34abb",
+    "16681978cebc45eb25fe8cc765ac0716e524d2b4": "80fa89f1735598b1c5dc2ca6f968c7197774e4da"
+  },
+  "client/lib/ui/space/space_compose_controller.dart": {
+    "ec65ac4": "81ab2e2c3241f65a2ec01cf81148e387f22dcd72",
+    "16681978cebc45eb25fe8cc765ac0716e524d2b4": "81ab2e2c3241f65a2ec01cf81148e387f22dcd72"
+  },
+  "client/pubspec.lock": {
+    "ec65ac4": "1f6b0b19a09629263b0b5a57df3fbb3445a5a724",
+    "16681978cebc45eb25fe8cc765ac0716e524d2b4": "1f6b0b19a09629263b0b5a57df3fbb3445a5a724"
+  },
+  "server": {
+    "ec65ac4": "8d2147fd7be48cd30227fbddf851e2e157e936d5",
+    "16681978cebc45eb25fe8cc765ac0716e524d2b4": "8d2147fd7be48cd30227fbddf851e2e157e936d5"
+  },
+  "dsh-plugin": {
+    "ec65ac4": "4c0ca3326016f7e76e3efb8f8cbb6fb94f2d4010",
+    "16681978cebc45eb25fe8cc765ac0716e524d2b4": "4c0ca3326016f7e76e3efb8f8cbb6fb94f2d4010"
+  }
+}

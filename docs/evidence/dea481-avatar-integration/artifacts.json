@@ -1,0 +1,44 @@
+[
+  {
+    "name": "bb-client-api-542cfad-linux-x64.tar.gz",
+    "bytes": 3394272,
+    "sha256": "d07fcc2e67dffe5b7bbd88c098fa93d8bafe6e854bdc51613be986f59c78047a",
+    "build_code_sha": "542cfadcb38e6b60856c2e371d921443cba53a4c",
+    "reused_unchanged": true
+  },
+  {
+    "name": "bb-space-b3f391a-android-arm64-test.apk",
+    "bytes": 23792102,
+    "sha256": "cb6e9f3f4426cdaec0a0cbcabe80d494842279da36d84b898b6a171c47521d7b",
+    "build_code_sha": "b3f391af7d64252b5cc3ced39e9a4ba4f1c94cc9",
+    "reused_unchanged": false
+  },
+  {
+    "name": "bb-space-bundle-542cfad.zip",
+    "bytes": 105997,
+    "sha256": "1f1c14667516bec0b98d618ea767bb54f814d5fa0352257bcc49c0195d161993",
+    "build_code_sha": "542cfadcb38e6b60856c2e371d921443cba53a4c",
+    "reused_unchanged": true
+  },
+  {
+    "name": "bb-space-source-b3f391a.zip",
+    "bytes": 3803164,
+    "sha256": "8bf10a11a2c6ae1bd84e4c4cd4d6336d451232387458acef5e77ddc5c906c6c5",
+    "build_code_sha": "b3f391af7d64252b5cc3ced39e9a4ba4f1c94cc9",
+    "reused_unchanged": false
+  },
+  {
+    "name": "bb-space-test-0.0.2+dea481.b3f391a-linux-x86_64.tar.gz",
+    "bytes": 18784370,
+    "sha256": "09a6e0b212a5337693564aca4d3f69a0f0d00349507559c69a9cdf95304e1de0",
+    "build_code_sha": "b3f391af7d64252b5cc3ced39e9a4ba4f1c94cc9",
+    "reused_unchanged": false
+  },
+  {
+    "name": "bb-space-test_0.0.2+dea481.b3f391a_amd64.deb",
+    "bytes": 14413800,
+    "sha256": "5483ea8bf0331aff087cdd45c303372edf65a84a65925764454aac2514d74546",
+    "build_code_sha": "b3f391af7d64252b5cc3ced39e9a4ba4f1c94cc9",
+    "reused_unchanged": false
+  }
+]

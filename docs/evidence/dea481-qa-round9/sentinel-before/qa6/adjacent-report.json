@@ -1,0 +1,27 @@
+{
+  "candidate_sha": "ec65ac4cf46186623ee7d69d4f5ec53193519f10",
+  "rules": [
+    {
+      "id": "adjacent0",
+      "rule": "T07 local delete followed by replay clears own original cache",
+      "entry": "SpaceController deletion entry to SpaceImageLoader cache and viewer",
+      "status": "tested",
+      "run": "adjacent/run.json",
+      "testcase": {
+        "classname": ".qa-artifacts/probes/sentinel_round6_test.dart",
+        "name": "T07 local delete followed by replay clears own original cache"
+      }
+    },
+    {
+      "id": "adjacent1",
+      "rule": "T07 deletion of detail outside first feed page clears original cache",
+      "entry": "SpaceController deletion entry to SpaceImageLoader cache and viewer",
+      "status": "tested",
+      "run": "adjacent/run.json",
+      "testcase": {
+        "classname": ".qa-artifacts/probes/sentinel_round6_test.dart",
+        "name": "T07 deletion of detail outside first feed page clears original cache"
+      }
+    }
+  ]
+}
