@@ -2,15 +2,19 @@
 
 Approved source is revision 1 in `dea481-approved-space.md`; original
 source/ownership mapping remains in `dea481-acceptance.md`. Code candidate:
-`542cfadcb38e6b60856c2e371d921443cba53a4c`. This matrix maps evidence to portions
+`b3f391af7d64252b5cc3ced39e9a4ba4f1c94cc9` (avatar integration). This matrix maps evidence to portions
 of the approved cases. It does not mark the complete cases accepted.
 
 Evidence roots: **S** = `docs/evidence/dea481/` (unchanged server, 459 tests);
 **C** = `docs/evidence/dea481-client/` (Muse UI and screenshots, tested `d3856e3`);
 **A** = `docs/evidence/dea481-agent/` (unchanged local/plugin regression);
 **I** = `docs/evidence/dea481-integration/` (combined runs, tree equivalence,
-real gateway, real TCP/native host, packages). UI tests below are all in
-`client/test/` and included in I's 683-pass final run unless explicitly opt-in.
+real gateway, real TCP/native host, packages). **V** =
+`docs/evidence/dea481-avatar-integration/` (new combined 688-pass / 12-skip run,
+14 Linux integration passes, real authorized avatar upload/render regression,
+refreshed UI packages). V supersedes I for changed UI; source equivalence in
+V permits explicit reuse for unchanged boundaries. UI tests below are all in
+`client/test/` and included in V's final run unless explicitly opt-in.
 
 | Case / approved source | Implementer / concrete evidence | Remaining verification or issue |
 | --- | --- | --- |
@@ -30,10 +34,13 @@ real gateway, real TCP/native host, packages). UI tests below are all in
 | T14 §3.4 | Muse `space_shell_test`, `space_compose_test`, detail resize state; C narrow/wide/fold-sized screenshots | **Real folding/Android runtime NOT RUN**; APK build only |
 | T15 §8 | Forge sole schema/local adapter; A 114 plugin/46 targeted tests; I stock DSH 24 tools, ordered images, actual bytes | **Real model interpretation NOT RUN** |
 | T16 §8.3–4 | S auth/durable facts; A lost-reply/identity ledger; I real installed-host restart/settings persistence/disable/uninstall/no republish | **Real model/adversarial content and rendered native settings UI NOT RUN** |
-| T17 §3, §7.4 | Muse controller/feed/shell/auth-generation/capability tests; I final suite and real auth regression; A account/consumer isolation | Actual Space avatars still initials; Muse owns UI correction. QA account/server-switch UI and old-server experience |
+| T17 §3, §7.4 | Muse controller/feed/shell/auth-generation/capability tests; V final suite and five avatar regressions; I real auth regression; A account/consumer isolation | Initials-only avatar gap fixed by `4038c1f`; V real upload/render fails on old release and passes on new. QA account/server-switch UI and old-server experience |
 
 Forge owns service/state/contract corrections and sole integration. Muse owns
-independent UI corrections, including the shared SpaceAvatar path (feed/detail/
-comments/people). Delivery Squad decides the next combined candidate and routes
+independent UI corrections. The shared SpaceAvatar path (feed/detail/comments/
+people) now uses the existing authorized Profile entry; widget tests cover the
+shared store and root-Navigator likes sheet, while real release evidence covers
+feed upload/render. Visitors use the same sheet wrapper; that path has no separate
+real-release click test. Delivery Squad decides the next combined candidate and routes
 the fixed full candidate through automated_qa to Sentinel. No extra QA mention,
 acceptance waiver, workflow transition, main merge or deployment is made here.

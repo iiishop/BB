@@ -1,0 +1,96 @@
+{
+  "run": "01a1e1a7-2789-7c80-9005-25da29e978e0",
+  "code_sha": "b3f391af7d64252b5cc3ced39e9a4ba4f1c94cc9",
+  "developer_head": "4038c1f1f16724dfa810c442f0a5d816dbaa1a64",
+  "previous_integration": "9f2acffa7d5beadad50800751b719347fe654d3c",
+  "checks": [
+    {
+      "name": "flutter-entry",
+      "command": "xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 QA_LOG_DIR=\"$PWD/docs/evidence/dea481-avatar-integration/flutter\" bash scripts/run_flutter_tests.sh client",
+      "cwd": "repository root unless cd client",
+      "source_sha": "b3f391af7d64252b5cc3ced39e9a4ba4f1c94cc9",
+      "exit_code": 0,
+      "log": "flutter-entry.log"
+    },
+    {
+      "name": "build-linux",
+      "command": "cd client && flutter build linux --release --no-pub --target lib/main.dart",
+      "cwd": "repository root unless cd client",
+      "source_sha": "b3f391af7d64252b5cc3ced39e9a4ba4f1c94cc9",
+      "exit_code": 0,
+      "log": "build-linux.log"
+    },
+    {
+      "name": "build-android",
+      "command": "cd client && flutter build apk --release --target-platform android-arm64",
+      "cwd": "repository root unless cd client",
+      "source_sha": "b3f391af7d64252b5cc3ced39e9a4ba4f1c94cc9",
+      "exit_code": 0,
+      "log": "build-android.log"
+    },
+    {
+      "name": "package-linux",
+      "command": "bash scripts/ci/package-linux.sh --bundle client/build/linux/x64/release/bundle --out ../dea481-avatar-artifacts --version 0.0.2+dea481.b3f391a --deb --pkg bb-space-test",
+      "cwd": "repository root unless cd client",
+      "source_sha": "b3f391af7d64252b5cc3ced39e9a4ba4f1c94cc9",
+      "exit_code": 0,
+      "log": "package-linux.log"
+    },
+    {
+      "name": "apk-signature",
+      "command": "/home/iiishop/Android/Sdk/build-tools/36.0.0/apksigner verify --verbose --print-certs client/build/app/outputs/flutter-apk/app-release.apk",
+      "cwd": "repository root unless cd client",
+      "source_sha": "b3f391af7d64252b5cc3ced39e9a4ba4f1c94cc9",
+      "exit_code": 0,
+      "log": "apk-signature.log"
+    },
+    {
+      "name": "avatar-before",
+      "command": "xvfb-run -a -s '-screen 0 1920x1080x24' env LIBGL_ALWAYS_SOFTWARE=1 GDK_BACKEND=x11 uv run --project server --locked python docs/evidence/dea481-avatar-integration/release_smoke.py",
+      "cwd": "repository root unless cd client",
+      "source_sha": "542cfadcb38e6b60856c2e371d921443cba53a4c",
+      "exit_code": 1,
+      "log": "avatar-before.log"
+    },
+    {
+      "name": "avatar-after",
+      "command": "xvfb-run -a -s '-screen 0 1920x1080x24' env LIBGL_ALWAYS_SOFTWARE=1 GDK_BACKEND=x11 uv run --project server --locked python docs/evidence/dea481-avatar-integration/release_smoke.py",
+      "cwd": "repository root unless cd client",
+      "source_sha": "b3f391af7d64252b5cc3ced39e9a4ba4f1c94cc9",
+      "exit_code": 0,
+      "log": "avatar-after.log"
+    }
+  ],
+  "counts": {
+    "flutter-test": {
+      "passed": 688,
+      "skipped": 12
+    },
+    "linux-integration": {
+      "passed": 14,
+      "skipped": 0
+    }
+  },
+  "avatar_before": {
+    "colored_pixels": 0,
+    "exit_code": 1
+  },
+  "avatar_after": {
+    "real_http_upload": true,
+    "unauthenticated_get_status": 401,
+    "etag_revalidation_status": 304,
+    "server_png_sha256": "13ec2f0f414834617bed775fc5863d1fcf20542ee43ca44e20385481cde36e45",
+    "rendered_uploaded_color_pixels": 1248,
+    "fixture": "synthetic solid PNG, not a real personal photo"
+  },
+  "skips": "../dea481-integration/skips.json; same definitions verified in scope.json",
+  "reused_checks": "See scope.json and README.md; no repeated server/plugin/native run",
+  "scope": "Only bounded avatar UI integration; no contract or state changes",
+  "environment": {
+    "Flutter": "3.47.9",
+    "Dart": "3.13.7",
+    "Linux": "Arch x86_64",
+    "Android SDK": "36.0.0",
+    "connected_android_devices": 0
+  }
+}
