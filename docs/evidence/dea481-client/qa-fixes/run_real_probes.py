@@ -67,7 +67,7 @@ try:
         PATH=f"{work / 'flutter-sdk' / 'bin'}:{os.environ.get('PATH', '')}",
     )
     command = [
-        str(flutter), 'test', '--no-pub',
+        str(flutter), 'test', '--no-pub', '-j', '1',
         '.qa-artifacts/probes/space_defect_probe_test.dart',
         '.qa-artifacts/probes/adjacent_draft_probe_test.dart',
         '.qa-artifacts/probes/upload_conflict_probe_test.dart',
@@ -76,6 +76,8 @@ try:
         '.qa-artifacts/probes/sentinel_round3_test.dart',
         '.qa-artifacts/probes/sentinel_round4_test.dart',
         '.qa-artifacts/probes/sentinel_round4_controls_test.dart',
+        '.qa-artifacts/probes/sentinel_round5_test.dart',
+        '.qa-artifacts/probes/sentinel_round5_widget_test.dart',
         '--reporter=expanded',
     ]
     run_log = (out / 'real-probes.log').open('w')

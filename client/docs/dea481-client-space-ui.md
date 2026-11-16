@@ -251,3 +251,15 @@ Notifications to a surviving repost target or a surviving child comment stay
 usable. Regressions are in `test/space_controller_test.dart`; all fifteen real
 probes pass (`docs/evidence/dea481-client/qa-fixes/round7/`). Current suite:
 699 passed / 12 skipped, Space 75 passed.
+
+### Image invalidation (`SPACE-DELETION-LATE-WRITE`, round 8)
+
+Sentinel's fifth QA round found deleted images could return. `SpaceImageLoader`
+now keeps a per-image generation plus a global epoch: a fetch captures both
+before the request and discards its response if either changed, so a late
+response cannot refill the cache after `invalidateImage`/`clear`. The loader is
+a `ChangeNotifier`; an open viewer records the token at load time, drops held
+bytes immediately when it becomes stale, and offers retry (which receives the
+server's 404). Regressions are in `test/space_detail_test.dart`; all seventeen
+real probes pass serially (`docs/evidence/dea481-client/qa-fixes/round8/`).
+Current suite: 701 passed / 12 skipped, Space 77 passed.
