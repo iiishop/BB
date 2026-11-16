@@ -379,3 +379,59 @@ Sentinel's `dea481-sentinel-qa4-00ab236.zip`
 (`round7/sentinel_round4_test.dart`, `round7/sentinel_round4_controls_test.dart`);
 that bundle keeps the pre-fix 0/2 evidence. The 12 skips are unchanged; no
 assertion was loosened.
+
+## Round 8: image invalidation vs late responses and open viewers
+
+Sentinel's fifth QA round kept the seventeen prior real-link checks green but
+found an image-invalidation P1 with two entrances (**late real response probe
+and open-viewer widget assertion both failed**):
+
+1. **A late image response refilled the deleted cache.** `SpaceImageLoader._fetch`
+   wrote its bytes unconditionally after the await; `invalidateImage` only
+   removed the then-current cache entry. A response read before the deletion
+   could therefore reinsert PNG bytes after the deletion event and the server's
+   404.
+2. **An open viewer kept displaying the deleted image.** `_ViewerImageState`
+   held the original Future and never received the invalidation, so the widget
+   kept its `Image.memory` after the page consumed a real `post.deleted` event.
+
+**Common fix.**
+
+- `SpaceImageLoader` tracks a per-image generation plus a global epoch.
+  `_fetch` captures both before the request and, after the await, discards the
+  response (throws `SpaceImageInvalidated`, writes no cache) if either changed.
+  `invalidateImage` bumps that image's generation; `clear` bumps the epoch so
+  reconnect invalidation also fences every in-flight response. Unrelated
+  surviving images keep their own generation and still load.
+- `SpaceImageLoader` is now a `ChangeNotifier`. `_ViewerImageState` records the
+  epoch/generation when it starts loading, listens to the loader, and on a
+  stale token drops the held bytes immediately and shows the unavailable state
+  with a retry; retry re-reads the service and receives its 404 deletion
+  response. `_save` uses the same `load`, so a save cannot succeed on stale
+  bytes.
+- Thumbnails keep using `load`; late results are discarded by the generation
+  check and the feed rebuild after a deletion event re-enters `load`, which
+  receives the server's deletion response.
+
+`contract_gap = none`; owner and sole fix author Muse; Forge remains the only
+integrator.
+
+Regressions were added to the existing `test/space_detail_test.dart` entry:
+a late image response cannot refill an invalidated cache (and an unrelated live
+image still loads), and an open viewer drops its image after invalidation.
+Both Sentinel probes are reproduced byte-for-byte in `round8/`.
+
+## Round 8 verification (same fixed tree)
+
+| Check | Command | Result | Log/exit |
+| --- | --- | --- | --- |
+| Analyzer | `flutter analyze` | exit 0, no issues | `round8/analyze.log`, `round8/analyze.exit` |
+| Focused Space suite | same 9 files | exit 0, **77 passed** | `round8/space-tests.log`, `round8/space-tests.exit` |
+| Full client suite | `flutter test` | exit 0, **701 passed, 12 skipped** | `round8/flutter-test-all.log`, `round8/flutter-test-all.exit` |
+| Real probes | `python3 run_real_probes.py` (17 probes, **`-j 1`**) | exit 0, **17 passed** | `round8/real-probes.log`, `round8/real-probes.exit`, `round8/server.log` |
+
+The probe run uses one concurrent test isolate (`-j 1`): one upload-conflict
+probe asserts a real 700 ms debounce has not fired during setup, and under
+parallel probe load that timing is not reliable. The serial run is the recorded
+evidence; it is not a skipped or weakened assertion. The 12 opt-in skips are
+unchanged.

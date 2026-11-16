@@ -87,6 +87,11 @@ class FakeSpaceGateway implements SpaceGateway {
   Completer<void>? notificationsCaptured;
   Completer<void>? notificationsGate;
 
+  /// Delays one image response after the server read it, so a deletion event
+  /// can invalidate the image before the stale bytes return.
+  Completer<void>? imageCaptured;
+  Completer<void>? imageGate;
+
   final List<String> calls = <String>[];
   final List<({String postId, String? visitId})> getPostCalls =
       <({String postId, String? visitId})>[];
@@ -210,10 +215,19 @@ class FakeSpaceGateway implements SpaceGateway {
   }) async {
     _record('get_image');
     imageVariants.add('$variant:$imageId');
-    return spaceImageContent(
+    final SpaceImageContent content = spaceImageContent(
       imageId: imageId,
       bytes: imageBytes[imageId] ?? spaceTinyPng,
     );
+    final Completer<void>? captured = imageCaptured;
+    if (captured != null && !captured.isCompleted) {
+      captured.complete();
+    }
+    final Completer<void>? gate = imageGate;
+    if (gate != null) {
+      await gate.future;
+    }
+    return content;
   }
 
   @override

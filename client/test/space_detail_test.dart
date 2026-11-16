@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:bb_client/models/auth_models.dart';
 import 'package:bb_client/models/space_models.dart';
 import 'package:bb_client/ui/space/space_detail_view.dart';
@@ -534,5 +536,50 @@ void main() {
     expect(find.byKey(SpaceDetailView.detailKey), findsNothing);
     expect(find.byKey(const Key('space-post-post-1')), findsNothing);
     expect(gateway.posts.containsKey('post-1'), isFalse);
+  });
+
+  test('late image response cannot refill an invalidated cache', () async {
+    final FakeSpaceGateway gateway = FakeSpaceGateway();
+    final SpaceImageLoader loader = SpaceImageLoader(gateway);
+    gateway.imageCaptured = Completer<void>();
+    gateway.imageGate = Completer<void>();
+    final Future<Uint8List> loading = loader.load('img-1');
+    await gateway.imageCaptured!.future;
+    loader.invalidateImage('img-1');
+    gateway.imageGate!.complete();
+
+    await expectLater(loading, throwsA(isA<SpaceImageInvalidated>()));
+    expect(loader.cached('img-1'), isNull);
+    expect(loader.cached('img-1', variant: 'original'), isNull);
+
+    // An unrelated surviving image still loads.
+    gateway.imageBytes['img-2'] = spaceTinyPng;
+    expect(await loader.load('img-2'), isNotEmpty);
+  });
+
+  testWidgets('viewer drops an image invalidated while open', (
+    WidgetTester tester,
+  ) async {
+    final FakeSpaceGateway gateway = FakeSpaceGateway();
+    gateway.imageBytes['img-1'] = spaceTinyPng;
+    final SpaceImageLoader loader = SpaceImageLoader(gateway);
+    final SpaceImage image = spaceImage(imageId: 'img-1');
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SpaceImageViewer(
+          images: <SpaceImage>[image],
+          initialIndex: 0,
+          loader: loader,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(Image), findsOneWidget);
+
+    loader.invalidateImage('img-1');
+    await tester.pumpAndSettle();
+
+    expect(find.byType(Image), findsNothing);
+    expect(find.text('原图加载失败'), findsOneWidget);
   });
 }

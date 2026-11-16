@@ -13,12 +13,20 @@ import '../../ui/chat/media_actions.dart';
 import '../../ui/chat/media_save.dart';
 import 'space_gateway.dart';
 
+/// Thrown when an image response arrives after the image was invalidated, or
+/// when a viewer asks for bytes that are no longer current.
+class SpaceImageInvalidated implements Exception {
+  const SpaceImageInvalidated();
+}
+
 /// Account/server-scoped image cache for thumbnails and originals.
 ///
 /// Bytes come from the shared Space service (`get_image`), so authorization and
 /// deletion checks are re-applied on every fetch. The cache is bounded and is
-/// cleared for a deleted post or on reconnect invalidation.
-class SpaceImageLoader {
+/// cleared for a deleted post or on reconnect invalidation. A response that
+/// was already in flight when the image was invalidated is discarded instead
+/// of refilling the cache.
+class SpaceImageLoader extends ChangeNotifier {
   SpaceImageLoader(this.gateway, {this.maxEntries = 96});
 
   final SpaceGateway gateway;
@@ -27,6 +35,15 @@ class SpaceImageLoader {
   final List<String> _order = <String>[];
   final Map<String, Future<Uint8List>> _inflight =
       <String, Future<Uint8List>>{};
+  final Map<String, int> _generation = <String, int>{};
+  int _epoch = 0;
+
+  int get epoch => _epoch;
+
+  int generationFor(String imageId) => _generation[imageId] ?? 0;
+
+  bool isStale(String imageId, int epoch, int generation) =>
+      _epoch != epoch || generationFor(imageId) != generation;
 
   String _key(String imageId, String variant) => '$variant|$imageId';
 
@@ -49,10 +66,15 @@ class SpaceImageLoader {
   }
 
   Future<Uint8List> _fetch(String imageId, String variant) async {
+    final int epoch = _epoch;
+    final int generation = generationFor(imageId);
     final SpaceImageContent content = await gateway.image(
       imageId,
       variant: variant,
     );
+    if (isStale(imageId, epoch, generation)) {
+      throw const SpaceImageInvalidated();
+    }
     final Uint8List bytes = base64Decode(content.base64);
     final String key = _key(imageId, variant);
     _cache[key] = bytes;
@@ -64,17 +86,21 @@ class SpaceImageLoader {
   }
 
   void invalidateImage(String imageId) {
+    _generation[imageId] = generationFor(imageId) + 1;
     for (final String variant in <String>['thumb', 'original']) {
       final String key = _key(imageId, variant);
       _cache.remove(key);
       _order.remove(key);
     }
+    notifyListeners();
   }
 
   void clear() {
+    _epoch += 1;
     _cache.clear();
     _order.clear();
     _inflight.clear();
+    notifyListeners();
   }
 }
 
@@ -341,21 +367,78 @@ class _ViewerImage extends StatefulWidget {
 
 class _ViewerImageState extends State<_ViewerImage> {
   late Future<Uint8List> _future;
+  late int _epoch;
+  late int _generation;
+  bool _invalidated = false;
 
   @override
   void initState() {
     super.initState();
+    widget.loader.addListener(_onLoaderChanged);
+    _load();
+  }
+
+  @override
+  void dispose() {
+    widget.loader.removeListener(_onLoaderChanged);
+    super.dispose();
+  }
+
+  void _load() {
+    _invalidated = false;
+    _epoch = widget.loader.epoch;
+    _generation = widget.loader.generationFor(widget.image.imageId);
     _future = widget.loader.load(widget.image.imageId, variant: 'original');
   }
 
-  void _retry() {
+  void _onLoaderChanged() {
+    if (!mounted) {
+      return;
+    }
+    if (!widget.loader.isStale(
+      widget.image.imageId,
+      _epoch,
+      _generation,
+    )) {
+      return;
+    }
     setState(() {
-      _future = widget.loader.load(widget.image.imageId, variant: 'original');
+      _invalidated = true;
+      _epoch = widget.loader.epoch;
+      _generation = widget.loader.generationFor(widget.image.imageId);
     });
+  }
+
+  void _retry() {
+    setState(_load);
+  }
+
+  Widget _errorView() {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          const Icon(
+            Icons.broken_image_outlined,
+            color: Colors.white54,
+            size: 40,
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          const Text('原图加载失败', style: TextStyle(color: Colors.white70)),
+          TextButton(
+            onPressed: _retry,
+            child: const Text('重试', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_invalidated) {
+      return _errorView();
+    }
     return FutureBuilder<Uint8List>(
       future: _future,
       builder: (BuildContext context, AsyncSnapshot<Uint8List> snapshot) {
@@ -373,27 +456,7 @@ class _ViewerImageState extends State<_ViewerImage> {
           );
         }
         if (snapshot.hasError) {
-          return Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                const Icon(
-                  Icons.broken_image_outlined,
-                  color: Colors.white54,
-                  size: 40,
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                const Text('原图加载失败', style: TextStyle(color: Colors.white70)),
-                TextButton(
-                  onPressed: _retry,
-                  child: const Text(
-                    '重试',
-                    style: TextStyle(color: Colors.white),
-                  ),
-                ),
-              ],
-            ),
-          );
+          return _errorView();
         }
         return const Center(
           child: CircularProgressIndicator(color: Colors.white),
