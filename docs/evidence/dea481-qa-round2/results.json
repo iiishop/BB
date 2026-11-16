@@ -1,0 +1,51 @@
+{
+  "run": "01a1e1cd-3125-739b-a8b7-1309ce0e2ff5",
+  "candidate": "6a4f0e096ace18da9eeea0e06f74a513b634e065",
+  "developer_head": "9415fb8a04126bcf7c336030a81383f9d6a8581a",
+  "full_suite": {
+    "flutter-test": {
+      "passed": 693,
+      "skipped": 12
+    },
+    "linux-integration": {
+      "passed": 14,
+      "skipped": 0
+    }
+  },
+  "real_probes": {
+    "original-five": {
+      "passed": 5,
+      "failed": 0,
+      "skipped": 0,
+      "tests": [
+        "real T02 image removal during save must survive the older receipt",
+        "real T02 upload must not erase already-dirty text",
+        "real T02 delayed save publishes visible text",
+        "real T02 dirty reopen preserves conflicting server version",
+        "real T07 replay removes cached repost source text"
+      ],
+      "exit_code": 0
+    },
+    "upload-conflict": {
+      "passed": 0,
+      "failed": 1,
+      "skipped": 0,
+      "tests": [
+        "real T02 upload confirmation must fence a newer external writer"
+      ],
+      "exit_code": 1
+    }
+  },
+  "commands": {
+    "flutter": "xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 QA_LOG_DIR=\"$PWD/docs/evidence/dea481-qa-round2/flutter\" bash scripts/run_flutter_tests.sh client",
+    "original-five": "uv run --project server --locked python docs/evidence/dea481-qa-round2/run_probes.py original-five",
+    "upload-conflict": "uv run --project server --locked python docs/evidence/dea481-qa-round2/run_probes.py upload-conflict"
+  },
+  "probe_hashes": {
+    "docs/evidence/dea481-client/qa-fixes/space_defect_probe_test.dart": "28f70598526dda61cb2a026bdccac7f8268976b981676cbf54af9c0c97df8ca7",
+    "docs/evidence/dea481-qa-integration/adjacent_draft_probe_test.dart": "9a60e91853f624ba2f999fbd9b3b56d24e0d0197274ac0943ee3fbdfe8e3bcb3",
+    "docs/evidence/dea481-qa-round2/upload_conflict_probe_test.dart": "61494756dd165f33d089c5b020be8d3393416c7cf4394b85832c2a9ba461017d"
+  },
+  "decision": "DO NOT HAND OFF TO QA: real upload confirmation overwrites newer external writer",
+  "new_ui_packages": "not built or issued for known-failing candidate"
+}

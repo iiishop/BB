@@ -1,0 +1,59 @@
+[
+  {
+    "name": "bb-space-rework-source-6a4f0e0.zip",
+    "bytes": 3993112,
+    "sha256": "11f0ec9ef4ba9d62a53ef8dfd09cb4d548e1b8352adf7f62edd79e0b3ee2ed26",
+    "source_sha": "6a4f0e096ace18da9eeea0e06f74a513b634e065",
+    "status": "known-failing reproduction source; NOT QA-ready"
+  },
+  {
+    "name": "bb-client-api-542cfad-linux-x64.tar.gz",
+    "bytes": 3394272,
+    "sha256": "d07fcc2e67dffe5b7bbd88c098fa93d8bafe6e854bdc51613be986f59c78047a",
+    "build_code_sha": "542cfadcb38e6b60856c2e371d921443cba53a4c",
+    "reused_unchanged": true,
+    "download_url": "https://multica.ai/api/attachments/01a1e1ae-db94-7936-b72a-224b4eedca0d/download",
+    "applies_to_candidate": "6a4f0e096ace18da9eeea0e06f74a513b634e065",
+    "status": "unchanged standalone/plugin product only"
+  },
+  {
+    "name": "bb-space-b3f391a-android-arm64-test.apk",
+    "bytes": 23792102,
+    "sha256": "cb6e9f3f4426cdaec0a0cbcabe80d494842279da36d84b898b6a171c47521d7b",
+    "build_code_sha": "b3f391af7d64252b5cc3ced39e9a4ba4f1c94cc9",
+    "reused_unchanged": true,
+    "download_url": "https://multica.ai/api/attachments/01a1e1ae-e491-7966-b3b8-5416d73ec69b/download",
+    "applies_to_candidate": false,
+    "status": "old UI binary does not represent 6a4f0e0; replacement withheld pending functional repair"
+  },
+  {
+    "name": "bb-space-bundle-542cfad.zip",
+    "bytes": 105997,
+    "sha256": "1f1c14667516bec0b98d618ea767bb54f814d5fa0352257bcc49c0195d161993",
+    "build_code_sha": "542cfadcb38e6b60856c2e371d921443cba53a4c",
+    "reused_unchanged": true,
+    "download_url": "https://multica.ai/api/attachments/01a1e1ae-d846-7833-996e-8309f6d8d531/download",
+    "applies_to_candidate": "6a4f0e096ace18da9eeea0e06f74a513b634e065",
+    "status": "unchanged standalone/plugin product only"
+  },
+  {
+    "name": "bb-space-test-0.0.2+dea481.b3f391a-linux-x86_64.tar.gz",
+    "bytes": 18784370,
+    "sha256": "09a6e0b212a5337693564aca4d3f69a0f0d00349507559c69a9cdf95304e1de0",
+    "build_code_sha": "b3f391af7d64252b5cc3ced39e9a4ba4f1c94cc9",
+    "reused_unchanged": true,
+    "download_url": "https://multica.ai/api/attachments/01a1e1ae-ee7a-7824-930f-703e4b7adc25/download",
+    "applies_to_candidate": false,
+    "status": "old UI binary does not represent 6a4f0e0; replacement withheld pending functional repair"
+  },
+  {
+    "name": "bb-space-test_0.0.2+dea481.b3f391a_amd64.deb",
+    "bytes": 14413800,
+    "sha256": "5483ea8bf0331aff087cdd45c303372edf65a84a65925764454aac2514d74546",
+    "build_code_sha": "b3f391af7d64252b5cc3ced39e9a4ba4f1c94cc9",
+    "reused_unchanged": true,
+    "download_url": "https://multica.ai/api/attachments/01a1e1ae-f655-7157-a6df-3a2a68a2bcee/download",
+    "applies_to_candidate": false,
+    "status": "old UI binary does not represent 6a4f0e0; replacement withheld pending functional repair"
+  }
+]

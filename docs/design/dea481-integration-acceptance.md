@@ -2,9 +2,10 @@
 
 Approved source is revision 1 in `dea481-approved-space.md`; original
 source/ownership mapping remains in `dea481-acceptance.md`. Code candidate:
-`8b2f787a0d60b4f09686ed7a1dcbde7576831a02` (first client QA repairs).
-This candidate still has two real draft-state failures and must not advance to
-automated_qa. See `docs/evidence/dea481-qa-integration/` for the new fixed-version
+`6a4f0e096ace18da9eeea0e06f74a513b634e065` (second client QA repairs).
+The previous five counterexamples pass, but an actual upload-confirmation race
+still overwrites a newer external writer. Do not advance to automated_qa.
+See `docs/evidence/dea481-qa-round2/` for the new fixed-version
 evidence and bounded rework. This matrix maps evidence to portions
 of the approved cases. It does not mark the complete cases accepted.
 
@@ -26,19 +27,19 @@ and locally verified with the same plugin working directory in
 runtime test results and packages are reused with explicit tree/byte checks;
 new CI and the linked Windows package run are not claimed as completed.
 
-The first QA repairs are integrated. New execution: analyze PASS, 691 client
-passes / 12 skips, 14 Linux integration passes, and Sentinel's unchanged three
-real probes PASS. Two additional real probes FAIL: removal of an image while
-waiting for a save response is undone; an upload confirmation erases text already
-dirty at upload admission. T02 therefore remains unaccepted. The shared mechanism
-rework table and explicit coverage limits are in the new integration README.
+The second QA repairs are integrated. New execution: analyze PASS, 693 client
+passes / 12 skips, 14 Linux integration passes, and all five unchanged prior
+real probes PASS. An additional real upload-confirmation probe FAILS: a newer
+external writer's commit is silently overwritten after the read version becomes
+the pending local input's save baseline. T02/T17 remain unaccepted. The shared
+mechanism rework table and explicit coverage limits are in the new README.
 No new UI test package is issued for this failing candidate; previous UI binaries
 must not be represented as this runtime.
 
 | Case / approved source | Implementer / concrete evidence | Remaining verification or issue |
 | --- | --- | --- |
 | T01 §2, §9 | Forge S ten-image/order/publish; Muse `space_compose_test`, `space_feed_test`, `space_detail_test`; I native ten images and provider bytes, real gateway | Independent combined visual/user-path QA; real device/model limits remain |
-| T02 §2.1, §7.3 | S CAS/lost-reply/publish guards; Muse operation retention and first QA text/reopen repair; latest original real probes pass | **FAIL:** image removal during save is restored; upload erases already-dirty text. Muse owns common-state correction; no QA handoff yet |
+| T02 §2.1, §7.3 | S CAS/lost-reply/publish guards; Muse local-intent reconciliation; all five prior real probes now pass | **FAIL:** upload confirmation rebases pending local input onto a newer external writer's version and overwrites it. Muse owns version-boundary correction; no QA handoff yet |
 | T03 §7.3 | S fixed equal-timestamp pagination counterexample; Muse `space_controller_test`, `space_feed_test` | QA multi-page scroll/refresh on target platforms |
 | T04 §4.1 | S arbitrary depth and preview/pagination; Muse `space_detail_test`, C detail screenshots | Visual multi-level interaction QA |
 | T05 §5.3 | S exact recipient/context; Muse `space_notifications_test`, `space_detail_test`; I gateway notifications | Independent notification navigation/focus |
