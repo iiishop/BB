@@ -1,33 +1,44 @@
 #!/usr/bin/env python3
-"""Exact-input, ref-isolated, content-addressed FFmpeg dependency cache.
+"""Resolve and verify the Windows FFmpeg dependency.
 
-The cache key's last component authenticates the restored tree against Actions
-metadata, independently of the tree's manifest. The security boundary remains
-GitHub's cache ref ACL: a writer of THIS ref can replace code/cache; another PR
-cannot. Never promote PR caches to main/release or execute cached build scripts.
+Two sources, one content check:
+
+* ``asset``  — download the pinned prebuilt dependency published as a Release
+  asset. Pull-request jobs use this path; it replaces a ~528s source build that
+  dominated the job runtime.
+* ``source`` — build from the pinned FFmpeg/zlib sources inside this job. Manual
+  runs use this. The release workflow builds independently and never consumes
+  the asset, so a published binary is never an input to a published release.
+
+Both paths end in ``verify``: the actual executable is hashed, the manifest is
+checked against the pins, the licenses are read, and the BUILD-FFMPEG.sh inside
+the dependency must be byte-identical to the one in this repository. That last
+check is what makes a stale asset fail loudly instead of quietly shipping an
+old build — edit the build script and the prebuilt tree stops being acceptable.
 """
 import argparse
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
-import re
-import urllib.parse
+import shutil
 import urllib.request
+import zipfile
 
-from package_windows import sha256_file, validate_ffmpeg, read_manifest
+from ffmpeg_pins import (
+    FFMPEG_DEPS_ARCHIVE_SHA256,
+    FFMPEG_DEPS_ASSET,
+    FFMPEG_DEPS_TAG,
+    FFMPEG_DEPS_TREE_DIGEST,
+)
+from package_windows import read_manifest, sha256_file, validate_ffmpeg
 
 ROOT = Path(__file__).resolve().parents[2]
 DEST = ROOT / 'client/windows/ffmpeg'
-INPUTS = (
-    'scripts/ci/ffmpeg_pins.py', 'scripts/ci/fetch_ffmpeg_sources.py',
-    'scripts/ci/build_ffmpeg_windows.sh', 'scripts/ci/package_windows.py',
-    'scripts/ci/ffmpeg_cache.py', '.github/workflows/windows-test-package.yml',
-)
-# Fingerprint rolling toolchain repositories BEFORE restore, without installing
-# MSYS2. Any repository update invalidates the cache conservatively (including
-# transitive compiler/runtime packages). Recheck after a cold build to avoid
-# publishing under an input snapshot that changed during installation/build.
+BUILD_SCRIPT = 'scripts/ci/build_ffmpeg_windows.sh'
+# Fingerprint rolling toolchain repositories so a manual source build cannot
+# publish under an input snapshot that changed while it was running.
 TOOLCHAIN_DATABASES = (
     'https://repo.msys2.org/mingw/mingw64/mingw64.db',
     'https://repo.msys2.org/msys/x86_64/msys.db',
@@ -44,15 +55,10 @@ def tree_digest(root):
     return hashlib.sha256(json.dumps(entries, sort_keys=True).encode()).hexdigest()
 
 
-def verify_tree(root, expected):
+def verify_tree(root, expected, reason='FFmpeg cache content digest mismatch '
+                                       '(including manifest/licenses)'):
     if tree_digest(root) != expected:
-        raise RuntimeError('FFmpeg cache content digest mismatch (including manifest/licenses)')
-
-
-def select_key(entries, prefix, ref):
-    return next((item['key'] for item in entries
-                 if item['ref'] == ref and
-                 re.fullmatch(re.escape(prefix) + r'[0-9a-f]{64}', item['key'])), None)
+        raise RuntimeError(reason)
 
 
 def toolchain_digest():
@@ -63,59 +69,108 @@ def toolchain_digest():
     return digest.hexdigest()
 
 
+def normalized_digest(path):
+    """Hash text content with line endings folded to LF.
+
+    The dependency is built on Windows (CRLF working tree) while the repository
+    checkout here may use LF, so a raw byte comparison would pass on the runner
+    and fail on a Linux runner for the same script. Only line endings are
+    folded — any real edit still changes the digest.
+    """
+    data = Path(path).read_bytes().replace(b'\r\n', b'\n')
+    return hashlib.sha256(data).hexdigest()
+
+
 def output(**values):
-    with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as handle:
+    handle = os.environ.get('GITHUB_OUTPUT')
+    if handle is None:
         for name, value in values.items():
-            print(f'{name}={value}', file=handle)
+            print(f'{name}={value}')
+        return
+    with open(handle, 'a', encoding='utf-8') as sink:
+        for name, value in values.items():
+            print(f'{name}={value}', file=sink)
             print(f'{name}={value}')
 
 
-def plan():
-    toolchain = toolchain_digest()
-    inputs = {name: sha256_file(ROOT / name) for name in INPUTS}
-    inputs.update(toolchain=toolchain, target='windows-x86_64-MINGW64',
-                  image=os.environ['ImageVersion'], ref=os.environ['GITHUB_REF'])
-    prefix = 'bb-ffmpeg-v1-' + hashlib.sha256(
-        json.dumps(inputs, sort_keys=True).encode()).hexdigest() + '-'
-    query = urllib.parse.urlencode({'ref': os.environ['GITHUB_REF'], 'key': prefix,
-                                   'per_page': 100})
-    url = (f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}"
-           f'/actions/caches?{query}')
-    request = urllib.request.Request(url, headers={
-        'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
-        'Accept': 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28',
+def dependency_url():
+    repo = os.environ.get('GITHUB_REPOSITORY', 'iiishop/BB')
+    return (f'https://github.com/{repo}/releases/download/'
+            f'{FFMPEG_DEPS_TAG}/{FFMPEG_DEPS_ASSET}')
+
+
+def clear_dependency_dir():
+    """Empty the dependency directory without touching its tracked .gitignore.
+
+    A zip extracted over a stale tree would leave old entries behind and change
+    the digest, so the directory is cleared first — but `.gitignore` is a
+    tracked placeholder for the empty directory and must survive.
+    """
+    DEST.mkdir(parents=True, exist_ok=True)
+    for entry in DEST.iterdir():
+        if entry.name == '.gitignore':
+            continue
+        if entry.is_dir():
+            shutil.rmtree(entry)
+        else:
+            entry.unlink()
+
+
+def fetch():
+    request = urllib.request.Request(dependency_url(), headers={
+        'Accept': 'application/octet-stream',
+        'User-Agent': 'bb-windows-package-ci',
     })
-    with urllib.request.urlopen(request, timeout=60) as response:
-        entries = json.load(response)['actions_caches']
-    key = select_key(entries, prefix, os.environ['GITHUB_REF'])
-    output(prefix=prefix, key=key or prefix + 'miss', toolchain=toolchain)
+    token = os.environ.get('GH_TOKEN') or os.environ.get('GITHUB_TOKEN')
+    if token:
+        request.add_header('Authorization', 'Bearer ' + token)
+    with urllib.request.urlopen(request, timeout=300) as response:
+        data = response.read()
+    digest = hashlib.sha256(data).hexdigest()
+    if digest != FFMPEG_DEPS_ARCHIVE_SHA256:
+        raise RuntimeError(
+            f'prebuilt dependency archive sha256 mismatch: {digest} '
+            f'!= {FFMPEG_DEPS_ARCHIVE_SHA256}')
+    clear_dependency_dir()
+    with zipfile.ZipFile(io.BytesIO(data)) as bundle:
+        bundle.extractall(DEST)
+    print(f'downloaded {FFMPEG_DEPS_TAG}/{FFMPEG_DEPS_ASSET}: {len(data)} bytes')
+
+
+def snapshot():
+    value = toolchain_digest()
+    output(toolchain=value)
 
 
 def verify():
-    hit = os.environ.get('CACHE_HIT') == 'true'
-    if hit:
-        key = os.environ['CACHE_KEY']
-        prefix = os.environ['CACHE_PREFIX']
-        if not re.fullmatch(re.escape(prefix) + r'[0-9a-f]{64}', key):
-            raise RuntimeError('not an exact-input cache key')
-        verify_tree(DEST, key[len(prefix):])
-    # Hash the actual executable, NOT the self-reported manifest value. On hit
-    # its entire tree has already been bound to the external Actions cache key.
+    source = os.environ.get('FFMPEG_SOURCE', 'source')
+    if source == 'asset':
+        verify_tree(DEST, FFMPEG_DEPS_TREE_DIGEST,
+                    'prebuilt dependency tree digest mismatch '
+                    '(including manifest/licenses)')
+    elif source == 'source':
+        if toolchain_digest() != os.environ['TOOLCHAIN_DIGEST']:
+            raise RuntimeError(
+                'MSYS2 repositories changed during build; rerun with fresh inputs')
+    else:
+        raise RuntimeError(f'unknown FFMPEG_SOURCE: {source!r}')
+    # Hash the actual executable, NOT the self-reported manifest value.
     digest = sha256_file(DEST / 'ffmpeg.exe')
     validate_ffmpeg(DEST.parent, expected_ffmpeg_sha256=digest)
-    if sha256_file(DEST / 'BUILD-FFMPEG.sh') != sha256_file(ROOT / INPUTS[2]):
-        raise RuntimeError('cached build script differs from current build input')
-    if not hit and toolchain_digest() != os.environ['TOOLCHAIN_DIGEST']:
-        raise RuntimeError('MSYS2 repositories changed during build; rerun with fresh inputs')
-    output(sha=digest, save_key=os.environ['CACHE_PREFIX'] + tree_digest(DEST))
+    if normalized_digest(DEST / 'BUILD-FFMPEG.sh') != normalized_digest(ROOT / BUILD_SCRIPT):
+        raise RuntimeError(
+            f'dependency build script differs from {BUILD_SCRIPT}; '
+            f'regenerate {FFMPEG_DEPS_TAG} or rebuild from source')
+    output(sha=digest)
+    print('Dependency source:', source)
     # Preserve original provenance; never relabel an old dependency as this app.
-    print('Dependency built at BB commit:', read_manifest(DEST.parent)['build_script_git_commit'])
-    print('Current application commit:', os.environ['GITHUB_SHA'])
+    print('Dependency built at BB commit:',
+          read_manifest(DEST.parent)['build_script_git_commit'])
+    print('Current application commit:', os.environ.get('GITHUB_SHA', '(local)'))
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('operation', choices=('plan', 'verify'))
+    parser.add_argument('operation', choices=('fetch', 'verify', 'snapshot'))
     args = parser.parse_args()
-    {'plan': plan, 'verify': verify}[args.operation]()
+    {'fetch': fetch, 'verify': verify, 'snapshot': snapshot}[args.operation]()
