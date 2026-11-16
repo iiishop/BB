@@ -669,7 +669,7 @@ class _TinyAction extends StatelessWidget {
 }
 
 /// Lazily fetches an authorized media image from the client service.
-class _MediaImage extends StatelessWidget {
+class _MediaImage extends StatefulWidget {
   const _MediaImage({
     required this.chat,
     required this.mediaId,
@@ -685,35 +685,66 @@ class _MediaImage extends StatelessWidget {
   final double? height;
 
   @override
+  State<_MediaImage> createState() => _MediaImageState();
+}
+
+class _MediaImageState extends State<_MediaImage> {
+  /// One request per media id.
+  ///
+  /// Creating this future inside `build` re-fetched every visible image on any
+  /// ancestor setState — presence ticks, the 3s poll, avatar arrival — which is
+  /// what made opening a conversation with photos feel like it loaded
+  /// everything at once.
+  Future<Uint8List>? _preview;
+
+  /// Lazily created, and never when a local preview already covers the bubble:
+  /// an unused error future would otherwise surface as an unhandled async error.
+  ///
+  /// `Future.sync` so a loader that throws before returning a future (a fake, or
+  /// a synchronous validation failure) still arrives as a failed future the
+  /// builder can render instead of exploding during build.
+  Future<Uint8List> _previewFuture() => _preview ??= Future<Uint8List>.sync(
+    () => widget.chat.loadListPreview(widget.mediaId),
+  );
+
+  @override
+  void didUpdateWidget(covariant _MediaImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.mediaId != widget.mediaId) {
+      _preview = null;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final Uint8List? local = localBytes;
+    final Uint8List? local = widget.localBytes;
     if (local != null && local.isNotEmpty) {
       return Image.memory(
         local,
-        width: width,
-        height: height,
-        fit: height == null ? BoxFit.contain : BoxFit.cover,
+        width: widget.width,
+        height: widget.height,
+        fit: widget.height == null ? BoxFit.contain : BoxFit.cover,
         gaplessPlayback: true,
         errorBuilder:
             (BuildContext context, Object error, StackTrace? stackTrace) =>
                 _placeholder(
-                  width ?? 220,
-                  height ?? 120,
+                  widget.width ?? 220,
+                  widget.height ?? 120,
                   Icons.broken_image_outlined,
                 ),
       );
     }
     return FutureBuilder<Uint8List>(
-      future: chat.loadListPreview(mediaId),
+      future: _previewFuture(),
       builder: (BuildContext context, AsyncSnapshot<Uint8List> snapshot) {
-        final double w = width ?? 220;
-        final double h = height ?? (width == null ? 120 : height ?? 120);
+        final double w = widget.width ?? 220;
+        final double h = widget.height ?? 120;
         if (snapshot.hasData) {
           return Image.memory(
             snapshot.data!,
             width: w,
-            height: height,
-            fit: height == null ? BoxFit.contain : BoxFit.cover,
+            height: widget.height,
+            fit: widget.height == null ? BoxFit.contain : BoxFit.cover,
             gaplessPlayback: true,
             errorBuilder:
                 (BuildContext context, Object error, StackTrace? stackTrace) {
