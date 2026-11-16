@@ -109,7 +109,7 @@ class SpaceComposeController extends ChangeNotifier {
       _version != null &&
       phase == DraftSavePhase.saved &&
       text.text == _serverText &&
-      _sameOrder(_order, _serverOrder) &&
+      listEquals(_order, _serverOrder) &&
       pending.every((PendingDraftImage p) => !p.uploading && p.error == null) &&
       pending.isEmpty &&
       (text.text.trim().isNotEmpty || _images.isNotEmpty || hasReference);
@@ -175,12 +175,13 @@ class SpaceComposeController extends ChangeNotifier {
       final bool hasLocalEdit = buffered?.dirty == true;
       text.text = hasLocalEdit ? buffered!.text : draft.text;
       _order = hasLocalEdit
-          ? _mergeOrder(buffered!.imageIds, draft.images)
+          ? _resumeOrder(buffered!, draft)
           : List<String>.of(_serverOrder);
+      _images = _imagesForOrder(draft.images, _order);
       final bool contentMatchesServer =
           !hasLocalEdit ||
           (buffered!.text == draft.text &&
-              _sameOrder(buffered.imageIds, _serverOrder));
+              listEquals(buffered.imageIds, _serverOrder));
       if (contentMatchesServer) {
         _baselineVersion = draft.version;
         phase = DraftSavePhase.saved;
@@ -229,33 +230,53 @@ class SpaceComposeController extends ChangeNotifier {
     }
   }
 
-  bool _sameOrder(List<String> preferred, List<String> server) {
-    final List<String> merged = <String>[
-      ...preferred.where(server.contains),
-      ...server.where((String id) => !preferred.contains(id)),
-    ];
-    if (merged.length != server.length) {
-      return false;
-    }
-    for (int i = 0; i < merged.length; i++) {
-      if (merged[i] != server[i]) {
-        return false;
+  /// Resumes a locally dirty image order without resurrecting images the user
+  /// removed. Server images the buffer never saw (added on the same page or by
+  /// the upload confirmation) are appended; a member the buffer knew but its
+  /// local order dropped stays removed.
+  List<String> _resumeOrder(SpaceDraftBuffer buffer, SpaceDraft draft) {
+    final List<String> serverNow = draft.images
+        .map((SpaceImage i) => i.imageId)
+        .toList();
+    final List<String> order = buffer.imageIds
+        .where(serverNow.contains)
+        .toList();
+    for (final String id in serverNow) {
+      if (!order.contains(id) && !buffer.serverImageIds.contains(id)) {
+        order.add(id);
       }
     }
-    return true;
+    return order;
   }
 
-  List<String> _mergeOrder(List<String> preferred, List<SpaceImage> server) {
-    final Set<String> available = server
+  List<SpaceImage> _imagesForOrder(
+    List<SpaceImage> server,
+    List<String> order,
+  ) {
+    return <SpaceImage>[
+      for (final String id in order)
+        for (final SpaceImage image in server)
+          if (image.imageId == id) image,
+    ];
+  }
+
+  /// Appends images the server gained since [serverBefore] without putting
+  /// back an image the user removed locally while the upload was in flight.
+  List<String> _mergeUploadOrder(
+    List<String> local,
+    List<String> serverBefore,
+    List<SpaceImage> server,
+  ) {
+    final List<String> serverNow = server
         .map((SpaceImage i) => i.imageId)
-        .toSet();
-    final List<String> merged = preferred.where(available.contains).toList();
-    for (final SpaceImage image in server) {
-      if (!merged.contains(image.imageId)) {
-        merged.add(image.imageId);
+        .toList();
+    final List<String> order = local.where(serverNow.contains).toList();
+    for (final String id in serverNow) {
+      if (!serverBefore.contains(id) && !order.contains(id)) {
+        order.add(id);
       }
     }
-    return merged;
+    return order;
   }
 
   void onTextChanged() {
@@ -341,7 +362,7 @@ class SpaceComposeController extends ChangeNotifier {
         // present the save as failed.
       }
       final bool localChanged =
-          text.text != savedText || !_sameOrder(_order, savedOrder);
+          text.text != savedText || !listEquals(_order, savedOrder);
       if (confirmed == null) {
         _serverText = savedText;
         _serverOrder = List<String>.of(savedOrder);
@@ -365,11 +386,11 @@ class SpaceComposeController extends ChangeNotifier {
         _serverOrder = confirmed.images
             .map((SpaceImage i) => i.imageId)
             .toList();
-        _images = List<SpaceImage>.of(confirmed.images);
         if (!localChanged) {
           _version = confirmed.version;
           _baselineVersion = confirmed.version;
           _order = List<String>.of(_serverOrder);
+          _images = List<SpaceImage>.of(confirmed.images);
           text.text = confirmed.text;
           phase = DraftSavePhase.saved;
           error = null;
@@ -378,11 +399,12 @@ class SpaceComposeController extends ChangeNotifier {
           _persist(dirty: false);
         } else if (confirmed.version == receiptVersion &&
             confirmed.text == savedText) {
-          // Only local input advanced while the request was in flight. Keep
-          // it dirty and save the newer snapshot; never label it saved.
+          // Only local input (text or image membership/order) advanced while
+          // the request was in flight. Keep the local intent untouched — an
+          // older receipt must not restore a removed image — and save the
+          // newer snapshot.
           _version = confirmed.version;
           _baselineVersion = confirmed.version;
-          _order = _mergeOrder(_order, confirmed.images);
           phase = DraftSavePhase.dirty;
           error = null;
           _persist(dirty: true);
@@ -507,8 +529,8 @@ class SpaceComposeController extends ChangeNotifier {
     if (id == null) {
       return;
     }
-    final String localText = text.text;
     final List<String> localOrder = List<String>.of(_order);
+    final List<String> serverBefore = List<String>.of(_serverOrder);
     item.uploading = true;
     _notify();
     try {
@@ -516,28 +538,12 @@ class SpaceComposeController extends ChangeNotifier {
       _version = draft.version;
       _serverText = draft.text;
       _serverOrder = draft.images.map((SpaceImage i) => i.imageId).toList();
-      _images = List<SpaceImage>.of(draft.images);
       pending.remove(item);
-      final bool localChanged =
-          text.text != localText || !_sameOrder(_order, localOrder);
-      if (!localChanged) {
-        _order = List<String>.of(_serverOrder);
-        text.text = draft.text;
-        if (phase != DraftSavePhase.conflict) {
-          _baselineVersion = draft.version;
-          phase = DraftSavePhase.saved;
-        }
-        error = null;
-        _persist(dirty: phase != DraftSavePhase.saved);
-      } else {
-        _order = _mergeOrder(_order, draft.images);
-        if (phase != DraftSavePhase.conflict) {
-          _baselineVersion = draft.version;
-          phase = DraftSavePhase.dirty;
-          _scheduleSave();
-        }
-        _persist(dirty: true);
-      }
+      _reconcileAfterUpload(
+        draft: draft,
+        localOrder: localOrder,
+        serverBefore: serverBefore,
+      );
     } catch (failure) {
       item.error = '上传结果待确认';
       error = spaceErrorText(failure);
@@ -551,6 +557,41 @@ class SpaceComposeController extends ChangeNotifier {
     }
   }
 
+  /// Reconciles the confirmed draft after an upload without discarding local
+  /// intent: text that was already dirty before the upload stays, an image the
+  /// user removed or reordered meanwhile stays removed/reordered, and only
+  /// genuinely new server images are appended.
+  void _reconcileAfterUpload({
+    required SpaceDraft draft,
+    required List<String> localOrder,
+    required List<String> serverBefore,
+  }) {
+    final bool textDirty = text.text != draft.text;
+    final bool orderChanged = !listEquals(_order, localOrder);
+    if (!textDirty && !orderChanged) {
+      _order = List<String>.of(_serverOrder);
+      _images = List<SpaceImage>.of(draft.images);
+      text.text = draft.text;
+      if (phase != DraftSavePhase.conflict) {
+        _baselineVersion = draft.version;
+        phase = DraftSavePhase.saved;
+      }
+      error = null;
+      _persist(dirty: phase != DraftSavePhase.saved);
+      return;
+    }
+    _order = orderChanged
+        ? _mergeUploadOrder(_order, serverBefore, draft.images)
+        : List<String>.of(_serverOrder);
+    _images = _imagesForOrder(draft.images, _order);
+    if (phase != DraftSavePhase.conflict) {
+      _baselineVersion = draft.version;
+      phase = DraftSavePhase.dirty;
+      _scheduleSave();
+    }
+    _persist(dirty: true);
+  }
+
   Future<void> _upload(PendingDraftImage item) async {
     final String? id = _id;
     final int? version = _version;
@@ -559,8 +600,8 @@ class SpaceComposeController extends ChangeNotifier {
       _notify();
       return;
     }
-    final String localText = text.text;
     final List<String> localOrder = List<String>.of(_order);
+    final List<String> serverBefore = List<String>.of(_serverOrder);
     item.uploading = true;
     item.error = null;
     _notify();
@@ -575,33 +616,15 @@ class SpaceComposeController extends ChangeNotifier {
       _version = operation.resourceVersion ?? version;
       item.uploaded = true;
       final SpaceDraft draft = await gateway.getDraft(id);
-      _images = List<SpaceImage>.of(draft.images);
+      _version = draft.version;
       _serverText = draft.text;
       _serverOrder = draft.images.map((SpaceImage i) => i.imageId).toList();
-      _version = draft.version;
       pending.remove(item);
-      final bool localChanged =
-          text.text != localText || !_sameOrder(_order, localOrder);
-      if (!localChanged) {
-        _order = List<String>.of(_serverOrder);
-        text.text = draft.text;
-        if (phase != DraftSavePhase.conflict) {
-          _baselineVersion = draft.version;
-          phase = DraftSavePhase.saved;
-        }
-        error = null;
-        _persist(dirty: phase != DraftSavePhase.saved);
-      } else {
-        // The upload response must not mark text/order the user changed while
-        // it was in flight as saved; merge the new image and save again.
-        _order = _mergeOrder(_order, draft.images);
-        if (phase != DraftSavePhase.conflict) {
-          _baselineVersion = draft.version;
-          phase = DraftSavePhase.dirty;
-          _scheduleSave();
-        }
-        _persist(dirty: true);
-      }
+      _reconcileAfterUpload(
+        draft: draft,
+        localOrder: localOrder,
+        serverBefore: serverBefore,
+      );
     } on AuthFailure catch (failure) {
       if (failure.code == 'version_conflict') {
         phase = DraftSavePhase.conflict;
@@ -682,7 +705,7 @@ class SpaceComposeController extends ChangeNotifier {
       _notify();
       return false;
     }
-    if (text.text != _serverText || !_sameOrder(_order, _serverOrder)) {
+    if (text.text != _serverText || !listEquals(_order, _serverOrder)) {
       // Defensive: a saved phase must never pair with unsynced content.
       phase = DraftSavePhase.dirty;
       error = '请等待草稿保存完成再发布';

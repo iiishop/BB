@@ -79,3 +79,58 @@ vision, native settings rendering, network WebSocket push (locked Uvicorn has
 no WS support; HTTP replay is tested), release visitor-sheet click. The 12
 skips are the same opt-in/environment skips as before; no assertion was
 loosened or skipped. This is not overall acceptance, user sign-off or a release.
+
+## Round 2: adjacent ACK/local-state counterexamples
+
+Forge's post-integration adjacent probes on candidate `d463cf7` failed **0/2,
+exit 1, zero skips**. Both belong to the same mechanism as round 1:
+
+- `root_cause_id = SPACE-DRAFT-ACK-LOCAL-STATE`
+- failing writes/invalidations: image removal during an in-flight save, image
+  upload/confirmation, resumed dirty buffer order, explicit server reload,
+  publish eligibility, discard-with-pending-ack.
+- Round-1 evidence: Sentinel probes on `942dd46a` (stale ack labelled newer
+  input saved; dirty reopen overwrote the other writer).
+- Round-2 evidence: Forge adjacent probes on `d463cf7` (a removed image
+  reappeared when the older receipt landed; a confirmed upload erased text that
+  was already dirty at upload admission).
+- `contract_gap = none`; owner and sole fix author **Muse**; Forge stays the
+  only integrator.
+
+**Common fix (not a per-probe patch).** The previous code compared image orders
+with a helper that re-appended server-only members, so a removed image looked
+"unchanged"; upload/reload reconciliation also compared only "did the user edit
+during this request", ignoring intent that was already dirty when the request
+started. Now:
+
+- saved/start/publish comparisons use strict element-wise order equality
+  (`listEquals`), so a removed or reordered image is a real local change.
+- after any receipt, if local intent changed the controller keeps its local
+  text/order/images (an older receipt can never resurrect a removed image) and
+  saves the newer snapshot; the server facts are only adopted when nothing
+  local differs.
+- a resumed dirty buffer reconciles its recorded local order with the server:
+  removed members stay removed, only images the buffer never saw are appended.
+- upload and confirmation-refresh compare against the confirmed server draft,
+  keep text already dirty at admission and any removal/reorder done meanwhile,
+  and append only genuinely new server images.
+
+Regressions were added to the existing compose entry (`test/space_compose_test.dart`):
+removal during an in-flight save stays removed and is deleted server-side, and
+an image upload confirmation keeps already-dirty text. Forge's two adjacent
+probes plus Sentinel's three original probes pass on the real
+FastAPI→`SpaceService` path.
+
+## Round 2 verification (same fixed tree)
+
+| Check | Command | Result | Log/exit |
+| --- | --- | --- | --- |
+| Analyzer | `flutter analyze` | exit 0, no issues | `round2/analyze.log`, `round2/analyze.exit` |
+| Focused Space suite | same 9 files incl. `space_compose_test.dart` / `space_controller_test.dart` | exit 0, **64 passed** | `round2/space-tests.log`, `round2/space-tests.exit` |
+| Full client suite | `flutter test` | exit 0, **688 passed, 12 skipped** | `round2/flutter-test-all.log`, `round2/flutter-test-all.exit` |
+| Real probes | `python3 run_real_probes.py` (5 probes: 3 original + 2 adjacent) | exit 0, **5 passed** | `round2/real-probes.log`, `round2/real-probes.exit`, `round2/server.log` |
+
+The 12 skips are unchanged opt-in/environment skips; no assertion was loosened.
+Adjacent probe source is copied byte-for-byte from Forge's
+`docs/evidence/dea481-qa-integration/adjacent_draft_probe_test.dart`
+(`round2/adjacent_draft_probe_test.dart`).

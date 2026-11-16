@@ -164,3 +164,24 @@ against the isolated FastAPI server (`docs/evidence/dea481-client/qa-fixes/`).
 - `flutter test` — 686 passed, 12 skipped.
 - Focused Space suite — 62 passed.
 - Real FastAPI probes — 3 passed (pre-fix run on `942dd46a` failed all three).
+
+### Adjacent ACK/local-state round (`SPACE-DRAFT-ACK-LOCAL-STATE`)
+
+Forge's post-integration probes found two more instances of the same mechanism:
+removing an image while a save is in flight was undone by the older receipt,
+and an image upload confirmation erased text that was already dirty when the
+upload started.
+
+The fix is shared, not per-case: save/start/publish compare image order with
+strict element equality (a removed or reordered image is a real local change);
+a receipt only adopts server facts when no local intent changed, otherwise the
+local text/order/images stay and the newer snapshot is saved; a resumed dirty
+buffer keeps removed images removed and appends only images it never saw;
+upload/refresh confirmation compares against the confirmed server draft and
+preserves text dirty at admission plus any membership/order change made while
+the upload ran.
+
+Regressions live in `test/space_compose_test.dart`; Sentinel's three probes and
+Forge's two adjacent probes pass on the real FastAPI path
+(`docs/evidence/dea481-client/qa-fixes/round2/`). Current suite: 688 passed /
+12 skipped, Space 64 passed.
