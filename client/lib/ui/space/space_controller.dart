@@ -77,6 +77,11 @@ class SpaceController extends ChangeNotifier {
   /// Posts whose deletion was already observed. Late responses captured before
   /// that point must not reinsert them or restore their reference snapshots.
   final Set<String> _tombstones = <String>{};
+
+  /// Comments whose deletion was already observed. Every public snapshot that
+  /// embeds a comment (feed preview, pending page, notification snippet, detail
+  /// page/context) must redact it, including late responses.
+  final Set<String> _deletedComments = <String>{};
   bool _polling = false;
   Timer? _timer;
   bool _disposed = false;
@@ -372,6 +377,8 @@ class SpaceController extends ChangeNotifier {
         onSessionExpired: onSessionExpired,
         onPostDeleted: _handlePostDeleted,
         isTombstoned: _isTombstoned,
+        isDeletedComment: _isDeletedComment,
+        onCommentDeleted: _handleCommentDeleted,
       );
       _details[postId] = controller;
     }
@@ -429,12 +436,63 @@ class SpaceController extends ChangeNotifier {
 
   bool _isTombstoned(String postId) => _tombstones.contains(postId);
 
+  bool _isDeletedComment(String commentId) =>
+      _deletedComments.contains(commentId);
+
   SpacePost _scrubIncoming(SpacePost post) {
-    final SpaceReference? reference = post.reference;
-    if (reference == null || !_tombstones.contains(reference.postId)) {
-      return post;
+    SpacePost result = post;
+    final SpaceReference? reference = result.reference;
+    if (reference != null && _tombstones.contains(reference.postId)) {
+      result = spacePostWithScrubbedReference(result, reference.postId);
     }
-    return spacePostWithScrubbedReference(post, reference.postId);
+    return spacePostWithScrubbedComments(result, _isDeletedComment);
+  }
+
+  SpaceNotification _scrubNotification(SpaceNotification notification) {
+    final String? commentId = notification.commentId;
+    if (commentId == null ||
+        notification.snippet == null ||
+        !_deletedComments.contains(commentId)) {
+      return notification;
+    }
+    return SpaceNotification(
+      notificationId: notification.notificationId,
+      kind: notification.kind,
+      postId: notification.postId,
+      commentId: notification.commentId,
+      targetPostId: notification.targetPostId,
+      version: notification.version,
+      ackVersion: notification.ackVersion,
+      unread: notification.unread,
+      accessible: notification.accessible,
+      deleted: notification.deleted,
+      actors: notification.actors,
+      actorCount: notification.actorCount,
+      snippet: null,
+      createdAt: notification.createdAt,
+    );
+  }
+
+  void _handleCommentDeleted(String postId, String commentId) {
+    _deletedComments.add(commentId);
+    _scrubCommentCaches();
+    _details[postId]?.onCommentDeletedEvent(commentId);
+    _notify();
+  }
+
+  void _scrubCommentCaches() {
+    for (int i = 0; i < posts.length; i++) {
+      posts[i] = spacePostWithScrubbedComments(posts[i], _isDeletedComment);
+    }
+    for (int i = 0; i < _pendingPage.length; i++) {
+      _pendingPage[i] = spacePostWithScrubbedComments(
+        _pendingPage[i],
+        _isDeletedComment,
+      );
+    }
+    for (int i = 0; i < notifications.length; i++) {
+      notifications[i] = _scrubNotification(notifications[i]);
+    }
   }
 
   List<SpacePost> _admitIncoming(Iterable<SpacePost> items) {
@@ -506,16 +564,20 @@ class SpaceController extends ChangeNotifier {
         cursor: reset ? null : notificationsCursor,
         limit: 20,
       );
+      final List<SpaceNotification> admitted = <SpaceNotification>[
+        for (final SpaceNotification notification in page.items)
+          _scrubNotification(notification),
+      ];
       if (reset || notifications.isEmpty) {
         notifications
           ..clear()
-          ..addAll(page.items);
+          ..addAll(admitted);
       } else {
         final Set<String> seen = notifications
             .map((SpaceNotification n) => n.notificationId)
             .toSet();
         notifications.addAll(
-          page.items.where((SpaceNotification n) => seen.add(n.notificationId)),
+          admitted.where((SpaceNotification n) => seen.add(n.notificationId)),
         );
       }
       notificationsCursor = page.nextCursor;
@@ -774,6 +836,10 @@ class SpaceController extends ChangeNotifier {
       case 'comment.deleted':
         final String? commentId = event.commentId;
         final String? postId = event.postId;
+        if (commentId != null) {
+          _deletedComments.add(commentId);
+          _scrubCommentCaches();
+        }
         if (commentId != null && postId != null) {
           _details[postId]?.onCommentDeletedEvent(commentId);
         }

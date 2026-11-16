@@ -43,3 +43,89 @@ SpacePost spacePostWithScrubbedReference(
     remainingRoots: post.remainingRoots,
   );
 }
+
+/// Deleted comments keep their identity and reply relationships (so surviving
+/// children and reply targets stay navigable) but expose no body or actions.
+SpaceComment spaceCommentTombstone(SpaceComment comment) => SpaceComment(
+  commentId: comment.commentId,
+  postId: comment.postId,
+  rootId: comment.rootId,
+  replyToId: comment.replyToId,
+  replyToAuthor: comment.replyToAuthor,
+  author: comment.author,
+  createdAt: comment.createdAt,
+  text: null,
+  deleted: true,
+  canDelete: false,
+);
+
+SpaceBranch spaceBranchScrubbed(
+  SpaceBranch branch,
+  bool Function(String commentId) isDeleted,
+) {
+  final SpaceComment root = isDeleted(branch.root.commentId)
+      ? spaceCommentTombstone(branch.root)
+      : branch.root;
+  final List<SpaceComment> replies = <SpaceComment>[
+    for (final SpaceComment reply in branch.replies)
+      isDeleted(reply.commentId) ? spaceCommentTombstone(reply) : reply,
+  ];
+  bool changed = !identical(root, branch.root);
+  if (!changed) {
+    for (int i = 0; i < replies.length; i++) {
+      if (!identical(replies[i], branch.replies[i])) {
+        changed = true;
+        break;
+      }
+    }
+  }
+  if (!changed) {
+    return branch;
+  }
+  return SpaceBranch(
+    root: root,
+    replies: replies,
+    remainingReplies: branch.remainingReplies,
+  );
+}
+
+/// Scrubs deleted comments inside a post's preview branches (feed and pending
+/// page) without dropping surviving replies or their reply targets.
+SpacePost spacePostWithScrubbedComments(
+  SpacePost post,
+  bool Function(String commentId) isDeleted,
+) {
+  final List<SpaceBranch> previews = <SpaceBranch>[
+    for (final SpaceBranch branch in post.previewComments)
+      spaceBranchScrubbed(branch, isDeleted),
+  ];
+  bool changed = false;
+  for (int i = 0; i < previews.length; i++) {
+    if (!identical(previews[i], post.previewComments[i])) {
+      changed = true;
+      break;
+    }
+  }
+  if (!changed) {
+    return post;
+  }
+  return SpacePost(
+    postId: post.postId,
+    author: post.author,
+    createdAt: post.createdAt,
+    text: post.text,
+    images: post.images,
+    reference: post.reference,
+    liked: post.liked,
+    read: post.read,
+    likeCount: post.likeCount,
+    commentCount: post.commentCount,
+    rootCount: post.rootCount,
+    repostCount: post.repostCount,
+    viewCount: post.viewCount,
+    canDelete: post.canDelete,
+    canListVisitors: post.canListVisitors,
+    previewComments: previews,
+    remainingRoots: post.remainingRoots,
+  );
+}

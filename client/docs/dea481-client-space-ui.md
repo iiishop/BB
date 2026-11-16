@@ -226,3 +226,15 @@ was deleted or tombstoned during the request the rollback restores nothing.
 Regressions are in `test/space_controller_test.dart`; all ten real probes pass
 (`docs/evidence/dea481-client/qa-fixes/round5/`). Current suite: 694 passed /
 12 skipped, Space 70 passed.
+
+### Comment deletion boundary (`SPACE-DELETION-LATE-WRITE`, round 6)
+
+Sentinel's third QA round found the comment entry still leaking deleted bodies.
+Deleted comments now have controller-level tombstones fed by remote events and
+local deletion. One admission filter redacts them in feed previews, the pending
+page, notification snippets (including late notification pages) and detail
+preview/root/reply/context pages; deleted comments keep their identity,
+`replyToId` and `replyToAuthor` so surviving children and reply targets stay
+navigable. Regressions are in `test/space_controller_test.dart`; all twelve real
+probes pass (`docs/evidence/dea481-client/qa-fixes/round6/`). Current suite:
+696 passed / 12 skipped, Space 72 passed.
