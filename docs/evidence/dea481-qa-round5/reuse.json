@@ -1,0 +1,23 @@
+{
+  "candidate": "ec71e5112f76d3f0eab0c3d7dc2c82ea9754b3e6",
+  "artifact_runtime_paths_match_542cfad": [
+    "client/bin",
+    "client/lib/services",
+    "client/lib/models",
+    "client/lib/config",
+    "client/pubspec.yaml",
+    "client/pubspec.lock",
+    "dsh-plugin/src",
+    "dsh-plugin/bundle",
+    "dsh-plugin/pyproject.toml",
+    "dsh-plugin/uv.lock",
+    "server/contract"
+  ],
+  "host_evidence": "docs/evidence/dea481-integration/native/host-result.json",
+  "host_source_hashes_matched": 295,
+  "native_host_rerun": false,
+  "server_459_tests_rerun": false,
+  "plugin_114_tests_rerun": false,
+  "real_gateway_6_tests_rerun": false,
+  "unchanged_source_scope": "scope.json"
+}
