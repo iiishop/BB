@@ -538,6 +538,59 @@ void main() {
     expect(gateway.posts.containsKey('post-1'), isFalse);
   });
 
+  testWidgets('deleting a repost keeps the live source image viewer usable', (
+    WidgetTester tester,
+  ) async {
+    final FakeSpaceGateway gateway = FakeSpaceGateway();
+    final SpacePost source = spacePost(
+      postId: 'source',
+      images: <SpaceImage>[spaceImage(imageId: 'img-a')],
+    );
+    final SpacePost repost = spacePost(
+      postId: 'repost',
+      text: 'repost',
+      reference: spaceReference(
+        postId: 'source',
+        text: 'source',
+        image: spaceImage(imageId: 'img-a'),
+      ),
+    );
+    gateway.posts['source'] = source;
+    gateway.posts['repost'] = repost;
+    gateway.postPages[''] = spacePagePost(<SpacePost>[source, repost]);
+    await pumpSpacePage(
+      tester,
+      gateway: gateway,
+      settle: false,
+      autoPoll: true,
+      pollInterval: const Duration(milliseconds: 10),
+    );
+    addTearDown(() async => tester.pumpWidget(const SizedBox.shrink()));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 20));
+
+    await tester.tap(find.byKey(const Key('space-image-img-a')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    final Finder viewerImage = find.descendant(
+      of: find.byType(SpaceImageViewer),
+      matching: find.byType(Image),
+    );
+    expect(viewerImage, findsOneWidget);
+
+    gateway.eventPages.add(
+      spaceEventPage(<SpaceEvent>[
+        spaceEvent(eventId: 2, type: 'post.deleted', postId: 'repost'),
+      ]),
+    );
+    await tester.pump(const Duration(milliseconds: 30));
+    await tester.pump();
+
+    expect(gateway.eventPages, isEmpty);
+    // The deleted repost's reference image belongs to the live source post.
+    expect(viewerImage, findsOneWidget);
+  });
+
   test('late image response cannot refill an invalidated cache', () async {
     final FakeSpaceGateway gateway = FakeSpaceGateway();
     final SpaceImageLoader loader = SpaceImageLoader(gateway);
