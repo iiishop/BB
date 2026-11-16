@@ -1,0 +1,478 @@
+{
+  "candidate_sha": "00ab236dc96ff056398974d0584a75215b1036a4",
+  "rules": [
+    {
+      "id": "targeted0",
+      "rule": "background refresh reports new posts without moving the list",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "background refresh reports new posts without moving the list"
+      }
+    },
+    {
+      "id": "targeted1",
+      "rule": "pagination deduplicates a repeated page",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "pagination deduplicates a repeated page"
+      }
+    },
+    {
+      "id": "targeted2",
+      "rule": "detail stack keeps local reference history and one visit per active open",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "detail stack keeps local reference history and one visit per active open"
+      }
+    },
+    {
+      "id": "targeted3",
+      "rule": "post.deleted event scrubs cached references in other loaded posts",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "post.deleted event scrubs cached references in other loaded posts"
+      }
+    },
+    {
+      "id": "targeted4",
+      "rule": "stale refresh response cannot resurrect a deleted post or reference",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "stale refresh response cannot resurrect a deleted post or reference"
+      }
+    },
+    {
+      "id": "targeted5",
+      "rule": "stale detail response keeps a deleted reference invalidated",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "stale detail response keeps a deleted reference invalidated"
+      }
+    },
+    {
+      "id": "targeted6",
+      "rule": "feed like rollback cannot restore a deletion event",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "feed like rollback cannot restore a deletion event"
+      }
+    },
+    {
+      "id": "targeted7",
+      "rule": "detail like rollback cannot restore a deleted reference",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "detail like rollback cannot restore a deleted reference"
+      }
+    },
+    {
+      "id": "targeted8",
+      "rule": "comment deletion scrubs feed previews and notification snippets",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "comment deletion scrubs feed previews and notification snippets"
+      }
+    },
+    {
+      "id": "targeted9",
+      "rule": "late reply page cannot revive a deleted comment",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "late reply page cannot revive a deleted comment"
+      }
+    },
+    {
+      "id": "targeted10",
+      "rule": "replies use one indent level and keep the real reply target",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_detail_test.dart",
+        "name": "replies use one indent level and keep the real reply target"
+      }
+    },
+    {
+      "id": "targeted11",
+      "rule": "post.deleted event removes the post and invalidates its images",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "post.deleted event removes the post and invalidates its images"
+      }
+    },
+    {
+      "id": "targeted12",
+      "rule": "duplicate events are applied once and the cursor advances",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "duplicate events are applied once and the cursor advances"
+      }
+    },
+    {
+      "id": "targeted13",
+      "rule": "notification acknowledgement only covers the observed version",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "notification acknowledgement only covers the observed version"
+      }
+    },
+    {
+      "id": "targeted14",
+      "rule": "opening a notification focuses an unloaded comment and acknowledges it",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "opening a notification focuses an unloaded comment and acknowledges it"
+      }
+    },
+    {
+      "id": "targeted15",
+      "rule": "resizing never creates a second visit",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "resizing never creates a second visit"
+      }
+    },
+    {
+      "id": "targeted16",
+      "rule": "reconnect replays deletions, clears cached bytes and keeps drafts",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "reconnect replays deletions, clears cached bytes and keeps drafts"
+      }
+    },
+    {
+      "id": "targeted17",
+      "rule": "offline state is distinct from an empty feed",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "offline state is distinct from an empty feed"
+      }
+    },
+    {
+      "id": "targeted18",
+      "rule": "local buffers never cross account or server scopes",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "local buffers never cross account or server scopes"
+      }
+    },
+    {
+      "id": "targeted19",
+      "rule": "notification rows show live kinds and deleted targets",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_notifications_test.dart",
+        "name": "notification rows show live kinds and deleted targets"
+      }
+    },
+    {
+      "id": "targeted20",
+      "rule": "feed shows loading then contract-valid posts",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_feed_test.dart",
+        "name": "feed shows loading then contract-valid posts"
+      }
+    },
+    {
+      "id": "targeted21",
+      "rule": "empty, offline and old-server states are distinct",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_feed_test.dart",
+        "name": "empty, offline and old-server states are distinct"
+      }
+    },
+    {
+      "id": "targeted22",
+      "rule": "tapping a notification opens the target and acknowledges its version",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_notifications_test.dart",
+        "name": "tapping a notification opens the target and acknowledges its version"
+      }
+    },
+    {
+      "id": "targeted23",
+      "rule": "deleted comment keeps surviving children and reply identity",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_detail_test.dart",
+        "name": "deleted comment keeps surviving children and reply identity"
+      }
+    },
+    {
+      "id": "targeted24",
+      "rule": "long body clamps at four lines and opens detail",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_feed_test.dart",
+        "name": "long body clamps at four lines and opens detail"
+      }
+    },
+    {
+      "id": "targeted25",
+      "rule": "feed preview shows five roots and three replies with separate counts",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_detail_test.dart",
+        "name": "feed preview shows five roots and three replies with separate counts"
+      }
+    },
+    {
+      "id": "targeted26",
+      "rule": "deleted target acknowledges without a broken detail",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_notifications_test.dart",
+        "name": "deleted target acknowledges without a broken detail"
+      }
+    },
+    {
+      "id": "targeted27",
+      "rule": "root and reply pagination load on demand",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_detail_test.dart",
+        "name": "root and reply pagination load on demand"
+      }
+    },
+    {
+      "id": "targeted28",
+      "rule": "\"\u5168\u90e8\u6807\u8bfb\" is explicit and only covers observed versions",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_notifications_test.dart",
+        "name": "\"\u5168\u90e8\u6807\u8bfb\" is explicit and only covers observed versions"
+      }
+    },
+    {
+      "id": "targeted29",
+      "rule": "body tap opens detail; action taps do not",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_feed_test.dart",
+        "name": "body tap opens detail; action taps do not"
+      }
+    },
+    {
+      "id": "targeted30",
+      "rule": "like failure reverts and reports the error",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_detail_test.dart",
+        "name": "like failure reverts and reports the error"
+      }
+    },
+    {
+      "id": "targeted31",
+      "rule": "notification read failure is an error, not an empty list",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_notifications_test.dart",
+        "name": "notification read failure is an error, not an empty list"
+      }
+    },
+    {
+      "id": "targeted32",
+      "rule": "image grid previews nine with hidden count and no fake gaps",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_feed_test.dart",
+        "name": "image grid previews nine with hidden count and no fake gaps"
+      }
+    },
+    {
+      "id": "targeted33",
+      "rule": "author sees visitor details; a non-author sees the denial",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_detail_test.dart",
+        "name": "author sees visitor details; a non-author sees the denial"
+      }
+    },
+    {
+      "id": "targeted34",
+      "rule": "draft box continues an existing draft and discards from the list",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_notifications_test.dart",
+        "name": "draft box continues an existing draft and discards from the list"
+      }
+    },
+    {
+      "id": "targeted35",
+      "rule": "feed scroll position survives an open/close detail",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_feed_test.dart",
+        "name": "feed scroll position survives an open/close detail"
+      }
+    },
+    {
+      "id": "targeted36",
+      "rule": "images and comments never add visits or batch read marks",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_detail_test.dart",
+        "name": "images and comments never add visits or batch read marks"
+      }
+    },
+    {
+      "id": "targeted37",
+      "rule": "notification badge reflects unread interactions only",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_feed_test.dart",
+        "name": "notification badge reflects unread interactions only"
+      }
+    },
+    {
+      "id": "targeted38",
+      "rule": "form factor change keeps post, reply target, text and visit",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_detail_test.dart",
+        "name": "form factor change keeps post, reply target, text and visit"
+      }
+    },
+    {
+      "id": "targeted39",
+      "rule": "publish entry opens the draft editor",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_feed_test.dart",
+        "name": "publish entry opens the draft editor"
+      }
+    },
+    {
+      "id": "targeted40",
+      "rule": "viewer index survives a resize",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_detail_test.dart",
+        "name": "viewer index survives a resize"
+      }
+    },
+    {
+      "id": "targeted41",
+      "rule": "reference navigation keeps a local back history",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_detail_test.dart",
+        "name": "reference navigation keeps a local back history"
+      }
+    },
+    {
+      "id": "targeted42",
+      "rule": "author deletion closes detail and removes the feed card",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_detail_test.dart",
+        "name": "author deletion closes detail and removes the feed card"
+      }
+    }
+  ]
+}

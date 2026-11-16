@@ -2,12 +2,12 @@
 
 Approved source is revision 1 in `dea481-approved-space.md`; original
 source/ownership mapping remains in `dea481-acceptance.md`. Code candidate:
-`dbabb06217f894656d70c432aeaac51a4af8159d` (sixth client QA repairs).
-Twelve original counterexamples and two retry controls now pass. The newest
-comment cache/late-page failures and all older failures remain preserved.
-See `docs/evidence/dea481-qa-round6/` for fixed-version checks, coverage limits
-and package mapping. This matrix maps portions of approved cases, not complete
-acceptance.
+`a65af8052fffff281bc78bac5718ec2e5a130b0c` (seventh client QA repairs).
+Fourteen original counterexamples, one surviving-repost control and two retry
+controls pass (17 total). The latest notification-projection failures and all
+older failures remain preserved. See `docs/evidence/dea481-qa-round7/` for fixed
+checks, coverage limits and package mapping. This maps portions of approved
+cases, not complete acceptance.
 
 Evidence roots: **S** = `docs/evidence/dea481/` (unchanged server, 459 tests);
 **C** = `docs/evidence/dea481-client/` (Muse UI and screenshots, tested `d3856e3`);
@@ -27,13 +27,13 @@ and locally verified with the same plugin working directory in
 runtime test results and packages are reused with explicit tree/byte checks;
 new CI and the linked Windows package run are not claimed as completed.
 
-The sixth QA repairs are integrated. **R** = `docs/evidence/dea481-qa-round6/`:
-analyze PASS, 701 client passes / 12 skips, 14 Linux integration passes, twelve
-unchanged counterexamples PASS and two original confirmation-retry controls PASS.
-Comment tombstones now redact feed/pending previews, notification snippets and
-incoming detail root/reply/context snapshots while retaining surviving descendants.
-Fresh UI packages use this runtime; old ec71e51 UI binaries are superseded.
-R separates real probes, unit cases, shared helpers and untested permutations.
+The seventh QA repairs are integrated. **R** = `docs/evidence/dea481-qa-round7/`:
+analyze PASS, 704 client passes / 12 skips, 14 Linux integration passes and
+17 real checks PASS (the requested 15 plus two retained retry controls).
+Notification invalidation now follows actual targetPostId/commentId and updates
+snippet/accessibility/deletion together; surviving child/repost navigation passes.
+Fresh UI packages use this runtime; old dbabb06 UI binaries are superseded.
+R distinguishes real checks, unit cases, shared helpers and untested permutations.
 Independent QA still owns whole T01–T17 evaluation.
 
 | Case / approved source | Implementer / concrete evidence | Remaining verification or issue |
@@ -48,7 +48,7 @@ Independent QA still owns whole T01–T17 evaluation.
 | T08 §6.2 | S delete-parent/retain-descendants ACL; Muse detail/controller placeholder/reply tests; R real loaded-preview/notification redaction and delayed reply-page probes | Independent rendered long-thread verification and remaining context/notification race combinations |
 | T09 §5.1–2 | S sparse read/visit idempotency; Muse controller lifecycle tests; I installed host explicit read and visit dedup | Device foreground/background lifecycle |
 | T10 §5.2 | S author-only visitor query/no visit notification; I real gateway 403 and TCP identity checks | UI people-page navigation QA |
-| T11 §5.3 | S membership/ack race; Muse notifications tests; I real gateway like/ack; A local explicit acknowledgment | Independent aggregate notification UX |
+| T11 §5.3 | S membership/ack race; Muse notifications tests; I real gateway like/ack; A local explicit acknowledgment | R real loaded/late notification null/false/true projection and surviving child/repost navigation pass; independent aggregate UX remains |
 | T12 §7.3–4 | S SQL rollback/event/restart; A ledger failure/lost-reply/owner counterexample; I standalone restart/rebind/replay | HTTP replay tested; actual network WS unavailable |
 | T13 §3.3 | Muse feed/detail/shell keyboard and navigation tests, C wide viewport evidence; I Linux release smoke | **Windows build/runtime/package NOT RUN**; Linux is not Windows |
 | T14 §3.4 | Muse `space_shell_test`, `space_compose_test`, detail resize state; C narrow/wide/fold-sized screenshots | **Real folding/Android runtime NOT RUN**; APK build only |

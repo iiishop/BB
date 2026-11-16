@@ -1,0 +1,16 @@
+{
+  "candidate_sha": "00ab236dc96ff056398974d0584a75215b1036a4",
+  "rules": [
+    {
+      "id": "controls0",
+      "rule": "deleting repost source preserves notification to surviving repost target",
+      "entry": "SpaceController notification/event admission and openNotification; affected comment/detail caches",
+      "status": "tested",
+      "run": "controls/run.json",
+      "testcase": {
+        "classname": ".qa-artifacts/probes/sentinel_round4_controls_test.dart",
+        "name": "deleting repost source preserves notification to surviving repost target"
+      }
+    }
+  ]
+}

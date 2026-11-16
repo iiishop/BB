@@ -1,0 +1,30 @@
+[
+  {
+    "id": "controls0",
+    "candidate_sha": "00ab236dc96ff056398974d0584a75215b1036a4",
+    "command": [
+      "flutter",
+      "test",
+      "--no-pub",
+      ".qa-artifacts/probes/sentinel_round4_controls_test.dart",
+      "--reporter=json"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": ".qa-artifacts/probes/sentinel_round4_controls_test.dart",
+      "name": "deleting repost source preserves notification to surviving repost target"
+    },
+    "tests": 1,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 1,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "../qa4/controls/run.json",
+      "../qa4/controls/output.log",
+      "../qa4/controls/flutter.jsonl"
+    ]
+  }
+]
