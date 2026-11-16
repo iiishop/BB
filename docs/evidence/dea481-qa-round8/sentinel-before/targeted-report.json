@@ -1,0 +1,511 @@
+{
+  "candidate_sha": "5d84787a2c50413d20d54fd698ac9546c4de96ac",
+  "rules": [
+    {
+      "id": "targeted0",
+      "rule": "background refresh reports new posts without moving the list",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "background refresh reports new posts without moving the list"
+      }
+    },
+    {
+      "id": "targeted1",
+      "rule": "pagination deduplicates a repeated page",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "pagination deduplicates a repeated page"
+      }
+    },
+    {
+      "id": "targeted2",
+      "rule": "detail stack keeps local reference history and one visit per active open",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "detail stack keeps local reference history and one visit per active open"
+      }
+    },
+    {
+      "id": "targeted3",
+      "rule": "post.deleted event scrubs cached references in other loaded posts",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "post.deleted event scrubs cached references in other loaded posts"
+      }
+    },
+    {
+      "id": "targeted4",
+      "rule": "stale refresh response cannot resurrect a deleted post or reference",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "stale refresh response cannot resurrect a deleted post or reference"
+      }
+    },
+    {
+      "id": "targeted5",
+      "rule": "stale detail response keeps a deleted reference invalidated",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "stale detail response keeps a deleted reference invalidated"
+      }
+    },
+    {
+      "id": "targeted6",
+      "rule": "feed like rollback cannot restore a deletion event",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "feed like rollback cannot restore a deletion event"
+      }
+    },
+    {
+      "id": "targeted7",
+      "rule": "detail like rollback cannot restore a deleted reference",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "detail like rollback cannot restore a deleted reference"
+      }
+    },
+    {
+      "id": "targeted8",
+      "rule": "comment deletion scrubs feed previews and notification snippets",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "comment deletion scrubs feed previews and notification snippets"
+      }
+    },
+    {
+      "id": "targeted9",
+      "rule": "late reply page cannot revive a deleted comment",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "late reply page cannot revive a deleted comment"
+      }
+    },
+    {
+      "id": "targeted10",
+      "rule": "comment deletion marks notifications unavailable, not only snippet-less",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "comment deletion marks notifications unavailable, not only snippet-less"
+      }
+    },
+    {
+      "id": "targeted11",
+      "rule": "post deletion marks its notifications deleted, including late pages",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "post deletion marks its notifications deleted, including late pages"
+      }
+    },
+    {
+      "id": "targeted12",
+      "rule": "deleting a repost source keeps the surviving repost notification usable",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "deleting a repost source keeps the surviving repost notification usable"
+      }
+    },
+    {
+      "id": "targeted13",
+      "rule": "post.deleted event removes the post and invalidates its images",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "post.deleted event removes the post and invalidates its images"
+      }
+    },
+    {
+      "id": "targeted14",
+      "rule": "duplicate events are applied once and the cursor advances",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "duplicate events are applied once and the cursor advances"
+      }
+    },
+    {
+      "id": "targeted15",
+      "rule": "replies use one indent level and keep the real reply target",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_detail_test.dart",
+        "name": "replies use one indent level and keep the real reply target"
+      }
+    },
+    {
+      "id": "targeted16",
+      "rule": "notification acknowledgement only covers the observed version",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "notification acknowledgement only covers the observed version"
+      }
+    },
+    {
+      "id": "targeted17",
+      "rule": "opening a notification focuses an unloaded comment and acknowledges it",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "opening a notification focuses an unloaded comment and acknowledges it"
+      }
+    },
+    {
+      "id": "targeted18",
+      "rule": "resizing never creates a second visit",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "resizing never creates a second visit"
+      }
+    },
+    {
+      "id": "targeted19",
+      "rule": "reconnect replays deletions, clears cached bytes and keeps drafts",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "reconnect replays deletions, clears cached bytes and keeps drafts"
+      }
+    },
+    {
+      "id": "targeted20",
+      "rule": "offline state is distinct from an empty feed",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "offline state is distinct from an empty feed"
+      }
+    },
+    {
+      "id": "targeted21",
+      "rule": "local buffers never cross account or server scopes",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "local buffers never cross account or server scopes"
+      }
+    },
+    {
+      "id": "targeted22",
+      "rule": "notification rows show live kinds and deleted targets",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_notifications_test.dart",
+        "name": "notification rows show live kinds and deleted targets"
+      }
+    },
+    {
+      "id": "targeted23",
+      "rule": "feed shows loading then contract-valid posts",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_feed_test.dart",
+        "name": "feed shows loading then contract-valid posts"
+      }
+    },
+    {
+      "id": "targeted24",
+      "rule": "empty, offline and old-server states are distinct",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_feed_test.dart",
+        "name": "empty, offline and old-server states are distinct"
+      }
+    },
+    {
+      "id": "targeted25",
+      "rule": "deleted comment keeps surviving children and reply identity",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_detail_test.dart",
+        "name": "deleted comment keeps surviving children and reply identity"
+      }
+    },
+    {
+      "id": "targeted26",
+      "rule": "tapping a notification opens the target and acknowledges its version",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_notifications_test.dart",
+        "name": "tapping a notification opens the target and acknowledges its version"
+      }
+    },
+    {
+      "id": "targeted27",
+      "rule": "long body clamps at four lines and opens detail",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_feed_test.dart",
+        "name": "long body clamps at four lines and opens detail"
+      }
+    },
+    {
+      "id": "targeted28",
+      "rule": "feed preview shows five roots and three replies with separate counts",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_detail_test.dart",
+        "name": "feed preview shows five roots and three replies with separate counts"
+      }
+    },
+    {
+      "id": "targeted29",
+      "rule": "deleted target acknowledges without a broken detail",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_notifications_test.dart",
+        "name": "deleted target acknowledges without a broken detail"
+      }
+    },
+    {
+      "id": "targeted30",
+      "rule": "root and reply pagination load on demand",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_detail_test.dart",
+        "name": "root and reply pagination load on demand"
+      }
+    },
+    {
+      "id": "targeted31",
+      "rule": "\"\u5168\u90e8\u6807\u8bfb\" is explicit and only covers observed versions",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_notifications_test.dart",
+        "name": "\"\u5168\u90e8\u6807\u8bfb\" is explicit and only covers observed versions"
+      }
+    },
+    {
+      "id": "targeted32",
+      "rule": "body tap opens detail; action taps do not",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_feed_test.dart",
+        "name": "body tap opens detail; action taps do not"
+      }
+    },
+    {
+      "id": "targeted33",
+      "rule": "like failure reverts and reports the error",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_detail_test.dart",
+        "name": "like failure reverts and reports the error"
+      }
+    },
+    {
+      "id": "targeted34",
+      "rule": "notification read failure is an error, not an empty list",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_notifications_test.dart",
+        "name": "notification read failure is an error, not an empty list"
+      }
+    },
+    {
+      "id": "targeted35",
+      "rule": "image grid previews nine with hidden count and no fake gaps",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_feed_test.dart",
+        "name": "image grid previews nine with hidden count and no fake gaps"
+      }
+    },
+    {
+      "id": "targeted36",
+      "rule": "author sees visitor details; a non-author sees the denial",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_detail_test.dart",
+        "name": "author sees visitor details; a non-author sees the denial"
+      }
+    },
+    {
+      "id": "targeted37",
+      "rule": "draft box continues an existing draft and discards from the list",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_notifications_test.dart",
+        "name": "draft box continues an existing draft and discards from the list"
+      }
+    },
+    {
+      "id": "targeted38",
+      "rule": "feed scroll position survives an open/close detail",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_feed_test.dart",
+        "name": "feed scroll position survives an open/close detail"
+      }
+    },
+    {
+      "id": "targeted39",
+      "rule": "images and comments never add visits or batch read marks",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_detail_test.dart",
+        "name": "images and comments never add visits or batch read marks"
+      }
+    },
+    {
+      "id": "targeted40",
+      "rule": "form factor change keeps post, reply target, text and visit",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_detail_test.dart",
+        "name": "form factor change keeps post, reply target, text and visit"
+      }
+    },
+    {
+      "id": "targeted41",
+      "rule": "notification badge reflects unread interactions only",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_feed_test.dart",
+        "name": "notification badge reflects unread interactions only"
+      }
+    },
+    {
+      "id": "targeted42",
+      "rule": "publish entry opens the draft editor",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_feed_test.dart",
+        "name": "publish entry opens the draft editor"
+      }
+    },
+    {
+      "id": "targeted43",
+      "rule": "viewer index survives a resize",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_detail_test.dart",
+        "name": "viewer index survives a resize"
+      }
+    },
+    {
+      "id": "targeted44",
+      "rule": "reference navigation keeps a local back history",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_detail_test.dart",
+        "name": "reference navigation keeps a local back history"
+      }
+    },
+    {
+      "id": "targeted45",
+      "rule": "author deletion closes detail and removes the feed card",
+      "entry": "SpaceController deletion \u2192 SpaceImageLoader invalidation/late fetch; previous affected entries",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_detail_test.dart",
+        "name": "author deletion closes detail and removes the feed card"
+      }
+    }
+  ]
+}
