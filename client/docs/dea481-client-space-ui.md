@@ -287,3 +287,16 @@ unrelated live images stay cached. Regressions are in
 `test/space_controller_test.dart`; all twenty-one real probes pass serially
 (`docs/evidence/dea481-client/qa-fixes/round10/`). Current suite: 706 passed /
 12 skipped, Space 82 passed.
+
+### Reference image ownership (`SPACE-DELETION-LATE-WRITE`, round 11)
+
+Sentinel's seventh QA round caught deleting a repost clearing the open viewer
+of its still-live source: the deletion helper was invalidating the repost's
+`reference.image`, which belongs to the source. Invalidation now covers only
+`post.images`; reference images are revoked only when their source is deleted
+(feed/pending snapshots and open details both handled). Regressions cover the
+widget path (open source viewer, consume `post.deleted(repost)`, viewer keeps
+showing) and detail-only reference invalidation on source deletion. All
+twenty-three real probes pass serially
+(`docs/evidence/dea481-client/qa-fixes/round11/`). Current suite: 707 passed /
+12 skipped, Space 83 passed.

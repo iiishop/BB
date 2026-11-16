@@ -530,3 +530,43 @@ Both probe sources are copied byte-for-byte from Forge's candidate evidence
 `round10/closed_detail_image_probe_test.dart`); Forge's bundle keeps the pre-fix
 0/2 evidence. Probes stay serial because one upload-conflict probe depends on a
 real 700 ms debounce during setup; the recorded run is not skipped or weakened.
+
+## Round 11: deleting a repost must not revoke the live source's image
+
+Sentinel's seventh QA round kept the six prior image probes green but found a
+P2 in `SPACE-DELETION-LATE-WRITE`: with the source A's image open in the viewer,
+deleting repost B removed A's still-authorized image and forced the viewer into
+the load-failure state. `_invalidateImagesForPostId(B)` was invalidating B's
+`reference.image`, but that image is owned by the live source A.
+
+**Fix.** Image invalidation now covers only images a post actually owns
+(`post.images`). A reference image is invalidated only when its *source* post is
+deleted: `_scrubReferencesTo` already did this for feed/pending snapshots and now
+also invalidates the reference image of an open detail before scrubbing its
+reference. Deleting a repost therefore keeps the live source's thumbnail/original
+and any open viewer usable, while deleting the source still revokes the cached
+reference bytes even when only a repost detail is open.
+
+`contract_gap = none`; owner and sole fix author Muse; Forge remains the only
+integrator.
+
+Regressions: the existing `test/space_detail_test.dart` entry now includes the
+widget path (open A's viewer, consume a real `post.deleted(B)` poll event, the
+viewer keeps its image), and `test/space_controller_test.dart` covers
+detail-only reference invalidation when the source is deleted.
+
+## Round 11 verification (same fixed tree)
+
+| Check | Command | Result | Log/exit |
+| --- | --- | --- | --- |
+| Analyzer | `flutter analyze` | exit 0, no issues | `round11/analyze.log`, `round11/analyze.exit` |
+| Focused Space suite | same 9 files | exit 0, **83 passed** | `round11/space-tests.log`, `round11/space-tests.exit` |
+| Full client suite | `flutter test` | exit 0, **707 passed, 12 skipped** | `round11/flutter-test-all.log`, `round11/flutter-test-all.exit` |
+| Real probes | `python3 run_real_probes.py` (23 probes, **`-j 1`**) | exit 0, **23 passed** | `round11/real-probes.log`, `round11/real-probes.exit`, `round11/server.log` |
+
+Both probe sources are copied byte-for-byte from Sentinel's
+`dea481-sentinel-qa7-1668197.zip` (`round11/sentinel_round7_test.dart`,
+`round11/sentinel_round7_viewer_test.dart`); that bundle keeps the pre-fix
+failure evidence. Probes stay serial because one upload-conflict probe depends
+on a real 700 ms debounce during setup; the recorded run is not skipped or
+weakened.

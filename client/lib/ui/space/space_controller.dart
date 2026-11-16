@@ -452,12 +452,11 @@ class SpaceController extends ChangeNotifier {
       if (post == null || post.postId != postId) {
         return;
       }
+      // Only images this post owns. A deleted repost's reference image belongs
+      // to the still-live source post, so invalidating it would blank an open
+      // viewer for that source.
       for (final SpaceImage image in post.images) {
         images.invalidateImage(image.imageId);
-      }
-      final SpaceImage? referenceImage = post.reference?.image;
-      if (referenceImage != null) {
-        images.invalidateImage(referenceImage.imageId);
       }
     }
 
@@ -581,6 +580,13 @@ class SpaceController extends ChangeNotifier {
     scrub(posts);
     scrub(_pendingPage);
     for (final SpaceDetailController controller in _details.values) {
+      final SpaceReference? reference = controller.post?.reference;
+      if (reference != null && reference.postId == postId) {
+        final SpaceImage? image = reference.image;
+        if (image != null) {
+          images.invalidateImage(image.imageId);
+        }
+      }
       controller.onReferenceDeletedEvent(postId);
     }
   }
