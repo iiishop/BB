@@ -1,0 +1,8 @@
+{
+  "real_http_upload": true,
+  "unauthenticated_get_status": 401,
+  "etag_revalidation_status": 304,
+  "server_png_sha256": "13ec2f0f414834617bed775fc5863d1fcf20542ee43ca44e20385481cde36e45",
+  "rendered_uploaded_color_pixels": 1248,
+  "fixture": "synthetic solid PNG, not a real personal photo"
+}
