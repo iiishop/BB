@@ -248,6 +248,114 @@ void main() {
   );
 
   test(
+    'feed like rollback cannot restore a deletion event',
+    () async {
+      final FakeSpaceGateway gateway = FakeSpaceGateway();
+      final SpacePost source = spacePost(
+        postId: 'post-1',
+        text: 'deleted source secret',
+      );
+      final SpacePost repost = spacePost(
+        postId: 'post-2',
+        text: 'repost',
+        reference: SpaceReference(
+          postId: 'post-1',
+          deleted: false,
+          author: source.author,
+          text: 'deleted source secret',
+          image: null,
+        ),
+      );
+      gateway.posts['post-1'] = source;
+      gateway.posts['post-2'] = repost;
+      gateway.postPages[''] = spacePagePost(<SpacePost>[source, repost]);
+      gateway.overviewResult = spaceOverview(latestEventId: 1);
+      final SpaceController controller = controllerFor(gateway);
+      await controller.start();
+
+      gateway.setLikeCaptured = Completer<void>();
+      gateway.setLikeGate = Completer<void>();
+      gateway.failSetLikeAfterGate = true;
+      final SpacePost target = controller.posts.singleWhere(
+        (SpacePost p) => p.postId == 'post-2',
+      );
+      final Future<void> liking = controller.togglePostLike(target);
+      await gateway.setLikeCaptured!.future;
+      gateway.eventPages.add(
+        spaceEventPage(<SpaceEvent>[
+          spaceEvent(eventId: 2, type: 'post.deleted', postId: 'post-1'),
+        ]),
+      );
+      await controller.pollEventsOnce();
+      expect(
+        controller.posts
+            .singleWhere((SpacePost p) => p.postId == 'post-2')
+            .reference!
+            .text,
+        isNull,
+      );
+      gateway.setLikeGate!.complete();
+      await liking;
+
+      // The failure rollback may revert the like fields but must not put the
+      // pre-deletion object (and its reference text) back.
+      final SpacePost after = controller.posts.singleWhere(
+        (SpacePost p) => p.postId == 'post-2',
+      );
+      expect(after.reference!.text, isNull);
+      expect(after.reference!.deleted, isTrue);
+      expect(after.liked, repost.liked);
+    },
+  );
+
+  test(
+    'detail like rollback cannot restore a deleted reference',
+    () async {
+      final FakeSpaceGateway gateway = FakeSpaceGateway();
+      final SpacePost source = spacePost(
+        postId: 'post-1',
+        text: 'deleted source secret',
+      );
+      final SpacePost repost = spacePost(
+        postId: 'post-2',
+        text: 'repost',
+        reference: SpaceReference(
+          postId: 'post-1',
+          deleted: false,
+          author: source.author,
+          text: 'deleted source secret',
+          image: null,
+        ),
+      );
+      gateway.posts['post-2'] = repost;
+      final Set<String> tombstones = <String>{};
+      final SpaceDetailController detail = SpaceDetailController(
+        gateway: gateway,
+        store: SpaceLocalStore(scopeKey: gateway.scopeKey),
+        postId: 'post-2',
+        visitId: 'visit-1',
+        isTombstoned: (String id) => tombstones.contains(id),
+      );
+      addTearDown(detail.dispose);
+      await detail.load();
+
+      gateway.setLikeCaptured = Completer<void>();
+      gateway.setLikeGate = Completer<void>();
+      gateway.failSetLikeAfterGate = true;
+      final Future<bool> liking = detail.toggleLike();
+      await gateway.setLikeCaptured!.future;
+      tombstones.add('post-1');
+      detail.onReferenceDeletedEvent('post-1');
+      expect(detail.post!.reference!.text, isNull);
+      gateway.setLikeGate!.complete();
+      await liking;
+
+      expect(detail.post!.reference!.deleted, isTrue);
+      expect(detail.post!.reference!.text, isNull);
+    },
+  );
+
+  test(
     'post.deleted event removes the post and invalidates its images',
     () async {
       final FakeSpaceGateway gateway = FakeSpaceGateway();

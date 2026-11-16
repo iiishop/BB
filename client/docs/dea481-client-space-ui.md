@@ -214,3 +214,15 @@ detail response for a deleted post or reference cannot restore it. Regressions
 are in `test/space_compose_test.dart` and `test/space_controller_test.dart`; all
 eight real probes pass (`docs/evidence/dea481-client/qa-fixes/round4/`).
 Current suite: 692 passed / 12 skipped, Space 68 passed.
+
+### Rollback write boundary (`SPACE-DELETION-LATE-WRITE`, round 5)
+
+Forge's adjacent probes showed an optimistic like rollback resurrecting a
+deleted reference: the like committed, the real source was deleted and its
+reference scrubbed, then the held like reply failed and the old whole-object
+snapshot was written back. Feed and detail rollbacks now copy the live
+(already-scrubbed) post and override only `liked`/`likeCount`; when the post
+was deleted or tombstoned during the request the rollback restores nothing.
+Regressions are in `test/space_controller_test.dart`; all ten real probes pass
+(`docs/evidence/dea481-client/qa-fixes/round5/`). Current suite: 694 passed /
+12 skipped, Space 70 passed.
