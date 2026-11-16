@@ -137,6 +137,21 @@ class _ChatPageState extends State<ChatPage> {
   /// Highest contiguous server position whose page has been fetched.
   int _fetchedThrough = 0;
 
+  /// True while older messages exist on the server. The list opens on the
+  /// newest window and pulls one older page at a time when the reader reaches
+  /// the top — the full-history loop this replaced cost one serial request per
+  /// 100 messages before the first bubble could render.
+  bool _hasOlder = false;
+  bool _loadingOlder = false;
+
+  /// One page per fetch. The server caps `limit` at 100.
+  static const int _historyWindow = 100;
+
+  /// Server upper bound for `before_position` (contract: le=9007199254740991).
+  /// Used as the "newest page" ceiling: omitting both boundaries means "from
+  /// the beginning", not "from the end".
+  static const int _historyCeiling = 9007199254740991;
+
   /// Highest position currently rendered (may be a local send beyond the
   /// fetched window). It must never advance the fetch cursor by itself.
   int _displayedMax = 0;
@@ -214,6 +229,8 @@ class _ChatPageState extends State<ChatPage> {
       _animateIdentities.clear();
       _fetchedThrough = 0;
       _displayedMax = 0;
+      _hasOlder = false;
+      _loadingOlder = false;
       _fetching = false;
       _activeHistoryTicket = null;
       _historyTicket += 1;
@@ -281,37 +298,22 @@ class _ChatPageState extends State<ChatPage> {
       });
     }
     try {
-      final List<ChatMessage> loaded = <ChatMessage>[];
-      int cursor = 0;
-      bool hasMore = true;
-      int pages = 0;
-      // Fetch the complete contiguous history rather than a fixed page cap.
-      // A page that makes no progress terminates the loop instead of hiding a
-      // gap behind has_more=true.
-      while (hasMore && pages < 1000) {
-        final MessagePage page = await widget.chat.loadConversation(
-          peerAccount: widget.peer.account,
-          afterPosition: cursor,
-          limit: 100,
-        );
-        loaded.addAll(page.items);
-        final int next = page.nextPosition > cursor
-            ? page.nextPosition
-            : cursor;
-        final bool progressed = page.items.isNotEmpty || next > cursor;
-        cursor = next;
-        hasMore = page.hasMore && progressed;
-        pages += 1;
-        if (!progressed) {
-          break;
-        }
-      }
+      // Newest window only. Older pages load on demand from the top of the
+      // list; opening a long conversation no longer issues one serial request
+      // per 100 messages before the first bubble can render.
+      final MessagePage page = await widget.chat.loadConversation(
+        peerAccount: peer,
+        beforePosition: _historyCeiling,
+        limit: _historyWindow,
+      );
       if (!_historyRequestCurrent(ticket, epoch, peer)) {
         return;
       }
       setState(() {
-        _mergeMessages(loaded);
-        _fetchedThrough = cursor;
+        _mergeMessages(page.items);
+        _fetchedThrough = page.items.isEmpty ? 0 : page.items.last.position;
+        _hasOlder = page.hasMore;
+        _loadingOlder = false;
         _loading = false;
         _animateIdentities.clear();
       });
@@ -335,6 +337,61 @@ class _ChatPageState extends State<ChatPage> {
         _loading = false;
         _error = '消息加载失败，请稍后重试';
       });
+    } finally {
+      _endHistoryRequest(ticket);
+    }
+  }
+
+  /// Pulls one older page when the reader reaches the top.
+  ///
+  /// The viewport is anchored: prepending a page would otherwise shift the
+  /// bubbles the reader is looking at, so the scroll offset is advanced by
+  /// exactly the height that was added.
+  Future<void> _loadOlder() async {
+    if (_loadingOlder || !_hasOlder || _messages.isEmpty || _fetching) {
+      return;
+    }
+    final int epoch = _pageEpoch;
+    final String peer = widget.peer.account;
+    final int ticket = _beginHistoryRequest();
+    final bool hadClients = _scrollController.hasClients;
+    final double beforePixels = hadClients
+        ? _scrollController.position.pixels
+        : 0;
+    final double beforeMax = hadClients
+        ? _scrollController.position.maxScrollExtent
+        : 0;
+    setState(() => _loadingOlder = true);
+    try {
+      final MessagePage page = await widget.chat.loadConversation(
+        peerAccount: peer,
+        beforePosition: _messages.first.position,
+        limit: _historyWindow,
+      );
+      if (!_historyRequestCurrent(ticket, epoch, peer)) {
+        return;
+      }
+      setState(() {
+        _mergeMessages(page.items);
+        _hasOlder = page.hasMore;
+        _loadingOlder = false;
+      });
+      if (hadClients) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || !_scrollController.hasClients) {
+            return;
+          }
+          final double added =
+              _scrollController.position.maxScrollExtent - beforeMax;
+          if (added > 0) {
+            _scrollController.jumpTo(beforePixels + added);
+          }
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _loadingOlder = false);
+      }
     } finally {
       _endHistoryRequest(ticket);
     }
@@ -765,6 +822,13 @@ class _ChatPageState extends State<ChatPage> {
     if (notification is ScrollStartNotification &&
         notification.dragDetails != null) {
       _scrollEpoch += 1;
+    }
+    // The list is chronological, so the top edge is where the past lives.
+    // `_loadOlder` guards itself against repeat entry.
+    if (notification is ScrollUpdateNotification &&
+        notification.depth == 0 &&
+        notification.metrics.pixels <= 240) {
+      unawaited(_loadOlder());
     }
     return false;
   }
@@ -1216,7 +1280,21 @@ class _ChatPageState extends State<ChatPage> {
       );
     }
 
-    final List<Widget> timeline = <Widget>[];
+    final List<Widget> timeline = <Widget>[
+      // Older pages land above the first bubble; without a row here the list
+      // looks frozen at the top while the request is in flight.
+      if (_loadingOlder)
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 16),
+          child: Center(
+            child: SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          ),
+        ),
+    ];
     DateTime? previous;
     for (int index = 0; index < entries.length; index += 1) {
       final _TimelineEntry entry = entries[index];

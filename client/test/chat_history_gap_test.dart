@@ -1,8 +1,5 @@
-import 'dart:async';
-
 import 'package:bb_client/models/auth_models.dart';
 import 'package:bb_client/models/chat_models.dart';
-import 'package:bb_client/ui/chat/chat_composer.dart';
 import 'package:bb_client/ui/chat/chat_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -19,101 +16,100 @@ const ChatUser _bob = ChatUser(
   presence: Presence.online,
 );
 
+/// Positions 1..1000, alternating sender.
+List<ChatMessage> thousandMessages() {
+  final DateTime base = DateTime.utc(2026, 1, 1, 12);
+  return <ChatMessage>[
+    for (int position = 1; position <= 1000; position++)
+      ChatMessage(
+        id: 'm$position',
+        position: position,
+        senderAccount: position.isEven ? _self.account : _bob.account,
+        targetAccount: position.isEven ? _bob.account : _self.account,
+        createdAt: base.add(Duration(seconds: position)),
+        kind: ChatMessageKind.body,
+        parts: <MessagePart>[TextPart('m$position')],
+      ),
+  ];
+}
+
+Future<void> pumpChat(
+  WidgetTester tester,
+  FakeChatService chat, {
+  void Function(List<ChatMessage> messages)? onMessages,
+}) async {
+  tester.view.physicalSize = const Size(390, 844);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+  await tester.pumpWidget(
+    MaterialApp(
+      home: ChatPage(
+        peer: _bob,
+        chat: chat,
+        profile: FakeProfileGateway(),
+        onMessagesChanged: onMessages,
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+}
+
 void main() {
-  testWidgets('1000-message backfill cannot be skipped by a send or a poll', (
+  testWidgets('a long conversation opens on the newest window only', (
     WidgetTester tester,
   ) async {
-    final DateTime base = DateTime.utc(2026, 1, 1, 12);
-    final List<ChatMessage> history = <ChatMessage>[
-      for (int position = 1; position <= 1000; position++)
-        ChatMessage(
-          id: 'm$position',
-          position: position,
-          senderAccount: position.isEven ? _self.account : _bob.account,
-          targetAccount: position.isEven ? _bob.account : _self.account,
-          createdAt: base.add(Duration(seconds: position)),
-          kind: ChatMessageKind.body,
-          parts: <MessagePart>[TextPart('m$position')],
-        ),
-    ];
-    final Completer<void> gate = Completer<void>();
     final FakeChatService chat = FakeChatService(
       self: _self,
       users: const <ChatUser>[_bob],
-      conversations: <String, List<ChatMessage>>{_bob.account: history},
+      conversations: <String, List<ChatMessage>>{_bob.account: thousandMessages()},
       pageSize: 100,
-      gateAtPosition: 100,
-      gate: gate,
     );
+
     List<ChatMessage> captured = const <ChatMessage>[];
+    await pumpChat(tester, chat, onMessages: (List<ChatMessage> m) => captured = m);
 
-    tester.view.physicalSize = const Size(390, 844);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+    // One backward request, one page: 901..1000. Not ten serial round trips.
+    expect(chat.beforeCalls.length, 1);
+    expect(chat.beforeCalls.single, isNotNull);
+    expect(chat.conversationCalls, hasLength(1));
+    expect(captured, hasLength(100));
+    expect(captured.first.position, 901);
+    expect(captured.last.position, 1000);
+    expect(find.text('m1000'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 
-    await tester.pumpWidget(
-      MaterialApp(
-        home: ChatPage(
-          peer: _bob,
-          chat: chat,
-          profile: FakeProfileGateway(),
-          onMessagesChanged: (List<ChatMessage> messages) {
-            captured = messages;
-          },
-        ),
-      ),
+  testWidgets('reaching the top backfills one older page at a time', (
+    WidgetTester tester,
+  ) async {
+    final FakeChatService chat = FakeChatService(
+      self: _self,
+      users: const <ChatUser>[_bob],
+      conversations: <String, List<ChatMessage>>{_bob.account: thousandMessages()},
+      pageSize: 100,
     );
 
-    // Let page 0 complete and page 100 block on the gate, then send while the
-    // backfill is still in progress.
-    for (int i = 0; i < 40 && !chat.conversationCalls.contains(100); i++) {
-      await tester.pump(const Duration(milliseconds: 10));
+    await pumpChat(tester, chat);
+    expect(chat.beforeCalls, hasLength(1));
+
+    // Drag toward the past until a second page has been requested.
+    for (int attempt = 0; attempt < 12; attempt++) {
+      await tester.drag(find.byKey(ChatPage.listKey), const Offset(0, 700));
+      await tester.pumpAndSettle();
+      if (chat.beforeCalls.length > 1) {
+        break;
+      }
     }
-    expect(chat.conversationCalls, contains(0));
-    expect(chat.conversationCalls, contains(100));
-    expect(chat.conversationCalls, isNot(contains(200)));
 
-    await tester.enterText(find.byKey(ChatComposer.inputKey), '发送于补取过程中');
-    await tester.tap(find.byKey(ChatComposer.sendKey));
-    await tester.pump();
-
-    gate.complete();
-    await tester.pumpAndSettle();
-
-    final List<int> positions = captured
-        .map((ChatMessage message) => message.position)
-        .toList();
     expect(
-      positions,
-      List<int>.generate(1001, (int index) => index + 1),
-      reason: 'complete contiguous history plus the local send, no gap/dup',
+      chat.beforeCalls.length,
+      greaterThan(1),
+      reason: 'reaching the top must ask for older messages',
     );
-    expect(
-      captured.map((ChatMessage message) => message.identity).toSet().length,
-      captured.length,
-    );
-    expect(
-      captured.any(
-        (ChatMessage message) => message.parts.any(
-          (MessagePart part) => part is TextPart && part.text == 'm601',
-        ),
-      ),
-      isTrue,
-      reason: '601 must be fetched, not skipped by the send cursor',
-    );
-    expect(
-      captured.any(
-        (ChatMessage message) => message.parts.any(
-          (MessagePart part) => part is TextPart && part.text == '发送于补取过程中',
-        ),
-      ),
-      isTrue,
-    );
-    expect(
-      chat.conversationCalls,
-      containsAll(<int>[0, 100, 200, 300, 400, 500, 600, 700, 800, 900]),
-    );
+    // The second boundary is the oldest loaded position, so the pages abut.
+    expect(chat.beforeCalls[1], 901);
+    expect(find.text('m900'), findsWidgets);
     expect(tester.takeException(), isNull);
   });
 }
