@@ -4,6 +4,7 @@ import '../../models/auth_models.dart';
 import '../../models/space_models.dart';
 import 'space_gateway.dart';
 import 'space_local_store.dart';
+import 'space_invalidation.dart';
 
 /// One active detail visit.
 ///
@@ -439,6 +440,25 @@ class SpaceDetailController extends ChangeNotifier {
   void onDeletedEvent() {
     deleted = true;
     post = null;
+    _notify();
+  }
+
+  /// Drops a cached reference snapshot whose source post was deleted. The
+  /// server re-read is still authoritative; this only removes stale text,
+  /// author and image from a card already on screen.
+  void onReferenceDeletedEvent(String sourcePostId) {
+    final SpacePost? current = post;
+    if (current == null) {
+      return;
+    }
+    final SpacePost scrubbed = spacePostWithScrubbedReference(
+      current,
+      sourcePostId,
+    );
+    if (identical(scrubbed, current)) {
+      return;
+    }
+    post = scrubbed;
     _notify();
   }
 

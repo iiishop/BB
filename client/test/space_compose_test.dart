@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:bb_client/models/auth_models.dart';
@@ -169,6 +170,80 @@ void main() {
       '另一端的更新',
     );
     expect(find.text('已保存到服务器'), findsOneWidget);
+  });
+
+  test('in-flight save response never marks newer input saved', () async {
+    final FakeSpaceGateway gateway = FakeSpaceGateway();
+    final SpaceLocalStore store = SpaceLocalStore(scopeKey: gateway.scopeKey);
+    final SpaceComposeController controller = SpaceComposeController(
+      gateway: gateway,
+      store: store,
+    );
+    addTearDown(controller.dispose);
+    await controller.start();
+
+    gateway.updateDraftCommitted = Completer<void>();
+    gateway.updateDraftGate = Completer<void>();
+    controller.text.text = 'first edit';
+    controller.onTextChanged();
+    final Future<void> saving = controller.saveNow();
+    await gateway.updateDraftCommitted!.future;
+    // The user keeps typing before the accepted response returns.
+    controller.text.text = 'latest edit';
+    controller.onTextChanged();
+    gateway.updateDraftGate!.complete();
+    await saving;
+    // The stale response must not label the newer snapshot saved; the
+    // follow-up debounce save persists it.
+    await Future<void>.delayed(const Duration(milliseconds: 900));
+
+    expect(controller.phase, DraftSavePhase.saved);
+    expect(gateway.drafts[controller.id!]!.text, 'latest edit');
+    expect(controller.canPublish, isTrue);
+    expect(await controller.publish(), isTrue);
+    expect(gateway.posts[controller.publishedPostId!]!.text, 'latest edit');
+  });
+
+  test('reopened dirty buffer based on an older version is a conflict', () async {
+    final FakeSpaceGateway gateway = FakeSpaceGateway();
+    final SpaceOperation created = await gateway.createDraft(
+      operationId: 'create',
+      text: 'original',
+    );
+    final String draftId = created.resourceId!;
+    await gateway.updateDraft(
+      draftId: draftId,
+      operationId: 'other-edit',
+      expectedVersion: 1,
+      text: 'other device edit',
+      imageIds: <String>[],
+    );
+    final SpaceLocalStore store = SpaceLocalStore(scopeKey: gateway.scopeKey)
+      ..saveDraft(
+        draftId,
+        const SpaceDraftBuffer(
+          text: 'offline local edit',
+          imageIds: <String>[],
+          version: 1,
+          serverText: 'original',
+          dirty: true,
+        ),
+      );
+    final SpaceComposeController controller = SpaceComposeController(
+      gateway: gateway,
+      store: store,
+      draftId: draftId,
+    );
+    addTearDown(controller.dispose);
+
+    await controller.start();
+    await controller.saveNow();
+
+    expect(controller.phase, DraftSavePhase.conflict);
+    expect(controller.text.text, 'offline local edit');
+    expect(controller.canPublish, isFalse);
+    // The other writer's version is never silently replaced by stale input.
+    expect(gateway.drafts[draftId]!.text, 'other device edit');
   });
 
   testWidgets('offline input stays local and survives reopening the draft', (

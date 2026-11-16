@@ -109,6 +109,50 @@ void main() {
   );
 
   test(
+    'post.deleted event scrubs cached references in other loaded posts',
+    () async {
+      final FakeSpaceGateway gateway = FakeSpaceGateway();
+      final SpacePost source = spacePost(
+        postId: 'post-1',
+        text: 'deleted secret',
+      );
+      final SpacePost repost = spacePost(
+        postId: 'post-2',
+        text: 'repost text',
+        reference: SpaceReference(
+          postId: 'post-1',
+          deleted: false,
+          author: source.author,
+          text: 'deleted secret',
+          image: null,
+        ),
+      );
+      gateway.posts['post-1'] = source;
+      gateway.posts['post-2'] = repost;
+      gateway.postPages[''] = spacePagePost(<SpacePost>[source, repost]);
+      gateway.overviewResult = spaceOverview(latestEventId: 1);
+      final SpaceController controller = controllerFor(gateway);
+      await controller.start();
+
+      gateway.eventPages.add(
+        spaceEventPage(<SpaceEvent>[
+          spaceEvent(eventId: 2, type: 'post.deleted', postId: 'post-1'),
+        ]),
+      );
+      await controller.pollEventsOnce();
+
+      expect(controller.posts.any((SpacePost p) => p.postId == 'post-1'),
+          isFalse);
+      final SpacePost cached = controller.posts.singleWhere(
+        (SpacePost p) => p.postId == 'post-2',
+      );
+      expect(cached.reference!.deleted, isTrue);
+      expect(cached.reference!.text, isNull);
+      expect(cached.reference!.author, isNull);
+    },
+  );
+
+  test(
     'post.deleted event removes the post and invalidates its images',
     () async {
       final FakeSpaceGateway gateway = FakeSpaceGateway();

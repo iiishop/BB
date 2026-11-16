@@ -76,6 +76,11 @@ class SpaceComposeController extends ChangeNotifier {
   int? _version;
   String _serverText = '';
   List<SpaceImage> _images = <SpaceImage>[];
+  /// Server image order (facts), kept apart from the local [_order].
+  List<String> _serverOrder = <String>[];
+  /// Server version the local unsynced buffer is based on. A save may never
+  /// replay that buffer against a newer version adopted from another client.
+  int? _baselineVersion;
   List<String> _order = <String>[];
   final List<PendingDraftImage> pending = <PendingDraftImage>[];
   String? _localKey;
@@ -83,6 +88,7 @@ class SpaceComposeController extends ChangeNotifier {
   bool _saving = false;
   int _counter = 0;
   bool _disposed = false;
+  bool _discarded = false;
   String? _createOpId;
   String? _saveOpId;
   String? _saveSignature;
@@ -102,6 +108,8 @@ class SpaceComposeController extends ChangeNotifier {
       _id != null &&
       _version != null &&
       phase == DraftSavePhase.saved &&
+      text.text == _serverText &&
+      _sameOrder(_order, _serverOrder) &&
       pending.every((PendingDraftImage p) => !p.uploading && p.error == null) &&
       pending.isEmpty &&
       (text.text.trim().isNotEmpty || _images.isNotEmpty || hasReference);
@@ -157,30 +165,40 @@ class SpaceComposeController extends ChangeNotifier {
       _version = draft.version;
       _serverText = draft.text;
       _images = List<SpaceImage>.of(draft.images);
+      _serverOrder = draft.images.map((SpaceImage i) => i.imageId).toList();
       if (local != null && _localKey != draft.draftId) {
         store.deleteDraft(_localKey!);
         store.saveDraft(draft.draftId, local);
       }
       _localKey = draft.draftId;
       final SpaceDraftBuffer? buffered = store.draft(draft.draftId);
-      text.text = buffered?.dirty == true ? buffered!.text : draft.text;
-      _order = buffered?.dirty == true
+      final bool hasLocalEdit = buffered?.dirty == true;
+      text.text = hasLocalEdit ? buffered!.text : draft.text;
+      _order = hasLocalEdit
           ? _mergeOrder(buffered!.imageIds, draft.images)
-          : draft.images.map((SpaceImage i) => i.imageId).toList();
-      final List<String> serverOrder = draft.images
-          .map((SpaceImage i) => i.imageId)
-          .toList();
+          : List<String>.of(_serverOrder);
       final bool contentMatchesServer =
-          buffered?.dirty != true ||
+          !hasLocalEdit ||
           (buffered!.text == draft.text &&
-              _sameOrder(buffered.imageIds, serverOrder));
-      phase = contentMatchesServer
-          ? DraftSavePhase.saved
-          : DraftSavePhase.dirty;
+              _sameOrder(buffered.imageIds, _serverOrder));
       if (contentMatchesServer) {
+        _baselineVersion = draft.version;
+        phase = DraftSavePhase.saved;
         _persist(dirty: false);
+      } else {
+        // The buffer remembers the version it was written against. If the
+        // server moved past it, replaying the old input would silently
+        // overwrite the other writer, so surface the conflict instead.
+        final int base = buffered.version ?? draft.version;
+        _baselineVersion = base;
+        if (base != draft.version) {
+          phase = DraftSavePhase.conflict;
+          error = '草稿已在别处更新；本机输入已保留，不会被覆盖';
+        } else {
+          phase = DraftSavePhase.dirty;
+        }
+        _persist(dirty: true);
       }
-      _persist(dirty: phase == DraftSavePhase.dirty);
       _notify();
       if (phase == DraftSavePhase.dirty) {
         _scheduleSave();
@@ -254,6 +272,9 @@ class SpaceComposeController extends ChangeNotifier {
 
   void _scheduleSave() {
     _debounce?.cancel();
+    if (_discarded) {
+      return;
+    }
     _debounce = Timer(const Duration(milliseconds: 700), () {
       unawaited(saveNow());
     });
@@ -272,7 +293,11 @@ class SpaceComposeController extends ChangeNotifier {
   Future<void> saveNow() async {
     final String? id = _id;
     final int? version = _version;
-    if (id == null || version == null || _saving || _disposed) {
+    if (id == null ||
+        version == null ||
+        _saving ||
+        _disposed ||
+        _discarded) {
       return;
     }
     if (phase == DraftSavePhase.conflict) {
@@ -280,11 +305,15 @@ class SpaceComposeController extends ChangeNotifier {
     }
     _saving = true;
     phase = DraftSavePhase.saving;
+    // Snapshot the exact payload this request sends. The response describes
+    // that snapshot, never whatever the user typed while it was in flight.
+    final String savedText = text.text;
+    final List<String> savedOrder = List<String>.of(_order);
     final String signature = jsonEncode(<Object?>[
       id,
       version,
-      text.text,
-      _order,
+      savedText,
+      savedOrder,
     ]);
     if (_saveSignature != signature) {
       _saveSignature = signature;
@@ -296,28 +325,76 @@ class SpaceComposeController extends ChangeNotifier {
         draftId: id,
         operationId: _saveOpId!,
         expectedVersion: version,
-        text: text.text,
+        text: savedText,
         referenceId: referenceId,
-        imageIds: _order,
+        imageIds: savedOrder,
       );
-      _version = operation.resourceVersion ?? version;
-      _serverText = text.text;
-      phase = DraftSavePhase.saved;
-      error = null;
-      _saveOpId = null;
-      _saveSignature = null;
-      _persist(dirty: false);
+      final int receiptVersion = operation.resourceVersion ?? version;
+      _version = receiptVersion;
+      SpaceDraft? confirmed;
       // The receipt carries identity/version only; re-read the draft to keep
       // displayed facts on the server's copy.
       try {
-        final SpaceDraft confirmed = await gateway.getDraft(id);
-        _version = confirmed.version;
-        _serverText = confirmed.text;
-        _images = List<SpaceImage>.of(confirmed.images);
-        _order = confirmed.images.map((SpaceImage i) => i.imageId).toList();
+        confirmed = await gateway.getDraft(id);
       } catch (_) {
         // The mutation already committed; a failed confirmation read must not
         // present the save as failed.
+      }
+      final bool localChanged =
+          text.text != savedText || !_sameOrder(_order, savedOrder);
+      if (confirmed == null) {
+        _serverText = savedText;
+        _serverOrder = List<String>.of(savedOrder);
+        if (localChanged) {
+          _version = receiptVersion;
+          _baselineVersion = receiptVersion;
+          phase = DraftSavePhase.dirty;
+          _persist(dirty: true);
+          _scheduleSave();
+        } else {
+          _version = receiptVersion;
+          _baselineVersion = receiptVersion;
+          phase = DraftSavePhase.saved;
+          error = null;
+          _saveOpId = null;
+          _saveSignature = null;
+          _persist(dirty: false);
+        }
+      } else {
+        _serverText = confirmed.text;
+        _serverOrder = confirmed.images
+            .map((SpaceImage i) => i.imageId)
+            .toList();
+        _images = List<SpaceImage>.of(confirmed.images);
+        if (!localChanged) {
+          _version = confirmed.version;
+          _baselineVersion = confirmed.version;
+          _order = List<String>.of(_serverOrder);
+          text.text = confirmed.text;
+          phase = DraftSavePhase.saved;
+          error = null;
+          _saveOpId = null;
+          _saveSignature = null;
+          _persist(dirty: false);
+        } else if (confirmed.version == receiptVersion &&
+            confirmed.text == savedText) {
+          // Only local input advanced while the request was in flight. Keep
+          // it dirty and save the newer snapshot; never label it saved.
+          _version = confirmed.version;
+          _baselineVersion = confirmed.version;
+          _order = _mergeOrder(_order, confirmed.images);
+          phase = DraftSavePhase.dirty;
+          error = null;
+          _persist(dirty: true);
+          _scheduleSave();
+        } else {
+          // Another writer advanced the draft while this save was in flight.
+          _version = confirmed.version;
+          _baselineVersion = receiptVersion;
+          phase = DraftSavePhase.conflict;
+          error = '草稿已在别处更新；本机输入已保留，不会被覆盖';
+          _persist(dirty: true);
+        }
       }
     } on AuthFailure catch (failure) {
       if (failure.code == 'version_conflict') {
@@ -355,9 +432,11 @@ class SpaceComposeController extends ChangeNotifier {
     try {
       final SpaceDraft draft = await gateway.getDraft(id);
       _version = draft.version;
+      _baselineVersion = draft.version;
       _serverText = draft.text;
       _images = List<SpaceImage>.of(draft.images);
-      _order = draft.images.map((SpaceImage i) => i.imageId).toList();
+      _serverOrder = draft.images.map((SpaceImage i) => i.imageId).toList();
+      _order = List<String>.of(_serverOrder);
       text.text = draft.text;
       phase = DraftSavePhase.saved;
       error = null;
@@ -372,6 +451,9 @@ class SpaceComposeController extends ChangeNotifier {
   }
 
   void _persist({required bool dirty}) {
+    if (_discarded) {
+      return;
+    }
     final String? key = _localKey ?? _id;
     if (key == null) {
       return;
@@ -382,9 +464,9 @@ class SpaceComposeController extends ChangeNotifier {
         text: text.text,
         imageIds: List<String>.of(_order),
         serverText: _serverText,
-        serverImageIds: _images.map((SpaceImage i) => i.imageId).toList(),
+        serverImageIds: List<String>.of(_serverOrder),
         dirty: dirty,
-        version: _version,
+        version: _baselineVersion ?? _version,
       ),
     );
   }
@@ -425,17 +507,37 @@ class SpaceComposeController extends ChangeNotifier {
     if (id == null) {
       return;
     }
+    final String localText = text.text;
+    final List<String> localOrder = List<String>.of(_order);
     item.uploading = true;
     _notify();
     try {
       final SpaceDraft draft = await gateway.getDraft(id);
       _version = draft.version;
+      _serverText = draft.text;
+      _serverOrder = draft.images.map((SpaceImage i) => i.imageId).toList();
       _images = List<SpaceImage>.of(draft.images);
-      _order = draft.images.map((SpaceImage i) => i.imageId).toList();
       pending.remove(item);
-      phase = DraftSavePhase.saved;
-      error = null;
-      _persist(dirty: false);
+      final bool localChanged =
+          text.text != localText || !_sameOrder(_order, localOrder);
+      if (!localChanged) {
+        _order = List<String>.of(_serverOrder);
+        text.text = draft.text;
+        if (phase != DraftSavePhase.conflict) {
+          _baselineVersion = draft.version;
+          phase = DraftSavePhase.saved;
+        }
+        error = null;
+        _persist(dirty: phase != DraftSavePhase.saved);
+      } else {
+        _order = _mergeOrder(_order, draft.images);
+        if (phase != DraftSavePhase.conflict) {
+          _baselineVersion = draft.version;
+          phase = DraftSavePhase.dirty;
+          _scheduleSave();
+        }
+        _persist(dirty: true);
+      }
     } catch (failure) {
       item.error = '上传结果待确认';
       error = spaceErrorText(failure);
@@ -457,6 +559,8 @@ class SpaceComposeController extends ChangeNotifier {
       _notify();
       return;
     }
+    final String localText = text.text;
+    final List<String> localOrder = List<String>.of(_order);
     item.uploading = true;
     item.error = null;
     _notify();
@@ -472,14 +576,32 @@ class SpaceComposeController extends ChangeNotifier {
       item.uploaded = true;
       final SpaceDraft draft = await gateway.getDraft(id);
       _images = List<SpaceImage>.of(draft.images);
-      _order = draft.images.map((SpaceImage i) => i.imageId).toList();
+      _serverText = draft.text;
+      _serverOrder = draft.images.map((SpaceImage i) => i.imageId).toList();
       _version = draft.version;
       pending.remove(item);
-      if (phase != DraftSavePhase.conflict) {
-        phase = DraftSavePhase.saved;
+      final bool localChanged =
+          text.text != localText || !_sameOrder(_order, localOrder);
+      if (!localChanged) {
+        _order = List<String>.of(_serverOrder);
+        text.text = draft.text;
+        if (phase != DraftSavePhase.conflict) {
+          _baselineVersion = draft.version;
+          phase = DraftSavePhase.saved;
+        }
+        error = null;
+        _persist(dirty: phase != DraftSavePhase.saved);
+      } else {
+        // The upload response must not mark text/order the user changed while
+        // it was in flight as saved; merge the new image and save again.
+        _order = _mergeOrder(_order, draft.images);
+        if (phase != DraftSavePhase.conflict) {
+          _baselineVersion = draft.version;
+          phase = DraftSavePhase.dirty;
+          _scheduleSave();
+        }
+        _persist(dirty: true);
       }
-      error = null;
-      _persist(dirty: false);
     } on AuthFailure catch (failure) {
       if (failure.code == 'version_conflict') {
         phase = DraftSavePhase.conflict;
@@ -560,6 +682,15 @@ class SpaceComposeController extends ChangeNotifier {
       _notify();
       return false;
     }
+    if (text.text != _serverText || !_sameOrder(_order, _serverOrder)) {
+      // Defensive: a saved phase must never pair with unsynced content.
+      phase = DraftSavePhase.dirty;
+      error = '请等待草稿保存完成再发布';
+      _persist(dirty: true);
+      _scheduleSave();
+      _notify();
+      return false;
+    }
     if (text.text.trim().isEmpty && _images.isEmpty && !hasReference) {
       error = '写一点正文或添加一张图片后再发布';
       _notify();
@@ -614,6 +745,10 @@ class SpaceComposeController extends ChangeNotifier {
         operationId: _discardOpId!,
         expectedVersion: version,
       );
+      // A debounce/retry that resolves after deletion must not resurrect the
+      // local buffer of a draft the user explicitly discarded.
+      _discarded = true;
+      _debounce?.cancel();
       store.deleteDraft(id);
       final String? key = _localKey;
       if (key != null) {

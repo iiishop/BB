@@ -7,6 +7,7 @@ import '../../models/space_models.dart';
 import 'space_detail_controller.dart';
 import 'space_gateway.dart';
 import 'space_image_viewer.dart';
+import 'space_invalidation.dart';
 import 'space_local_store.dart';
 
 enum SpaceSection { feed, notifications, drafts }
@@ -385,10 +386,37 @@ class SpaceController extends ChangeNotifier {
   void _handlePostDeleted(String postId) {
     posts.removeWhere((SpacePost p) => p.postId == postId);
     _pendingPage.removeWhere((SpacePost p) => p.postId == postId);
+    _scrubReferencesTo(postId);
     if (posts.isEmpty && phase == SpacePhase.ready) {
       phase = SpacePhase.empty;
     }
     _notify();
+  }
+
+  /// A deleted post can still be embedded as a reference card in other loaded
+  /// posts and open details. Reduce every cached snapshot to the deleted
+  /// placeholder and drop the source image from the shared cache.
+  void _scrubReferencesTo(String postId) {
+    void scrub(List<SpacePost> list) {
+      for (int i = 0; i < list.length; i++) {
+        final SpacePost post = list[i];
+        final SpaceReference? reference = post.reference;
+        if (reference == null || reference.postId != postId) {
+          continue;
+        }
+        final SpaceImage? image = reference.image;
+        if (image != null) {
+          images.invalidateImage(image.imageId);
+        }
+        list[i] = spacePostWithScrubbedReference(post, postId);
+      }
+    }
+
+    scrub(posts);
+    scrub(_pendingPage);
+    for (final SpaceDetailController controller in _details.values) {
+      controller.onReferenceDeletedEvent(postId);
+    }
   }
 
   String _newVisitId() {
@@ -679,6 +707,7 @@ class SpaceController extends ChangeNotifier {
           posts.removeWhere((SpacePost p) => p.postId == postId);
           _pendingPage.removeWhere((SpacePost p) => p.postId == postId);
           _details[postId]?.onDeletedEvent();
+          _scrubReferencesTo(postId);
           if (posts.isEmpty && phase == SpacePhase.ready) {
             phase = SpacePhase.empty;
           }

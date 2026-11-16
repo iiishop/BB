@@ -136,3 +136,31 @@ contract, avatar transport or persistent cache was added; Forge's
   initials without a retry loop; the likes sheet reuses the page's store; a
   `SpacePage` without a profile gateway keeps initials.
 - Raw logs: `docs/evidence/dea481-client/avatar-fix/`.
+
+## QA fix round after Sentinel candidate `942dd46a`
+
+Sentinel found three client state defects on the combined candidate; all are
+fixed on this branch without touching the wire contract or server code.
+
+- An in-flight `update_draft` response no longer marks text typed meanwhile as
+  saved. The save snapshots its payload, compares the live editor state after
+  the receipt, keeps `dirty` and saves the newer snapshot; `publish` refuses a
+  draft whose live text/order differ from the accepted server copy.
+- A dirty buffer reopened against a newer server version now reports
+  `conflict` instead of replaying the old input with the newer version (which
+  silently overwrote the other writer). The buffer keeps its base version.
+- A `post.deleted` event now scrubs cached references to the deleted post in
+  the feed, pending page and open detail views and invalidates the reference
+  image; the same path runs for local deletion.
+- The upload-completion and discard paths were audited for the same class:
+  uploads keep newer edits dirty instead of resetting `saved`, and a discard
+  cancels pending saves so the local buffer cannot reappear.
+
+New regressions live in `test/space_compose_test.dart` and
+`test/space_controller_test.dart`; Sentinel's three real-service probes pass
+against the isolated FastAPI server (`docs/evidence/dea481-client/qa-fixes/`).
+
+- `flutter analyze` — clean.
+- `flutter test` — 686 passed, 12 skipped.
+- Focused Space suite — 62 passed.
+- Real FastAPI probes — 3 passed (pre-fix run on `942dd46a` failed all three).
