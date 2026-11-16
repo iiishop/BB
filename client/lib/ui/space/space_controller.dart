@@ -428,6 +428,7 @@ class SpaceController extends ChangeNotifier {
     posts.removeWhere((SpacePost p) => p.postId == postId);
     _pendingPage.removeWhere((SpacePost p) => p.postId == postId);
     _scrubReferencesTo(postId);
+    _scrubCommentCaches();
     if (posts.isEmpty && phase == SpacePhase.ready) {
       phase = SpacePhase.empty;
     }
@@ -448,11 +449,16 @@ class SpaceController extends ChangeNotifier {
     return spacePostWithScrubbedComments(result, _isDeletedComment);
   }
 
+  /// Mirrors the server's notification projection: a notification is
+  /// unavailable when its navigation target post is deleted, or when its
+  /// referenced comment is deleted. A surviving repost target keeps the
+  /// notification usable even if the quoted source post is gone.
   SpaceNotification _scrubNotification(SpaceNotification notification) {
+    final bool postDeleted = _tombstones.contains(notification.targetPostId);
     final String? commentId = notification.commentId;
-    if (commentId == null ||
-        notification.snippet == null ||
-        !_deletedComments.contains(commentId)) {
+    final bool commentDeleted =
+        commentId != null && _deletedComments.contains(commentId);
+    if (!postDeleted && !commentDeleted) {
       return notification;
     }
     return SpaceNotification(
@@ -464,8 +470,8 @@ class SpaceController extends ChangeNotifier {
       version: notification.version,
       ackVersion: notification.ackVersion,
       unread: notification.unread,
-      accessible: notification.accessible,
-      deleted: notification.deleted,
+      accessible: false,
+      deleted: true,
       actors: notification.actors,
       actorCount: notification.actorCount,
       snippet: null,
@@ -822,6 +828,7 @@ class SpaceController extends ChangeNotifier {
           _pendingPage.removeWhere((SpacePost p) => p.postId == postId);
           _details[postId]?.onDeletedEvent();
           _scrubReferencesTo(postId);
+          _scrubCommentCaches();
           if (posts.isEmpty && phase == SpacePhase.ready) {
             phase = SpacePhase.empty;
           }

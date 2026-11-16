@@ -81,6 +81,12 @@ class FakeSpaceGateway implements SpaceGateway {
   Completer<void>? repliesCaptured;
   Completer<void>? repliesGate;
 
+  /// Delays one notification page after the server read it, so a post/comment
+  /// deletion event can be applied before the stale page returns.
+  bool holdNotifications = false;
+  Completer<void>? notificationsCaptured;
+  Completer<void>? notificationsGate;
+
   final List<String> calls = <String>[];
   final List<({String postId, String? visitId})> getPostCalls =
       <({String postId, String? visitId})>[];
@@ -217,7 +223,19 @@ class FakeSpaceGateway implements SpaceGateway {
     bool unreadOnly = false,
   }) async {
     _record('list_notifications');
-    return notificationPage;
+    final SpacePageNotification page = notificationPage;
+    if (holdNotifications) {
+      holdNotifications = false;
+      final Completer<void>? captured = notificationsCaptured;
+      if (captured != null && !captured.isCompleted) {
+        captured.complete();
+      }
+      final Completer<void>? gate = notificationsGate;
+      if (gate != null) {
+        await gate.future;
+      }
+    }
+    return page;
   }
 
   @override

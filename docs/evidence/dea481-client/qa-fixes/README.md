@@ -327,3 +327,55 @@ The comment-deletion probe source is copied byte-for-byte from Sentinel's
 `dea481-sentinel-qa3-d3dbda1.zip` (`round6/sentinel_round3_test.dart`); that
 bundle keeps the pre-fix 0/2 evidence. The 12 skips are unchanged; no assertion
 was loosened.
+
+## Round 7: notification invalidation matches the server projection
+
+Sentinel's fourth QA round kept the prior fourteen real-link cases green but
+found two notification gaps in `SPACE-DELETION-LATE-WRITE` (**0/2, exit 1**):
+
+1. **Deleting a whole post did not clear its notifications.** A comment
+   notification page was held; the real post was deleted and the event
+   consumed; both the cached notification and the late page kept
+   `comment secret` with `accessible=true/deleted=false`, while the real
+   service returned `snippet=null, accessible=false, deleted=true`.
+2. **Deleting a comment only cleared the snippet.** After the late page
+   returned, the client still advertised `accessible=true/deleted=false`
+   where the server returned `accessible=false/deleted=true`. The UI uses
+   these flags to show "content deleted" and to decide whether navigation is
+   valid.
+
+**Common fix.** `SpaceController._scrubNotification` now mirrors the server's
+notification projection (`space_queries.notification`):
+
+- unavailable when the notification's **navigation target** (`targetPostId`)
+  is tombstoned, or when its referenced `commentId` is deleted;
+- unavailable means `snippet=null`, `accessible=false`, `deleted=true`;
+- post deletion events and local post deletion scrub loaded notifications, and
+  every incoming notification page (including late pages) is admitted through
+  the same filter;
+- a notification pointing at a surviving repost target, or at a surviving child
+  comment, is **not** invalidated merely because the quoted source post or the
+  parent comment was deleted.
+
+`contract_gap = none`; owner and sole fix author Muse; Forge remains the only
+integrator.
+
+Regressions were added to the existing `test/space_controller_test.dart`
+entry: comment deletion marks a notification unavailable (cached and late
+page), post deletion does the same for notifications targeting that post, and
+deleting a repost source keeps the surviving repost notification usable.
+
+## Round 7 verification (same fixed tree)
+
+| Check | Command | Result | Log/exit |
+| --- | --- | --- | --- |
+| Analyzer | `flutter analyze` | exit 0, no issues | `round7/analyze.log`, `round7/analyze.exit` |
+| Focused Space suite | same 9 files | exit 0, **75 passed** | `round7/space-tests.log`, `round7/space-tests.exit` |
+| Full client suite | `flutter test` | exit 0, **699 passed, 12 skipped** | `round7/flutter-test-all.log`, `round7/flutter-test-all.exit` |
+| Real probes | `python3 run_real_probes.py` (15 probes: prior twelve + Sentinel's two notification probes + repost control) | exit 0, **15 passed** | `round7/real-probes.log`, `round7/real-probes.exit`, `round7/server.log` |
+
+The notification probe and control sources are copied byte-for-byte from
+Sentinel's `dea481-sentinel-qa4-00ab236.zip`
+(`round7/sentinel_round4_test.dart`, `round7/sentinel_round4_controls_test.dart`);
+that bundle keeps the pre-fix 0/2 evidence. The 12 skips are unchanged; no
+assertion was loosened.

@@ -238,3 +238,16 @@ preview/root/reply/context pages; deleted comments keep their identity,
 navigable. Regressions are in `test/space_controller_test.dart`; all twelve real
 probes pass (`docs/evidence/dea481-client/qa-fixes/round6/`). Current suite:
 696 passed / 12 skipped, Space 72 passed.
+
+### Notification projection (`SPACE-DELETION-LATE-WRITE`, round 7)
+
+Sentinel's fourth QA round found notifications still advertising deleted
+content as accessible. `SpaceController` now mirrors the server projection:
+a notification is unavailable (`snippet=null`, `accessible=false`,
+`deleted=true`) when its navigation target post is tombstoned or its referenced
+comment is deleted, and post deletion events/local deletion scrub loaded
+notifications while late notification pages use the same admission filter.
+Notifications to a surviving repost target or a surviving child comment stay
+usable. Regressions are in `test/space_controller_test.dart`; all fifteen real
+probes pass (`docs/evidence/dea481-client/qa-fixes/round7/`). Current suite:
+699 passed / 12 skipped, Space 75 passed.

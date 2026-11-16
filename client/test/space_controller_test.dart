@@ -509,6 +509,143 @@ void main() {
   );
 
   test(
+    'comment deletion marks notifications unavailable, not only snippet-less',
+    () async {
+      final FakeSpaceGateway gateway = FakeSpaceGateway();
+      gateway.posts['post-1'] = spacePost(postId: 'post-1');
+      gateway.postPages[''] = spacePagePost(
+        <SpacePost>[gateway.posts['post-1']!],
+      );
+      gateway.notificationPage = spacePageNotification(<SpaceNotification>[
+        spaceNotification(
+          notificationId: 'n1',
+          kind: 'comment',
+          postId: 'post-1',
+          commentId: 'comment-1',
+          targetPostId: 'post-1',
+          snippet: 'deleted comment secret',
+        ),
+      ]);
+      gateway.overviewResult = spaceOverview(latestEventId: 1);
+      final SpaceController controller = controllerFor(gateway);
+      await controller.start();
+      await controller.loadNotifications(reset: true);
+
+      gateway.holdNotifications = true;
+      gateway.notificationsCaptured = Completer<void>();
+      gateway.notificationsGate = Completer<void>();
+      final Future<void> loading = controller.loadNotifications(reset: true);
+      await gateway.notificationsCaptured!.future;
+      gateway.eventPages.add(
+        spaceEventPage(<SpaceEvent>[
+          spaceEvent(
+            eventId: 2,
+            type: 'comment.deleted',
+            postId: 'post-1',
+            commentId: 'comment-1',
+          ),
+        ]),
+      );
+      await controller.pollEventsOnce();
+      SpaceNotification notice = controller.notifications.single;
+      expect(notice.snippet, isNull);
+      expect(notice.accessible, isFalse);
+      expect(notice.deleted, isTrue);
+
+      gateway.notificationsGate!.complete();
+      await loading;
+      notice = controller.notifications.single;
+      expect(notice.snippet, isNull);
+      expect(notice.accessible, isFalse);
+      expect(notice.deleted, isTrue);
+    },
+  );
+
+  test(
+    'post deletion marks its notifications deleted, including late pages',
+    () async {
+      final FakeSpaceGateway gateway = FakeSpaceGateway();
+      final SpacePost post = spacePost(postId: 'post-1', text: 'post secret');
+      gateway.posts['post-1'] = post;
+      gateway.postPages[''] = spacePagePost(<SpacePost>[post]);
+      gateway.notificationPage = spacePageNotification(<SpaceNotification>[
+        spaceNotification(
+          notificationId: 'n1',
+          kind: 'comment',
+          postId: 'post-1',
+          commentId: 'comment-1',
+          targetPostId: 'post-1',
+          snippet: 'comment secret',
+        ),
+      ]);
+      gateway.overviewResult = spaceOverview(latestEventId: 1);
+      final SpaceController controller = controllerFor(gateway);
+      await controller.start();
+      await controller.loadNotifications(reset: true);
+
+      gateway.holdNotifications = true;
+      gateway.notificationsCaptured = Completer<void>();
+      gateway.notificationsGate = Completer<void>();
+      final Future<void> loading = controller.loadNotifications(reset: true);
+      await gateway.notificationsCaptured!.future;
+      gateway.eventPages.add(
+        spaceEventPage(<SpaceEvent>[
+          spaceEvent(eventId: 2, type: 'post.deleted', postId: 'post-1'),
+        ]),
+      );
+      await controller.pollEventsOnce();
+      SpaceNotification notice = controller.notifications.single;
+      expect(notice.snippet, isNull);
+      expect(notice.accessible, isFalse);
+      expect(notice.deleted, isTrue);
+
+      gateway.notificationsGate!.complete();
+      await loading;
+      notice = controller.notifications.single;
+      expect(notice.snippet, isNull);
+      expect(notice.accessible, isFalse);
+      expect(notice.deleted, isTrue);
+    },
+  );
+
+  test(
+    'deleting a repost source keeps the surviving repost notification usable',
+    () async {
+      final FakeSpaceGateway gateway = FakeSpaceGateway();
+      final SpacePost source = spacePost(postId: 'post-1', text: 'source');
+      final SpacePost repost = spacePost(postId: 'post-2', text: 'surviving');
+      gateway.posts['post-1'] = source;
+      gateway.posts['post-2'] = repost;
+      gateway.postPages[''] = spacePagePost(<SpacePost>[source, repost]);
+      gateway.notificationPage = spacePageNotification(<SpaceNotification>[
+        spaceNotification(
+          notificationId: 'n1',
+          kind: 'repost',
+          postId: 'post-1',
+          targetPostId: 'post-2',
+          snippet: 'surviving repost',
+        ),
+      ]);
+      gateway.overviewResult = spaceOverview(latestEventId: 1);
+      final SpaceController controller = controllerFor(gateway);
+      await controller.start();
+      await controller.loadNotifications(reset: true);
+
+      gateway.eventPages.add(
+        spaceEventPage(<SpaceEvent>[
+          spaceEvent(eventId: 2, type: 'post.deleted', postId: 'post-1'),
+        ]),
+      );
+      await controller.pollEventsOnce();
+
+      final SpaceNotification notice = controller.notifications.single;
+      expect(notice.accessible, isTrue);
+      expect(notice.deleted, isFalse);
+      expect(notice.snippet, 'surviving repost');
+    },
+  );
+
+  test(
     'post.deleted event removes the post and invalidates its images',
     () async {
       final FakeSpaceGateway gateway = FakeSpaceGateway();
