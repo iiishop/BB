@@ -205,12 +205,16 @@ class _HomeViewState extends State<HomeView> {
   Widget build(BuildContext context) {
     final SpaceGateway? space = widget.space;
     if (space == null) {
-      return _chatScaffold(context);
+      // No rail in this shell, so the floating avatar is the only profile entry.
+      return _chatScaffold(context, showProfileEntry: true);
     }
     return _appScaffold(context, space);
   }
 
-  Widget _chatScaffold(BuildContext context) {
+  Widget _chatScaffold(
+    BuildContext context, {
+    required bool showProfileEntry,
+  }) {
     final TextTheme text = Theme.of(context).textTheme;
     final bool reconnecting =
         widget.heartbeat.phase == HeartbeatPhase.reconnecting;
@@ -347,16 +351,29 @@ class _HomeViewState extends State<HomeView> {
                   ),
               ],
             ),
-            Positioned(
-              left: AppSpacing.lg,
+            // The rail owns the profile entry once it exists; on narrow layouts
+            // this floating avatar is the only way in. Sliding it out to the
+            // left animates the hand-off to the rail instead of popping.
+            AnimatedPositioned(
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeOutCubic,
+              left: showProfileEntry ? AppSpacing.lg : -80,
               bottom: AppSpacing.lg,
-              child: ProfileAvatar(
-                key: HomeView.avatarEntryKey,
-                bytes: _avatar,
-                size: 60,
-                loading: _loading && _avatar == null,
-                onTap: _openProfile,
-                semanticLabel: '打开个人资料',
+              child: AnimatedOpacity(
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOutCubic,
+                opacity: showProfileEntry ? 1 : 0,
+                child: IgnorePointer(
+                  ignoring: !showProfileEntry,
+                  child: ProfileAvatar(
+                    key: HomeView.avatarEntryKey,
+                    bytes: _avatar,
+                    size: 60,
+                    loading: _loading && _avatar == null,
+                    onTap: _openProfile,
+                    semanticLabel: '打开个人资料',
+                  ),
+                ),
               ),
             ),
           ],
@@ -374,7 +391,9 @@ class _HomeViewState extends State<HomeView> {
         final Widget pages = IndexedStack(
           index: _section,
           children: <Widget>[
-            _chatScaffold(context),
+            // Wide layouts have the rail, which already carries the profile
+            // entry; the floating avatar would duplicate it.
+            _chatScaffold(context, showProfileEntry: compact),
             _spacePage(
               context,
               space,
