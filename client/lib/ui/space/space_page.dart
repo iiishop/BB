@@ -97,6 +97,16 @@ class _SpacePageState extends State<SpacePage> {
     }
   }
 
+  /// Explicit refresh: reload the feed and revalidate every author avatar.
+  ///
+  /// [SpaceAvatarStore] asks at most once per account per page visit, so a
+  /// profile image changed while this page stayed open would never appear.
+  /// Revalidation is cheap: an unchanged avatar comes back as a 304.
+  Future<void> _refresh() {
+    _avatars?.reset();
+    return _space.refresh(explicit: true);
+  }
+
   void _onScroll() {
     if (!_feedScroll.hasClients) {
       return;
@@ -124,7 +134,7 @@ class _SpacePageState extends State<SpacePage> {
     }
     await _space.loadDrafts(silent: true);
     if (created != null) {
-      await _space.refresh(explicit: true);
+      await _refresh();
       await _space.openPost(created);
     }
   }
@@ -258,7 +268,7 @@ class _SpacePageState extends State<SpacePage> {
           dense: dense,
           unreadNotifications: _space.unreadNotifications,
           draftCount: _space.drafts.length,
-          onRefresh: () => _space.refresh(explicit: true),
+          onRefresh: () => _refresh(),
           onDrafts: _space.showDrafts,
           onNotifications: _space.showNotifications,
           onPublish: () => _openCompose(),
@@ -287,7 +297,7 @@ class _SpacePageState extends State<SpacePage> {
             background: AppColors.dangerSurface,
             icon: Icons.error_outline_rounded,
             actionLabel: '重试',
-            onAction: () => _space.refresh(explicit: true),
+            onAction: () => _refresh(),
           ),
         Expanded(child: _feedBody(layout)),
       ],
@@ -302,7 +312,7 @@ class _SpacePageState extends State<SpacePage> {
         title: '当前服务器不支持 BB 空间',
         message: '聊天、登录和个人资料仍可正常使用。升级服务器后再回来。',
         actionLabel: '重新检查',
-        onAction: () => _space.refresh(explicit: true),
+        onAction: () => _refresh(),
       );
     }
     if (_space.posts.isEmpty) {
@@ -316,7 +326,7 @@ class _SpacePageState extends State<SpacePage> {
           title: _space.offline ? '暂时无法连接服务器' : '空间加载失败',
           message: _space.feedError ?? '请稍后重试',
           actionLabel: '重试',
-          onAction: () => _space.refresh(explicit: true),
+          onAction: () => _refresh(),
         ),
         _ => const SpaceStateView(
           icon: Icons.forum_outlined,
@@ -326,10 +336,13 @@ class _SpacePageState extends State<SpacePage> {
       };
     }
     return RefreshIndicator(
-      onRefresh: () => _space.refresh(explicit: true),
+      onRefresh: () => _refresh(),
       child: ListView.builder(
         key: SpacePage.feedListKey,
         controller: _feedScroll,
+        // Without this a short feed cannot overscroll, so pull-to-refresh
+        // silently does nothing until the list is tall enough to scroll.
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(
           AppSpacing.md,
           AppSpacing.xs,
