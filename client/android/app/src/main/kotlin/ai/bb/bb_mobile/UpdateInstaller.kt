@@ -185,7 +185,11 @@ internal class UpdateInstaller(
                     )
                 } catch (_: IllegalArgumentException) {
                     // The provider's own path configuration refused the file.
-                    return rejection("outside_app_storage")
+                    // Distinct from outside_app_storage: that one means the file
+                    // itself is outside the sandbox, this one means the file
+                    // passed the sandbox check but the provider XML does not
+                    // expose its directory.
+                    return rejection("provider_rejected")
                 }
                 val intent = Intent(Intent.ACTION_VIEW).apply {
                     setDataAndType(uri, APK_MIME)
@@ -296,16 +300,22 @@ internal class UpdateInstaller(
 
     /**
      * Only files below this app's own sandbox may be offered to the installer.
-     * `canonicalFile` resolves `..` and symlinks, so an escaping link is refused
-     * rather than silently served through the content provider.
+     *
+     * Both sides are compared in canonical form. Android exposes the same
+     * storage under more than one name — on many devices `/data/data` and
+     * `/data/user/0` are links to each other — so a path the app itself
+     * received from the platform can differ textually from the root while
+     * resolving to the same place. Requiring the canonical path to equal the
+     * literal one rejected those callers with `outside_app_storage` even
+     * though nothing had left the sandbox.
+     *
+     * A link that really escapes resolves outside every root, so the prefix
+     * check below still refuses it.
      */
     private fun isInsideAppStorage(file: File): Boolean {
         val target = try {
             file.canonicalFile
         } catch (_: Exception) {
-            return false
-        }
-        if (target != file.absoluteFile) {
             return false
         }
         val roots = listOfNotNull(
