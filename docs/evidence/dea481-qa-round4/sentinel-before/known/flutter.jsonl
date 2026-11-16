@@ -1,0 +1,27 @@
+{"protocolVersion":"0.1.1","runnerVersion":null,"pid":873106,"type":"start","time":0}
+{"suite":{"id":0,"platform":"vm","path":"/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/BB/client/.qa-artifacts/probes/space_defect_probe_test.dart"},"type":"suite","time":0}
+{"test":{"id":1,"name":"loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/BB/client/.qa-artifacts/probes/space_defect_probe_test.dart","suiteID":0,"groupIDs":[],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":null},"type":"testStart","time":0}
+{"suite":{"id":2,"platform":"vm","path":"/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/BB/client/.qa-artifacts/probes/adjacent_draft_probe_test.dart"},"type":"suite","time":3}
+{"test":{"id":3,"name":"loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/BB/client/.qa-artifacts/probes/adjacent_draft_probe_test.dart","suiteID":2,"groupIDs":[],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":null},"type":"testStart","time":3}
+{"suite":{"id":4,"platform":"vm","path":"/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/BB/client/.qa-artifacts/probes/upload_conflict_probe_test.dart"},"type":"suite","time":4}
+{"test":{"id":5,"name":"loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/BB/client/.qa-artifacts/probes/upload_conflict_probe_test.dart","suiteID":4,"groupIDs":[],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":null},"type":"testStart","time":4}
+{"count":3,"time":4,"type":"allSuites"}
+{"testID":1,"result":"success","skipped":false,"hidden":true,"type":"testDone","time":1618}
+{"group":{"id":6,"suiteID":0,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":3,"line":null,"column":null,"url":null},"type":"group","time":1619}
+{"test":{"id":7,"name":"real T02 delayed save publishes visible text","suiteID":0,"groupIDs":[6],"metadata":{"skip":false,"skipReason":null},"line":56,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/BB/client/.qa-artifacts/probes/space_defect_probe_test.dart"},"type":"testStart","time":1620}
+{"testID":3,"result":"success","skipped":false,"hidden":true,"type":"testDone","time":1816}
+{"group":{"id":8,"suiteID":2,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":2,"line":null,"column":null,"url":null},"type":"group","time":1817}
+{"test":{"id":9,"name":"real T02 image removal during save must survive the older receipt","suiteID":2,"groupIDs":[8],"metadata":{"skip":false,"skipReason":null},"line":14,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/BB/client/.qa-artifacts/probes/adjacent_draft_probe_test.dart"},"type":"testStart","time":1817}
+{"testID":5,"result":"success","skipped":false,"hidden":true,"type":"testDone","time":2033}
+{"group":{"id":10,"suiteID":4,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":1,"line":null,"column":null,"url":null},"type":"group","time":2034}
+{"test":{"id":11,"name":"real T02 upload confirmation must fence a newer external writer","suiteID":4,"groupIDs":[10],"metadata":{"skip":false,"skipReason":null},"line":31,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/BB/client/.qa-artifacts/probes/upload_conflict_probe_test.dart"},"type":"testStart","time":2034}
+{"testID":9,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2993}
+{"test":{"id":12,"name":"real T02 upload must not erase already-dirty text","suiteID":2,"groupIDs":[8],"metadata":{"skip":false,"skipReason":null},"line":38,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/BB/client/.qa-artifacts/probes/adjacent_draft_probe_test.dart"},"type":"testStart","time":2993}
+{"testID":11,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":3179}
+{"testID":12,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":3206}
+{"testID":7,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":3637}
+{"test":{"id":13,"name":"real T02 dirty reopen preserves conflicting server version","suiteID":0,"groupIDs":[6],"metadata":{"skip":false,"skipReason":null},"line":80,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/BB/client/.qa-artifacts/probes/space_defect_probe_test.dart"},"type":"testStart","time":3638}
+{"testID":13,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":3814}
+{"test":{"id":14,"name":"real T07 replay removes cached repost source text","suiteID":0,"groupIDs":[6],"metadata":{"skip":false,"skipReason":null},"line":100,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/BB/client/.qa-artifacts/probes/space_defect_probe_test.dart"},"type":"testStart","time":3814}
+{"testID":14,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":4048}
+{"success":true,"type":"done","time":4060}

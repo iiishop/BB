@@ -1,0 +1,13 @@
+{"protocolVersion":"0.1.1","runnerVersion":null,"pid":873225,"type":"start","time":0}
+{"suite":{"id":0,"platform":"vm","path":"/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/BB/client/.qa-artifacts/probes/sentinel_round2_test.dart"},"type":"suite","time":0}
+{"test":{"id":1,"name":"loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/BB/client/.qa-artifacts/probes/sentinel_round2_test.dart","suiteID":0,"groupIDs":[],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":null},"type":"testStart","time":0}
+{"count":1,"time":4,"type":"allSuites"}
+{"testID":1,"result":"success","skipped":false,"hidden":true,"type":"testDone","time":6137}
+{"group":{"id":2,"suiteID":0,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":2,"line":null,"column":null,"url":null},"type":"group","time":6138}
+{"test":{"id":3,"name":"T02 failed upload confirmation retry preserves local image removal","suiteID":0,"groupIDs":[2],"metadata":{"skip":false,"skipReason":null},"line":58,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/BB/client/.qa-artifacts/probes/sentinel_round2_test.dart"},"type":"testStart","time":6138}
+{"testID":3,"error":"Expected: false\n  Actual: <true>\nconfirmation retry cannot restore an image explicitly removed during upload\n","stackTrace":"package:matcher                                      expect\npackage:flutter_test/src/widget_tester.dart 473:18   expect\n.qa-artifacts/probes/sentinel_round2_test.dart 80:5  main.<fn>\n","isFailure":true,"type":"error","time":6397}
+{"testID":3,"result":"failure","skipped":false,"hidden":false,"type":"testDone","time":6398}
+{"test":{"id":4,"name":"T07 stale refresh response cannot restore a deleted post or reference","suiteID":0,"groupIDs":[2],"metadata":{"skip":false,"skipReason":null},"line":84,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/BB/client/.qa-artifacts/probes/sentinel_round2_test.dart"},"type":"testStart","time":6398}
+{"testID":4,"error":"Expected: false\n  Actual: <true>\nlate feed snapshot cannot resurrect a processed tombstone\n","stackTrace":"package:matcher                                       expect\npackage:flutter_test/src/widget_tester.dart 473:18    expect\n.qa-artifacts/probes/sentinel_round2_test.dart 101:5  main.<fn>\n","isFailure":true,"type":"error","time":6646}
+{"testID":4,"result":"failure","skipped":false,"hidden":false,"type":"testDone","time":6647}
+{"success":false,"type":"done","time":6660}

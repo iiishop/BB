@@ -1,0 +1,1 @@
+{"status": "rejected", "candidate_sha": "35c9223f45613e916c9d6d5f90d510feba3f713d", "gaps": ["candidate tests failed"], "evidence_paths": ["../qa2/adjacent-report.json"]}

@@ -2,12 +2,12 @@
 
 Approved source is revision 1 in `dea481-approved-space.md`; original
 source/ownership mapping remains in `dea481-acceptance.md`. Code candidate:
-`ed901e02e9626cd91e193439aed205b9fb79423d` (third client QA repairs).
-All six confirmed counterexamples now pass against real isolated FastAPI and
-SpaceService, with their original assertions and source bytes preserved.
-See `docs/evidence/dea481-qa-round3/` for fresh combined evidence, coverage
-limits and package mapping. This matrix maps evidence to portions of the
-approved cases; it does not mark complete cases accepted.
+`73254369a1b54aa46b86565d430c9f7db6806e91` (fourth client QA repairs).
+Eight previous counterexamples and two retry controls pass. Two adjacent real
+probes still fail: feed/detail like rollback restores deleted reference content.
+Keep in_progress with Muse; do not route this candidate to automated_qa.
+See `docs/evidence/dea481-qa-round4/` for the fixed-version evidence and bounded
+rework. This matrix maps portions of approved cases, not complete acceptance.
 
 Evidence roots: **S** = `docs/evidence/dea481/` (unchanged server, 459 tests);
 **C** = `docs/evidence/dea481-client/` (Muse UI and screenshots, tested `d3856e3`);
@@ -27,25 +27,25 @@ and locally verified with the same plugin working directory in
 runtime test results and packages are reused with explicit tree/byte checks;
 new CI and the linked Windows package run are not claimed as completed.
 
-The third QA repairs are integrated. **R** = `docs/evidence/dea481-qa-round3/`:
-analyze PASS, 694 client passes / 12 skips, 14 Linux integration passes and six
-unchanged real probes PASS. R supersedes earlier client suites for this runtime.
-The upload confirmation now preserves its receipt version boundary and conflicts
-on a newer differing server draft; previous failure logs remain versioned.
-Fresh Linux/Android test packages are mapped to this code SHA; unchanged local
-API and DSH artifacts retain their original byte/source provenance. Independent
-QA remains responsible for complete T01–T17 evaluation, including the bounded
-untested interleavings listed in R's README.
+The fourth QA repairs are integrated. **R** = `docs/evidence/dea481-qa-round4/`:
+analyze PASS, 697 client passes / 12 skips, 14 Linux integration passes, eight
+unchanged real probes PASS and two original confirmation-retry controls PASS.
+The latest T02/T17 retry preserves removal intent across confirmation failure;
+the stale first-page T07 response is now fenced. Two new T07 rollback probes
+FAIL (0/2, exit 1): replacing a whole post with a pre-deletion optimistic-like
+snapshot restores deleted reference text. R's root-cause table maps all write
+and invalidation entries; Muse owns this bounded correction. No new UI binaries
+are issued for the known-failing runtime; old ed901e0 packages are not this code.
 
 | Case / approved source | Implementer / concrete evidence | Remaining verification or issue |
 | --- | --- | --- |
 | T01 §2, §9 | Forge S ten-image/order/publish; Muse `space_compose_test`, `space_feed_test`, `space_detail_test`; I native ten images and provider bytes, real gateway | Independent combined visual/user-path QA; real device/model limits remain |
-| T02 §2.1, §7.3 | S CAS/lost-reply/publish guards; Muse local-intent reconciliation; R six real probes pass, including upload receipt version fence | Independent QA of remaining interleavings; confirmation-read retry shares the tested helper but lacks a separate real retry-race probe |
+| T02 §2.1, §7.3 | S CAS/lost-reply/publish guards; Muse local-intent reconciliation; R eight original real probes and two retry controls pass, including removal across confirmation failure/retry | Independent QA of remaining interleavings; no exhaustive state-machine claim |
 | T03 §7.3 | S fixed equal-timestamp pagination counterexample; Muse `space_controller_test`, `space_feed_test` | QA multi-page scroll/refresh on target platforms |
 | T04 §4.1 | S arbitrary depth and preview/pagination; Muse `space_detail_test`, C detail screenshots | Visual multi-level interaction QA |
 | T05 §5.3 | S exact recipient/context; Muse `space_notifications_test`, `space_detail_test`; I gateway notifications | Independent notification navigation/focus |
 | T06 §4.2 | S direct reference/counts; Muse controller/detail navigation tests; A shared contract path | Manual back-stack/reference UX |
-| T07 §6.1–3 | S tombstones/protected media/shared blob; Muse controller/detail invalidation; I TCP delete invalidation and host deleted-image refusal | QA offline view and thumbnail/cache removal; no network WS claim |
+| T07 §6.1–3 | S tombstones/protected media/shared blob; Muse controller/detail invalidation; I TCP delete invalidation and host deleted-image refusal; R stale refresh passes | **FAIL:** feed/detail like rollback restores deleted source reference text; Muse owns whole-post write boundary correction. No QA handoff yet |
 | T08 §6.2 | S delete-parent/retain-descendants ACL; Muse `space_detail_test` placeholder/reply tests | Independent rendered long-thread verification |
 | T09 §5.1–2 | S sparse read/visit idempotency; Muse controller lifecycle tests; I installed host explicit read and visit dedup | Device foreground/background lifecycle |
 | T10 §5.2 | S author-only visitor query/no visit notification; I real gateway 403 and TCP identity checks | UI people-page navigation QA |
@@ -63,5 +63,5 @@ people) now uses the existing authorized Profile entry; widget tests cover the
 shared store and root-Navigator likes sheet, while real release evidence covers
 feed upload/render. Visitors use the same sheet wrapper; that path has no separate
 real-release click test. Muse's registered once-only wakeup consumes Forge's final reply, verifies the
-new candidate and owns the automated_qa handoff to Sentinel. No extra QA mention,
+bounded rework; automated_qa must wait for a new candidate without these known failures. No extra QA mention,
 acceptance waiver, workflow transition, main merge or deployment is made here.

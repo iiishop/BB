@@ -1,0 +1,467 @@
+{
+  "candidate_sha": "35c9223f45613e916c9d6d5f90d510feba3f713d",
+  "rules": [
+    {
+      "id": "targeted-1",
+      "rule": "draft autosaves, images reorder and publish returns a post id",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_compose_test.dart",
+        "name": "draft autosaves, images reorder and publish returns a post id"
+      }
+    },
+    {
+      "id": "targeted-2",
+      "rule": "background refresh reports new posts without moving the list",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "background refresh reports new posts without moving the list"
+      }
+    },
+    {
+      "id": "targeted-3",
+      "rule": "pagination deduplicates a repeated page",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "pagination deduplicates a repeated page"
+      }
+    },
+    {
+      "id": "targeted-4",
+      "rule": "detail stack keeps local reference history and one visit per active open",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "detail stack keeps local reference history and one visit per active open"
+      }
+    },
+    {
+      "id": "targeted-5",
+      "rule": "post.deleted event scrubs cached references in other loaded posts",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "post.deleted event scrubs cached references in other loaded posts"
+      }
+    },
+    {
+      "id": "targeted-6",
+      "rule": "post.deleted event removes the post and invalidates its images",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "post.deleted event removes the post and invalidates its images"
+      }
+    },
+    {
+      "id": "targeted-7",
+      "rule": "duplicate events are applied once and the cursor advances",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "duplicate events are applied once and the cursor advances"
+      }
+    },
+    {
+      "id": "targeted-8",
+      "rule": "notification acknowledgement only covers the observed version",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "notification acknowledgement only covers the observed version"
+      }
+    },
+    {
+      "id": "targeted-9",
+      "rule": "opening a notification focuses an unloaded comment and acknowledges it",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "opening a notification focuses an unloaded comment and acknowledges it"
+      }
+    },
+    {
+      "id": "targeted-10",
+      "rule": "resizing never creates a second visit",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "resizing never creates a second visit"
+      }
+    },
+    {
+      "id": "targeted-11",
+      "rule": "reconnect replays deletions, clears cached bytes and keeps drafts",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "reconnect replays deletions, clears cached bytes and keeps drafts"
+      }
+    },
+    {
+      "id": "targeted-12",
+      "rule": "offline state is distinct from an empty feed",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "offline state is distinct from an empty feed"
+      }
+    },
+    {
+      "id": "targeted-13",
+      "rule": "local buffers never cross account or server scopes",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_controller_test.dart",
+        "name": "local buffers never cross account or server scopes"
+      }
+    },
+    {
+      "id": "targeted-14",
+      "rule": "replies use one indent level and keep the real reply target",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_detail_test.dart",
+        "name": "replies use one indent level and keep the real reply target"
+      }
+    },
+    {
+      "id": "targeted-15",
+      "rule": "notification rows show live kinds and deleted targets",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_notifications_test.dart",
+        "name": "notification rows show live kinds and deleted targets"
+      }
+    },
+    {
+      "id": "targeted-16",
+      "rule": "deleted comment keeps surviving children and reply identity",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_detail_test.dart",
+        "name": "deleted comment keeps surviving children and reply identity"
+      }
+    },
+    {
+      "id": "targeted-17",
+      "rule": "tapping a notification opens the target and acknowledges its version",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_notifications_test.dart",
+        "name": "tapping a notification opens the target and acknowledges its version"
+      }
+    },
+    {
+      "id": "targeted-18",
+      "rule": "feed preview shows five roots and three replies with separate counts",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_detail_test.dart",
+        "name": "feed preview shows five roots and three replies with separate counts"
+      }
+    },
+    {
+      "id": "targeted-19",
+      "rule": "version conflict keeps local input instead of overwriting",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_compose_test.dart",
+        "name": "version conflict keeps local input instead of overwriting"
+      }
+    },
+    {
+      "id": "targeted-20",
+      "rule": "root and reply pagination load on demand",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_detail_test.dart",
+        "name": "root and reply pagination load on demand"
+      }
+    },
+    {
+      "id": "targeted-21",
+      "rule": "deleted target acknowledges without a broken detail",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_notifications_test.dart",
+        "name": "deleted target acknowledges without a broken detail"
+      }
+    },
+    {
+      "id": "targeted-22",
+      "rule": "in-flight save response never marks newer input saved",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_compose_test.dart",
+        "name": "in-flight save response never marks newer input saved"
+      }
+    },
+    {
+      "id": "targeted-23",
+      "rule": "\"\u5168\u90e8\u6807\u8bfb\" is explicit and only covers observed versions",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_notifications_test.dart",
+        "name": "\"\u5168\u90e8\u6807\u8bfb\" is explicit and only covers observed versions"
+      }
+    },
+    {
+      "id": "targeted-24",
+      "rule": "like failure reverts and reports the error",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_detail_test.dart",
+        "name": "like failure reverts and reports the error"
+      }
+    },
+    {
+      "id": "targeted-25",
+      "rule": "notification read failure is an error, not an empty list",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_notifications_test.dart",
+        "name": "notification read failure is an error, not an empty list"
+      }
+    },
+    {
+      "id": "targeted-26",
+      "rule": "author sees visitor details; a non-author sees the denial",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_detail_test.dart",
+        "name": "author sees visitor details; a non-author sees the denial"
+      }
+    },
+    {
+      "id": "targeted-27",
+      "rule": "draft box continues an existing draft and discards from the list",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_notifications_test.dart",
+        "name": "draft box continues an existing draft and discards from the list"
+      }
+    },
+    {
+      "id": "targeted-28",
+      "rule": "images and comments never add visits or batch read marks",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_detail_test.dart",
+        "name": "images and comments never add visits or batch read marks"
+      }
+    },
+    {
+      "id": "targeted-29",
+      "rule": "form factor change keeps post, reply target, text and visit",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_detail_test.dart",
+        "name": "form factor change keeps post, reply target, text and visit"
+      }
+    },
+    {
+      "id": "targeted-30",
+      "rule": "reopened dirty buffer based on an older version is a conflict",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_compose_test.dart",
+        "name": "reopened dirty buffer based on an older version is a conflict"
+      }
+    },
+    {
+      "id": "targeted-31",
+      "rule": "image removed while a save is in flight stays removed",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_compose_test.dart",
+        "name": "image removed while a save is in flight stays removed"
+      }
+    },
+    {
+      "id": "targeted-32",
+      "rule": "viewer index survives a resize",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_detail_test.dart",
+        "name": "viewer index survives a resize"
+      }
+    },
+    {
+      "id": "targeted-33",
+      "rule": "reference navigation keeps a local back history",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_detail_test.dart",
+        "name": "reference navigation keeps a local back history"
+      }
+    },
+    {
+      "id": "targeted-34",
+      "rule": "author deletion closes detail and removes the feed card",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_detail_test.dart",
+        "name": "author deletion closes detail and removes the feed card"
+      }
+    },
+    {
+      "id": "targeted-35",
+      "rule": "image upload confirmation keeps already-dirty text",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_compose_test.dart",
+        "name": "image upload confirmation keeps already-dirty text"
+      }
+    },
+    {
+      "id": "targeted-36",
+      "rule": "upload confirmation cannot adopt a newer external writer as baseline",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_compose_test.dart",
+        "name": "upload confirmation cannot adopt a newer external writer as baseline"
+      }
+    },
+    {
+      "id": "targeted-37",
+      "rule": "offline input stays local and survives reopening the draft",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_compose_test.dart",
+        "name": "offline input stays local and survives reopening the draft"
+      }
+    },
+    {
+      "id": "targeted-38",
+      "rule": "repost can publish only a reference and keeps its source",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_compose_test.dart",
+        "name": "repost can publish only a reference and keeps its source"
+      }
+    },
+    {
+      "id": "targeted-39",
+      "rule": "upload failure blocks publishing until retry succeeds",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_compose_test.dart",
+        "name": "upload failure blocks publishing until retry succeeds"
+      }
+    },
+    {
+      "id": "targeted-40",
+      "rule": "draft creation retries with the same operation id",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_compose_test.dart",
+        "name": "draft creation retries with the same operation id"
+      }
+    },
+    {
+      "id": "targeted-41",
+      "rule": "publish retries with the same operation id after an unknown result",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_compose_test.dart",
+        "name": "publish retries with the same operation id after an unknown result"
+      }
+    },
+    {
+      "id": "targeted-42",
+      "rule": "discard deletes the draft and its local buffer",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "targeted/run.json",
+      "testcase": {
+        "classname": "test/space_compose_test.dart",
+        "name": "discard deletes the draft and its local buffer"
+      }
+    }
+  ]
+}

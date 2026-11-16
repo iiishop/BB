@@ -1,0 +1,71 @@
+{
+  "candidate_sha": "35c9223f45613e916c9d6d5f90d510feba3f713d",
+  "rules": [
+    {
+      "id": "known-1",
+      "rule": "real T02 delayed save publishes visible text",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "known/run.json",
+      "testcase": {
+        "classname": ".qa-artifacts/probes/space_defect_probe_test.dart",
+        "name": "real T02 delayed save publishes visible text"
+      }
+    },
+    {
+      "id": "known-2",
+      "rule": "real T02 image removal during save must survive the older receipt",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "known/run.json",
+      "testcase": {
+        "classname": ".qa-artifacts/probes/adjacent_draft_probe_test.dart",
+        "name": "real T02 image removal during save must survive the older receipt"
+      }
+    },
+    {
+      "id": "known-3",
+      "rule": "real T02 upload confirmation must fence a newer external writer",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "known/run.json",
+      "testcase": {
+        "classname": ".qa-artifacts/probes/upload_conflict_probe_test.dart",
+        "name": "real T02 upload confirmation must fence a newer external writer"
+      }
+    },
+    {
+      "id": "known-4",
+      "rule": "real T02 upload must not erase already-dirty text",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "known/run.json",
+      "testcase": {
+        "classname": ".qa-artifacts/probes/adjacent_draft_probe_test.dart",
+        "name": "real T02 upload must not erase already-dirty text"
+      }
+    },
+    {
+      "id": "known-5",
+      "rule": "real T02 dirty reopen preserves conflicting server version",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "known/run.json",
+      "testcase": {
+        "classname": ".qa-artifacts/probes/space_defect_probe_test.dart",
+        "name": "real T02 dirty reopen preserves conflicting server version"
+      }
+    },
+    {
+      "id": "known-6",
+      "rule": "real T07 replay removes cached repost source text",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "known/run.json",
+      "testcase": {
+        "classname": ".qa-artifacts/probes/space_defect_probe_test.dart",
+        "name": "real T07 replay removes cached repost source text"
+      }
+    }
+  ]
+}

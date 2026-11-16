@@ -1,0 +1,27 @@
+{
+  "candidate_sha": "35c9223f45613e916c9d6d5f90d510feba3f713d",
+  "rules": [
+    {
+      "id": "adjacent-1",
+      "rule": "T02 failed upload confirmation retry preserves local image removal",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "adjacent/run.json",
+      "testcase": {
+        "classname": ".qa-artifacts/probes/sentinel_round2_test.dart",
+        "name": "T02 failed upload confirmation retry preserves local image removal"
+      }
+    },
+    {
+      "id": "adjacent-2",
+      "rule": "T07 stale refresh response cannot restore a deleted post or reference",
+      "entry": "SpaceComposeController.start/saveNow/_upload/_refreshDraftImages/publish; SpaceController.refresh/pollEventsOnce",
+      "status": "tested",
+      "run": "adjacent/run.json",
+      "testcase": {
+        "classname": ".qa-artifacts/probes/sentinel_round2_test.dart",
+        "name": "T07 stale refresh response cannot restore a deleted post or reference"
+      }
+    }
+  ]
+}
