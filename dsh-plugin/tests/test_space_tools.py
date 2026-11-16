@@ -5,10 +5,11 @@ import json
 import httpx
 import pytest
 from bb_auth_contract import space
+from mcp.types import ListToolsRequest
+
 from bb_dsh_plugin.guarded import AwaitingBinding, GuardedTransport
 from bb_dsh_plugin.plugin import LocalClient, create_server
 from bb_dsh_plugin.space_tools import SPACE_TOOLS, invoke_space
-from mcp.types import ListToolsRequest
 
 IDENTITY = {
     "account": "10000001",
