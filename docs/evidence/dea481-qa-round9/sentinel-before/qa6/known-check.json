@@ -1,0 +1,64 @@
+[
+  {
+    "id": "known0",
+    "candidate_sha": "ec65ac4cf46186623ee7d69d4f5ec53193519f10",
+    "command": [
+      "flutter",
+      "test",
+      "--no-pub",
+      ".qa-artifacts/probes/sentinel_round5_test.dart",
+      ".qa-artifacts/probes/sentinel_round5_widget_test.dart",
+      "-j",
+      "1",
+      "--reporter=json"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": ".qa-artifacts/probes/sentinel_round5_test.dart",
+      "name": "T07 deleted image cannot reenter cache through a late response"
+    },
+    "tests": 2,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 2,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/qa6/known/run.json",
+      "/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/qa6/known/output.log",
+      "/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/qa6/known/flutter.jsonl"
+    ]
+  },
+  {
+    "id": "known1",
+    "candidate_sha": "ec65ac4cf46186623ee7d69d4f5ec53193519f10",
+    "command": [
+      "flutter",
+      "test",
+      "--no-pub",
+      ".qa-artifacts/probes/sentinel_round5_test.dart",
+      ".qa-artifacts/probes/sentinel_round5_widget_test.dart",
+      "-j",
+      "1",
+      "--reporter=json"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": ".qa-artifacts/probes/sentinel_round5_widget_test.dart",
+      "name": "T07 open viewer stops displaying image after deletion event"
+    },
+    "tests": 2,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 2,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/qa6/known/run.json",
+      "/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/qa6/known/output.log",
+      "/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/qa6/known/flutter.jsonl"
+    ]
+  }
+]

@@ -1,0 +1,15 @@
+{"protocolVersion":"0.1.1","runnerVersion":null,"pid":975690,"type":"start","time":0}
+{"suite":{"id":0,"platform":"vm","path":"/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/BB/client/.qa-artifacts/probes/sentinel_round5_test.dart"},"type":"suite","time":0}
+{"test":{"id":1,"name":"loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/BB/client/.qa-artifacts/probes/sentinel_round5_test.dart","suiteID":0,"groupIDs":[],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":null},"type":"testStart","time":1}
+{"count":2,"time":3,"type":"allSuites"}
+{"testID":1,"result":"success","skipped":false,"hidden":true,"type":"testDone","time":1446}
+{"group":{"id":2,"suiteID":0,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":1,"line":null,"column":null,"url":null},"type":"group","time":1448}
+{"test":{"id":3,"name":"T07 deleted image cannot reenter cache through a late response","suiteID":0,"groupIDs":[2],"metadata":{"skip":false,"skipReason":null},"line":37,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/BB/client/.qa-artifacts/probes/sentinel_round5_test.dart"},"type":"testStart","time":1448}
+{"testID":3,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":1839}
+{"suite":{"id":4,"platform":"vm","path":"/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/BB/client/.qa-artifacts/probes/sentinel_round5_widget_test.dart"},"type":"suite","time":1844}
+{"test":{"id":5,"name":"loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/BB/client/.qa-artifacts/probes/sentinel_round5_widget_test.dart","suiteID":4,"groupIDs":[],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":null},"type":"testStart","time":1845}
+{"testID":5,"result":"success","skipped":false,"hidden":true,"type":"testDone","time":2888}
+{"group":{"id":6,"suiteID":4,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":1,"line":null,"column":null,"url":null},"type":"group","time":2889}
+{"test":{"id":7,"name":"T07 open viewer stops displaying image after deletion event","suiteID":4,"groupIDs":[6],"metadata":{"skip":false,"skipReason":null},"line":174,"column":5,"url":"package:flutter_test/src/widget_tester.dart","root_line":11,"root_column":3,"root_url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-481-aae53aed78bd/workdir/BB/client/.qa-artifacts/probes/sentinel_round5_widget_test.dart"},"type":"testStart","time":2889}
+{"testID":7,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":3567}
+{"success":true,"type":"done","time":3578}

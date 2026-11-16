@@ -1,0 +1,27 @@
+{
+  "candidate_sha": "ec65ac4cf46186623ee7d69d4f5ec53193519f10",
+  "rules": [
+    {
+      "id": "known0",
+      "rule": "T07 deleted image cannot reenter cache through a late response",
+      "entry": "SpaceController deletion entry to SpaceImageLoader cache and viewer",
+      "status": "tested",
+      "run": "known/run.json",
+      "testcase": {
+        "classname": ".qa-artifacts/probes/sentinel_round5_test.dart",
+        "name": "T07 deleted image cannot reenter cache through a late response"
+      }
+    },
+    {
+      "id": "known1",
+      "rule": "T07 open viewer stops displaying image after deletion event",
+      "entry": "SpaceController deletion entry to SpaceImageLoader cache and viewer",
+      "status": "tested",
+      "run": "known/run.json",
+      "testcase": {
+        "classname": ".qa-artifacts/probes/sentinel_round5_widget_test.dart",
+        "name": "T07 open viewer stops displaying image after deletion event"
+      }
+    }
+  ]
+}

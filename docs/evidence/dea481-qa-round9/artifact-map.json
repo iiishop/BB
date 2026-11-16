@@ -1,0 +1,10 @@
+{
+  "candidate": "3866b265c094f63cfbc59fc4071db80635a6b090",
+  "ui_packages": "Not rebuilt: confirmed P1; previous 6ff6f82 UI packages do not represent this candidate.",
+  "source": {
+    "name": "bb-space-source-3866b26.zip",
+    "bytes": 4742453,
+    "sha256": "280e4478e764ace99ea794b2bfaaaa35f502466a42a5a7a226761e6f14d1bb5d",
+    "source_sha": "3866b265c094f63cfbc59fc4071db80635a6b090"
+  }
+}

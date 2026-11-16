@@ -1,0 +1,194 @@
+{
+  "run": "01a1e233-65b5-7777-9a20-4fd48e3db107",
+  "candidate": "3866b265c094f63cfbc59fc4071db80635a6b090",
+  "developer_head": "f3987ae9da234b8b23cf2b5e3e69017ff268aa6b",
+  "full_suite": {
+    "flutter-test": {
+      "passed": 709,
+      "skipped": 12
+    },
+    "linux-integration": {
+      "passed": 14,
+      "skipped": 0
+    }
+  },
+  "probes": {
+    "original-eight": {
+      "passed": 8,
+      "failed": 0,
+      "skipped": 0,
+      "exit_code": 0,
+      "assertion_failures": 0,
+      "runtime_errors": 0,
+      "tests": [
+        "real T02 delayed save publishes visible text",
+        "real T02 dirty reopen preserves conflicting server version",
+        "real T07 replay removes cached repost source text",
+        "real T02 image removal during save must survive the older receipt",
+        "real T02 upload must not erase already-dirty text",
+        "real T02 upload confirmation must fence a newer external writer",
+        "T02 failed upload confirmation retry preserves local image removal",
+        "T07 stale refresh response cannot restore a deleted post or reference"
+      ],
+      "transport": "real isolated FastAPI -> SpaceService"
+    },
+    "rollback-tombstone": {
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "exit_code": 0,
+      "assertion_failures": 0,
+      "runtime_errors": 0,
+      "tests": [
+        "T07 like rollback cannot restore deleted reference detail=false",
+        "T07 like rollback cannot restore deleted reference detail=true"
+      ],
+      "transport": "real isolated FastAPI -> SpaceService"
+    },
+    "comment-deletion": {
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "exit_code": 0,
+      "assertion_failures": 0,
+      "runtime_errors": 0,
+      "tests": [
+        "T08 comment deletion scrubs loaded feed and notification snippets",
+        "T08 late replies response cannot revive a deleted comment"
+      ],
+      "transport": "real isolated FastAPI -> SpaceService"
+    },
+    "notification-deletion": {
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "exit_code": 0,
+      "assertion_failures": 0,
+      "runtime_errors": 0,
+      "tests": [
+        "deleted comment notification must match unavailable server state after late page",
+        "post deletion invalidates loaded and late notification snapshots"
+      ],
+      "transport": "real isolated FastAPI -> SpaceService"
+    },
+    "repost-control": {
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "exit_code": 0,
+      "assertion_failures": 0,
+      "runtime_errors": 0,
+      "tests": [
+        "deleting repost source preserves notification to surviving repost target"
+      ],
+      "transport": "real isolated FastAPI -> SpaceService"
+    },
+    "controls": {
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "exit_code": 0,
+      "assertion_failures": 0,
+      "runtime_errors": 0,
+      "tests": [
+        "confirmation retry with external writer=false",
+        "confirmation retry with external writer=true"
+      ],
+      "transport": "real isolated FastAPI -> SpaceService"
+    },
+    "image-deletion": {
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "exit_code": 0,
+      "assertion_failures": 0,
+      "runtime_errors": 0,
+      "tests": [
+        "T07 deleted image cannot reenter cache through a late response"
+      ],
+      "transport": "real isolated FastAPI -> SpaceService"
+    },
+    "viewer-widget": {
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "exit_code": 0,
+      "assertion_failures": 0,
+      "runtime_errors": 0,
+      "tests": [
+        "T07 open viewer stops displaying image after deletion event"
+      ],
+      "transport": "fixture gateway; actual widget/navigation/polling"
+    },
+    "deletion-entry": {
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "exit_code": 0,
+      "assertion_failures": 0,
+      "runtime_errors": 0,
+      "tests": [
+        "T07 local delete followed by replay clears own original cache",
+        "T07 deletion of detail outside first feed page clears original cache"
+      ],
+      "transport": "real isolated FastAPI -> SpaceService"
+    },
+    "detail-reference": {
+      "passed": 0,
+      "failed": 1,
+      "skipped": 0,
+      "exit_code": 1,
+      "assertion_failures": 1,
+      "runtime_errors": 0,
+      "tests": [
+        "T07 detail-only repost source deletion invalidates both image variants"
+      ],
+      "transport": "real isolated FastAPI -> SpaceService"
+    },
+    "closed-detail": {
+      "passed": 0,
+      "failed": 1,
+      "skipped": 0,
+      "exit_code": 1,
+      "assertion_failures": 1,
+      "runtime_errors": 0,
+      "tests": [
+        "T07 closing all details retains deletion authority over cached source images"
+      ],
+      "transport": "real isolated FastAPI -> SpaceService"
+    }
+  },
+  "probe_hashes": {
+    "docs/evidence/dea481-client/qa-fixes/space_defect_probe_test.dart": "28f70598526dda61cb2a026bdccac7f8268976b981676cbf54af9c0c97df8ca7",
+    "docs/evidence/dea481-qa-integration/adjacent_draft_probe_test.dart": "9a60e91853f624ba2f999fbd9b3b56d24e0d0197274ac0943ee3fbdfe8e3bcb3",
+    "docs/evidence/dea481-qa-round2/upload_conflict_probe_test.dart": "61494756dd165f33d089c5b020be8d3393416c7cf4394b85832c2a9ba461017d",
+    "docs/evidence/dea481-qa-round4/sentinel-before/sentinel_round2_test.dart": "3278627eedf7dcee6af88261b9626b5a1ae3687811e92942c6c54f88dc4c45a2",
+    "docs/evidence/dea481-qa-round4/sentinel-before/sentinel_round2_controls_test.dart": "71c8d68ba57ec744ecc6f2813bd349e7e6dd9a340a1e7f26df1c343d080df1f1",
+    "docs/evidence/dea481-qa-round4/rollback_tombstone_probe_test.dart": "69b12255a899a403fb9c6938ad662d79d3b534050f1b90241262abc4f0c5f851",
+    "docs/evidence/dea481-qa-round6/sentinel-before/sentinel_round3_test.dart": "8d0283bd8ab3e759543293e034024a305f05cfe2c277668ae95d9669de21e73b",
+    "docs/evidence/dea481-qa-round7/sentinel-before/sentinel_round4_test.dart": "56a93586076b46ca60c20f330ff690bf761f36d9cbae2f30e274b257405ad882",
+    "docs/evidence/dea481-qa-round7/sentinel-before/sentinel_round4_controls_test.dart": "ffc7341a35aa96962fbef8680241cbad4fafa4427b5bb43afd7dd2e2fde8915c",
+    "docs/evidence/dea481-qa-round8/sentinel-before/sentinel_round5_test.dart": "4b03fd9a4f5fc4083e1374390243cce3f6077d8a1ae564218e3c0874bcfe2ae2",
+    "docs/evidence/dea481-qa-round8/sentinel-before/sentinel_round5_widget_test.dart": "313a5206a4c4cb2325a46affe0db61ca21100504a8396b34b2ddf18eb037c194",
+    "docs/evidence/dea481-qa-round9/sentinel-before/qa6/sentinel_round6_test.dart": "d2bce236ad9c4fbe04fb10f7c56ebb27c967e6d2a363e36bcfb1863a86c8f8d7",
+    "docs/evidence/dea481-qa-round9/detail_reference_image_probe_test.dart": "cd89889f548c0c0f228143802dcb44fbbf5d1ab04a8e6c3639e1ef1fb3285fc0",
+    "docs/evidence/dea481-qa-round9/closed_detail_image_probe_test.dart": "e44f3ee7adee72c5a97053a906c66d166b514fd9bee13a59b1d45add0cb15a24"
+  },
+  "commands": {
+    "flutter": "xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 QA_LOG_DIR=\"$PWD/docs/evidence/dea481-qa-round9/flutter\" bash scripts/run_flutter_tests.sh client",
+    "original-eight": "uv run --project server --locked python docs/evidence/dea481-qa-round9/run_probes.py original-eight",
+    "rollback-tombstone": "uv run --project server --locked python docs/evidence/dea481-qa-round9/run_probes.py rollback-tombstone",
+    "comment-deletion": "uv run --project server --locked python docs/evidence/dea481-qa-round9/run_probes.py comment-deletion",
+    "notification-deletion": "uv run --project server --locked python docs/evidence/dea481-qa-round9/run_probes.py notification-deletion",
+    "repost-control": "uv run --project server --locked python docs/evidence/dea481-qa-round9/run_probes.py repost-control",
+    "controls": "uv run --project server --locked python docs/evidence/dea481-qa-round9/run_probes.py controls",
+    "image-deletion": "uv run --project server --locked python docs/evidence/dea481-qa-round9/run_probes.py image-deletion",
+    "viewer-widget": "uv run --project server --locked python docs/evidence/dea481-qa-round9/run_probes.py viewer-widget",
+    "deletion-entry": "uv run --project server --locked python docs/evidence/dea481-qa-round9/run_probes.py deletion-entry",
+    "detail-reference": "uv run --project server --locked python docs/evidence/dea481-qa-round9/run_probes.py detail-reference",
+    "closed-detail": "uv run --project server --locked python docs/evidence/dea481-qa-round9/run_probes.py closed-detail"
+  },
+  "probe_execution": "Sequential modes, flutter -j 1; original real 700ms debounce/setup assertion unchanged.",
+  "decision": "Known requested 19 pass (18 real-service + 1 fixture widget), two original real retry controls also pass: 21 total. Two adjacent real deletion-owner cases fail targeted assertions, no runtime errors/skips, exit 1. Not ready for QA acceptance; Muse owns repair; status remains in_progress.",
+  "packages": "No new UI binary built because the integrated runtime has confirmed P1 failures. Previous ec65ac4/6ff6f82 packages do not represent this candidate. Source + evidence delivered for bounded rework."
+}

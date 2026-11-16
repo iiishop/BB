@@ -2,12 +2,12 @@
 
 Approved source is revision 1 in `dea481-approved-space.md`; original
 source/ownership mapping remains in `dea481-acceptance.md`. Code candidate:
-`6ff6f822b57b53c1fd6e43754fe6ed45d7b3d597` (eighth client QA repairs).
-The requested 17 checks pass (16 real-service checks and one fixture-network
-viewer widget), plus two original real confirmation-retry controls: 19 total.
-The latest image-cache/viewer failures and all older failures remain preserved. See `docs/evidence/dea481-qa-round8/` for fixed
-checks, coverage limits and package mapping. This maps portions of approved
-cases, not complete acceptance.
+`3866b265c094f63cfbc59fc4071db80635a6b090` (ninth client QA repairs).
+**Remaining P1: deletion does not invalidate media after its detail owner has
+been disposed.** Requested 19 checks plus two retry controls pass, but two new
+real-service adjacent cases fail. Keep in_progress with Muse for rework.
+See `docs/evidence/dea481-qa-round9/` for actual logs, ownership analysis and
+reproduction. This maps portions of approved cases, not complete acceptance.
 
 Evidence roots: **S** = `docs/evidence/dea481/` (unchanged server, 459 tests);
 **C** = `docs/evidence/dea481-client/` (Muse UI and screenshots, tested `d3856e3`);
@@ -27,15 +27,17 @@ and locally verified with the same plugin working directory in
 runtime test results and packages are reused with explicit tree/byte checks;
 new CI and the linked Windows package run are not claimed as completed.
 
-The eighth QA repairs are integrated. **R** = `docs/evidence/dea481-qa-round8/`:
-analyze PASS, 706 client passes / 12 skips, 14 Linux integration passes and
-19 checks PASS (18 real-service checks and one fixture-network viewer widget).
-Image generation/global epoch now fence late responses, and open viewers listen
-for invalidation and discard displayed image widgets. The real image probe preserves
-unrelated live-image access; widget polling/navigation covers already-open state.
-Fresh UI packages use this runtime; old a65af80 UI binaries are superseded.
-R distinguishes real checks, unit cases, shared helpers and untested permutations.
-Independent QA still owns whole T01–T17 evaluation.
+The ninth QA repairs are integrated. **R** = `docs/evidence/dea481-qa-round9/`:
+analyze PASS, 709 client passes / 12 skips, 14 Linux integration passes.
+The requested 19 checks pass (18 real-service + one fixture-network viewer
+widget); two original real retry controls also pass, 21 total. Two adjacent
+real cases fail with target assertions, zero runtime errors/skips: return to a
+detail-only repost or close all details, then delete the visited image source.
+Both cached variants survive even though real server fetch returns 404.
+Known local/direct-detail deletion cases are fixed; cached media ownership must
+outlive navigation snapshots. Muse owns repair, Forge owns integration.
+No new UI packages were built for this incomplete runtime; previous 6ff6f82
+binaries do not represent it. Full T01–T17 acceptance is not ready.
 
 | Case / approved source | Implementer / concrete evidence | Remaining verification or issue |
 | --- | --- | --- |
@@ -45,7 +47,7 @@ Independent QA still owns whole T01–T17 evaluation.
 | T04 §4.1 | S arbitrary depth and preview/pagination; Muse `space_detail_test`, C detail screenshots | Visual multi-level interaction QA |
 | T05 §5.3 | S exact recipient/context; Muse `space_notifications_test`, `space_detail_test`; I gateway notifications | Independent notification navigation/focus |
 | T06 §4.2 | S direct reference/counts; Muse controller/detail navigation tests; A shared contract path | Manual back-stack/reference UX |
-| T07 §6.1–3 | S tombstones/protected media/shared blob; Muse controller/detail invalidation; I TCP delete invalidation and host deleted-image refusal; R stale refresh passes | R feed/detail rollback, stale refresh and late original-image/cache probes pass; open-viewer deletion passes with fixture transport. Native save dialog, deletion during save, other offline/cache/lifecycle and target-platform QA remain |
+| T07 §6.1–3 | S tombstones/protected media/shared blob; Muse controller/detail invalidation; I TCP delete invalidation and host deleted-image refusal; R stale refresh passes | **P1** R returned-reference and closed-detail image caches survive real deletion (0/2); Muse rework required. Previous known probes pass. Native save dialog, deletion during save, other lifecycle and target-platform QA remain |
 | T08 §6.2 | S delete-parent/retain-descendants ACL; Muse detail/controller placeholder/reply tests; R real loaded-preview/notification redaction and delayed reply-page probes | Independent rendered long-thread verification and remaining context/notification race combinations |
 | T09 §5.1–2 | S sparse read/visit idempotency; Muse controller lifecycle tests; I installed host explicit read and visit dedup | Device foreground/background lifecycle |
 | T10 §5.2 | S author-only visitor query/no visit notification; I real gateway 403 and TCP identity checks | UI people-page navigation QA |
@@ -62,6 +64,6 @@ independent UI corrections. The shared SpaceAvatar path (feed/detail/comments/
 people) now uses the existing authorized Profile entry; widget tests cover the
 shared store and root-Navigator likes sheet, while real release evidence covers
 feed upload/render. Visitors use the same sheet wrapper; that path has no separate
-real-release click test. Muse's registered once-only wakeup consumes Forge's final reply, verifies the
-new candidate and owns the automated_qa handoff to Sentinel after verification. No extra QA mention,
+real-release click test. Muse's registered once-only wakeup consumes Forge's final reply; this candidate
+has concrete P1 gaps, so keep in_progress for repair before automated_qa. No extra QA mention,
 acceptance waiver, workflow transition, main merge or deployment is made here.
