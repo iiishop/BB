@@ -30,14 +30,18 @@ on:
       - 'scripts/ci/fixtures/cover-smoke-*'
       - '.github/workflows/windows-test-package.yml'
   workflow_dispatch:
+    inputs:
+      source_build:
+        description: '从固定源码重建 FFmpeg（慢，用于验证资产或改过构建脚本之后）'
+        type: boolean
+        default: false
 
 concurrency:
   group: windows-package-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
-  contents: read
-  actions: read  # Discover only exact-input caches in this ref, never another PR.
+  contents: read  # Download the pinned FFmpeg dependency asset from this repo's releases.
 
 jobs:
   windows-test-package:
@@ -72,25 +76,37 @@ jobs:
           $cmd = Get-Command ffmpeg -ErrorAction SilentlyContinue
           if ($cmd) { "SYSTEM_FFMPEG=$($cmd.Source)" } else { "SYSTEM_FFMPEG=none" }
 
-      - name: Resolve FFmpeg cache inputs and toolchain snapshot
-        id: ffmpeg-inputs
+      - name: 选择 FFmpeg 依赖来源
+        id: ffmpeg-source
+        shell: bash
+        env:
+          # PR 一律用预构建依赖；只有手动触发并要求时才走慢的源码构建。
+          SOURCE_BUILD: ${{ github.event_name == 'workflow_dispatch' && inputs.source_build || false }}
+        run: |
+          set -euo pipefail
+          if [ "$SOURCE_BUILD" = "true" ]; then
+            echo "value=source" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=asset" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 下载预构建 FFmpeg 依赖（校验归档哈希与目录树）
+        if: steps.ffmpeg-source.outputs.value == 'asset'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python scripts/ci/ffmpeg_cache.py plan
+        run: python scripts/ci/ffmpeg_cache.py fetch
 
-      - name: Restore exact FFmpeg dependency cache
-        id: ffmpeg-cache
-        uses: actions/cache/restore@v4
-        with:
-          path: client/windows/ffmpeg
-          key: ${{ steps.ffmpeg-inputs.outputs.key }}
+      - name: 记录 MSYS2 仓库快照（仅源码构建）
+        id: ffmpeg-inputs
+        if: steps.ffmpeg-source.outputs.value == 'source'
+        run: python scripts/ci/ffmpeg_cache.py snapshot
 
       - name: 下载并校验固定源码（FFmpeg / zlib）
-        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        if: steps.ffmpeg-source.outputs.value == 'source'
         run: python scripts/ci/fetch_ffmpeg_sources.py --dest .ffmpeg-src
 
       - uses: msys2/setup-msys2@v2
-        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        if: steps.ffmpeg-source.outputs.value == 'source'
         with:
           msystem: MINGW64
           update: true
@@ -100,7 +116,7 @@ jobs:
             make
 
       - name: 从固定源码构建最小 FFmpeg（仅解码 + PNG 封面）
-        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        if: steps.ffmpeg-source.outputs.value == 'source'
         shell: msys2 {0}
         env:
           BB_GIT_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -109,9 +125,7 @@ jobs:
       - name: Verify FFmpeg tree, manifest, licenses and executable hash
         id: ffmpeg
         env:
-          CACHE_HIT: ${{ steps.ffmpeg-cache.outputs.cache-hit }}
-          CACHE_KEY: ${{ steps.ffmpeg-inputs.outputs.key }}
-          CACHE_PREFIX: ${{ steps.ffmpeg-inputs.outputs.prefix }}
+          FFMPEG_SOURCE: ${{ steps.ffmpeg-source.outputs.value }}
           TOOLCHAIN_DIGEST: ${{ steps.ffmpeg-inputs.outputs.toolchain }}
         run: python scripts/ci/ffmpeg_cache.py verify
 
@@ -163,14 +177,6 @@ jobs:
           print("zip:", name, "sha256:", digest)
           print("bundled ffmpeg:", smoke["ffmpeg_version"])
           EOF
-
-      # Save only after the unchanged final bundle + extracted ZIP smoke passed.
-      - name: Save verified FFmpeg dependency cache
-        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: client/windows/ffmpeg
-          key: ${{ steps.ffmpeg.outputs.save_key }}
 
       - name: 上传 Windows 测试包
         uses: actions/upload-artifact@v4

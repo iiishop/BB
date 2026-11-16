@@ -9,17 +9,28 @@ WORKFLOW = ROOT / '.github/workflows/windows-test-package.yml'
 
 
 class WindowsPathsTests(unittest.TestCase):
-    def test_cache_never_skips_final_checks(self):
+    def test_dependency_source_never_skips_final_checks(self):
         text = WORKFLOW.read_text()
-        self.assertIn('actions/cache/restore@v4', text)
-        self.assertIn('actions/cache/save@v4', text)
+        # Two dependency sources only: the pinned prebuilt asset (PR jobs) and a
+        # source build (manual runs). The untargeted cache lookup is gone; it
+        # never hit outside a single ref and cost a full rebuild every time.
+        self.assertIn('python scripts/ci/ffmpeg_cache.py fetch', text)
+        self.assertIn('python scripts/ci/ffmpeg_cache.py snapshot', text)
+        self.assertNotIn('actions/cache/restore@v4', text)
+        self.assertNotIn('actions/cache/save@v4', text)
         self.assertNotIn('restore-keys:', text)
-        self.assertIn('actions: read', text)
-        for block in text.split('\n      - '):
+        self.assertNotIn('cache-hit', text)
+        blocks = text.split('\n      - ')
+        # The slow path must stay behind its condition, or PR jobs rebuild again.
+        for block in blocks:
             if ('fetch_ffmpeg_sources.py --dest' in block or
                     'uses: msys2/setup-msys2@' in block or
                     'run: bash scripts/ci/build_ffmpeg_windows.sh' in block):
-                self.assertIn("if: steps.ffmpeg-cache.outputs.cache-hit != 'true'", block)
+                self.assertIn("if: steps.ffmpeg-source.outputs.value == 'source'", block)
+            if 'ffmpeg_cache.py fetch' in block:
+                self.assertIn("if: steps.ffmpeg-source.outputs.value == 'asset'", block)
+            # Whatever the source, the app build, tests, packaging, smoke and
+            # verification always run.
             if ('run: flutter test' in block or 'python scripts/ci/package_windows.py' in block
                     or 'flutter build windows --release' in block or 'ffmpeg_cache.py verify' in block):
                 self.assertNotIn('if:', block)

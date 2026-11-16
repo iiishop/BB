@@ -29,6 +29,23 @@ ZLIB_SOURCE_TOP = f"zlib-{ZLIB_VERSION}"
 ZLIBC_LICENSE = "zlib"
 FFMPEG_LICENSE = "LGPL-2.1-or-later"
 
+# Prebuilt dependency published as a GitHub Release asset. PR jobs download it
+# instead of rebuilding from pinned sources (a source build is ~528s of a
+# ~860s job). Two independent values pin the same thing: the archive hash
+# covers the transfer, the tree digest covers what actually lands on disk.
+# verify() additionally requires the BUILD-FFMPEG.sh inside the asset to be
+# byte-identical to the one in this repository, so editing the build script
+# invalidates the asset and forces a source rebuild. Release builds never
+# consume this asset — they compile from the pinned sources on their own.
+FFMPEG_DEPS_TAG = "ffmpeg-deps-8.1.3"
+FFMPEG_DEPS_ASSET = "ffmpeg-8.1.3-windows-x64.zip"
+FFMPEG_DEPS_ARCHIVE_SHA256 = (
+    "2fe37cc1758f9b4131ec7f01fc56d4dd82fd8109d72d6b9d3508c2254f37f1a4"
+)
+FFMPEG_DEPS_TREE_DIGEST = (
+    "7f3c3b07ff92739f4f890c042137092db2849de4dac159b53e71c0e620d18222"
+)
+
 # The shipped binary may only encode PNG (cover image) and mux image2; every
 # other enabled component is an internal decoder/demuxer. These rules are
 # checked against the manifest before packaging, alongside the absence of
