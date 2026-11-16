@@ -1,5 +1,4 @@
 import logging
-import random
 import secrets
 import sqlite3
 import time
