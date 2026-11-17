@@ -1,0 +1,98 @@
+{
+  "candidate_sha": "a8d3070ec210787ff6e17942781420d85507f974",
+  "rules": [
+    {
+      "id": "q5-discovery",
+      "rule": "MCP discovery preserves the exact authorized 24-tool surface and shared-model schemas",
+      "entry": "MCP tools/list and tools/call -> shared SPACE_TOOLS policy -> invoke_space / GuardedTransport",
+      "status": "tested",
+      "run": "after/run.json",
+      "testcase": {
+        "classname": "tests.test_space_tools",
+        "name": "test_discovery_exact_contract_and_no_internal_replay"
+      },
+      "before": {
+        "sha": "b6becc4f143b2489ddc04f12a8ec0af1e20f8a86",
+        "run": "before/run.json",
+        "assertion": "assert 28 == 24"
+      }
+    },
+    {
+      "id": "q5-future-request",
+      "rule": "Adding a future HTTP action before MCP registry initialization grants no tool or direct invocation",
+      "entry": "MCP tools/list and tools/call -> shared SPACE_TOOLS policy -> invoke_space / GuardedTransport",
+      "status": "tested",
+      "run": "after/run.json",
+      "testcase": {
+        "classname": "tests.test_space_tools",
+        "name": "test_future_http_request_does_not_become_an_mcp_tool"
+      }
+    },
+    {
+      "id": "q5-stdio",
+      "rule": "Real MCP stdio process denies new HTTP actions before any HTTP dispatch and preserves register/login",
+      "entry": "MCP tools/list and tools/call -> shared SPACE_TOOLS policy -> invoke_space / GuardedTransport",
+      "status": "tested",
+      "run": "after/run.json",
+      "testcase": {
+        "classname": "tests.test_stdio",
+        "name": "test_stdio_eight_tools_and_stateless_http"
+      }
+    },
+    {
+      "id": "q5-deny-get_follow",
+      "rule": "HTTP-only action denied by invoke_space, MCP call handler and GuardedTransport before I/O",
+      "entry": "MCP tools/list and tools/call -> shared SPACE_TOOLS policy -> invoke_space / GuardedTransport",
+      "status": "tested",
+      "run": "after/run.json",
+      "testcase": {
+        "classname": "tests.test_space_tools",
+        "name": "test_http_only_actions_cannot_be_called_through_mcp_or_guarded_transport[get_follow]"
+      }
+    },
+    {
+      "id": "q5-deny-set_follow",
+      "rule": "HTTP-only action denied by invoke_space, MCP call handler and GuardedTransport before I/O",
+      "entry": "MCP tools/list and tools/call -> shared SPACE_TOOLS policy -> invoke_space / GuardedTransport",
+      "status": "tested",
+      "run": "after/run.json",
+      "testcase": {
+        "classname": "tests.test_space_tools",
+        "name": "test_http_only_actions_cannot_be_called_through_mcp_or_guarded_transport[set_follow]"
+      }
+    },
+    {
+      "id": "q5-deny-list_profile_posts",
+      "rule": "HTTP-only action denied by invoke_space, MCP call handler and GuardedTransport before I/O",
+      "entry": "MCP tools/list and tools/call -> shared SPACE_TOOLS policy -> invoke_space / GuardedTransport",
+      "status": "tested",
+      "run": "after/run.json",
+      "testcase": {
+        "classname": "tests.test_space_tools",
+        "name": "test_http_only_actions_cannot_be_called_through_mcp_or_guarded_transport[list_profile_posts]"
+      }
+    },
+    {
+      "id": "q5-deny-list_profile_months",
+      "rule": "HTTP-only action denied by invoke_space, MCP call handler and GuardedTransport before I/O",
+      "entry": "MCP tools/list and tools/call -> shared SPACE_TOOLS policy -> invoke_space / GuardedTransport",
+      "status": "tested",
+      "run": "after/run.json",
+      "testcase": {
+        "classname": "tests.test_space_tools",
+        "name": "test_http_only_actions_cannot_be_called_through_mcp_or_guarded_transport[list_profile_months]"
+      }
+    },
+    {
+      "id": "q5-deny-read_events",
+      "rule": "HTTP-only action denied by invoke_space, MCP call handler and GuardedTransport before I/O",
+      "entry": "MCP tools/list and tools/call -> shared SPACE_TOOLS policy -> invoke_space / GuardedTransport",
+      "status": "tested",
+      "run": "after/run.json",
+      "testcase": {
+        "classname": "tests.test_space_tools",
+        "name": "test_http_only_actions_cannot_be_called_through_mcp_or_guarded_transport[read_events]"
+      }
+    }
+  ]
+}

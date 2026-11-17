@@ -1,0 +1,25 @@
+{
+  "candidate_sha": "b6becc4f143b2489ddc04f12a8ec0af1e20f8a86",
+  "dirty": "",
+  "source_unchanged": true,
+  "after_sha": "b6becc4f143b2489ddc04f12a8ec0af1e20f8a86",
+  "tracked_after": "",
+  "cwd": "/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-1d940ac9891d/workdir/BB/dsh-plugin",
+  "command": [
+    "uv",
+    "run",
+    "--project",
+    ".",
+    "--locked",
+    "pytest",
+    "tests/test_space_tools.py",
+    "-q",
+    "--junitxml=/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-1d940ac9891d/workdir/q5-before.xml"
+  ],
+  "exit_code": 1,
+  "artifacts": {
+    "output.log": "3664991abf4dc23a26b015c34cb437dd03b7c4abaed91dea8eb29abda085069c",
+    "junit.xml": "215def3c0a5a5eaebae475a68456ee3adefdfa88ea66e76e8231b87506ff4faa"
+  },
+  "format": "junit"
+}
