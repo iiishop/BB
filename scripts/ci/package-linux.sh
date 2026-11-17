@@ -38,6 +38,10 @@ done
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 
+# 仓库根，用来取图标源；脚本可能被从任意 cwd 调用。
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+APP_ICON_SRC="$REPO_ROOT/docs/images/logo-512.png"
+
 [[ -n "$BUNDLE" ]] || die "缺少 --bundle"
 [[ -n "$VERSION" ]] || die "缺少 --version"
 [[ -d "$BUNDLE" ]] || die "bundle 目录不存在: $BUNDLE"
@@ -61,7 +65,11 @@ trap 'rm -rf -- "$WORK"' EXIT
 payload() {
   # $1 = 安装树根目录；把 bundle 铺进 /opt/<pkg>，并生成 /usr/bin 入口 + desktop 文件
   local root="$1"
-  install -d "$root/opt/$PKG" "$root/usr/bin" "$root/usr/share/applications"
+  install -d "$root/opt/$PKG" "$root/usr/bin" "$root/usr/share/applications" \
+    "$root/usr/share/icons/hicolor/512x512/apps"
+  [[ -f "$APP_ICON_SRC" ]] || die "缺少图标源 $APP_ICON_SRC"
+  install -m 0644 "$APP_ICON_SRC" \
+    "$root/usr/share/icons/hicolor/512x512/apps/$PKG.png"
   cp -a "$BUNDLE/." "$root/opt/$PKG/"
   ln -sfn "../../opt/$PKG/$BIN_NAME" "$root/usr/bin/$PKG"
   cat > "$root/usr/share/applications/$PKG.desktop" <<EOF
@@ -70,6 +78,7 @@ Type=Application
 Name=$PRETTY
 Comment=$SUMMARY
 Exec=/opt/$PKG/$BIN_NAME
+Icon=$PKG
 Terminal=false
 Categories=Network;Chat;
 EOF
@@ -144,15 +153,19 @@ Flutter 桌面客户端。装完用 $PKG 启动。
 rm -rf %{buildroot}
 mkdir -p %{buildroot}
 cp -a opt %{buildroot}/opt
-mkdir -p %{buildroot}/usr/bin %{buildroot}/usr/share/applications
+mkdir -p %{buildroot}/usr/bin %{buildroot}/usr/share/applications \
+  %{buildroot}/usr/share/icons/hicolor/512x512/apps
 ln -sfn ../../opt/$PKG/$BIN_NAME %{buildroot}/usr/bin/$PKG
 install -m 0644 usr/share/applications/$PKG.desktop \
   %{buildroot}/usr/share/applications/$PKG.desktop
+install -m 0644 usr/share/icons/hicolor/512x512/apps/$PKG.png \
+  %{buildroot}/usr/share/icons/hicolor/512x512/apps/$PKG.png
 
 %files
 /opt/$PKG
 /usr/bin/$PKG
 /usr/share/applications/$PKG.desktop
+/usr/share/icons/hicolor/512x512/apps/$PKG.png
 
 %changelog
 EOF
