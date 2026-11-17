@@ -28,7 +28,7 @@ class SpaceController extends ChangeNotifier {
     this.onSessionExpired,
     this.pollInterval = const Duration(seconds: 20),
     this.autoPoll = true,
-  }) : images = images ?? SpaceImageLoader(gateway, disk: MediaDiskCache()),
+  }) : images = images ?? SpaceImageLoader(gateway, disk: sharedMediaDiskCache()),
        downloads = downloads ?? SpaceDownloadLog(scopeKey: gateway.scopeKey);
 
   final SpaceGateway gateway;

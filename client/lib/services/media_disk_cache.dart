@@ -3,15 +3,18 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
-/// Byte-level cache for space media that survives a restart.
+/// Byte-level cache for image bytes that must survive a restart.
 ///
 /// [SpaceImageLoader] keeps bytes in memory so re-reading one picture during a
 /// session is free, but that map dies with the process — reopening a picture
 /// after leaving the viewer or restarting the app downloaded the original
-/// again. This layer sits behind it: disk first, network only on a miss.
+/// again. This layer sits behind it: disk first, network only on a miss. Chat
+/// originals share it under their own key prefix.
 ///
-/// Entries are keyed by `variant|imageId`. Space image ids are server-assigned
-/// and immutable, so no version component is needed.
+/// Entries are keyed by `<variant>|<id>` (Space) or `chat-<variant>|<mediaId>`
+/// (chat). Both ids are server-assigned and immutable, so no version component
+/// is needed. Exactly one `|` per key: the file name swaps it for `_` and the
+/// reverse parse splits on the first `_`.
 class MediaDiskCache {
   MediaDiskCache({this.maxBytes = 256 * 1024 * 1024});
 
@@ -19,7 +22,14 @@ class MediaDiskCache {
   final int maxBytes;
 
   Directory? _dir;
-  Future<void>? _ready;
+
+  /// Set once initialisation can never succeed: no platform implementation
+  /// (widget tests) or a directory that could not be created. A flag rather
+  /// than a cached future on purpose — a completed future is bound to the zone
+  /// that created it, and a process-wide cache is first touched in one widget
+  /// test and read in the next, where awaiting that future never completes and
+  /// hangs `pumpAndSettle`.
+  bool _unavailable = false;
   int _bytes = 0;
 
   /// Key to byte size, for eviction. File length is the authority on restart.
@@ -28,8 +38,11 @@ class MediaDiskCache {
   /// LRU order, oldest first.
   final List<String> _order = <String>[];
 
-  Future<void> _ensureReady() {
-    return _ready ??= _prepare();
+  Future<void> _ensureReady() async {
+    if (_dir != null || _unavailable) {
+      return;
+    }
+    await _prepare();
   }
 
   Future<void> _prepare() async {
@@ -37,7 +50,7 @@ class MediaDiskCache {
     // cache directory there never completes and hangs pumpAndSettle. The loader
     // then just works from memory, which is what those tests exercise anyway.
     if (Platform.environment.containsKey('FLUTTER_TEST')) {
-      _dir = null;
+      _unavailable = true;
       return;
     }
     try {
@@ -73,6 +86,7 @@ class MediaDiskCache {
       // the loader simply falls back to the network.
       debugPrint('[media-cache] 初始化失败：$error');
       _dir = null;
+      _unavailable = true;
     }
   }
 
@@ -165,3 +179,12 @@ class MediaDiskCache {
   /// Entry count, for diagnostics.
   int get entryCount => _sizes.length;
 }
+
+MediaDiskCache? _shared;
+
+/// The one cache instance for this process.
+///
+/// Two instances would index the same directory independently: each would count
+/// and evict without seeing the other's files, so the ceiling would drift and
+/// one surface could delete an entry the other is about to read.
+MediaDiskCache sharedMediaDiskCache() => _shared ??= MediaDiskCache();

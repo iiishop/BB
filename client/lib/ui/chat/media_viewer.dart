@@ -12,12 +12,13 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../app.dart';
-import '../../config/media_policy.dart';
 import '../../models/chat_media.dart';
-import '../../models/chat_models.dart';
-import '../../services/chat_api_client.dart';
 import '../../services/chat_service.dart';
+import '../../services/media_disk_cache.dart';
+import '../media/photo_page.dart';
+import '../media/photo_pager.dart';
 import 'chat_format.dart';
+import 'chat_photo_source.dart';
 import 'media_save.dart';
 import 'viewer_video.dart';
 
@@ -65,6 +66,8 @@ class MediaViewer extends StatefulWidget {
   /// Test/platform override for inline playback support.
   final bool? inlineVideoSupported;
 
+  static const PhotoViewerKeys keys = PhotoViewerKeys('media-viewer');
+
   static const Key pageViewKey = Key('media-viewer-pages');
   static const Key closeKey = Key('media-viewer-close');
   static const Key saveKey = Key('media-viewer-save');
@@ -90,6 +93,18 @@ class _MediaViewerState extends State<MediaViewer> {
   double _pointerStartX = 0;
   double _pointerStartY = 0;
 
+  /// One byte-controller per media item; the shared registry keeps a picture
+  /// it has already fetched from refetching when the pager rebuilds it.
+  final PhotoPageRegistry _pages = PhotoPageRegistry();
+
+  /// Shared with the Space viewer so originals downloaded on either surface
+  /// count against one ceiling.
+  final MediaDiskCache _disk = sharedMediaDiskCache();
+
+  /// True while the current page is pinch-zoomed: the downward drag that closes
+  /// the viewer must not fight the pan gesture.
+  bool _pageZoomed = false;
+
   @override
   void initState() {
     super.initState();
@@ -102,11 +117,25 @@ class _MediaViewerState extends State<MediaViewer> {
 
   @override
   void dispose() {
+    _pages.dispose();
     _controller.dispose();
     super.dispose();
   }
 
   ChatMediaItem get _current => _items[_index];
+
+  PhotoPageController _pageFor(int index) {
+    final ChatMediaItem item = _items[index];
+    return _pages.of(
+      item.key,
+      () => ChatPhotoSource(
+        item: item,
+        chat: widget.chat,
+        heldBytes: widget.localPreviewFor?.call(item.mediaId),
+        disk: _disk,
+      ),
+    );
+  }
 
   void _close() {
     Navigator.of(context).maybePop();
@@ -174,39 +203,110 @@ class _MediaViewerState extends State<MediaViewer> {
   @override
   Widget build(BuildContext context) {
     final ChatMediaItem current = _current;
-    final Widget pages = PageView.builder(
-      key: MediaViewer.pageViewKey,
+    final PhotoPageController? currentPage = current.isVideo
+        ? null
+        : _pageFor(_index);
+    final Widget pager = PhotoPager(
       controller: _controller,
+      initialIndex: _index,
       itemCount: _items.length,
+      keys: MediaViewer.keys,
+      onDismiss: _close,
       onPageChanged: (int index) {
         final ChatMediaItem previous = _items[_index];
         if (previous.isVideo) {
           _videoKeys[previous.key]?.currentState?.releasePlayback();
         }
-        setState(() => _index = index);
+        setState(() {
+          _index = index;
+          _pageZoomed = false;
+        });
       },
-      itemBuilder: (BuildContext context, int index) {
-        final ChatMediaItem item = _items[index];
-        return item.isVideo
-            ? _ViewerVideo(
-                key: _videoKeys.putIfAbsent(
-                  item.key,
-                  () => GlobalKey<_ViewerVideoState>(),
-                ),
-                item: item,
-                chat: widget.chat,
-                onPlay: widget.onPlayVideo,
-                sessionFactory: widget.videoSessionFactory,
-                inlineSupportedOverride: widget.inlineVideoSupported,
-              )
-            : _ViewerImage(
-                key: ValueKey<String>(item.key),
-                item: item,
-                chat: widget.chat,
-                localBytes: widget.localPreviewFor?.call(item.mediaId),
-              );
-      },
+      itemBuilder:
+          (BuildContext context, int index, ValueChanged<bool> onZoom) {
+            final ChatMediaItem item = _items[index];
+            return item.isVideo
+                ? _ViewerVideo(
+                    key: _videoKeys.putIfAbsent(
+                      item.key,
+                      () => GlobalKey<_ViewerVideoState>(),
+                    ),
+                    item: item,
+                    chat: widget.chat,
+                    onPlay: widget.onPlayVideo,
+                    sessionFactory: widget.videoSessionFactory,
+                    inlineSupportedOverride: widget.inlineVideoSupported,
+                  )
+                : PhotoPage(
+                    key: ValueKey<String>(item.key),
+                    controller: _pageFor(index),
+                    onZoomChanged: (bool zoomed) {
+                      _pageZoomed = zoomed;
+                      onZoom(zoomed);
+                    },
+                    retryKey: MediaViewer.keys.previewRetry,
+                  );
+          },
     );
+    // The original-download affordance belongs to the current page, so the
+    // chrome follows the page controller rather than the pager.
+    final Widget pages = currentPage == null
+        ? pager
+        : AnimatedBuilder(
+            animation: currentPage,
+            child: pager,
+            builder: (BuildContext context, Widget? child) {
+              return Stack(
+                children: <Widget>[
+                  Positioned.fill(child: child!),
+                  if (currentPage.offersOriginal)
+                    Positioned(
+                      left: AppSpacing.md,
+                      bottom: AppSpacing.lg + MediaQuery.of(context).padding.bottom,
+                      child: SafeArea(
+                        right: false,
+                        top: false,
+                        child: OutlinedButton.icon(
+                          key: MediaViewer.keys.original,
+                          onPressed: currentPage.isDownloading
+                              ? null
+                              : () => unawaited(currentPage.loadOriginal()),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.white,
+                            backgroundColor: const Color(0x99000000),
+                            side: const BorderSide(color: Colors.white24),
+                            minimumSize: const Size(0, 44),
+                          ),
+                          icon: currentPage.isDownloading
+                              ? const SizedBox(
+                                  width: 14,
+                                  height: 14,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Icon(Icons.hd_outlined, size: 18),
+                          label: Text(currentPage.originalLabel),
+                        ),
+                      ),
+                    ),
+                  if (currentPage.isDownloading)
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: LinearProgressIndicator(
+                        key: MediaViewer.keys.originalProgress,
+                        value: currentPage.progress,
+                        minHeight: 3,
+                        backgroundColor: Colors.white12,
+                      ),
+                    ),
+                ],
+              );
+            },
+          );
     return Scaffold(
       backgroundColor: const Color(0xFF0B0F10),
       body: Listener(
@@ -215,6 +315,11 @@ class _MediaViewerState extends State<MediaViewer> {
           _pointerStartY = event.position.dy;
         },
         onPointerMove: (PointerMoveEvent event) {
+          // A zoomed picture owns the pointer: panning must not drag the whole
+          // viewer down, and a pinch must not be read as a dismiss gesture.
+          if (_pageZoomed) {
+            return;
+          }
           final double dy = event.position.dy - _pointerStartY;
           final double dx = event.position.dx - _pointerStartX;
           // A pointer listener never joins the gesture arena, so horizontal
@@ -430,251 +535,6 @@ class _SaveButton extends StatelessWidget {
   }
 }
 
-class _ViewerImage extends StatefulWidget {
-  const _ViewerImage({
-    super.key,
-    required this.item,
-    required this.chat,
-    this.localBytes,
-  });
-
-  final ChatMediaItem item;
-  final ChatService chat;
-  final Uint8List? localBytes;
-
-  @override
-  State<_ViewerImage> createState() => _ViewerImageState();
-}
-
-enum _OriginalState { idle, loading, failed, loaded }
-
-class _ViewerImageState extends State<_ViewerImage> {
-  MediaPreview? _preview;
-  String? _previewError;
-  bool _loadingPreview = true;
-  int? _size;
-
-  Uint8List? _original;
-  _OriginalState _originalState = _OriginalState.idle;
-  int _received = 0;
-  int? _total;
-
-  int _previewGeneration = 0;
-  int _originalGeneration = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    final Uint8List? local = widget.localBytes;
-    if (local != null && local.isNotEmpty) {
-      _original = local;
-      _size = local.length;
-      _preview = MediaPreview(bytes: local, isDerivative: false);
-      _loadingPreview = false;
-      return;
-    }
-    _size = widget.item.byteSize;
-    unawaited(_initialize());
-  }
-
-  @override
-  void dispose() {
-    _previewGeneration += 1;
-    _originalGeneration += 1;
-    super.dispose();
-  }
-
-  /// Resolve the original size first (metadata for historical body images),
-  /// then fetch bounded thumbnail bytes for large images and the original for
-  /// small ones. A metadata failure is retryable and never assumes "small".
-  Future<void> _initialize() async {
-    final int generation = ++_previewGeneration;
-    setState(() {
-      _loadingPreview = true;
-      _previewError = null;
-    });
-    try {
-      int? size = widget.item.byteSize;
-      if (size == null) {
-        final Attachment metadata = await widget.chat.loadMediaMetadata(
-          widget.item.mediaId,
-        );
-        size = metadata.byteSize;
-      }
-      final int resolvedSize = size;
-      if (!mounted || generation != _previewGeneration) {
-        return;
-      }
-      final MediaPreview preview = await widget.chat.loadMediaPreview(
-        widget.item.mediaId,
-        thumbnail: mediaNeedsExplicitOriginal(resolvedSize),
-      );
-      if (!mounted || generation != _previewGeneration) {
-        return;
-      }
-      setState(() {
-        _size = resolvedSize;
-        _preview = preview;
-        _loadingPreview = false;
-      });
-    } catch (_) {
-      if (!mounted || generation != _previewGeneration) {
-        return;
-      }
-      setState(() {
-        _loadingPreview = false;
-        _previewError = '图片加载失败';
-      });
-    }
-  }
-
-  bool get _showOriginalButton =>
-      (_preview?.isDerivative ?? false) &&
-      _original == null &&
-      _size != null &&
-      mediaNeedsExplicitOriginal(_size!);
-
-  String get _originalLabel {
-    if (_originalState == _OriginalState.loading) {
-      final int? total = _total;
-      if (total != null && total > 0) {
-        final int percent = (_received * 100 ~/ total).clamp(0, 100);
-        return '原图下载中 $percent%';
-      }
-      return '原图下载中…';
-    }
-    final String size = _size == null ? '原图' : '原图 ${formatBytes(_size!)}';
-    if (_originalState == _OriginalState.failed) {
-      return '重试 $size';
-    }
-    return _size == null ? '查看原图' : size;
-  }
-
-  Future<void> _loadOriginal() async {
-    if (_originalState == _OriginalState.loading) {
-      return;
-    }
-    final int generation = ++_originalGeneration;
-    setState(() {
-      _originalState = _OriginalState.loading;
-      _received = 0;
-      _total = _size;
-    });
-    try {
-      final MediaResponse media = await widget.chat.fetchOriginalMedia(
-        widget.item.mediaId,
-        onProgress: (int received, int? total) {
-          if (!mounted || generation != _originalGeneration) {
-            return;
-          }
-          setState(() {
-            _received = received;
-            _total = total ?? _total;
-          });
-        },
-      );
-      if (!mounted || generation != _originalGeneration) {
-        return;
-      }
-      setState(() {
-        _original = media.bytes;
-        _size = media.bytes.length;
-        _originalState = _OriginalState.loaded;
-      });
-    } catch (_) {
-      if (!mounted || generation != _originalGeneration) {
-        return;
-      }
-      setState(() => _originalState = _OriginalState.failed);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final Uint8List? bytes = _original ?? _preview?.bytes;
-    return ColoredBox(
-      color: const Color(0xFF0B0F10),
-      child: Stack(
-        children: <Widget>[
-          Positioned.fill(
-            child: bytes != null
-                ? Image.memory(
-                    bytes,
-                    fit: BoxFit.contain,
-                    gaplessPlayback: true,
-                    errorBuilder: (
-                      BuildContext context,
-                      Object error,
-                      StackTrace? stackTrace,
-                    ) => const _BrokenMedia(label: '图片无法显示'),
-                  )
-                : _previewError != null
-                ? _BrokenMedia(label: _previewError!, onRetry: _initialize)
-                : const Center(
-                    child: SizedBox(
-                      width: 26,
-                      height: 26,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white70,
-                      ),
-                    ),
-                  ),
-          ),
-          if (bytes != null && _loadingPreview && _preview == null)
-            const Center(child: CircularProgressIndicator()),
-          if (_showOriginalButton)
-            Positioned(
-              left: AppSpacing.md,
-              bottom: AppSpacing.lg + MediaQuery.of(context).padding.bottom,
-              child: SafeArea(
-                right: false,
-                top: false,
-                child: OutlinedButton.icon(
-                  key: const Key('media-viewer-original'),
-                  onPressed: _originalState == _OriginalState.loading
-                      ? null
-                      : _loadOriginal,
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.white,
-                    backgroundColor: const Color(0x99000000),
-                    side: const BorderSide(color: Colors.white24),
-                    minimumSize: const Size(0, 44),
-                  ),
-                  icon: _originalState == _OriginalState.loading
-                      ? const SizedBox(
-                          width: 14,
-                          height: 14,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Icon(Icons.hd_outlined, size: 18),
-                  label: Text(_originalLabel),
-                ),
-              ),
-            ),
-          if (_originalState == _OriginalState.loading)
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: LinearProgressIndicator(
-                key: const Key('media-viewer-original-progress'),
-                value: (_total != null && _total! > 0)
-                    ? (_received / _total!).clamp(0.0, 1.0)
-                    : null,
-                minHeight: 3,
-                backgroundColor: Colors.white12,
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
 class _VideoChip extends StatelessWidget {
   const _VideoChip({super.key, required this.text});
 
@@ -693,37 +553,6 @@ class _VideoChip extends StatelessWidget {
           text,
           style: const TextStyle(color: Colors.white70, fontSize: 12),
         ),
-      ),
-    );
-  }
-}
-
-class _BrokenMedia extends StatelessWidget {
-  const _BrokenMedia({required this.label, this.onRetry});
-
-  final String label;
-  final VoidCallback? onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          const Icon(
-            Icons.broken_image_outlined,
-            color: Colors.white54,
-            size: 34,
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          Text(label, style: const TextStyle(color: Colors.white70)),
-          if (onRetry != null)
-            TextButton(
-              key: const Key('media-viewer-preview-retry'),
-              onPressed: onRetry,
-              child: const Text('重试'),
-            ),
-        ],
       ),
     );
   }

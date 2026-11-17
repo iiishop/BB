@@ -145,4 +145,55 @@ void main() {
     await tester.pumpAndSettle();
     expect(saved.length, 2);
   });
+
+  testWidgets('a large image asks for the thumbnail first, then the original', (
+    WidgetTester tester,
+  ) async {
+    final FakeSpaceGateway gateway = FakeSpaceGateway();
+    gateway.imageBytes['img-big'] = spaceTinyPng;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SpaceImageViewer(
+          images: <SpaceImage>[
+            spaceImage(imageId: 'img-big', byteSize: 3 * 1024 * 1024),
+          ],
+          initialIndex: 0,
+          loader: SpaceImageLoader(gateway),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // The bounded derivative arrives first and the original stays opt-in, the
+    // same rule chat media follows.
+    expect(gateway.imageVariants, <String>['thumb:img-big']);
+    expect(find.text('原图 3.0 MB'), findsOneWidget);
+    expect(find.byType(Image), findsOneWidget);
+
+    await tester.tap(find.byKey(SpaceImageViewer.keys.original));
+    await tester.pumpAndSettle();
+
+    expect(gateway.imageVariants, <String>['thumb:img-big', 'original:img-big']);
+    expect(find.text('原图 3.0 MB'), findsNothing);
+  });
+
+  testWidgets('a small image never offers the original action', (
+    WidgetTester tester,
+  ) async {
+    final FakeSpaceGateway gateway = FakeSpaceGateway();
+    gateway.imageBytes['img-1'] = spaceTinyPng;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SpaceImageViewer(
+          images: <SpaceImage>[spaceImage(imageId: 'img-1')],
+          initialIndex: 0,
+          loader: SpaceImageLoader(gateway),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(gateway.imageVariants, <String>['original:img-1']);
+    expect(find.byKey(SpaceImageViewer.keys.original), findsNothing);
+  });
 }
