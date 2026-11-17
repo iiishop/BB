@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="9" time="0.911" timestamp="2026-11-17T14:19:12.159092+00:00" hostname="iiishop-Arch"><testcase classname="tests.test_space_tools" name="test_discovery_exact_contract_and_no_internal_replay" time="0.007"><failure message="AssertionError: assert 28 == 24&#10; +  where 28 = len({'space_get_follow': Tool(name='space_get_follow', title=None, description='BB Space is shared with all logged-in acco...e, readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True), meta=None, execution=None), ...})">@pytest.mark.asyncio
+    async def test_discovery_exact_contract_and_no_internal_replay():
+        server = create_server(LocalClient("http://127.0.0.1"))
+        reply = await server.request_handlers[ListToolsRequest](
+            ListToolsRequest(method="tools/list")
+        )
+        tools = {t.name: t for t in reply.root.tools if t.name.startswith("space_")}
+        assert set(tools) == set(SPACE_TOOLS)
+&gt;       assert len(tools) == 24
+E       AssertionError: assert 28 == 24
+E        +  where 28 = len({'space_get_follow': Tool(name='space_get_follow', title=None, description='BB Space is shared with all logged-in acco...e, readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True), meta=None, execution=None), ...})
+
+tests/test_space_tools.py:31: AssertionError</failure></testcase><testcase classname="tests.test_space_tools" name="test_image_bytes_and_stale_identity_fence" time="0.003" /><testcase classname="tests.test_space_tools" name="test_add_image_reads_a_local_path_into_wire_base64" time="0.002" /><testcase classname="tests.test_space_tools" name="test_add_image_rejects_unusable_path_and_ambiguous_source" time="0.001" /><testcase classname="tests.test_space_tools" name="test_space_errors_preserved_without_private_echo[403-forbidden]" time="0.002" /><testcase classname="tests.test_space_tools" name="test_space_errors_preserved_without_private_echo[409-version_conflict]" time="0.001" /><testcase classname="tests.test_space_tools" name="test_space_errors_preserved_without_private_echo[404-not_found]" time="0.002" /><testcase classname="tests.test_space_tools" name="test_space_errors_preserved_without_private_echo[422-attachments_not_ready]" time="0.001" /><testcase classname="tests.test_space_tools" name="test_dart_validators_are_generated_from_the_same_authority" time="0.036" /></testsuite></testsuites>
