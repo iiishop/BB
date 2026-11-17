@@ -152,22 +152,35 @@ class AuthService implements AuthGateway {
         currentToken != expectedToken) {
       return;
     }
+    // Two commits share this method, and they order the two halves of a
+    // credential differently:
+    //
+    // * a server-side invalidation (`expectedToken`) revokes the in-memory
+    //   session first and erases the file second. Another process can only
+    //   observe the file, so the session must already be dead by the time it
+    //   disappears — otherwise a status probe lands in the window and still
+    //   answers "authenticated" (CI, 2026-11-17).
+    // * a user-directed sign-out erases first and revokes second, so a failed
+    //   deletion leaves a usable session instead of a half-signed-out UI.
+    final bool revokeFirst = expectedToken != null;
+    if (revokeFirst && session.tokenForRequest == oldToken) {
+      session.clear();
+    }
     final SessionStore? store = this.store;
     try {
       if (store != null) {
         await store.clear();
       }
-      // A new login may have completed while the deletion was in flight. Its
-      // file can have been removed by that deletion; restore it before the
-      // conditional memory commit below.
-      await _repersistNewLogin(oldToken);
     } on SessionStorageException {
       await _repersistNewLogin(oldToken);
       throw sessionStorageUnavailable;
     }
-    // Clear only the credential this sign-out owned. A new login that
-    // committed during the await must survive in memory too.
-    if (session.tokenForRequest == oldToken) {
+    // A new login may have completed while the deletion was in flight. Its file
+    // can have been removed by that deletion; restore the on-disk copy.
+    await _repersistNewLogin(oldToken);
+    // Clear only the credential this user-directed sign-out owned. A new login
+    // that committed during the await must survive in memory too.
+    if (!revokeFirst && session.tokenForRequest == oldToken) {
       session.clear();
     }
   }
