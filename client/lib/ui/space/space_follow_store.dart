@@ -43,7 +43,24 @@ class SpaceFollowStore extends ChangeNotifier {
   /// uses it to detect that its cursor is no longer valid.
   int get revision => _revision;
 
-  String? error;
+  /// Failure feedback owned by the target it belongs to. A success or a new
+  /// attempt on another target must not erase it (R7).
+  final Map<String, String> _errors = <String, String>{};
+
+  /// Most recent failure across targets. Per-operation callers must use
+  /// [errorFor] so concurrent operations cannot steal each other's feedback.
+  String? get error => _errors.isEmpty ? null : _errors.values.last;
+
+  String? errorFor(String account) => _errors[account];
+
+  void _setError(String account, String message) {
+    _errors.remove(account);
+    _errors[account] = message;
+  }
+
+  void _clearError(String account) {
+    _errors.remove(account);
+  }
 
   bool isSelf(String account) => account == viewerAccount;
 
@@ -117,7 +134,7 @@ class SpaceFollowStore extends ChangeNotifier {
         return;
       }
       _states[account] = state.following;
-      error = null;
+      _clearError(account);
     } catch (_) {
       // Unknown stays unknown; the next page/refresh can retry.
     } finally {
@@ -139,7 +156,7 @@ class SpaceFollowStore extends ChangeNotifier {
     }
     _knownTargets.add(account);
     _writing.add(account);
-    error = null;
+    _clearError(account);
     final bool? previous = _states[account];
     // Any authoritative fact (persisted event, forced read, another result)
     // applied while this request is in flight advances the revision. A result
@@ -158,12 +175,12 @@ class SpaceFollowStore extends ChangeNotifier {
         requestRevision,
       );
       if (!settled) {
-        error ??= spaceSettlementUnconfirmed;
+        _errors.putIfAbsent(account, () => spaceSettlementUnconfirmed);
         return false;
       }
       return true;
     } catch (failure) {
-      error = spaceErrorText(failure);
+      _setError(account, spaceErrorText(failure));
       // Unknown network outcome: reconcile before the user retries, never
       // retry an old intent over a newer one. A reconciliation that discovers
       // a real change is an authoritative relationship change and must advance
@@ -178,7 +195,7 @@ class SpaceFollowStore extends ChangeNotifier {
           requestRevision,
         );
         if (!settled) {
-          error ??= spaceSettlementUnconfirmed;
+          _errors.putIfAbsent(account, () => spaceSettlementUnconfirmed);
         }
       } catch (_) {
         // Keep the previous authoritative value; the UI keeps showing it.
@@ -212,8 +229,8 @@ class SpaceFollowStore extends ChangeNotifier {
     if (failure != null) {
       // The result could not be ordered against the newer fact and the truth
       // could not be read: keep the last known relationship but report an
-      // explicit unsettled outcome (R6).
-      error ??= failure;
+      // explicit unsettled outcome (R6), attributed to this target (R7).
+      _errors.putIfAbsent(account, () => failure);
       return false;
     }
     return true;

@@ -132,9 +132,12 @@ Future<void> toggleSpaceFollow(
   if (!context.mounted) {
     return;
   }
-  if (!applied && store.error != null) {
+  // Feedback belongs to this target: a concurrent success on another target
+  // must not hide this operation's failure (R7).
+  final String? failure = store.errorFor(account) ?? store.error;
+  if (!applied && failure != null) {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(store.error!)));
+      ..showSnackBar(SnackBar(content: Text(failure)));
   }
 }
