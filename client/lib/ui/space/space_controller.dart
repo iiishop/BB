@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../models/auth_models.dart';
 import '../../models/space_models.dart';
+import '../../services/media_disk_cache.dart';
 import 'space_detail_controller.dart';
 import 'space_gateway.dart';
 import 'space_image_viewer.dart';
@@ -25,7 +26,7 @@ class SpaceController extends ChangeNotifier {
     this.onSessionExpired,
     this.pollInterval = const Duration(seconds: 20),
     this.autoPoll = true,
-  }) : images = images ?? SpaceImageLoader(gateway);
+  }) : images = images ?? SpaceImageLoader(gateway, disk: MediaDiskCache());
 
   final SpaceGateway gateway;
   final SpaceLocalStore store;
