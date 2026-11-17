@@ -35,11 +35,16 @@ done
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 
+# 仓库根，用来取图标源；脚本可能被从任意 cwd 调用。
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+APP_ICON="$REPO_ROOT/docs/images/logo-512.png"
+
 [[ -n "$BUNDLE" ]] || die "缺少 --bundle"
 [[ -n "$VERSION" ]] || die "缺少 --version"
 [[ -d "$BUNDLE" ]] || die "bundle 目录不存在: $BUNDLE"
 [[ -x "$BUNDLE/$BIN_NAME" ]] || die "bundle 里没有可执行文件: $BUNDLE/$BIN_NAME"
 command -v makepkg >/dev/null 2>&1 || die "缺少 makepkg（需要在 Arch 环境）"
+[[ -f "$APP_ICON" ]] || die "缺少图标源 $APP_ICON"
 
 BUNDLE="$(cd -- "$BUNDLE" && pwd -P)"
 mkdir -p -- "$OUT"
@@ -70,15 +75,18 @@ _bundle='${BUNDLE}'
 _bin='${BIN_NAME}'
 
 package() {
-  install -d "\$pkgdir/opt/${PKG}" "\$pkgdir/usr/bin" "\$pkgdir/usr/share/applications"
+  install -d "\$pkgdir/opt/${PKG}" "\$pkgdir/usr/bin" "\$pkgdir/usr/share/applications" \
+    "\$pkgdir/usr/share/icons/hicolor/512x512/apps"
   cp -a "\$_bundle/." "\$pkgdir/opt/${PKG}/"
   ln -sfn "/opt/${PKG}/\$_bin" "\$pkgdir/usr/bin/${PKG}"
+  install -m 0644 "${APP_ICON}" "\$pkgdir/usr/share/icons/hicolor/512x512/apps/${PKG}.png"
   cat > "\$pkgdir/usr/share/applications/${PKG}.desktop" <<DESKTOP
 [Desktop Entry]
 Type=Application
 Name=BB
 Comment=${DESC}
 Exec=/opt/${PKG}/\$_bin
+Icon=${PKG}
 Terminal=false
 Categories=Network;Chat;
 DESKTOP

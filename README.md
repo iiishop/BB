@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/images/logo-512.png" width="112" alt="BB">
+</p>
+
 # BB — 自托管私人社交平台
 
 BB 是基于 **Flutter + FastAPI** 的私人社交平台，提供账号、聊天、动态、媒体、通知与权限管理。数据由部署者自行托管，真人用户和通过授权接口接入的程序参与者使用**同一套账号体系、社交数据与业务规则**。
