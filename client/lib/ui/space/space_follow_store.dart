@@ -117,6 +117,10 @@ class SpaceFollowStore extends ChangeNotifier {
       return;
     }
     _loading.add(account);
+    // Feedback for a write that has not returned yet must survive a background
+    // refresh of this target; the caller still has to display it (R8). A
+    // refresh after the operation finished may clear an old error.
+    final bool preserveFeedback = _writing.contains(account);
     final int revision = _revision;
     try {
       final SpaceFollowState state = await gateway.getFollow(account);
@@ -134,7 +138,9 @@ class SpaceFollowStore extends ChangeNotifier {
         return;
       }
       _states[account] = state.following;
-      _clearError(account);
+      if (!preserveFeedback && !_writing.contains(account)) {
+        _clearError(account);
+      }
     } catch (_) {
       // Unknown stays unknown; the next page/refresh can retry.
     } finally {
