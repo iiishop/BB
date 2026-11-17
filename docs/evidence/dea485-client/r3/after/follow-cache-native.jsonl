@@ -1,0 +1,11 @@
+{"protocolVersion":"0.1.1","runnerVersion":null,"pid":2261270,"type":"start","time":0}
+{"suite":{"id":0,"platform":"vm","path":"/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-bac7692aa6f7/workdir/BB/client/.qa-artifacts/dea485_round3_follow_cache_probe_test.dart"},"type":"suite","time":0}
+{"test":{"id":1,"name":"loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-bac7692aa6f7/workdir/BB/client/.qa-artifacts/dea485_round3_follow_cache_probe_test.dart","suiteID":0,"groupIDs":[],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":null},"type":"testStart","time":0}
+{"count":1,"time":3,"type":"allSuites"}
+{"testID":1,"result":"success","skipped":false,"hidden":true,"type":"testDone","time":1641}
+{"group":{"id":2,"suiteID":0,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":2,"line":null,"column":null,"url":null},"type":"group","time":1643}
+{"test":{"id":3,"name":"R3 ordinary unfollow reload removes the author without switching scopes","suiteID":0,"groupIDs":[2],"metadata":{"skip":false,"skipReason":null},"line":174,"column":5,"url":"package:flutter_test/src/widget_tester.dart","root_line":17,"root_column":5,"root_url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-bac7692aa6f7/workdir/BB/client/.qa-artifacts/dea485_round3_follow_cache_probe_test.dart"},"type":"testStart","time":1643}
+{"testID":3,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2510}
+{"test":{"id":4,"name":"R3 following cache cannot restore an unfollowed author while reload is pending","suiteID":0,"groupIDs":[2],"metadata":{"skip":false,"skipReason":null},"line":174,"column":5,"url":"package:flutter_test/src/widget_tester.dart","root_line":17,"root_column":5,"root_url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-bac7692aa6f7/workdir/BB/client/.qa-artifacts/dea485_round3_follow_cache_probe_test.dart"},"type":"testStart","time":2511}
+{"testID":4,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2741}
+{"success":true,"type":"done","time":2757}
