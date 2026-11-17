@@ -18,7 +18,6 @@ library;
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../../app.dart';
@@ -261,6 +260,8 @@ class PhotoPage extends StatefulWidget {
     super.key,
     required this.controller,
     this.onZoomChanged,
+    this.onPanDelta,
+    this.onPanEnd,
     this.retryKey,
     this.failureLabel = '图片加载失败',
   });
@@ -271,12 +272,26 @@ class PhotoPage extends StatefulWidget {
   /// horizontal drags while a picture is zoomed in.
   final ValueChanged<bool>? onZoomChanged;
 
+  /// Single-finger swipe, relayed to the pager.
+  ///
+  /// The scale recognizer wins a single finger here no matter what the pager
+  /// does, so the movement is handed out instead of fought for; the pager turns
+  /// it into a page drag.
+  final ValueChanged<Offset>? onPanDelta;
+
+  /// End of a single-finger swipe; the pager snaps to a page.
+  final VoidCallback? onPanEnd;
+
   /// Key for the whole-page retry button, so callers can find it in tests.
   final Key? retryKey;
 
   /// Wording of the whole-page failure state. The Space viewer only ever shows
   /// originals, so it keeps its own phrasing.
   final String failureLabel;
+
+  /// The transform that carries the current zoom, so a test can read it back
+  /// instead of guessing from pixels.
+  static const Key zoomKey = Key('photo-viewer-zoom');
 
   @override
   State<PhotoPage> createState() => _PhotoPageState();
@@ -297,17 +312,52 @@ class _PhotoPageState extends State<PhotoPage> {
   Offset _startOffset = Offset.zero;
   Offset _startFocal = Offset.zero;
 
+  /// True between the second finger going down and the pinch ending, even while
+  /// the scale is still 1: the first finger must not turn into a page swipe.
+  bool _pinching = false;
+
+  /// True while a single finger is swiping: the pager owns the movement and
+  /// this page only relays it.
+  bool _panning = false;
+
   bool get _zoomed => _scale > _zoomedThreshold;
+
+  /// Whether the enclosing pager must stop scrolling.
+  bool get _frozen => _zoomed || _pinching;
+
+  void _notifyFreeze(bool wasFrozen) {
+    if (_frozen != wasFrozen) {
+      widget.onZoomChanged?.call(_frozen);
+    }
+  }
 
   void _onScaleStart(ScaleStartDetails details) {
     _startScale = _scale;
     _startOffset = _offset;
     _startFocal = details.localFocalPoint;
+    if (details.pointerCount >= 2) {
+      _panning = false;
+      if (!_pinching) {
+        final bool wasFrozen = _frozen;
+        setState(() => _pinching = true);
+        _notifyFreeze(wasFrozen);
+      }
+      return;
+    }
+    // One finger on an un-zoomed picture is a page swipe. The scale recognizer
+    // wins that arena either way (it sits closer to the pixels than the pager's
+    // drag recognizer), so the swipe is relayed out instead of fought for.
+    _panning = !_zoomed;
   }
 
   /// Scales around the pinch focal point and follows it, then clamps the pan so
   /// the picture cannot be dragged off the viewport.
   void _onScaleUpdate(ScaleUpdateDetails details) {
+    if (_panning && details.pointerCount <= 1) {
+      widget.onPanDelta?.call(details.focalPointDelta);
+      return;
+    }
+    _panning = false;
     if (_startScale <= 0) {
       return;
     }
@@ -321,20 +371,28 @@ class _PhotoPageState extends State<PhotoPage> {
   }
 
   void _onScaleEnd(ScaleEndDetails details) {
-    if (!_zoomed) {
-      _apply(1, Offset.zero);
+    if (_panning) {
+      _panning = false;
+      widget.onPanEnd?.call();
     }
+    final bool wasFrozen = _frozen;
+    setState(() {
+      _pinching = false;
+      if (_scale <= _zoomedThreshold) {
+        _scale = 1;
+        _offset = Offset.zero;
+      }
+    });
+    _notifyFreeze(wasFrozen);
   }
 
   void _apply(double scale, Offset offset) {
-    final bool wasZoomed = _zoomed;
+    final bool wasFrozen = _frozen;
     setState(() {
       _scale = scale;
       _offset = offset;
     });
-    if (_zoomed != wasZoomed) {
-      widget.onZoomChanged?.call(_zoomed);
-    }
+    _notifyFreeze(wasFrozen);
   }
 
   Offset _clampOffset(Offset offset, double scale) {
@@ -357,27 +415,14 @@ class _PhotoPageState extends State<PhotoPage> {
             builder: (BuildContext context, BoxConstraints constraints) {
               _viewport = constraints.biggest;
               return ClipRect(
-                child: RawGestureDetector(
+                child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  gestures: <Type, GestureRecognizerFactory>{
-                    _PinchScaleGestureRecognizer:
-                        GestureRecognizerFactoryWithHandlers<
-                          _PinchScaleGestureRecognizer
-                        >(
-                          () => _PinchScaleGestureRecognizer(
-                            debugOwner: this,
-                            allowSinglePointer: () => _zoomed,
-                          ),
-                          (_PinchScaleGestureRecognizer instance) {
-                            instance
-                              ..onStart = _onScaleStart
-                              ..onUpdate = _onScaleUpdate
-                              ..onEnd = _onScaleEnd;
-                          },
-                        ),
-                  },
+                  onScaleStart: _onScaleStart,
+                  onScaleUpdate: _onScaleUpdate,
+                  onScaleEnd: _onScaleEnd,
                   child: Center(
                     child: Transform(
+                      key: PhotoPage.zoomKey,
                       alignment: Alignment.center,
                       transform: Matrix4.identity()
                         ..translateByDouble(_offset.dx, _offset.dy, 0, 1)
@@ -420,33 +465,6 @@ class _PhotoPageState extends State<PhotoPage> {
         );
       },
     );
-  }
-}
-
-/// A scale recognizer that stays out of the arena until the gesture really is a
-/// pinch.
-///
-/// `InteractiveViewer`'s recognizer accepts single-finger drags too, which is
-/// why a picture inside a `PageView` could be zoomed but never swiped: the
-/// viewer always won the arena first. Rejecting the first pointer lets the
-/// pager keep horizontal drags; the second pointer starts a fresh arena, and
-/// there this recognizer is the only member, so the pinch works. Once a picture
-/// is zoomed the pager stops scrolling and single-finger panning is wanted, so
-/// [allowSinglePointer] switches it back on.
-class _PinchScaleGestureRecognizer extends ScaleGestureRecognizer {
-  _PinchScaleGestureRecognizer({
-    super.debugOwner,
-    required this.allowSinglePointer,
-  });
-
-  final bool Function() allowSinglePointer;
-
-  @override
-  void addAllowedPointer(PointerDownEvent event) {
-    super.addAllowedPointer(event);
-    if (!allowSinglePointer() && pointerCount < 2) {
-      resolve(GestureDisposition.rejected);
-    }
   }
 }
 

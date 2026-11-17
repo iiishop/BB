@@ -212,6 +212,7 @@ class _MediaViewerState extends State<MediaViewer> {
       itemCount: _items.length,
       keys: MediaViewer.keys,
       onDismiss: _close,
+      onZoomChanged: (bool frozen) => _pageZoomed = frozen,
       onPageChanged: (int index) {
         final ChatMediaItem previous = _items[_index];
         if (previous.isVideo) {
@@ -223,7 +224,7 @@ class _MediaViewerState extends State<MediaViewer> {
         });
       },
       itemBuilder:
-          (BuildContext context, int index, ValueChanged<bool> onZoom) {
+          (BuildContext context, int index, PhotoPagerHandlers handlers) {
             final ChatMediaItem item = _items[index];
             return item.isVideo
                 ? _ViewerVideo(
@@ -240,10 +241,9 @@ class _MediaViewerState extends State<MediaViewer> {
                 : PhotoPage(
                     key: ValueKey<String>(item.key),
                     controller: _pageFor(index),
-                    onZoomChanged: (bool zoomed) {
-                      _pageZoomed = zoomed;
-                      onZoom(zoomed);
-                    },
+                    onZoomChanged: handlers.onZoom,
+                    onPanDelta: handlers.onPanDelta,
+                    onPanEnd: handlers.onPanEnd,
                     retryKey: MediaViewer.keys.previewRetry,
                   );
           },

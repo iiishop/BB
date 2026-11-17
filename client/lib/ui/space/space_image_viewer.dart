@@ -483,15 +483,18 @@ class _SpaceImageViewerState extends State<SpaceImageViewer> {
       keys: SpaceImageViewer.keys,
       onPageChanged: (int value) => setState(() => _index = value),
       onDismiss: () => Navigator.of(context).maybePop(),
-      itemBuilder: (BuildContext context, int index, ValueChanged<bool> onZoom) {
-        return PhotoPage(
-          key: ValueKey<String>(widget.images[index].imageId),
-          controller: _pageFor(index),
-          onZoomChanged: onZoom,
-          retryKey: SpaceImageViewer.keys.previewRetry,
-          failureLabel: '原图加载失败',
-        );
-      },
+      itemBuilder:
+          (BuildContext context, int index, PhotoPagerHandlers handlers) {
+            return PhotoPage(
+              key: ValueKey<String>(widget.images[index].imageId),
+              controller: _pageFor(index),
+              onZoomChanged: handlers.onZoom,
+              onPanDelta: handlers.onPanDelta,
+              onPanEnd: handlers.onPanEnd,
+              retryKey: SpaceImageViewer.keys.previewRetry,
+              failureLabel: '原图加载失败',
+            );
+          },
     );
     return Scaffold(
       backgroundColor: Colors.black,
