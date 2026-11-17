@@ -2,8 +2,9 @@
 
 - 客户端分支：`agent/muse/bac7692aa6f7`
 - 基线：`246c690bd4cca4832b3d53c5757eb804e92f3531`
-- 本目录包含两轮：契约接入（`b6becc4`）与独立 QA 返工 Q1–Q4/Q6（`7cfed39`，
-  返工细节、修前/修后探针与计数见 `q1-q6/README.md`）
+- 本目录包含三轮：契约接入（`b6becc4`）、独立 QA 返工 Q1–Q4/Q6（`7cfed39`，
+  细节见 `q1-q6/README.md`）与 QA round 2 返工 R2-A/R2-B/R2-C（`55a8683`，
+  细节见 `r2/README.md`）
 - 合并的固定依赖：Forge PR #73 / `5e354ab9d5ef4469e6e69c4c931d61a0cd465268`
   （契约入口 `docs/contracts/dea485-profile-follow.md`；合并提交见 branch head）
 - 写入范围：`client/`、`docs/evidence/dea485-client/`、`client/tool/generate_space.py`（生成器）
@@ -44,7 +45,7 @@ QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 \
   bash scripts/run_flutter_tests.sh client
 # RESULT=PASS
 #   flutter analyze: PASS
-#   flutter test:    PASS  +826 / ~14 skipped（返工后；契约接入轮为 818）
+#   flutter test:    PASS  +833 / ~14 skipped（R2 返工后；Q1–Q6 轮为 826，契约接入轮为 818）
 #   linux-integration: PASS +14（真实 Linux 进程 + 真实 HTTP 服务）
 ```
 
