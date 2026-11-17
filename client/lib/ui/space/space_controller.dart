@@ -106,6 +106,7 @@ class SpaceController extends ChangeNotifier {
       <SpaceFeedScope, _FeedSnapshot>{};
   int _feedGeneration = 0;
   int _seenFollowRevision = 0;
+  bool _followReloadPending = false;
 
   /// A non-fatal notice such as "following changed, refreshed" shown above the
   /// feed without replacing the list.
@@ -213,6 +214,9 @@ class SpaceController extends ChangeNotifier {
 
   Future<void> _loadFeedFirst({required bool explicit}) async {
     final int generation = ++_feedGeneration;
+    // Any parked/old pagination request belongs to the previous generation; its
+    // finally block no longer owns this flag (Q4).
+    loadingMore = false;
     final SpaceFeedScope requested = scope;
     try {
       final SpacePagePost page = await gateway.listPosts(
@@ -294,6 +298,12 @@ class SpaceController extends ChangeNotifier {
       ]);
     } finally {
       refreshing = false;
+      if (_followReloadPending) {
+        _followReloadPending = false;
+        if (scope == SpaceFeedScope.following) {
+          unawaited(_loadFeedFirst(explicit: true));
+        }
+      }
       _notify();
     }
   }
@@ -547,8 +557,9 @@ class SpaceController extends ChangeNotifier {
     // Invalidate the owned image bytes before removing the last snapshot that
     // still knows which images belong to this post.
     _invalidateImagesForPostId(postId);
-    posts.removeWhere((SpacePost p) => p.postId == postId);
-    _pendingPage.removeWhere((SpacePost p) => p.postId == postId);
+    for (final List<SpacePost> list in _allPostLists) {
+      list.removeWhere((SpacePost p) => p.postId == postId);
+    }
     _scrubReferencesTo(postId);
     _scrubCommentCaches();
     if (posts.isEmpty && phase == SpacePhase.ready) {
@@ -573,11 +584,10 @@ class SpaceController extends ChangeNotifier {
       }
     }
 
-    for (final SpacePost post in posts) {
-      invalidate(post);
-    }
-    for (final SpacePost post in _pendingPage) {
-      invalidate(post);
+    for (final List<SpacePost> list in _allPostLists) {
+      for (final SpacePost post in list) {
+        invalidate(post);
+      }
     }
     invalidate(_details[postId]?.post);
     // Snapshots can be gone (detail backed out or closed) before the deletion
@@ -650,14 +660,10 @@ class SpaceController extends ChangeNotifier {
   }
 
   void _scrubCommentCaches() {
-    for (int i = 0; i < posts.length; i++) {
-      posts[i] = spacePostWithScrubbedComments(posts[i], _isDeletedComment);
-    }
-    for (int i = 0; i < _pendingPage.length; i++) {
-      _pendingPage[i] = spacePostWithScrubbedComments(
-        _pendingPage[i],
-        _isDeletedComment,
-      );
+    for (final List<SpacePost> list in _allPostLists) {
+      for (int i = 0; i < list.length; i++) {
+        list[i] = spacePostWithScrubbedComments(list[i], _isDeletedComment);
+      }
     }
     for (int i = 0; i < notifications.length; i++) {
       notifications[i] = _scrubNotification(notifications[i]);
@@ -669,6 +675,18 @@ class SpaceController extends ChangeNotifier {
       for (final SpacePost post in items)
         if (!_tombstones.contains(post.postId)) _scrubIncoming(post),
     ];
+  }
+
+  /// Every mutable post snapshot the controller can restore or show: the
+  /// active feed, its pending page and both parked scope snapshots with their
+  /// pending pages. Deletion/comment invalidation must reach all of them.
+  Iterable<List<SpacePost>> get _allPostLists sync* {
+    yield posts;
+    yield _pendingPage;
+    for (final _FeedSnapshot snapshot in _scopeCache.values) {
+      yield snapshot.posts;
+      yield snapshot.pendingPage;
+    }
   }
 
   /// A deleted post can still be embedded as a reference card in other loaded
@@ -690,8 +708,9 @@ class SpaceController extends ChangeNotifier {
       }
     }
 
-    scrub(posts);
-    scrub(_pendingPage);
+    for (final List<SpacePost> list in _allPostLists) {
+      scrub(list);
+    }
     for (final SpaceDetailController controller in _details.values) {
       final SpaceReference? reference = controller.post?.reference;
       if (reference != null && reference.postId == postId) {
@@ -718,18 +737,30 @@ class SpaceController extends ChangeNotifier {
     }
     _parkScope();
     scope = target;
+    // Old requests belong to the previous scope; they must neither apply nor
+    // hold the new scope's pagination flag (Q4).
+    _feedGeneration += 1;
+    loadingMore = false;
+    refreshing = false;
     final _FeedSnapshot? parked = _scopeCache.remove(target);
     if (parked != null) {
+      // Reapply deletion tombstones and reference/comment scrubs: a parked
+      // snapshot was captured before events that arrived while it was parked
+      // (Q3).
+      final List<SpacePost> restored = _admitIncoming(parked.posts);
       posts
         ..clear()
-        ..addAll(parked.posts);
+        ..addAll(restored);
       nextCursor = parked.nextCursor;
       hasMore = parked.hasMore;
-      phase = parked.phase;
+      phase = posts.isEmpty ? SpacePhase.empty : parked.phase;
+      if (posts.isEmpty && phase == SpacePhase.ready) {
+        phase = SpacePhase.empty;
+      }
       feedError = parked.feedError;
       offline = parked.offline;
       pendingNewPosts = parked.pendingNewPosts;
-      _pendingPage = List<SpacePost>.from(parked.pendingPage);
+      _pendingPage = _admitIncoming(parked.pendingPage);
       feedNotice = null;
       _notify();
       return;
@@ -766,6 +797,9 @@ class SpaceController extends ChangeNotifier {
   Future<void> resetSession() async {
     _scopeCache.clear();
     _feedGeneration += 1;
+    loadingMore = false;
+    refreshing = false;
+    _followReloadPending = false;
     scope = SpaceFeedScope.all;
     section = SpaceSection.feed;
     posts.clear();
@@ -792,8 +826,15 @@ class SpaceController extends ChangeNotifier {
     }
     _seenFollowRevision = follows.revision;
     _scopeCache.remove(SpaceFeedScope.following);
-    if (scope == SpaceFeedScope.following && !refreshing) {
-      unawaited(_loadFeedFirst(explicit: true));
+    if (scope == SpaceFeedScope.following) {
+      if (refreshing) {
+        // The in-flight first page was captured before the relationship
+        // changed; reload it once the refresh finishes instead of showing a
+        // stale following list.
+        _followReloadPending = true;
+      } else {
+        unawaited(_loadFeedFirst(explicit: true));
+      }
     }
     _notify();
   }
@@ -1066,16 +1107,8 @@ class SpaceController extends ChangeNotifier {
       case 'post.deleted':
         final String? postId = event.postId;
         if (postId != null) {
-          _tombstones.add(postId);
-          _invalidateImagesForPostId(postId);
-          posts.removeWhere((SpacePost p) => p.postId == postId);
-          _pendingPage.removeWhere((SpacePost p) => p.postId == postId);
+          _handlePostDeleted(postId);
           _details[postId]?.onDeletedEvent();
-          _scrubReferencesTo(postId);
-          _scrubCommentCaches();
-          if (posts.isEmpty && phase == SpacePhase.ready) {
-            phase = SpacePhase.empty;
-          }
         }
         break;
       case 'post.changed':

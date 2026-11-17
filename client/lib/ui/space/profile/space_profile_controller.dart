@@ -66,6 +66,8 @@ class SpaceProfileController extends ChangeNotifier {
   int _generation = 0;
   bool _started = false;
   bool _disposed = false;
+  bool _identityLoaded = false;
+  bool _identityLoading = false;
   final Set<String> _likePending = <String>{};
 
   bool get atLatest => anchoredMonth == null;
@@ -95,19 +97,26 @@ class SpaceProfileController extends ChangeNotifier {
   }
 
   Future<void> _loadIdentity() async {
-    if (identity != null) {
+    if (_identityLoaded || _identityLoading) {
       return;
     }
+    _identityLoading = true;
     try {
       final SpaceProfileIdentity loaded = await gateway.identity(userId);
       if (_disposed) {
         return;
       }
+      // A card avatar can only seed account/nickname/avatar URL. The
+      // authorized Profile entry is the complete identity (signature included)
+      // and must replace the seed so both entry points render the same header.
       identity = loaded;
+      _identityLoaded = true;
       _notify();
     } catch (_) {
-      // The timeline author is a valid fallback for accounts without an
-      // uploaded profile; a missing profile must not fail the whole page.
+      // The seed (or the timeline author fallback) stays visible; a refresh
+      // retries the complete profile.
+    } finally {
+      _identityLoading = false;
     }
   }
 
@@ -202,6 +211,10 @@ class SpaceProfileController extends ChangeNotifier {
       final SpaceProfileTimelinePage page = await gateway.timeline(
         userId: userId,
         timezoneOffsetMinutes: displayOffsetMinutes,
+        // A cursor is bound to the selected month by the server; omitting it
+        // makes the real receiver reject the continuation (422) and the list
+        // silently stops at the first page.
+        month: anchoredMonth,
         cursor: _cursor,
         limit: pageSize,
       );

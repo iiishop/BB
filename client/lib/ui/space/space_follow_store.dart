@@ -47,19 +47,23 @@ class SpaceFollowStore extends ChangeNotifier {
 
   bool isWriting(String account) => _writing.contains(account);
 
-  /// Seeds unknown authors from a fresh server page. A pending write for the
-  /// same target always wins over a snapshot captured before it.
+  /// Seeds authors whose relationship is still unknown from a server page.
+  ///
+  /// A page snapshot is a read captured before the request returned; it must
+  /// never overwrite a relationship this store already knows (a local write or
+  /// a reconciled read). Otherwise a feed page that started before a follow
+  /// would undo it when its older response lands (Q2). Unknown authors are
+  /// filled in; `handleFollowChanged` clears the cache when the server says a
+  /// relationship changed elsewhere, so the next page can seed it again.
   void seedFromPosts(Iterable<SpacePost> posts) {
     bool changed = false;
     for (final SpacePost post in posts) {
       final String account = post.author.account;
-      if (isSelf(account) || _writing.contains(account)) {
+      if (isSelf(account) || _states.containsKey(account)) {
         continue;
       }
-      if (_states[account] != post.authorFollowing) {
-        _states[account] = post.authorFollowing;
-        changed = true;
-      }
+      _states[account] = post.authorFollowing;
+      changed = true;
     }
     if (changed) {
       _notify();

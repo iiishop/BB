@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:bb_client/models/auth_models.dart';
 import 'package:bb_client/models/space_models.dart';
 import 'package:bb_client/ui/space/space_controller.dart';
@@ -240,4 +242,210 @@ void main() {
     expect(gateway.requestedScopes.last, 'following');
     expect(gateway.postCursors.last, isNull);
   });
+
+  test('an older page snapshot cannot undo a confirmed follow (Q2)', () async {
+    final FakeSpaceGateway gateway = FakeSpaceGateway();
+    final SpaceFollowStore store = SpaceFollowStore(
+      gateway: gateway,
+      viewerAccount: gateway.account,
+    );
+    final SpacePost stale = spacePost(
+      postId: 'stale-page',
+      author: spaceAuthor(account: spacePeerAccount, username: 'bob'),
+      authorFollowing: false,
+    );
+    store.seedFromPosts(<SpacePost>[stale]);
+    expect(store.stateFor(spacePeerAccount), isFalse);
+
+    await store.setFollowing(spacePeerAccount, true);
+    expect(store.stateFor(spacePeerAccount), isTrue);
+
+    // The refresh page was captured before the follow; its late response must
+    // not overwrite the relationship this store already confirmed.
+    store.seedFromPosts(<SpacePost>[stale]);
+    expect(store.stateFor(spacePeerAccount), isTrue);
+    expect(gateway.followStates[spacePeerAccount], isTrue);
+  });
+
+  test(
+    'returning to a parked scope cannot resurrect a deleted post (Q3)',
+    () async {
+      final FakeSpaceGateway gateway = FakeSpaceGateway();
+      final SpacePost peerPost = spacePost(
+        postId: 'qa-deleted',
+        author: spaceAuthor(account: spacePeerAccount),
+        authorFollowing: true,
+      );
+      gateway.postPages[''] = spacePagePost(<SpacePost>[peerPost]);
+      gateway.followingPages[''] = spacePagePost(<SpacePost>[peerPost]);
+      final SpaceController c = SpaceController(
+        gateway: gateway,
+        store: SpaceLocalStore(scopeKey: 'qa-delete'),
+        autoPoll: false,
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      await c.switchScope(SpaceFeedScope.following);
+      gateway.eventPages.add(
+        spaceEventPage(<SpaceEvent>[
+          spaceEvent(eventId: 1, type: 'post.deleted', postId: peerPost.postId),
+        ]),
+      );
+      await c.pollEventsOnce();
+      expect(c.posts, isEmpty);
+
+      await c.switchScope(SpaceFeedScope.all);
+      expect(
+        c.posts,
+        isEmpty,
+        reason: 'A parked scope must reapply deletion tombstones',
+      );
+    },
+  );
+
+  test(
+    'parked snapshots also scrub deleted references and comments (Q3)',
+    () async {
+      final FakeSpaceGateway gateway = FakeSpaceGateway();
+      gateway.postPages[''] = spacePagePost(<SpacePost>[
+        spacePost(
+          postId: 'repost-parked',
+          author: spaceAuthor(account: spacePeerAccount),
+          authorFollowing: true,
+          reference: spaceReference(postId: 'source-parked'),
+        ),
+        spacePost(
+          postId: 'commented-parked',
+          author: spaceAuthor(account: spacePeerAccount),
+          authorFollowing: true,
+          previewComments: <SpaceBranch>[
+            spaceBranch(
+              root: spaceComment(
+                commentId: 'comment-parked',
+                postId: 'commented-parked',
+              ),
+            ),
+          ],
+        ),
+      ]);
+      gateway.followingPages[''] = spacePagePost(<SpacePost>[]);
+      final SpaceController c = SpaceController(
+        gateway: gateway,
+        store: SpaceLocalStore(scopeKey: 'qa-scrub'),
+        autoPoll: false,
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      await c.switchScope(SpaceFeedScope.following);
+      gateway.eventPages.add(
+        spaceEventPage(<SpaceEvent>[
+          spaceEvent(eventId: 1, type: 'post.deleted', postId: 'source-parked'),
+          spaceEvent(
+            eventId: 2,
+            type: 'comment.deleted',
+            postId: 'commented-parked',
+            commentId: 'comment-parked',
+          ),
+        ]),
+      );
+      await c.pollEventsOnce();
+      await c.switchScope(SpaceFeedScope.all);
+
+      final SpacePost repost = c.posts.firstWhere(
+        (SpacePost p) => p.postId == 'repost-parked',
+      );
+      expect(repost.reference?.deleted, isTrue);
+      expect(repost.reference?.text, isNull);
+      final SpacePost commented = c.posts.firstWhere(
+        (SpacePost p) => p.postId == 'commented-parked',
+      );
+      expect(commented.previewComments.single.root.deleted, isTrue);
+      expect(commented.previewComments.single.root.text, isNull);
+    },
+  );
+
+  test(
+    'a scope change releases the old pagination loading flag (Q4)',
+    () async {
+      final FakeSpaceGateway gateway = FakeSpaceGateway();
+      gateway.postPages[''] = spacePagePost(
+        <SpacePost>[spacePost(postId: 'qa-all')],
+        nextCursor: 'all-c1',
+        hasMore: true,
+      );
+      gateway.followingPages[''] = spacePagePost(
+        <SpacePost>[spacePost(postId: 'qa-following')],
+        nextCursor: 'following-c1',
+        hasMore: true,
+      );
+      final SpaceController c = SpaceController(
+        gateway: gateway,
+        store: SpaceLocalStore(scopeKey: 'qa-page'),
+        autoPoll: false,
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      gateway.holdListPosts = true;
+      gateway.listPostsCaptured = Completer<void>();
+      gateway.listPostsGate = Completer<void>();
+      final Future<void> oldPage = c.loadMore();
+      await gateway.listPostsCaptured!.future;
+      await c.switchScope(SpaceFeedScope.following);
+      gateway.listPostsGate!.complete();
+      await oldPage;
+
+      expect(
+        c.loadingMore,
+        isFalse,
+        reason: 'The new scope must remain able to paginate after the old page',
+      );
+      final int before = gateway.postCursors.length;
+      await c.loadMore();
+      expect(gateway.postCursors.length, before + 1);
+    },
+  );
+
+  test(
+    'a follow change during a refresh reloads following after it finishes',
+    () async {
+      final FakeSpaceGateway gateway = FakeSpaceGateway();
+      gateway.followingPages[''] = spacePagePost(<SpacePost>[
+        spacePost(
+          postId: 'following-peer',
+          author: spaceAuthor(account: spacePeerAccount, username: 'bob'),
+          authorFollowing: true,
+        ),
+      ]);
+      final SpaceFollowStore store = SpaceFollowStore(
+        gateway: gateway,
+        viewerAccount: gateway.account,
+      );
+      final SpaceController c = SpaceController(
+        gateway: gateway,
+        store: SpaceLocalStore(scopeKey: 'qa-refresh-follow'),
+        followStore: store,
+        autoPoll: false,
+      );
+      addTearDown(c.dispose);
+      await c.start();
+      await c.switchScope(SpaceFeedScope.following);
+
+      gateway.holdListPosts = true;
+      gateway.listPostsCaptured = Completer<void>();
+      gateway.listPostsGate = Completer<void>();
+      final Future<void> refresh = c.refresh();
+      await gateway.listPostsCaptured!.future;
+      gateway.followStates[spacePeerAccount] = false;
+      await store.setFollowing(spacePeerAccount, false);
+      gateway.listPostsGate!.complete();
+      await refresh;
+      await pumpEventQueue();
+
+      // The in-flight page predates the relationship change; the following view
+      // must restart from its first page instead of staying stale.
+      expect(gateway.requestedScopes.last, 'following');
+      expect(gateway.postCursors.last, isNull);
+      expect(store.stateFor(spacePeerAccount), isFalse);
+    },
+  );
 }

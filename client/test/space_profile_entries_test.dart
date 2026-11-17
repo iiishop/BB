@@ -1,5 +1,6 @@
 import 'package:bb_client/app.dart';
 import 'package:bb_client/models/auth_models.dart';
+import 'package:bb_client/models/profile_models.dart';
 import 'package:bb_client/models/space_models.dart';
 import 'package:bb_client/ui/profile/profile_panel.dart';
 import 'package:bb_client/ui/space/profile/space_profile_page.dart';
@@ -111,4 +112,32 @@ void main() {
       isNotNull,
     );
   });
+
+  testWidgets(
+    'the avatar entry hydrates the saved signature from Profile (Q6)',
+    (WidgetTester tester) async {
+      final FakeSpaceGateway gateway = FakeSpaceGateway();
+      final SpacePost post = spacePost(
+        postId: 'qa-identity',
+        author: spaceAuthor(account: spacePeerAccount, username: 'bob'),
+      );
+      gateway.postPages[''] = spacePagePost(<SpacePost>[post]);
+      final FakeProfileGateway profile = FakeProfileGateway(
+        profile: const Profile(
+          account: spacePeerAccount,
+          username: 'bob',
+          signature: 'QA saved signature',
+          avatarUrl: '/avatars/10000002.png',
+          avatarVersion: 'v1',
+        ),
+      );
+      await pumpSpacePage(tester, gateway: gateway, profile: profile);
+
+      await tester.tap(find.byKey(const Key('space-post-author-qa-identity')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(SpaceProfilePage.pageKey), findsOneWidget);
+      expect(find.text('QA saved signature'), findsOneWidget);
+    },
+  );
 }

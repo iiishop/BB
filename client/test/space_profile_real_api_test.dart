@@ -8,6 +8,9 @@ import 'package:bb_client/services/chat_ledger.dart';
 import 'package:bb_client/services/chat_service.dart';
 import 'package:bb_client/services/space_api_client.dart';
 import 'package:bb_client/services/space_service.dart';
+import 'package:bb_client/ui/space/profile/space_profile_adapter.dart';
+import 'package:bb_client/ui/space/profile/space_profile_controller.dart';
+import 'package:bb_client/ui/space/profile/space_profile_gateway.dart';
 import 'package:bb_client/ui/space/space_gateway.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -63,6 +66,7 @@ void main() {
     final String bobPost = await publish(bob, 'bob 的原文');
     final String first = await publish(alice, 'alice 第一条');
     final String second = await publish(alice, 'alice 第二条');
+    final String third = await publish(alice, 'alice 第三条');
 
     // Bob reads Alice's author-scoped timeline and directory.
     final SpacePagePost timeline = await bob.listProfilePosts(
@@ -72,6 +76,7 @@ void main() {
     expect(timeline.items.map((SpacePost p) => p.postId).toSet(), <String>{
       first,
       second,
+      third,
     });
     final SpaceProfileMonthDirectory months = await bob.listProfileMonths(
       targetAccount: aliceAccount,
@@ -92,12 +97,60 @@ void main() {
     );
     expect(
       followingFeed.items.map((SpacePost p) => p.postId).toSet(),
-      containsAll(<String>[first, second]),
+      containsAll(<String>[first, second, third]),
     );
     expect(
       followingFeed.items.every((SpacePost p) => p.authorFollowing),
       isTrue,
     );
+
+    // Month-anchored continuation: the receiver binds the cursor to the
+    // selected month, so the client must repeat it (Q1 regression).
+    final SpaceMonthCoordinate month = months.items.first;
+    final String wireMonth =
+        '${month.year}-${month.month.toString().padLeft(2, '0')}';
+    final SpacePagePost monthFirst = await bob.listProfilePosts(
+      targetAccount: aliceAccount,
+      timezoneOffsetMinutes: 0,
+      month: wireMonth,
+      limit: 1,
+    );
+    expect(monthFirst.items, hasLength(1));
+    final SpacePagePost monthNext = await bob.listProfilePosts(
+      targetAccount: aliceAccount,
+      timezoneOffsetMinutes: 0,
+      month: wireMonth,
+      cursor: monthFirst.nextCursor,
+      limit: 1,
+    );
+    expect(monthNext.items, hasLength(1));
+    expect(
+      monthNext.items.single.postId,
+      isNot(monthFirst.items.single.postId),
+    );
+
+    final SpaceProfileController profileController = SpaceProfileController(
+      gateway: SpaceProfileAdapter(space: bob),
+      space: bob,
+      userId: aliceAccount,
+      viewerAccount: bobAccount,
+      displayOffsetMinutes: 0,
+      pageSize: 1,
+    );
+    addTearDown(profileController.dispose);
+    await profileController.start();
+    await profileController.jumpToMonth(
+      SpaceProfileMonth(year: month.year, month: month.month),
+    );
+    expect(profileController.entries, hasLength(1));
+    expect(profileController.hasMore, isTrue);
+    await profileController.loadMore();
+    expect(
+      profileController.error,
+      isNull,
+      reason: 'Month-anchored continuation must be accepted by the real server',
+    );
+    expect(profileController.entries, hasLength(2));
 
     // A stale following cursor is rejected after the relationship changes; the
     // UI restarts the view from its first page on this code.

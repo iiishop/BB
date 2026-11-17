@@ -198,4 +198,77 @@ void main() {
       const SpaceProfileMonth(year: 2026, month: 11),
     );
   });
+
+  test('month-anchored continuation repeats the month binding', () async {
+    final FakeSpaceProfileGateway gateway = FakeSpaceProfileGateway();
+    const SpaceProfileMonth oct = SpaceProfileMonth(year: 2026, month: 10);
+    gateway.putPage(
+      month: oct,
+      items: <SpaceProfileEntry>[
+        profileEntry(postId: 'oct-newest', timelineAt: '2026-10-30T12:00:00Z'),
+      ],
+      nextCursor: 'month-c1',
+      hasMore: true,
+    );
+    gateway.putPage(
+      month: oct,
+      cursor: 'month-c1',
+      items: <SpaceProfileEntry>[
+        profileEntry(postId: 'oct-older', timelineAt: '2026-10-02T12:00:00Z'),
+      ],
+    );
+    final SpaceProfileController controller = SpaceProfileController(
+      gateway: gateway,
+      space: FakeSpaceGateway(account: gateway.viewer),
+      userId: gateway.account,
+      viewerAccount: gateway.viewer,
+      displayOffsetMinutes: 0,
+    );
+    addTearDown(controller.dispose);
+    await controller.start();
+    await controller.jumpToMonth(oct);
+    await controller.loadMore();
+
+    // The server binds the cursor to the selected month; omitting it makes the
+    // real receiver reject the continuation.
+    expect(gateway.calls.last.month, oct);
+    expect(gateway.calls.last.cursor, 'month-c1');
+    expect(
+      controller.entries.map((SpaceProfileEntry e) => e.post.postId).toList(),
+      <String>['oct-newest', 'oct-older'],
+    );
+    expect(controller.error, isNull);
+  });
+
+  test(
+    'a partial card seed is hydrated from the full authorized Profile',
+    () async {
+      final FakeSpaceProfileGateway gateway = FakeSpaceProfileGateway();
+      gateway.identityResult = SpaceProfileIdentity(
+        account: gateway.account,
+        username: 'bob',
+        signature: 'QA saved signature',
+      );
+      gateway.putPage(
+        items: <SpaceProfileEntry>[
+          profileEntry(postId: 'post-1', timelineAt: '2026-11-10T12:00:00Z'),
+        ],
+      );
+      final SpaceProfileController controller = SpaceProfileController(
+        gateway: gateway,
+        space: FakeSpaceGateway(account: gateway.viewer),
+        userId: gateway.account,
+        viewerAccount: gateway.viewer,
+        displayOffsetMinutes: 0,
+        initialIdentity: SpaceProfileIdentity(
+          account: gateway.account,
+          username: 'bob',
+        ),
+      );
+      addTearDown(controller.dispose);
+      await controller.start();
+
+      expect(controller.identity?.signature, 'QA saved signature');
+    },
+  );
 }
