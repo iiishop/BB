@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from pathlib import PurePosixPath
 
 from . import space_media
-from .space_queries import fail, live_post, own_draft
+from .space_queries import fail, follow_state, live_post, own_draft
 
 
 def now(clock):
@@ -17,6 +17,29 @@ def now(clock):
         .isoformat(timespec="microseconds")
         .replace("+00:00", "Z")
     )
+
+
+def set_follow(db, account, body, timestamp):
+    prior = follow_state(db, account, body.target_account)
+    if account == body.target_account:
+        fail(422, "validation_error")
+    if prior["following"] != body.following:
+        if body.following:
+            db.execute(
+                "INSERT INTO space_follows VALUES (?,?)", (account, body.target_account)
+            )
+        else:
+            db.execute(
+                "DELETE FROM space_follows WHERE account=? AND target_account=?",
+                (account, body.target_account),
+            )
+        db.execute(
+            "INSERT INTO space_follow_versions VALUES (?,1) "
+            "ON CONFLICT(account) DO UPDATE SET revision=revision+1",
+            (account,),
+        )
+        event(db, timestamp, "follow.changed", recipient=account)
+    return {"target_account": body.target_account, "following": body.following}
 
 
 def event(

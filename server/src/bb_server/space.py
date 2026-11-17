@@ -31,7 +31,7 @@ def execute(path, directory, identity, action, body, clock):
     mutation = isinstance(body, contract.Mutation)
     visiting = action == "get_post" and body.visit_id is not None
     upload = space_media.decode(body) if action == "add_image" else None
-    with connection(path, write=mutation or visiting) as db:
+    with connection(path, write=mutation or visiting or action == "set_follow") as db:
         authorize(db, identity)
         if mutation:
             result = space_store.mutate(
@@ -42,6 +42,10 @@ def execute(path, directory, identity, action, body, clock):
                 body,
                 space_store.now(clock),
                 upload,
+            )
+        elif action == "set_follow":
+            result = space_store.set_follow(
+                db, identity["account"], body, space_store.now(clock)
             )
         elif action == "get_image":
             data, mime = space_media.read(
