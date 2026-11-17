@@ -40,6 +40,7 @@ class _FeedSnapshot {
     required this.pendingNewPosts,
     required this.pendingPage,
     required this.loaded,
+    required this.followRevision,
   });
 
   final List<SpacePost> posts;
@@ -55,6 +56,11 @@ class _FeedSnapshot {
   /// captured while the first page was still in flight is not a usable empty
   /// result and must be refetched on restore (R2-A).
   final bool loaded;
+
+  /// Follow-store revision this snapshot's following list was loaded under.
+  /// Completion alone is not enough: an unfollow invalidates the content even
+  /// when the page finished loading (R3).
+  final int followRevision;
 }
 
 /// Feed, notification and draft state for one account/server pair.
@@ -117,6 +123,12 @@ class SpaceController extends ChangeNotifier {
   /// True once the active scope has a completed first-page read. Reset when the
   /// scope changes or the session restarts.
   bool _feedLoaded = false;
+
+  /// Follow revision the active feed was loaded under. Restoring a following
+  /// snapshot from an older revision is a stale relationship view.
+  int _feedFollowRevision = 0;
+
+  int get _currentFollowRevision => followStore?.revision ?? 0;
 
   /// A non-fatal notice such as "following changed, refreshed" shown above the
   /// feed without replacing the list.
@@ -228,12 +240,21 @@ class SpaceController extends ChangeNotifier {
     // finally block no longer owns this flag (Q4).
     loadingMore = false;
     final SpaceFeedScope requested = scope;
+    final int requestedFollowRevision = _currentFollowRevision;
     try {
       final SpacePagePost page = await gateway.listPosts(
         limit: 20,
         scope: requested.wire,
       );
       if (_disposed || generation != _feedGeneration || scope != requested) {
+        return;
+      }
+      // The relationship changed while this page was in flight: its rows no
+      // longer describe the following view. The revision listener already
+      // queued/started the legitimate query, so complete that instead of
+      // certifying this stale result (R3).
+      if (requested == SpaceFeedScope.following &&
+          requestedFollowRevision != _currentFollowRevision) {
         return;
       }
       followStore?.seedFromPosts(page.items);
@@ -265,6 +286,7 @@ class SpaceController extends ChangeNotifier {
       offline = false;
       unsupportedServer = false;
       _feedLoaded = true;
+      _feedFollowRevision = requestedFollowRevision;
       _scopeCache.remove(requested);
       _notify();
       if (wasOffline) {
@@ -334,6 +356,7 @@ class SpaceController extends ChangeNotifier {
     }
     final int generation = _feedGeneration;
     final SpaceFeedScope requested = scope;
+    final int requestedFollowRevision = _currentFollowRevision;
     loadingMore = true;
     _notify();
     try {
@@ -343,6 +366,14 @@ class SpaceController extends ChangeNotifier {
         scope: requested.wire,
       );
       if (_disposed || generation != _feedGeneration || scope != requested) {
+        return;
+      }
+      // The relationship changed while this page was in flight: its rows no
+      // longer describe the following view. The revision listener already
+      // queued/started the legitimate query, so complete that instead of
+      // certifying this stale result (R3).
+      if (requested == SpaceFeedScope.following &&
+          requestedFollowRevision != _currentFollowRevision) {
         return;
       }
       followStore?.seedFromPosts(page.items);
@@ -769,7 +800,10 @@ class SpaceController extends ChangeNotifier {
     loadingMore = false;
     refreshing = false;
     final _FeedSnapshot? parked = _scopeCache.remove(target);
-    if (parked != null && parked.loaded) {
+    final bool relationshipValid =
+        target != SpaceFeedScope.following ||
+        (parked != null && parked.followRevision == _currentFollowRevision);
+    if (parked != null && parked.loaded && relationshipValid) {
       // Reapply deletion tombstones and reference/comment scrubs: a parked
       // snapshot was captured before events that arrived while it was parked
       // (Q3).
@@ -789,6 +823,7 @@ class SpaceController extends ChangeNotifier {
       _pendingPage = _admitIncoming(parked.pendingPage);
       feedNotice = null;
       _feedLoaded = true;
+      _feedFollowRevision = parked.followRevision;
       _notify();
       return;
     }
@@ -824,6 +859,7 @@ class SpaceController extends ChangeNotifier {
       pendingNewPosts: pendingNewPosts,
       pendingPage: List<SpacePost>.from(_pendingPage),
       loaded: _feedLoaded,
+      followRevision: _feedFollowRevision,
     );
   }
 
@@ -864,6 +900,12 @@ class SpaceController extends ChangeNotifier {
     _seenFollowRevision = follows.revision;
     _scopeCache.remove(SpaceFeedScope.following);
     if (scope == SpaceFeedScope.following) {
+      // Completion and relationship validity are separate: the loaded list is
+      // stale even though its read finished, and any in-flight continuation
+      // belongs to the old revision.
+      _feedLoaded = false;
+      _feedGeneration += 1;
+      loadingMore = false;
       if (refreshing) {
         // The in-flight first page was captured before the relationship
         // changed; reload it once the refresh finishes instead of showing a
