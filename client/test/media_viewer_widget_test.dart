@@ -426,7 +426,12 @@ void main() {
     expect(find.byKey(MediaViewer.boundaryKey), findsNothing);
   });
 
-  testWidgets('swipe down closes the viewer', (WidgetTester tester) async {
+  testWidgets('a downward swipe no longer closes the viewer', (
+    WidgetTester tester,
+  ) async {
+    // Swiping down was how people panned a zoomed picture, so it kept closing
+    // the viewer by accident (reported on device). Only the close button,
+    // Escape and the system back gesture may leave now.
     final List<ChatMediaItem> items = <ChatMediaItem>[
       _item(position: 1, mediaId: 'img-1'),
     ];
@@ -461,6 +466,15 @@ void main() {
       find.byKey(MediaViewer.pageViewKey),
       const Offset(0, 220),
     );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(MediaViewer.closeKey),
+      findsOneWidget,
+      reason: '下拉不该关闭查看器',
+    );
+
+    // The close button still works.
+    await tester.tap(find.byKey(MediaViewer.closeKey));
     await tester.pumpAndSettle();
     expect(find.byKey(MediaViewer.closeKey), findsNothing);
     expect(find.text('打开'), findsOneWidget);
