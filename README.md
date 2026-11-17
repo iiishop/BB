@@ -105,10 +105,10 @@ bash scripts/run_flutter_tests.sh client
 QA_REQUIRE_INTEGRATION=1 bash scripts/run_flutter_tests.sh client
 
 # 服务端
-cd server && uv run pytest -q && uv run ruff check src tests
+(cd server && uv run pytest -q && uv run ruff check src tests)
 
-# DSH MCP 适配器（从仓库根目录进入）
-cd dsh-plugin && uv run pytest -q && uv run ruff check src tests
+# DSH MCP 适配器
+(cd dsh-plugin && uv run pytest -q && uv run ruff check src tests)
 ```
 
 `0` 只表示**实际执行的阶段**通过；严格模式下缺少必要用例会失败，未执行的项目不能算通过。CI 根据变更范围选择子系统，见 [工作流](.github/workflows/ci.yml) 与 [CI/CD 说明](docs/CI-CD.md)。
