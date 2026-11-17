@@ -8,6 +8,11 @@ def camel(s):
     a, *b = s.split('_')
     return a + ''.join(v.title() for v in b)
 def name(s):
+    # ProfileMonth is the wire coordinate; the UI already owns a richer
+    # SpaceProfileMonth value object (label/sort/equality), so the generated
+    # DTO gets a distinct name instead of colliding with it.
+    if s == 'ProfileMonth':
+        return 'SpaceMonthCoordinate'
     return 'Space' + s.replace('[', '').replace(']', '').replace('_', '')
 def nullable(s):
     return 'anyOf' in s and any(x.get('type') == 'null' for x in s['anyOf'])

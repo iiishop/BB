@@ -23,12 +23,17 @@ class SpaceProfilePostsModule extends StatefulWidget {
     required this.scroll,
     required this.images,
     this.actions,
+    this.displayOffsetMinutes,
   });
 
   final SpaceProfileController controller;
   final ScrollController scroll;
   final SpaceImageLoader images;
   final SpaceProfileActions? actions;
+
+  /// Fixed browsing offset for card dates; null keeps the feed's local-time
+  /// formatting for standalone card tests.
+  final int? displayOffsetMinutes;
 
   static const Key listKey = Key('space-profile-list');
   static const Key loadMoreKey = Key('space-profile-load-more');
@@ -230,6 +235,7 @@ class _SpaceProfilePostsModuleState extends State<SpaceProfilePostsModule> {
               post: post,
               loader: widget.images,
               timelineAt: entry.timelineAt,
+              timezoneOffsetMinutes: widget.displayOffsetMinutes,
               actionsEnabled: actions != null,
               onOpen: () => actions?.openPost?.call(post),
               onOpenAuthor: null,
@@ -266,6 +272,7 @@ SpaceProfileModule spacePostsModule() {
           scroll: scope.scrollController,
           images: scope.images,
           actions: scope.actions,
+          displayOffsetMinutes: scope.displayOffsetMinutes,
         ),
   );
 }

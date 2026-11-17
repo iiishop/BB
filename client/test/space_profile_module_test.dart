@@ -1,5 +1,3 @@
-import 'package:bb_client/app.dart';
-import 'package:bb_client/ui/space/space_image_viewer.dart';
 import 'package:bb_client/ui/space/profile/space_profile_gateway.dart';
 import 'package:bb_client/ui/space/profile/space_profile_modules.dart';
 import 'package:bb_client/ui/space/profile/space_profile_page.dart';
@@ -7,9 +5,8 @@ import 'package:bb_client/ui/space/profile/space_profile_posts_module.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'support/fake_space_gateway.dart';
 import 'support/fake_space_profile_gateway.dart';
-import 'support/space_fixtures.dart';
+import 'support/profile_test_harness.dart';
 
 void main() {
   group('module registry', () {
@@ -129,25 +126,5 @@ Future<void> _pumpProfile(
   SpaceProfileModuleRegistry? modules,
   Size size = const Size(390, 844),
 }) async {
-  tester.view.physicalSize = size;
-  tester.view.devicePixelRatio = 1;
-  addTearDown(tester.view.resetPhysicalSize);
-  addTearDown(tester.view.resetDevicePixelRatio);
-  final FakeSpaceGateway space = FakeSpaceGateway(account: spaceSelfAccount);
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildAppTheme(),
-      debugShowCheckedModeBanner: false,
-      home: Scaffold(
-        body: SpaceProfilePage(
-          gateway: gateway,
-          userId: gateway.account,
-          viewerAccount: gateway.viewer,
-          images: SpaceImageLoader(space),
-          modules: modules,
-        ),
-      ),
-    ),
-  );
-  await tester.pumpAndSettle();
+  await pumpProfilePage(tester, profile: gateway, modules: modules, size: size);
 }

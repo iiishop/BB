@@ -13,6 +13,7 @@ import 'package:bb_client/services/heartbeat_controller.dart';
 import 'package:bb_client/ui/home_view.dart';
 import 'package:bb_client/models/space_models.dart';
 import 'package:bb_client/ui/space/space_detail_view.dart';
+import 'package:bb_client/ui/space/space_follow_store.dart';
 import 'package:bb_client/ui/space/space_local_store.dart';
 import 'package:bb_client/ui/space/space_page.dart';
 import 'package:bb_client/ui/space/space_widgets.dart';
@@ -82,6 +83,10 @@ void main() {
               body: SpacePage(
                 gateway: gateway,
                 store: store,
+                followStore: SpaceFollowStore(
+                  gateway: gateway,
+                  viewerAccount: gateway.account,
+                ),
                 autoPoll: false,
                 pollInterval: null,
               ),

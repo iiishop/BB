@@ -7,12 +7,49 @@ import '../../models/space_models.dart';
 import '../../services/media_disk_cache.dart';
 import '../../services/space_download_log.dart';
 import 'space_detail_controller.dart';
+import 'space_follow_store.dart';
 import 'space_gateway.dart';
 import 'space_image_viewer.dart';
 import 'space_invalidation.dart';
 import 'space_local_store.dart';
 
 enum SpaceSection { feed, notifications, drafts }
+
+/// Space feed scope. `following` filters by the publisher and never falls back
+/// to the global feed when empty.
+enum SpaceFeedScope {
+  all,
+  following;
+
+  String get wire => name;
+
+  String get label => this == all ? '全部' : '只看已关注';
+}
+
+/// Parked state of one feed scope. The two scopes keep independent pages,
+/// cursors and pending counters so switching restores a real browse position
+/// instead of reloading from the top.
+class _FeedSnapshot {
+  _FeedSnapshot({
+    required this.posts,
+    required this.nextCursor,
+    required this.hasMore,
+    required this.phase,
+    required this.feedError,
+    required this.offline,
+    required this.pendingNewPosts,
+    required this.pendingPage,
+  });
+
+  final List<SpacePost> posts;
+  final String? nextCursor;
+  final bool hasMore;
+  final SpacePhase phase;
+  final String? feedError;
+  final bool offline;
+  final int pendingNewPosts;
+  final List<SpacePost> pendingPage;
+}
 
 /// Feed, notification and draft state for one account/server pair.
 ///
@@ -23,16 +60,22 @@ class SpaceController extends ChangeNotifier {
   SpaceController({
     required this.gateway,
     required this.store,
+    this.followStore,
     SpaceImageLoader? images,
     SpaceDownloadLog? downloads,
     this.onSessionExpired,
     this.pollInterval = const Duration(seconds: 20),
     this.autoPoll = true,
-  }) : images = images ?? SpaceImageLoader(gateway, disk: sharedMediaDiskCache()),
+  }) : images =
+           images ?? SpaceImageLoader(gateway, disk: sharedMediaDiskCache()),
        downloads = downloads ?? SpaceDownloadLog(scopeKey: gateway.scopeKey);
 
   final SpaceGateway gateway;
   final SpaceLocalStore store;
+
+  /// Single owner of the viewer's follow relationships, shared with the author
+  /// home page. Null in isolated controller tests that do not exercise follow.
+  final SpaceFollowStore? followStore;
   final SpaceImageLoader images;
 
   /// Per-account record of downloaded space images, used to ask before a
@@ -56,6 +99,17 @@ class SpaceController extends ChangeNotifier {
   int unreadPosts = 0;
 
   SpaceSection section = SpaceSection.feed;
+
+  /// Active feed scope; both scopes keep their own parked snapshot.
+  SpaceFeedScope scope = SpaceFeedScope.all;
+  final Map<SpaceFeedScope, _FeedSnapshot> _scopeCache =
+      <SpaceFeedScope, _FeedSnapshot>{};
+  int _feedGeneration = 0;
+  int _seenFollowRevision = 0;
+
+  /// A non-fatal notice such as "following changed, refreshed" shown above the
+  /// feed without replacing the list.
+  String? feedNotice;
 
   int pendingNewPosts = 0;
   List<SpacePost> _pendingPage = <SpacePost>[];
@@ -82,6 +136,7 @@ class SpaceController extends ChangeNotifier {
 
   int? _eventCursor;
   bool _eventsReady = false;
+
   /// Posts whose deletion was already observed. Late responses captured before
   /// that point must not reinsert them or restore their reference snapshots.
   final Set<String> _tombstones = <String>{};
@@ -120,6 +175,11 @@ class SpaceController extends ChangeNotifier {
       return;
     }
     _loadedOnce = true;
+    final SpaceFollowStore? follows = followStore;
+    if (follows != null) {
+      _seenFollowRevision = follows.revision;
+      follows.addListener(_onFollowRevision);
+    }
     await Future.wait<void>(<Future<void>>[
       _loadOverview(),
       _loadFeedFirst(explicit: true),
@@ -152,8 +212,17 @@ class SpaceController extends ChangeNotifier {
   }
 
   Future<void> _loadFeedFirst({required bool explicit}) async {
+    final int generation = ++_feedGeneration;
+    final SpaceFeedScope requested = scope;
     try {
-      final SpacePagePost page = await gateway.listPosts(limit: 20);
+      final SpacePagePost page = await gateway.listPosts(
+        limit: 20,
+        scope: requested.wire,
+      );
+      if (_disposed || generation != _feedGeneration || scope != requested) {
+        return;
+      }
+      followStore?.seedFromPosts(page.items);
       final List<SpacePost> admitted = _admitIncoming(page.items);
       final bool wasOffline = offline;
       if (explicit) {
@@ -178,8 +247,10 @@ class SpaceController extends ChangeNotifier {
       hasMore = page.hasMore;
       phase = posts.isEmpty ? SpacePhase.empty : SpacePhase.ready;
       feedError = null;
+      feedNotice = null;
       offline = false;
       unsupportedServer = false;
+      _scopeCache.remove(requested);
       _notify();
       if (wasOffline) {
         unawaited(_reconnectReplay());
@@ -231,13 +302,20 @@ class SpaceController extends ChangeNotifier {
     if (loadingMore || !hasMore) {
       return;
     }
+    final int generation = _feedGeneration;
+    final SpaceFeedScope requested = scope;
     loadingMore = true;
     _notify();
     try {
       final SpacePagePost page = await gateway.listPosts(
         cursor: nextCursor,
         limit: 20,
+        scope: requested.wire,
       );
+      if (_disposed || generation != _feedGeneration || scope != requested) {
+        return;
+      }
+      followStore?.seedFromPosts(page.items);
       final Set<String> seen = posts.map((SpacePost p) => p.postId).toSet();
       posts.addAll(
         _admitIncoming(page.items).where((SpacePost p) => seen.add(p.postId)),
@@ -246,14 +324,38 @@ class SpaceController extends ChangeNotifier {
       hasMore = page.hasMore;
       offline = false;
       feedError = null;
+    } on AuthFailure catch (failure) {
+      // The server invalidates a following cursor when the viewer's follow
+      // revision changed. Refresh that view from its first page instead of
+      // mixing scopes or looping on the stale cursor.
+      if (requested == SpaceFeedScope.following &&
+          generation == _feedGeneration &&
+          _isStaleCursor(failure)) {
+        loadingMore = false;
+        await _loadFeedFirst(explicit: true);
+        if (!_disposed) {
+          feedNotice = '关注关系已变化，已从首屏刷新';
+          _notify();
+        }
+        return;
+      }
+      offline = isSpaceOffline(failure);
+      feedError = spaceErrorText(failure);
     } catch (failure) {
       offline = isSpaceOffline(failure);
       feedError = spaceErrorText(failure);
     } finally {
-      loadingMore = false;
-      _notify();
+      if (!_disposed && generation == _feedGeneration) {
+        loadingMore = false;
+        _notify();
+      }
     }
   }
+
+  bool _isStaleCursor(Object failure) =>
+      failure is AuthFailure &&
+      failure.status == 422 &&
+      failure.code == 'validation_error';
 
   /// Applies posts discovered by a background comparison. Used only by the
   /// explicit "有新说说" affordance so reading position never jumps.
@@ -268,7 +370,9 @@ class SpaceController extends ChangeNotifier {
       _notify();
       return;
     }
-    final Set<String> incoming = admitted.map((SpacePost p) => p.postId).toSet();
+    final Set<String> incoming = admitted
+        .map((SpacePost p) => p.postId)
+        .toSet();
     posts
       ..removeWhere((SpacePost p) => incoming.contains(p.postId))
       ..insertAll(0, admitted);
@@ -338,6 +442,7 @@ class SpaceController extends ChangeNotifier {
     return SpacePost(
       postId: target.postId,
       author: target.author,
+      authorFollowing: target.authorFollowing,
       createdAt: target.createdAt,
       text: target.text,
       images: target.images,
@@ -602,6 +707,95 @@ class SpaceController extends ChangeNotifier {
   String _newVisitId() {
     _visitCounter += 1;
     return 'visit-${DateTime.now().microsecondsSinceEpoch}-$_visitCounter';
+  }
+
+  /// Switches the feed scope, parking the current scope's page/cursor so both
+  /// views keep an independent position. Scroll offsets themselves are owned by
+  /// the page (two saved offsets).
+  Future<void> switchScope(SpaceFeedScope target) async {
+    if (scope == target) {
+      return;
+    }
+    _parkScope();
+    scope = target;
+    final _FeedSnapshot? parked = _scopeCache.remove(target);
+    if (parked != null) {
+      posts
+        ..clear()
+        ..addAll(parked.posts);
+      nextCursor = parked.nextCursor;
+      hasMore = parked.hasMore;
+      phase = parked.phase;
+      feedError = parked.feedError;
+      offline = parked.offline;
+      pendingNewPosts = parked.pendingNewPosts;
+      _pendingPage = List<SpacePost>.from(parked.pendingPage);
+      feedNotice = null;
+      _notify();
+      return;
+    }
+    posts.clear();
+    nextCursor = null;
+    hasMore = false;
+    feedError = null;
+    feedNotice = null;
+    offline = false;
+    pendingNewPosts = 0;
+    _pendingPage = <SpacePost>[];
+    phase = SpacePhase.loading;
+    _notify();
+    await _loadFeedFirst(explicit: true);
+  }
+
+  void _parkScope() {
+    _scopeCache[scope] = _FeedSnapshot(
+      posts: List<SpacePost>.from(posts),
+      nextCursor: nextCursor,
+      hasMore: hasMore,
+      phase: phase,
+      feedError: feedError,
+      offline: offline,
+      pendingNewPosts: pendingNewPosts,
+      pendingPage: List<SpacePost>.from(_pendingPage),
+    );
+  }
+
+  /// Leaving the Space main area ends the Space session: the scope switch is
+  /// not remembered, and both scopes' parked state is dropped. Re-entering
+  /// starts from "all" with the newest page.
+  Future<void> resetSession() async {
+    _scopeCache.clear();
+    _feedGeneration += 1;
+    scope = SpaceFeedScope.all;
+    section = SpaceSection.feed;
+    posts.clear();
+    nextCursor = null;
+    hasMore = false;
+    feedError = null;
+    feedNotice = null;
+    offline = false;
+    pendingNewPosts = 0;
+    _pendingPage = <SpacePost>[];
+    phase = SpacePhase.loading;
+    _clearStack();
+    _notify();
+    await _loadFeedFirst(explicit: true);
+  }
+
+  /// The shared follow store changed (local write or a `follow.changed`
+  /// replay): anything cached for "following" is stale and, when that view is
+  /// active, it reloads from its first page.
+  void _onFollowRevision() {
+    final SpaceFollowStore? follows = followStore;
+    if (follows == null || follows.revision == _seenFollowRevision) {
+      return;
+    }
+    _seenFollowRevision = follows.revision;
+    _scopeCache.remove(SpaceFeedScope.following);
+    if (scope == SpaceFeedScope.following && !refreshing) {
+      unawaited(_loadFeedFirst(explicit: true));
+    }
+    _notify();
   }
 
   void showFeed() {
@@ -915,12 +1109,18 @@ class SpaceController extends ChangeNotifier {
           unawaited(loadDrafts(silent: true));
         }
         break;
+      case 'follow.changed':
+        // Private invalidation (no post/comment/notification IDs): refetch the
+        // viewer's follow state and invalidate the following feed.
+        followStore?.handleFollowChanged();
+        break;
     }
   }
 
   @override
   void dispose() {
     _disposed = true;
+    followStore?.removeListener(_onFollowRevision);
     _timer?.cancel();
     _timer = null;
     for (final SpaceDetailController controller in _details.values) {

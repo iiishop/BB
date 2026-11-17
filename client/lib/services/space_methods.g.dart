@@ -5,6 +5,58 @@ import 'space_api_client.dart';
 import 'space_service.dart';
 
 extension SpaceApiClientMethods on SpaceApiClient {
+  Future<SpaceFollowState> getFollow({
+    required String token,
+    required String targetAccount,
+  }) async {
+    final body = await call('get_follow', {
+      'target_account': targetAccount,
+    }, token: token);
+    return SpaceFollowState.fromJson(body);
+  }
+
+  Future<SpaceFollowState> setFollow({
+    required String token,
+    required String targetAccount,
+    required bool following,
+  }) async {
+    final body = await call('set_follow', {
+      'target_account': targetAccount,
+      'following': following,
+    }, token: token);
+    return SpaceFollowState.fromJson(body);
+  }
+
+  Future<SpacePagePost> listProfilePosts({
+    required String token,
+    String? cursor,
+    int limit = 20,
+    required String targetAccount,
+    required int timezoneOffsetMinutes,
+    String? month,
+  }) async {
+    final body = await call('list_profile_posts', {
+      'cursor': cursor,
+      'limit': limit,
+      'target_account': targetAccount,
+      'timezone_offset_minutes': timezoneOffsetMinutes,
+      'month': month,
+    }, token: token);
+    return SpacePagePost.fromJson(body);
+  }
+
+  Future<SpaceProfileMonthDirectory> listProfileMonths({
+    required String token,
+    required String targetAccount,
+    required int timezoneOffsetMinutes,
+  }) async {
+    final body = await call('list_profile_months', {
+      'target_account': targetAccount,
+      'timezone_offset_minutes': timezoneOffsetMinutes,
+    }, token: token);
+    return SpaceProfileMonthDirectory.fromJson(body);
+  }
+
   Future<SpaceImageContent> getImage({
     required String token,
     required String imageId,
@@ -28,12 +80,14 @@ extension SpaceApiClientMethods on SpaceApiClient {
     int limit = 20,
     String? author,
     bool unreadOnly = false,
+    String scope = "all",
   }) async {
     final body = await call('list_posts', {
       'cursor': cursor,
       'limit': limit,
       'author': author,
       'unread_only': unreadOnly,
+      'scope': scope,
     }, token: token);
     return SpacePagePost.fromJson(body);
   }
@@ -332,6 +386,58 @@ extension SpaceApiClientMethods on SpaceApiClient {
 }
 
 extension SpaceServiceMethods on SpaceService {
+  Future<SpaceFollowState> getFollow({
+    ExpectedIdentity? expectedIdentity,
+    required String targetAccount,
+  }) async {
+    final body = await call('get_follow', {
+      'target_account': targetAccount,
+    }, expectedIdentity: expectedIdentity);
+    return SpaceFollowState.fromJson(body);
+  }
+
+  Future<SpaceFollowState> setFollow({
+    ExpectedIdentity? expectedIdentity,
+    required String targetAccount,
+    required bool following,
+  }) async {
+    final body = await call('set_follow', {
+      'target_account': targetAccount,
+      'following': following,
+    }, expectedIdentity: expectedIdentity);
+    return SpaceFollowState.fromJson(body);
+  }
+
+  Future<SpacePagePost> listProfilePosts({
+    ExpectedIdentity? expectedIdentity,
+    String? cursor,
+    int limit = 20,
+    required String targetAccount,
+    required int timezoneOffsetMinutes,
+    String? month,
+  }) async {
+    final body = await call('list_profile_posts', {
+      'cursor': cursor,
+      'limit': limit,
+      'target_account': targetAccount,
+      'timezone_offset_minutes': timezoneOffsetMinutes,
+      'month': month,
+    }, expectedIdentity: expectedIdentity);
+    return SpacePagePost.fromJson(body);
+  }
+
+  Future<SpaceProfileMonthDirectory> listProfileMonths({
+    ExpectedIdentity? expectedIdentity,
+    required String targetAccount,
+    required int timezoneOffsetMinutes,
+  }) async {
+    final body = await call('list_profile_months', {
+      'target_account': targetAccount,
+      'timezone_offset_minutes': timezoneOffsetMinutes,
+    }, expectedIdentity: expectedIdentity);
+    return SpaceProfileMonthDirectory.fromJson(body);
+  }
+
   Future<SpaceImageContent> getImage({
     ExpectedIdentity? expectedIdentity,
     required String imageId,
@@ -355,12 +461,14 @@ extension SpaceServiceMethods on SpaceService {
     int limit = 20,
     String? author,
     bool unreadOnly = false,
+    String scope = "all",
   }) async {
     final body = await call('list_posts', {
       'cursor': cursor,
       'limit': limit,
       'author': author,
       'unread_only': unreadOnly,
+      'scope': scope,
     }, expectedIdentity: expectedIdentity);
     return SpacePagePost.fromJson(body);
   }

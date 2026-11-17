@@ -43,6 +43,7 @@ SpaceComment spaceComment({
   String? replyToId,
   SpaceAuthor? replyToAuthor,
   SpaceAuthor? author,
+  bool authorFollowing = false,
   String createdAt = '2026-11-15T10:00:00Z',
   String? text = '一条评论',
   bool deleted = false,
@@ -73,6 +74,7 @@ SpaceBranch spaceBranch({
 SpacePost spacePost({
   String postId = 'post-1',
   SpaceAuthor? author,
+  bool authorFollowing = false,
   String createdAt = '2026-11-15T10:00:00Z',
   String text = '今天的海风很好，顺手拍了几张。',
   List<SpaceImage> images = const <SpaceImage>[],
@@ -92,6 +94,7 @@ SpacePost spacePost({
   final SpacePost post = SpacePost(
     postId: postId,
     author: author ?? spaceAuthor(),
+    authorFollowing: authorFollowing,
     createdAt: createdAt,
     text: text,
     images: images,

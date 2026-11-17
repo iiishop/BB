@@ -81,8 +81,8 @@ class SpaceProfileTimelinePage {
 
 /// The server does not expose this profile capability yet.
 ///
-/// Callers degrade explicitly instead of guessing an endpoint or downloading
-/// all history and filtering it on the device.
+/// Kept for older servers that predate the DEA-485 extension: callers degrade
+/// explicitly instead of guessing an endpoint.
 class SpaceProfileUnsupported implements Exception {
   const SpaceProfileUnsupported(this.capability);
 
@@ -94,35 +94,32 @@ class SpaceProfileUnsupported implements Exception {
 
 /// UI-facing port for the author home page.
 ///
-/// Endpoints, JSON fields and cursor encoding live in the shared Space
-/// contract; this port only names the semantics the page needs. Until the
-/// server contract for months/follow is fixed the production adapter reports
-/// [supportsMonths]/[supportsFollow] as false and the page hides those
-/// controls rather than shipping a dead button.
+/// The wire contract is `docs/contracts/dea485-profile-follow.md`. Every date
+/// is rendered and grouped with one fixed browsing offset captured when the
+/// home page session opens; the same offset is sent to the directory and the
+/// timeline so an archived month always matches the visible date.
 abstract interface class SpaceProfileGateway {
-  /// Whether the server can return the visible month directory.
-  bool get supportsMonths;
-
-  /// Whether the server can return and write a follow relationship.
-  bool get supportsFollow;
-
   Future<SpaceProfileIdentity> identity(String userId);
 
-  /// Author timeline, newest first. When [month] is set the server starts at
-  /// that month's newest entry and keeps going into older months.
+  /// Author timeline, newest first, ordered by `(created_at, post_id)`.
+  /// [month] is a `space-profile` month upper bound; older months stay
+  /// reachable by continuing the cursor.
   Future<SpaceProfileTimelinePage> timeline({
     required String userId,
+    required int timezoneOffsetMinutes,
     SpaceProfileMonth? month,
     String? cursor,
     int limit = 20,
   });
 
-  /// Visible (non-empty) months, newest first.
-  Future<List<SpaceProfileMonth>> months(String userId);
-
-  /// Authoritative current state: is [userId] followed by the viewer?
-  Future<bool> following(String userId);
-
-  /// Idempotent desired-state write; returns the authoritative result.
-  Future<bool> setFollowing({required String userId, required bool following});
+  /// Visible (non-empty) months under the same fixed offset, newest first.
+  Future<List<SpaceProfileMonth>> months(
+    String userId, {
+    required int timezoneOffsetMinutes,
+  });
 }
+
+/// `YYYY-MM`, the contract's month selector format.
+String spaceProfileMonthWire(SpaceProfileMonth month) =>
+    '${month.year.toString().padLeft(4, '0')}-'
+    '${month.month.toString().padLeft(2, '0')}';

@@ -4,6 +4,7 @@ import 'package:bb_client/ui/space/profile/space_profile_controller.dart';
 import 'package:bb_client/ui/space/profile/space_profile_gateway.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/fake_space_gateway.dart';
 import 'support/fake_space_profile_gateway.dart';
 import 'support/space_fixtures.dart';
 
@@ -35,8 +36,10 @@ void main() {
     gateway.holdTimeline = true;
     final SpaceProfileController controller = SpaceProfileController(
       gateway: gateway,
+      space: FakeSpaceGateway(account: gateway.viewer),
       userId: gateway.account,
       viewerAccount: gateway.viewer,
+      displayOffsetMinutes: 0,
     );
     addTearDown(controller.dispose);
 
@@ -75,8 +78,10 @@ void main() {
       );
       final SpaceProfileController controller = SpaceProfileController(
         gateway: gateway,
+        space: FakeSpaceGateway(account: gateway.viewer),
         userId: gateway.account,
         viewerAccount: gateway.viewer,
+        displayOffsetMinutes: 0,
       );
       addTearDown(controller.dispose);
       await controller.start();
@@ -115,8 +120,10 @@ void main() {
     );
     final SpaceProfileController controller = SpaceProfileController(
       gateway: gateway,
+      space: FakeSpaceGateway(account: gateway.viewer),
       userId: gateway.account,
       viewerAccount: gateway.viewer,
+      displayOffsetMinutes: 0,
     );
     addTearDown(controller.dispose);
     await controller.start();
@@ -146,8 +153,10 @@ void main() {
       );
       final SpaceProfileController controller = SpaceProfileController(
         gateway: gateway,
+        space: FakeSpaceGateway(account: gateway.viewer),
         userId: gateway.account,
         viewerAccount: gateway.viewer,
+        displayOffsetMinutes: 0,
       );
       addTearDown(controller.dispose);
       await controller.start();
@@ -157,25 +166,36 @@ void main() {
     },
   );
 
-  test('an unsupported directory never calls months', () async {
-    final FakeSpaceProfileGateway gateway = FakeSpaceProfileGateway(
-      supportsMonths: false,
-    );
+  test('the fixed offset decides the month at a month/year edge', () async {
+    final FakeSpaceProfileGateway gateway = FakeSpaceProfileGateway();
+    gateway.monthList.add(const SpaceProfileMonth(year: 2026, month: 11));
     gateway.putPage(
       items: <SpaceProfileEntry>[
-        profileEntry(postId: 'post-1', timelineAt: '2026-11-10T12:00:00Z'),
+        profileEntry(postId: 'post-edge', timelineAt: '2026-10-31T23:59:59Z'),
       ],
     );
     final SpaceProfileController controller = SpaceProfileController(
       gateway: gateway,
+      space: FakeSpaceGateway(account: gateway.viewer),
       userId: gateway.account,
       viewerAccount: gateway.viewer,
+      displayOffsetMinutes: 345,
     );
     addTearDown(controller.dispose);
     await controller.start();
 
-    expect(controller.directoryAvailable, isFalse);
-    expect(controller.months, isEmpty);
-    expect(controller.entries.length, 1);
+    // 23:59Z + 5h45m is November 1st; both the directory request and the card
+    // grouping must use this one offset.
+    expect(
+      controller.monthOf('2026-10-31T23:59:59Z'),
+      const SpaceProfileMonth(year: 2026, month: 11),
+    );
+    expect(controller.months, isNotEmpty);
+    expect(gateway.monthOffsets.single, 345);
+    expect(gateway.calls.first.offset, 345);
+    expect(
+      controller.visibleMonth,
+      const SpaceProfileMonth(year: 2026, month: 11),
+    );
   });
 }

@@ -20,6 +20,7 @@ class SpaceMonthDirectory extends StatelessWidget {
     required this.onLatest,
     this.atLatest = false,
     this.loading = false,
+    this.error,
     this.onBack,
   });
 
@@ -30,6 +31,10 @@ class SpaceMonthDirectory extends StatelessWidget {
   final VoidCallback onLatest;
   final bool atLatest;
   final bool loading;
+
+  /// A failed directory read is shown instead of pretending the author has no
+  /// visible months.
+  final String? error;
 
   /// Optional close affordance for the phone drawer.
   final VoidCallback? onBack;
@@ -104,8 +109,10 @@ class SpaceMonthDirectory extends StatelessWidget {
                     child: Padding(
                       padding: const EdgeInsets.all(AppSpacing.lg),
                       child: Text(
-                        loading ? '正在读取可见月份…' : '还没有可见的月份',
-                        style: text.bodySmall,
+                        error ?? (loading ? '正在读取可见月份…' : '还没有可见的月份'),
+                        style: text.bodySmall?.copyWith(
+                          color: error == null ? null : AppColors.danger,
+                        ),
                         textAlign: TextAlign.center,
                       ),
                     ),

@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../app.dart';
 import '../../models/space_models.dart';
 import 'space_avatars.dart';
-import 'space_controller.dart';
+import '../../services/space_download_log.dart';
 import 'space_detail_controller.dart';
 import 'space_format.dart';
 import 'space_image_viewer.dart';
@@ -18,21 +18,32 @@ class SpaceDetailView extends StatefulWidget {
   const SpaceDetailView({
     super.key,
     required this.controller,
-    required this.space,
+    required this.images,
+    required this.downloads,
     required this.layout,
     required this.onClose,
     required this.onBack,
     required this.onOpenReference,
     this.showClose = true,
+    this.historyDepth = 1,
   });
 
   final SpaceDetailController controller;
-  final SpaceController space;
+
+  /// Shared media dependencies, passed explicitly so the same detail surface
+  /// can be opened as a route above the author home page without owning the
+  /// whole Space feed controller.
+  final SpaceImageLoader images;
+  final SpaceDownloadLog downloads;
   final SpaceLayout layout;
   final VoidCallback onClose;
   final VoidCallback onBack;
   final void Function(String postId) onOpenReference;
   final bool showClose;
+
+  /// Number of detail pages on the local back stack; >1 shows the back-to-
+  /// previous-detail affordance instead of close.
+  final int historyDepth;
 
   static const Key detailKey = Key('space-detail');
   static const Key bodyKey = Key('space-detail-body');
@@ -231,8 +242,8 @@ class _SpaceDetailViewState extends State<SpaceDetailView> {
         builder: (BuildContext context) => SpaceImageViewer(
           images: post.images,
           initialIndex: index,
-          loader: widget.space.images,
-          downloadLog: widget.space.downloads,
+          loader: widget.images,
+          downloadLog: widget.downloads,
         ),
       ),
     );
@@ -363,7 +374,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView> {
                 const SizedBox(height: AppSpacing.md),
                 SpaceImageGrid(
                   images: post.images,
-                  loader: widget.space.images,
+                  loader: widget.images,
                   onOpen: (int index) => _openViewer(post, index),
                 ),
               ],
@@ -463,7 +474,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView> {
       ),
       child: Row(
         children: <Widget>[
-          if (widget.space.detailHistory.length > 1)
+          if (widget.historyDepth > 1)
             IconButton(
               key: SpaceDetailView.backKey,
               onPressed: widget.onBack,

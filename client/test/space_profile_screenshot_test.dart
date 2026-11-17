@@ -3,7 +3,9 @@ import 'dart:ui' show DisplayFeature, DisplayFeatureState, DisplayFeatureType;
 
 import 'package:bb_client/app.dart';
 import 'package:bb_client/models/space_models.dart';
+import 'package:bb_client/ui/space/space_follow_store.dart';
 import 'package:bb_client/ui/space/space_image_viewer.dart';
+import 'package:bb_client/ui/space/space_local_store.dart';
 import 'package:bb_client/ui/space/profile/space_profile_gateway.dart';
 import 'package:bb_client/ui/space/profile/space_profile_page.dart';
 import 'package:flutter/material.dart';
@@ -41,7 +43,8 @@ void main() {
     await _loadFonts(tester, fontPath, iconFontPath);
 
     final FakeSpaceProfileGateway gateway = _screenshotGateway();
-    final FakeSpaceGateway space = FakeSpaceGateway(account: spaceSelfAccount);
+    final FakeSpaceGateway space = FakeSpaceGateway(account: spaceSelfAccount)
+      ..followStates[spacePeerAccount] = true;
     final GlobalKey boundary = GlobalKey();
 
     Future<void> pumpAt(
@@ -66,9 +69,16 @@ void main() {
             home: Scaffold(
               body: SpaceProfilePage(
                 gateway: gateway,
+                space: space,
+                followStore: SpaceFollowStore(
+                  gateway: space,
+                  viewerAccount: space.account,
+                ),
                 userId: gateway.account,
                 viewerAccount: gateway.viewer,
                 images: SpaceImageLoader(space),
+                displayOffsetMinutes: 480,
+                localStore: SpaceLocalStore(scopeKey: 'http://profile.test|0'),
               ),
             ),
           ),
@@ -132,7 +142,7 @@ FakeSpaceProfileGateway _screenshotGateway() {
       signature: '在海边写代码，偶尔拍照。',
     ),
   );
-  gateway.followingState = true;
+
   gateway.monthList.addAll(<SpaceProfileMonth>[nov, oct, sep, jul, dec2025]);
   gateway.putPage(
     items: <SpaceProfileEntry>[

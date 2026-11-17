@@ -6,6 +6,7 @@ import '../../app.dart';
 import '../../models/space_models.dart';
 import '../chat/chat_format.dart';
 import 'space_avatars.dart';
+import 'space_follow_button.dart';
 import 'space_format.dart';
 import 'space_image_viewer.dart';
 
@@ -320,6 +321,10 @@ class SpacePostCard extends StatelessWidget {
     this.onOpenVisitors,
     this.onOpenAuthor,
     this.timelineAt,
+    this.timezoneOffsetMinutes,
+    this.following,
+    this.onFollow,
+    this.followBusy = false,
     this.actionsEnabled = true,
   });
 
@@ -342,6 +347,16 @@ class SpacePostCard extends StatelessWidget {
   /// publication time; a repost row passes the repost time so the visible date
   /// matches the month it is archived under.
   final String? timelineAt;
+
+  /// Fixed DEA-485 browsing offset for the visible date. Null keeps the legacy
+  /// local-zone label for the global feed.
+  final int? timezoneOffsetMinutes;
+
+  /// Author follow state from the shared store. Null renders no follow control
+  /// (own posts, unknown state, read-only hosts).
+  final bool? following;
+  final void Function()? onFollow;
+  final bool followBusy;
   final bool actionsEnabled;
 
   static const int previewLines = 4;
@@ -354,6 +369,7 @@ class SpacePostCard extends StatelessWidget {
   Key get repostKey => Key('space-post-repost-${post.postId}');
   Key get expandKey => Key('space-post-expand-${post.postId}');
   Key get deleteKey => Key('space-post-delete-${post.postId}');
+  Key get followKey => Key('space-post-follow-${post.postId}');
   Key get visitorsKey => Key('space-post-visitors-${post.postId}');
 
   @override
@@ -387,7 +403,10 @@ class SpacePostCard extends StatelessWidget {
                           children: <Widget>[
                             Text(post.author.username, style: text.titleMedium),
                             Text(
-                              spaceRelativeTime(timelineAt ?? post.createdAt),
+                              spaceRelativeTime(
+                                timelineAt ?? post.createdAt,
+                                offsetMinutes: timezoneOffsetMinutes,
+                              ),
                               style: text.bodySmall,
                             ),
                           ],
@@ -397,6 +416,14 @@ class SpacePostCard extends StatelessWidget {
                   ),
                 ),
               ),
+              if (following != null && onFollow != null)
+                SpaceFollowButton(
+                  key: followKey,
+                  following: following!,
+                  busy: followBusy,
+                  compact: true,
+                  onPressed: onFollow,
+                ),
               if (post.canDelete && onDelete != null)
                 IconButton(
                   key: deleteKey,

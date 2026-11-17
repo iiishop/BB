@@ -4,13 +4,24 @@ import '../../models/space_models.dart';
 ///
 /// All strings are UI copy only; the wire contract lives in
 /// `server/contract/space-v1.json` and is consumed through `SpaceGateway`.
-String spaceRelativeTime(String iso, {DateTime? now}) {
+/// [offsetMinutes] renders the date at a fixed offset east of UTC (the DEA-485
+/// browsing offset). Null keeps the legacy local-zone formatting used by the
+/// global feed. A fixed offset never consults the OS zone, so the card date and
+/// the archived month cannot disagree.
+String spaceRelativeTime(String iso, {DateTime? now, int? offsetMinutes}) {
   final DateTime? parsed = DateTime.tryParse(iso);
   if (parsed == null) {
     return '';
   }
-  final DateTime current = (now ?? DateTime.now()).toLocal();
-  final DateTime local = parsed.toLocal();
+  final Duration? shift = offsetMinutes == null
+      ? null
+      : Duration(minutes: offsetMinutes);
+  final DateTime current = shift == null
+      ? (now ?? DateTime.now()).toLocal()
+      : (now ?? DateTime.now()).toUtc().add(shift);
+  final DateTime local = shift == null
+      ? parsed.toLocal()
+      : parsed.toUtc().add(shift);
   final Duration delta = current.difference(local);
   if (delta.isNegative || delta.inMinutes < 1) {
     return '刚刚';
@@ -37,12 +48,14 @@ String spaceRelativeTime(String iso, {DateTime? now}) {
   return '${local.year} 年 ${local.month} 月 ${local.day} 日';
 }
 
-String spaceExactTime(String iso) {
+String spaceExactTime(String iso, {int? offsetMinutes}) {
   final DateTime? parsed = DateTime.tryParse(iso);
   if (parsed == null) {
     return '';
   }
-  final DateTime local = parsed.toLocal();
+  final DateTime local = offsetMinutes == null
+      ? parsed.toLocal()
+      : parsed.toUtc().add(Duration(minutes: offsetMinutes));
   return '${local.year}-${_two(local.month)}-${_two(local.day)} '
       '${_two(local.hour)}:${_two(local.minute)}';
 }

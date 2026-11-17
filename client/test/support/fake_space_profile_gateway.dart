@@ -9,18 +9,21 @@ import 'space_fixtures.dart';
 class ProfileTimelineCall {
   ProfileTimelineCall({
     required this.userId,
+    required this.offset,
     required this.month,
     required this.cursor,
     required this.limit,
   });
 
   final String userId;
+  final int offset;
   final SpaceProfileMonth? month;
   final String? cursor;
   final int limit;
 
   @override
-  String toString() => 'timeline($userId, month: $month, cursor: $cursor)';
+  String toString() =>
+      'timeline($userId, offset: $offset, month: $month, cursor: $cursor)';
 }
 
 /// Scriptable profile gateway. Responses are contract-shaped; the fake replaces
@@ -29,8 +32,6 @@ class FakeSpaceProfileGateway implements SpaceProfileGateway {
   FakeSpaceProfileGateway({
     this.account = spacePeerAccount,
     this.viewer = spaceSelfAccount,
-    this.supportsMonths = true,
-    this.supportsFollow = true,
     SpaceProfileIdentity? identity,
   }) : identityResult =
            identity ??
@@ -43,17 +44,12 @@ class FakeSpaceProfileGateway implements SpaceProfileGateway {
   final String account;
   final String viewer;
 
-  @override
-  final bool supportsMonths;
-
-  @override
-  final bool supportsFollow;
-
   SpaceProfileIdentity identityResult;
   Object? identityFailure;
 
   final List<SpaceProfileMonth> monthList = <SpaceProfileMonth>[];
   Object? monthsFailure;
+  final List<int> monthOffsets = <int>[];
 
   /// Keyed by `<latest|sortKey>|<cursor>`.
   final Map<String, SpaceProfileTimelinePage> pages =
@@ -66,15 +62,8 @@ class FakeSpaceProfileGateway implements SpaceProfileGateway {
   bool holdTimeline = false;
   final List<Completer<void>> timelineGates = <Completer<void>>[];
 
-  bool followingState = false;
-  Object? followFailure;
-  Object? writeFailure;
-  final List<bool> writeCalls = <bool>[];
-
-  String get _pagePrefix => 'latest';
-
   String _key(SpaceProfileMonth? month, String? cursor) =>
-      '${month?.sortKey ?? _pagePrefix}|${cursor ?? ''}';
+      '${month?.sortKey ?? 'latest'}|${cursor ?? ''}';
 
   void putPage({
     SpaceProfileMonth? month,
@@ -100,7 +89,11 @@ class FakeSpaceProfileGateway implements SpaceProfileGateway {
   }
 
   @override
-  Future<List<SpaceProfileMonth>> months(String userId) async {
+  Future<List<SpaceProfileMonth>> months(
+    String userId, {
+    required int timezoneOffsetMinutes,
+  }) async {
+    monthOffsets.add(timezoneOffsetMinutes);
     final Object? failure = monthsFailure;
     if (failure != null) {
       throw failure;
@@ -111,6 +104,7 @@ class FakeSpaceProfileGateway implements SpaceProfileGateway {
   @override
   Future<SpaceProfileTimelinePage> timeline({
     required String userId,
+    required int timezoneOffsetMinutes,
     SpaceProfileMonth? month,
     String? cursor,
     int limit = 20,
@@ -118,6 +112,7 @@ class FakeSpaceProfileGateway implements SpaceProfileGateway {
     calls.add(
       ProfileTimelineCall(
         userId: userId,
+        offset: timezoneOffsetMinutes,
         month: month,
         cursor: cursor,
         limit: limit,
@@ -142,40 +137,18 @@ class FakeSpaceProfileGateway implements SpaceProfileGateway {
     }
     return page;
   }
-
-  @override
-  Future<bool> following(String userId) async {
-    final Object? failure = followFailure;
-    if (failure != null) {
-      throw failure;
-    }
-    return followingState;
-  }
-
-  @override
-  Future<bool> setFollowing({
-    required String userId,
-    required bool following,
-  }) async {
-    writeCalls.add(following);
-    final Object? failure = writeFailure;
-    if (failure != null) {
-      throw failure;
-    }
-    followingState = following;
-    return following;
-  }
 }
 
 /// One shared-timeline entry. [timelineAt] defaults to the post time; pass a
-/// different value for a repost row to prove the archive month follows the
-/// repost time while the card displays it too.
+/// different value only for a synthetic row that proves the card shows the
+/// timeline instant rather than an unrelated publication time.
 SpaceProfileEntry profileEntry({
   required String postId,
   required String timelineAt,
   String? postCreatedAt,
   String text = '这是一条说说。',
   SpaceAuthor? author,
+  bool authorFollowing = false,
   List<SpaceImage> images = const <SpaceImage>[],
   SpaceReference? reference,
   bool canDelete = false,
@@ -186,6 +159,7 @@ SpaceProfileEntry profileEntry({
   final SpacePost post = spacePost(
     postId: postId,
     author: author,
+    authorFollowing: authorFollowing,
     createdAt: postCreatedAt ?? timelineAt,
     text: text,
     images: images,

@@ -9,32 +9,40 @@ enum SpaceProfilePhase { loading, ready, empty, error }
 /// One author's home-page state.
 ///
 /// Single owner for identity, the visible month directory, the selected month,
-/// the month that currently follows the scroll position, pagination and the
-/// follow relationship. Every asynchronous response is fenced by a generation
-/// counter, so a slow response for the previous month/user can never backfill
-/// the current list.
+/// the month that currently follows the scroll position and pagination. Follow
+/// relationships live in the shared `SpaceFollowStore`, not here: the same
+/// state is shown on feed cards and the home page. Every asynchronous response
+/// is fenced by a generation counter, so a slow response for the previous
+/// month/user can never backfill the current list.
 class SpaceProfileController extends ChangeNotifier {
   SpaceProfileController({
     required this.gateway,
+    required this.space,
     required this.userId,
     required this.viewerAccount,
+    required this.displayOffsetMinutes,
     this.pageSize = 20,
     this.initialIdentity,
   });
 
   final SpaceProfileGateway gateway;
+
+  /// Same shared Space gateway the feed uses; card actions (like/delete) must
+  /// not add a second protocol.
+  final SpaceGateway space;
+
   final String userId;
   final String viewerAccount;
+
+  /// Fixed browsing offset in minutes east of UTC, captured once when this
+  /// home page session opens. The directory and every card date use it; an
+  /// independently changing local offset is never consulted.
+  final int displayOffsetMinutes;
+
   final int pageSize;
   final SpaceProfileIdentity? initialIdentity;
 
   bool get isSelf => userId == viewerAccount;
-
-  /// The month directory only appears when the server can answer it.
-  bool get directoryAvailable => gateway.supportsMonths;
-
-  /// The follow control only appears when the server has the relationship.
-  bool get followAvailable => gateway.supportsFollow && !isSelf;
 
   SpaceProfileIdentity? identity;
   final List<SpaceProfileEntry> entries = <SpaceProfileEntry>[];
@@ -42,14 +50,10 @@ class SpaceProfileController extends ChangeNotifier {
   SpaceProfilePhase phase = SpaceProfilePhase.loading;
   bool refreshing = false;
   bool loadingMore = false;
-  bool followingBusy = false;
   bool monthsLoading = false;
   String? error;
   String? monthsError;
-  String? followError;
-
-  /// Authoritative follow state; null when unknown or when viewing yourself.
-  bool? following;
+  String? actionError;
 
   /// The month the current list is anchored at; null means "latest".
   SpaceProfileMonth? anchoredMonth;
@@ -62,6 +66,7 @@ class SpaceProfileController extends ChangeNotifier {
   int _generation = 0;
   bool _started = false;
   bool _disposed = false;
+  final Set<String> _likePending = <String>{};
 
   bool get atLatest => anchoredMonth == null;
 
@@ -78,7 +83,6 @@ class SpaceProfileController extends ChangeNotifier {
       _loadIdentity(),
       _loadMonths(),
       _reloadTimeline(),
-      _loadFollowing(),
     ]);
   }
 
@@ -87,7 +91,6 @@ class SpaceProfileController extends ChangeNotifier {
       _loadIdentity(),
       _loadMonths(),
       _reloadTimeline(),
-      _loadFollowing(),
     ]);
   }
 
@@ -108,32 +111,14 @@ class SpaceProfileController extends ChangeNotifier {
     }
   }
 
-  Future<void> _loadFollowing() async {
-    if (!followAvailable) {
-      return;
-    }
-    try {
-      final bool result = await gateway.following(userId);
-      if (_disposed) {
-        return;
-      }
-      following = result;
-      followError = null;
-    } catch (_) {
-      // Unknown relationship is never rendered as "not following".
-      followError = null;
-    }
-    _notify();
-  }
-
   Future<void> _loadMonths() async {
-    if (!directoryAvailable) {
-      return;
-    }
     monthsLoading = true;
     _notify();
     try {
-      final List<SpaceProfileMonth> loaded = await gateway.months(userId);
+      final List<SpaceProfileMonth> loaded = await gateway.months(
+        userId,
+        timezoneOffsetMinutes: displayOffsetMinutes,
+      );
       if (_disposed) {
         return;
       }
@@ -170,6 +155,7 @@ class SpaceProfileController extends ChangeNotifier {
     try {
       final SpaceProfileTimelinePage page = await gateway.timeline(
         userId: userId,
+        timezoneOffsetMinutes: displayOffsetMinutes,
         month: anchoredMonth,
         limit: pageSize,
       );
@@ -215,6 +201,7 @@ class SpaceProfileController extends ChangeNotifier {
     try {
       final SpaceProfileTimelinePage page = await gateway.timeline(
         userId: userId,
+        timezoneOffsetMinutes: displayOffsetMinutes,
         cursor: _cursor,
         limit: pageSize,
       );
@@ -252,7 +239,7 @@ class SpaceProfileController extends ChangeNotifier {
   /// Jumps the list to [month]'s newest visible entry; older months stay
   /// reachable by scrolling, exactly like the product specification.
   Future<void> jumpToMonth(SpaceProfileMonth month) async {
-    if (!directoryAvailable || anchoredMonth == month) {
+    if (anchoredMonth == month) {
       return;
     }
     anchoredMonth = month;
@@ -284,48 +271,111 @@ class SpaceProfileController extends ChangeNotifier {
     _notify();
   }
 
-  bool get canFollow => followAvailable && following != null;
-
-  Future<bool> setFollowing(bool value) async {
-    if (!followAvailable || followingBusy) {
-      return false;
+  /// Feed-style like from a home-page card. Optimistic on the card snapshot,
+  /// reverted from the live entry on failure; the server stays authoritative.
+  Future<void> toggleLike(SpacePost post) async {
+    if (_likePending.contains(post.postId)) {
+      return;
     }
-    followingBusy = true;
-    followError = null;
+    final int index = entries.indexWhere(
+      (SpaceProfileEntry e) => e.post.postId == post.postId,
+    );
+    if (index < 0) {
+      return;
+    }
+    final SpacePost original = entries[index].post;
+    final bool desired = !original.liked;
+    _likePending.add(post.postId);
+    entries[index] = SpaceProfileEntry(
+      post: _withLike(original, desired),
+      timelineAt: entries[index].timelineAt,
+    );
+    actionError = null;
     _notify();
     try {
-      final bool authoritative = await gateway.setFollowing(
-        userId: userId,
-        following: value,
+      await space.setLike(
+        post.postId,
+        liked: desired,
+        operationId:
+            'space-like-${DateTime.now().microsecondsSinceEpoch}-${post.postId}',
       );
-      if (_disposed) {
-        return false;
+    } catch (failure) {
+      final int current = entries.indexWhere(
+        (SpaceProfileEntry e) => e.post.postId == post.postId,
+      );
+      if (current >= 0) {
+        entries[current] = SpaceProfileEntry(
+          post: _withLikeFields(
+            entries[current].post,
+            liked: original.liked,
+            likeCount: original.likeCount,
+          ),
+          timelineAt: entries[current].timelineAt,
+        );
       }
-      following = authoritative;
-      return true;
-    } catch (exception) {
-      if (_disposed) {
-        return false;
-      }
-      // Keep the previous authoritative state: a failed write never becomes a
-      // fake "followed" or "unfollowed" label.
-      followError = spaceErrorText(exception);
-      return false;
+      actionError = spaceErrorText(failure);
     } finally {
-      followingBusy = false;
+      _likePending.remove(post.postId);
       _notify();
     }
   }
 
-  /// Local-time month of one timeline entry. The card time uses the same zone,
-  /// so the archived month and the visible date always agree.
+  Future<bool> deletePost(SpacePost post) async {
+    try {
+      await space.deletePost(
+        post.postId,
+        operationId: 'space-del-post-${DateTime.now().microsecondsSinceEpoch}',
+      );
+      removePost(post.postId);
+      // A deleted single-entry month must disappear from the directory; this
+      // is a small read, not a client-side scan of all history.
+      await _loadMonths();
+      return true;
+    } catch (failure) {
+      actionError = spaceErrorText(failure);
+      _notify();
+      return false;
+    }
+  }
+
+  void replacePost(SpacePost post) {
+    final int index = entries.indexWhere(
+      (SpaceProfileEntry e) => e.post.postId == post.postId,
+    );
+    if (index < 0) {
+      return;
+    }
+    entries[index] = SpaceProfileEntry(
+      post: post,
+      timelineAt: entries[index].timelineAt,
+    );
+    _notify();
+  }
+
+  void removePost(String postId) {
+    final int before = entries.length;
+    entries.removeWhere((SpaceProfileEntry e) => e.post.postId == postId);
+    if (entries.length == before) {
+      return;
+    }
+    if (entries.isEmpty && phase == SpaceProfilePhase.ready) {
+      phase = SpaceProfilePhase.empty;
+    }
+    _notify();
+  }
+
+  /// Local-time month of one timeline entry under the session's fixed offset.
+  /// The card time uses the same offset, so the archived month and the visible
+  /// date always agree.
   SpaceProfileMonth? monthOf(String timelineAt) {
     final DateTime? parsed = DateTime.tryParse(timelineAt);
     if (parsed == null) {
       return null;
     }
-    final DateTime local = parsed.toLocal();
-    return SpaceProfileMonth(year: local.year, month: local.month);
+    final DateTime wallClock = parsed.toUtc().add(
+      Duration(minutes: displayOffsetMinutes),
+    );
+    return SpaceProfileMonth(year: wallClock.year, month: wallClock.month);
   }
 
   bool isSelected(SpaceProfileMonth month) => anchoredMonth == month;
@@ -338,6 +388,42 @@ class SpaceProfileController extends ChangeNotifier {
       return SpaceMonthState.visible;
     }
     return SpaceMonthState.idle;
+  }
+
+  SpacePost _withLike(SpacePost original, bool desired) {
+    final int delta = desired == original.liked ? 0 : (desired ? 1 : -1);
+    return _withLikeFields(
+      original,
+      liked: desired,
+      likeCount: original.likeCount + delta,
+    );
+  }
+
+  SpacePost _withLikeFields(
+    SpacePost target, {
+    required bool liked,
+    required int likeCount,
+  }) {
+    return SpacePost(
+      postId: target.postId,
+      author: target.author,
+      authorFollowing: target.authorFollowing,
+      createdAt: target.createdAt,
+      text: target.text,
+      images: target.images,
+      reference: target.reference,
+      liked: liked,
+      read: target.read,
+      likeCount: likeCount,
+      commentCount: target.commentCount,
+      rootCount: target.rootCount,
+      repostCount: target.repostCount,
+      viewCount: target.viewCount,
+      canDelete: target.canDelete,
+      canListVisitors: target.canListVisitors,
+      previewComments: target.previewComments,
+      remainingRoots: target.remainingRoots,
+    );
   }
 
   void _adoptFirstIdentity() {

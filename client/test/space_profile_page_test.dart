@@ -1,9 +1,7 @@
 import 'dart:ui' show DisplayFeature, DisplayFeatureState, DisplayFeatureType;
 
-import 'package:bb_client/app.dart';
 import 'package:bb_client/models/auth_models.dart';
 import 'package:bb_client/ui/space/space_format.dart';
-import 'package:bb_client/ui/space/space_image_viewer.dart';
 import 'package:bb_client/ui/space/profile/space_profile_gateway.dart';
 import 'package:bb_client/ui/space/profile/space_profile_month_directory.dart';
 import 'package:bb_client/ui/space/profile/space_profile_page.dart';
@@ -11,9 +9,8 @@ import 'package:bb_client/ui/space/profile/space_profile_posts_module.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'support/fake_space_gateway.dart';
 import 'support/fake_space_profile_gateway.dart';
-import 'support/space_fixtures.dart';
+import 'support/profile_test_harness.dart';
 
 const SpaceProfileMonth _nov = SpaceProfileMonth(year: 2026, month: 11);
 const SpaceProfileMonth _oct = SpaceProfileMonth(year: 2026, month: 10);
@@ -152,21 +149,6 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('a server without months/follow degrades without dead controls', (
-    WidgetTester tester,
-  ) async {
-    final FakeSpaceProfileGateway gateway = _gatewayWithHistory(
-      supportsMonths: false,
-      supportsFollow: false,
-    );
-    await _pumpProfile(tester, gateway: gateway);
-
-    expect(find.byKey(SpaceProfilePage.dateButtonKey), findsNothing);
-    expect(find.byKey(SpaceProfilePage.sideDirectoryKey), findsNothing);
-    expect(find.byKey(SpaceProfilePage.followKey), findsNothing);
-    expect(find.byKey(const Key('space-post-post-nov-1')), findsOneWidget);
-  });
-
   testWidgets('the visible month follows scrolling', (
     WidgetTester tester,
   ) async {
@@ -224,14 +206,8 @@ void main() {
   });
 }
 
-FakeSpaceProfileGateway _gatewayWithHistory({
-  bool supportsMonths = true,
-  bool supportsFollow = true,
-}) {
-  final FakeSpaceProfileGateway gateway = FakeSpaceProfileGateway(
-    supportsMonths: supportsMonths,
-    supportsFollow: supportsFollow,
-  );
+FakeSpaceProfileGateway _gatewayWithHistory() {
+  final FakeSpaceProfileGateway gateway = FakeSpaceProfileGateway();
   gateway.monthList.addAll(<SpaceProfileMonth>[
     _nov,
     _oct,
@@ -292,32 +268,15 @@ Future<void> _pumpProfile(
   required FakeSpaceProfileGateway gateway,
   Size size = const Size(390, 844),
   List<DisplayFeature> features = const <DisplayFeature>[],
+  int displayOffsetMinutes = 0,
 }) async {
-  tester.view.physicalSize = size;
-  tester.view.devicePixelRatio = 1;
-  addTearDown(tester.view.resetPhysicalSize);
-  addTearDown(tester.view.resetDevicePixelRatio);
-  final FakeSpaceGateway space = FakeSpaceGateway(account: spaceSelfAccount);
-  await tester.pumpWidget(
-    MaterialApp(
-      theme: buildAppTheme(),
-      debugShowCheckedModeBanner: false,
-      builder: (BuildContext context, Widget? child) => MediaQuery(
-        data: MediaQuery.of(context)
-            .copyWith(size: size, displayFeatures: features),
-        child: child!,
-      ),
-      home: Scaffold(
-        body: SpaceProfilePage(
-          gateway: gateway,
-          userId: gateway.account,
-          viewerAccount: gateway.viewer,
-          images: SpaceImageLoader(space),
-        ),
-      ),
-    ),
+  await pumpProfilePage(
+    tester,
+    profile: gateway,
+    size: size,
+    features: features,
+    displayOffsetMinutes: displayOffsetMinutes,
   );
-  await tester.pumpAndSettle();
 }
 
 String _dateLabel(WidgetTester tester) {

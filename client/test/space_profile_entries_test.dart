@@ -31,9 +31,10 @@ void main() {
 
     expect(find.byKey(SpaceProfilePage.pageKey), findsOneWidget);
     expect(find.byKey(SpaceProfilePage.identityKey), findsOneWidget);
-    // The home timeline is the author-scoped page, not the global feed.
-    expect(gateway.requestedAuthors, isNotEmpty);
-    expect(gateway.requestedAuthors.last, post.author.account);
+    // The home timeline is the author-scoped action, not the global feed.
+    expect(gateway.profileCalls, isNotEmpty);
+    expect(gateway.profileCalls.last.target, post.author.account);
+    expect(gateway.profileCalls.last.offset, isNotNull);
 
     await tester.tap(find.byKey(SpaceProfilePage.backKey));
     await tester.pumpAndSettle();

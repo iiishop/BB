@@ -5,21 +5,24 @@ import 'package:flutter/material.dart';
 import '../../../app.dart';
 import '../../../models/space_models.dart';
 import '../../../services/profile_service.dart';
+import '../../../services/space_download_log.dart';
 import '../space_avatars.dart';
+import '../space_follow_button.dart';
+import '../space_follow_store.dart';
+import '../space_gateway.dart';
 import '../space_image_viewer.dart';
+import '../space_compose_page.dart';
 import '../space_layout.dart';
+import '../space_local_store.dart';
 import '../space_widgets.dart';
 import 'space_profile_controller.dart';
-import 'space_profile_follow_button.dart';
 import 'space_profile_gateway.dart';
 import 'space_profile_modules.dart';
 import 'space_profile_month_directory.dart';
+import 'space_post_detail_page.dart';
 
 /// Where the year/month directory lives for one frame.
 enum SpaceProfileDirectoryPlacement {
-  /// The server cannot answer the directory yet: no control is rendered.
-  none,
-
   /// Phone/narrow: a date button opens a vertical drawer.
   drawer,
 
@@ -36,29 +39,41 @@ enum SpaceProfileDirectoryPlacement {
 /// The page is the module container: it owns identity, header, directory
 /// placement and module order; the registered posts module owns its own list,
 /// paging and scroll. Both product entries (Profile button, Space author
-/// avatar) open exactly this page.
+/// avatar) open exactly this page. Follow state comes from the shared
+/// [SpaceFollowStore], never from a page-local copy.
 class SpaceProfilePage extends StatefulWidget {
   const SpaceProfilePage({
     super.key,
     required this.gateway,
+    required this.space,
+    required this.followStore,
     required this.userId,
     required this.viewerAccount,
     required this.images,
+    required this.displayOffsetMinutes,
     this.initialIdentity,
-    this.actions,
     this.profile,
     this.modules,
+    this.localStore,
+    this.downloads,
   });
 
   final SpaceProfileGateway gateway;
+
+  /// Shared Space gateway used by card actions and the detail path.
+  final SpaceGateway space;
+
+  final SpaceFollowStore followStore;
   final String userId;
   final String viewerAccount;
 
   /// Shared Space image loader; images keep the existing cache and viewer.
   final SpaceImageLoader images;
 
+  /// Fixed display offset captured when this home-page session opened.
+  final int displayOffsetMinutes;
+
   final SpaceProfileIdentity? initialIdentity;
-  final SpaceProfileActions? actions;
 
   /// Existing authorized Profile entry, used for avatars only.
   final ProfileGateway? profile;
@@ -67,14 +82,21 @@ class SpaceProfilePage extends StatefulWidget {
   /// registry (posts only).
   final SpaceProfileModuleRegistry? modules;
 
+  /// Local effect/draft store shared with the Space surface; used by the
+  /// reference repost path.
+  final SpaceLocalStore? localStore;
+
+  /// Per-account download log shared with the media viewer.
+  final SpaceDownloadLog? downloads;
+
   static const Key pageKey = Key('space-profile-page');
   static const Key backKey = Key('space-profile-back');
   static const Key identityKey = Key('space-profile-identity');
   static const Key dateButtonKey = Key('space-profile-date');
   static const Key sideDirectoryKey = Key('space-profile-side-directory');
-  static const Key followKey = SpaceProfileFollowButton.buttonKey;
-  static const Key unfollowDialogKey = Key('space-profile-unfollow-dialog');
-  static const Key unfollowConfirmKey = Key('space-profile-unfollow-confirm');
+  static const Key followKey = Key('space-profile-follow');
+  static const Key unfollowDialogKey = SpaceFollowButton.dialogKey;
+  static const Key unfollowConfirmKey = SpaceFollowButton.confirmKey;
   static const Key emptyModulesKey = Key('space-profile-no-modules');
 
   /// Below this content width the directory becomes a drawer; at or above it
@@ -96,6 +118,7 @@ class _SpaceProfilePageState extends State<SpaceProfilePage> {
   late final SpaceProfileModuleRegistry _registry;
   final ScrollController _scroll = ScrollController();
   SpaceAvatarStore? _avatars;
+  SpaceDownloadLog? _ownedDownloads;
 
   @override
   void initState() {
@@ -103,11 +126,17 @@ class _SpaceProfilePageState extends State<SpaceProfilePage> {
     _registry = widget.modules ?? SpaceProfileModuleRegistry.standard();
     _controller = SpaceProfileController(
       gateway: widget.gateway,
+      space: widget.space,
       userId: widget.userId,
       viewerAccount: widget.viewerAccount,
+      displayOffsetMinutes: widget.displayOffsetMinutes,
       initialIdentity: widget.initialIdentity,
     );
     _controller.addListener(_onChanged);
+    widget.followStore.addListener(_onChanged);
+    if (!_controller.isSelf) {
+      unawaited(widget.followStore.ensureLoaded(widget.userId));
+    }
     final ProfileGateway? profile = widget.profile;
     if (profile != null) {
       _avatars = SpaceAvatarStore(profile: profile);
@@ -118,6 +147,7 @@ class _SpaceProfilePageState extends State<SpaceProfilePage> {
   @override
   void dispose() {
     _controller.removeListener(_onChanged);
+    widget.followStore.removeListener(_onChanged);
     _controller.dispose();
     _scroll.dispose();
     _avatars?.dispose();
@@ -131,9 +161,6 @@ class _SpaceProfilePageState extends State<SpaceProfilePage> {
   }
 
   SpaceProfileDirectoryPlacement _placement(SpaceLayout layout) {
-    if (!_controller.directoryAvailable) {
-      return SpaceProfileDirectoryPlacement.none;
-    }
     if (layout.verticalHingeX != null) {
       final ({double leftWidth, double rightWidth}) panes = layout.panes();
       if (panes.leftWidth >= SpaceProfilePage.minListPane &&
@@ -181,6 +208,7 @@ class _SpaceProfilePageState extends State<SpaceProfilePage> {
                     visible: _controller.visibleMonth,
                     atLatest: _controller.atLatest,
                     loading: _controller.monthsLoading,
+                    error: _controller.monthsError,
                     onSelect: (SpaceProfileMonth month) =>
                         Navigator.of(context)
                             .pop(_DirectoryChoice.month(month)),
@@ -205,44 +233,138 @@ class _SpaceProfilePageState extends State<SpaceProfilePage> {
   }
 
   Future<void> _onFollowPressed() async {
-    final SpaceProfileController controller = _controller;
-    if (controller.followingBusy || !controller.followAvailable) {
+    final String name = _controller.identity?.username ?? widget.userId;
+    await toggleSpaceFollow(
+      context,
+      store: widget.followStore,
+      account: widget.userId,
+      name: name,
+    );
+  }
+
+  SpaceDownloadLog _downloads() =>
+      widget.downloads ??
+      (_ownedDownloads ??= SpaceDownloadLog(scopeKey: widget.space.scopeKey));
+
+  SpaceProfileActions _actions() {
+    return SpaceProfileActions(
+      openPost: (SpacePost post) => _openDetail(post.postId),
+      openComments: (SpacePost post) => _openDetail(post.postId),
+      openReference: (SpacePost post) {
+        final String? referenceId = post.reference?.postId;
+        if (referenceId != null) {
+          _openDetail(referenceId);
+        }
+      },
+      toggleLike: _toggleLike,
+      repost: _repost,
+      openImage: _openViewer,
+      deletePost: _confirmDelete,
+    );
+  }
+
+  /// Reuses the existing detail route; closing it returns the final post so the
+  /// card updates in place and the browse position is never reset.
+  Future<void> _openDetail(String postId) async {
+    final SpaceLocalStore? store = widget.localStore;
+    if (store == null) {
       return;
     }
-    final bool currentlyFollowing = controller.following == true;
-    if (currentlyFollowing) {
-      final String name = controller.identity?.username ?? '该用户';
-      final bool? confirmed = await showDialog<bool>(
-        context: context,
-        builder: (BuildContext context) => AlertDialog(
-          key: SpaceProfilePage.unfollowDialogKey,
-          title: const Text('取消关注？'),
-          content: Text('取消后将不再关注 $name。关注关系会立即解除。'),
-          actions: <Widget>[
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              key: SpaceProfilePage.unfollowConfirmKey,
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('取消关注'),
-            ),
-          ],
-        ),
-      );
-      if (confirmed != true || !mounted) {
-        return;
+    final SpaceDetailOutcome? outcome = await SpacePostDetailPage.open(
+      context,
+      gateway: widget.space,
+      store: store,
+      postId: postId,
+      images: widget.images,
+      downloads: _downloads(),
+    );
+    if (!mounted || outcome == null) {
+      return;
+    }
+    if (outcome.deleted || outcome.post == null) {
+      _controller.removePost(postId);
+      if (outcome.deleted) {
+        await _controller.refresh();
       }
-    }
-    final bool applied = await controller.setFollowing(!currentlyFollowing);
-    if (!mounted) {
       return;
     }
-    if (!applied && controller.followError != null) {
+    _controller.replacePost(outcome.post!);
+  }
+
+  Future<void> _toggleLike(SpacePost post) async {
+    await _controller.toggleLike(post);
+    if (!mounted || _controller.actionError == null) {
+      return;
+    }
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(_controller.actionError!)));
+  }
+
+  Future<void> _openViewer(SpacePost post, int index) {
+    return Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) => SpaceImageViewer(
+          images: post.images,
+          initialIndex: index,
+          loader: widget.images,
+          downloadLog: _downloads(),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _repost(SpacePost post) async {
+    final SpaceLocalStore? store = widget.localStore;
+    if (store == null) {
+      return;
+    }
+    final String? created = await Navigator.of(context).push<String>(
+      MaterialPageRoute<String>(
+        builder: (BuildContext context) => SpaceComposePage(
+          gateway: widget.space,
+          store: store,
+          images: widget.images,
+          referenceId: post.postId,
+          referencePost: post,
+        ),
+      ),
+    );
+    if (!mounted || created == null) {
+      return;
+    }
+    // A new repost enters at "latest" and may add a month; refresh the current
+    // view from its first page.
+    await _controller.refresh();
+  }
+
+  Future<void> _confirmDelete(SpacePost post) async {
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) => AlertDialog(
+        title: const Text('删除这条说说？'),
+        content: const Text('正文、图片和全部评论互动都会失效。别人的转发仍会保留。'),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) {
+      return;
+    }
+    final bool deleted = await _controller.deletePost(post);
+    if (!deleted && mounted && _controller.actionError != null) {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(content: Text(controller.followError!)));
+        ..showSnackBar(SnackBar(content: Text(_controller.actionError!)));
     }
   }
 
@@ -278,10 +400,15 @@ class _SpaceProfilePageState extends State<SpaceProfilePage> {
     final SpaceProfileIdentity? identity = _controller.identity;
     final String nickname = identity?.username ?? '加载中…';
     final String signature = identity?.signature ?? '';
-    final bool? followState = _controller.following;
+    final bool isSelf = _controller.isSelf;
+    final bool? followState = isSelf
+        ? null
+        : widget.followStore.stateFor(widget.userId);
+    final bool followBusy =
+        !isSelf && widget.followStore.isWriting(widget.userId);
     final bool showFollow =
-        _controller.followAvailable &&
-        (followState != null || _controller.followingBusy);
+        !isSelf &&
+        (followState != null || followBusy || _controller.identity != null);
     final bool showDate = placement == SpaceProfileDirectoryPlacement.drawer;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -344,9 +471,10 @@ class _SpaceProfilePageState extends State<SpaceProfilePage> {
                   ),
                   if (showFollow) ...<Widget>[
                     const SizedBox(width: AppSpacing.sm),
-                    SpaceProfileFollowButton(
+                    SpaceFollowButton(
+                      key: SpaceProfilePage.followKey,
                       following: followState ?? false,
-                      busy: _controller.followingBusy,
+                      busy: followBusy,
                       onPressed: followState == null ? null : _onFollowPressed,
                     ),
                   ],
@@ -418,7 +546,6 @@ class _SpaceProfilePageState extends State<SpaceProfilePage> {
   Widget _body(SpaceLayout layout, SpaceProfileDirectoryPlacement placement) {
     final Widget list = _modules();
     switch (placement) {
-      case SpaceProfileDirectoryPlacement.none:
       case SpaceProfileDirectoryPlacement.drawer:
         return _centered(list);
       case SpaceProfileDirectoryPlacement.sideRail:
@@ -475,6 +602,7 @@ class _SpaceProfilePageState extends State<SpaceProfilePage> {
       visible: _controller.visibleMonth,
       atLatest: _controller.atLatest,
       loading: _controller.monthsLoading,
+      error: _controller.monthsError,
       onSelect: _selectMonth,
       onLatest: _backToLatest,
     );
@@ -494,7 +622,10 @@ class _SpaceProfilePageState extends State<SpaceProfilePage> {
       controller: _controller,
       scrollController: _scroll,
       images: widget.images,
-      actions: widget.actions,
+      actions: _actions(),
+      displayOffsetMinutes: widget.displayOffsetMinutes,
+      localStore: widget.localStore,
+      downloads: widget.downloads,
     );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -518,27 +649,36 @@ class _DirectoryChoice {
 }
 
 /// Single navigation helper used by every entry so both product entries open
-/// exactly the same page and share the same module composition.
+/// exactly the same page and share the same module composition, follow store
+/// and fixed browsing offset.
 Future<void> openSpaceProfile(
   BuildContext context, {
   required SpaceProfileGateway gateway,
+  required SpaceGateway space,
+  required SpaceFollowStore followStore,
   required String userId,
   required String viewerAccount,
   required SpaceImageLoader images,
+  required int displayOffsetMinutes,
   SpaceProfileIdentity? initialIdentity,
-  SpaceProfileActions? actions,
   ProfileGateway? profile,
+  SpaceLocalStore? localStore,
+  SpaceDownloadLog? downloads,
 }) async {
   await Navigator.of(context).push<void>(
     MaterialPageRoute<void>(
       builder: (BuildContext context) => SpaceProfilePage(
         gateway: gateway,
+        space: space,
+        followStore: followStore,
         userId: userId,
         viewerAccount: viewerAccount,
         images: images,
+        displayOffsetMinutes: displayOffsetMinutes,
         initialIdentity: initialIdentity,
-        actions: actions,
         profile: profile,
+        localStore: localStore,
+        downloads: downloads,
       ),
     ),
   );

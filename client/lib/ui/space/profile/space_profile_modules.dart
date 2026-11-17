@@ -1,7 +1,9 @@
 import 'package:flutter/widgets.dart';
 
 import '../../../models/space_models.dart';
+import '../../../services/space_download_log.dart';
 import '../space_image_viewer.dart';
+import '../space_local_store.dart';
 import 'space_profile_controller.dart';
 import 'space_profile_posts_module.dart';
 
@@ -40,12 +42,25 @@ class SpaceProfileModuleScope {
     required this.scrollController,
     required this.images,
     required this.actions,
+    required this.displayOffsetMinutes,
+    this.localStore,
+    this.downloads,
   });
 
   final SpaceProfileController controller;
   final ScrollController scrollController;
   final SpaceImageLoader images;
   final SpaceProfileActions? actions;
+
+  /// Fixed browsing offset shared with the directory; card dates must use it
+  /// instead of an independently changing local zone.
+  final int displayOffsetMinutes;
+
+  /// Shared local store for compose/repost and the per-account download log
+  /// used by the media viewer. Both are optional so a read-only composition
+  /// (widget test, module preview) still works.
+  final SpaceLocalStore? localStore;
+  final SpaceDownloadLog? downloads;
 }
 
 /// One registered content module on a user home page.
