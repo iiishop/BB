@@ -26,6 +26,16 @@ class SpaceFollowStore extends ChangeNotifier {
   final Map<String, bool> _states = <String, bool>{};
   final Set<String> _loading = <String>{};
   final Set<String> _writing = <String>{};
+
+  /// Targets this session has shown or asked about. Invalidations use this
+  /// (not `_states`, which the invalidation itself clears) so a second event
+  /// can still request a fresh read.
+  final Set<String> _knownTargets = <String>{};
+
+  /// A read was requested while one for the same target was already in
+  /// flight. When the in-flight read finishes (possibly discarded as stale),
+  /// one fresh read follows, so the target never stays unknown (R2-C).
+  final Set<String> _reloadRequested = <String>{};
   int _revision = 0;
   bool _disposed = false;
 
@@ -62,6 +72,7 @@ class SpaceFollowStore extends ChangeNotifier {
       if (isSelf(account) || _states.containsKey(account)) {
         continue;
       }
+      _knownTargets.add(account);
       _states[account] = post.authorFollowing;
       changed = true;
     }
@@ -72,17 +83,37 @@ class SpaceFollowStore extends ChangeNotifier {
 
   /// Loads one target once. Failure leaves the state unknown instead of
   /// rendering a false "not following".
-  Future<void> ensureLoaded(String account) async {
-    if (isSelf(account) ||
-        _states.containsKey(account) ||
-        _loading.contains(account)) {
+  ///
+  /// [force] is used by a persisted invalidation: it must reconcile even when
+  /// a cached value exists, and it coalesces with an in-flight read by
+  /// requesting one follow-up read instead of losing the update (R2-C).
+  Future<void> ensureLoaded(String account, {bool force = false}) async {
+    if (isSelf(account)) {
+      return;
+    }
+    _knownTargets.add(account);
+    if (!force && _states.containsKey(account)) {
+      return;
+    }
+    if (_loading.contains(account)) {
+      _reloadRequested.add(account);
       return;
     }
     _loading.add(account);
     final int revision = _revision;
     try {
       final SpaceFollowState state = await gateway.getFollow(account);
-      if (_disposed || revision != _revision) {
+      if (_disposed) {
+        return;
+      }
+      // A write or another invalidation happened while this read was in
+      // flight: its answer predates the newest known intent, so discard it.
+      // Only an unknown target (the invalidation path) needs a replacement
+      // read; a successful write already set the authoritative value.
+      if (revision != _revision) {
+        if (!_states.containsKey(account)) {
+          _reloadRequested.add(account);
+        }
         return;
       }
       _states[account] = state.following;
@@ -91,7 +122,11 @@ class SpaceFollowStore extends ChangeNotifier {
       // Unknown stays unknown; the next page/refresh can retry.
     } finally {
       _loading.remove(account);
+      final bool reload = _reloadRequested.remove(account);
       _notify();
+      if (reload && !_disposed) {
+        unawaited(ensureLoaded(account, force: true));
+      }
     }
   }
 
@@ -102,6 +137,7 @@ class SpaceFollowStore extends ChangeNotifier {
     if (isSelf(account) || _writing.contains(account)) {
       return false;
     }
+    _knownTargets.add(account);
     _writing.add(account);
     error = null;
     _notify();
@@ -135,11 +171,13 @@ class SpaceFollowStore extends ChangeNotifier {
   /// states, bump the revision and refetch the accounts we already showed.
   void handleFollowChanged() {
     _revision += 1;
-    final List<String> known = _states.keys.toList();
+    // `_knownTargets` survives the clear, so two invalidations in a row still
+    // reconcile the same target even while the first read is in flight (R2-C).
+    final List<String> known = _knownTargets.toList();
     _states.clear();
     _notify();
     for (final String account in known) {
-      unawaited(ensureLoaded(account));
+      unawaited(ensureLoaded(account, force: true));
     }
   }
 

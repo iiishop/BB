@@ -39,6 +39,7 @@ class _FeedSnapshot {
     required this.offline,
     required this.pendingNewPosts,
     required this.pendingPage,
+    required this.loaded,
   });
 
   final List<SpacePost> posts;
@@ -49,6 +50,11 @@ class _FeedSnapshot {
   final bool offline;
   final int pendingNewPosts;
   final List<SpacePost> pendingPage;
+
+  /// Whether this scope ever completed a first-page read. A parked snapshot
+  /// captured while the first page was still in flight is not a usable empty
+  /// result and must be refetched on restore (R2-A).
+  final bool loaded;
 }
 
 /// Feed, notification and draft state for one account/server pair.
@@ -107,6 +113,10 @@ class SpaceController extends ChangeNotifier {
   int _feedGeneration = 0;
   int _seenFollowRevision = 0;
   bool _followReloadPending = false;
+
+  /// True once the active scope has a completed first-page read. Reset when the
+  /// scope changes or the session restarts.
+  bool _feedLoaded = false;
 
   /// A non-fatal notice such as "following changed, refreshed" shown above the
   /// feed without replacing the list.
@@ -254,12 +264,19 @@ class SpaceController extends ChangeNotifier {
       feedNotice = null;
       offline = false;
       unsupportedServer = false;
+      _feedLoaded = true;
       _scopeCache.remove(requested);
       _notify();
       if (wasOffline) {
         unawaited(_reconnectReplay());
       }
     } on AuthFailure catch (failure) {
+      // An abandoned request must not inject its failure into the scope the
+      // person is looking at now (R2-B). Success already had this fence; the
+      // error branches need the same one.
+      if (_disposed || generation != _feedGeneration || scope != requested) {
+        return;
+      }
       if (isSpaceUnauthorized(failure)) {
         onSessionExpired?.call();
         phase = SpacePhase.error;
@@ -275,6 +292,9 @@ class SpaceController extends ChangeNotifier {
       }
       _notify();
     } catch (failure) {
+      if (_disposed || generation != _feedGeneration || scope != requested) {
+        return;
+      }
       offline = isSpaceOffline(failure);
       phase = posts.isEmpty ? SpacePhase.error : phase;
       feedError = spaceErrorText(failure);
@@ -335,6 +355,9 @@ class SpaceController extends ChangeNotifier {
       offline = false;
       feedError = null;
     } on AuthFailure catch (failure) {
+      if (_disposed || generation != _feedGeneration || scope != requested) {
+        return;
+      }
       // The server invalidates a following cursor when the viewer's follow
       // revision changed. Refresh that view from its first page instead of
       // mixing scopes or looping on the stale cursor.
@@ -352,6 +375,9 @@ class SpaceController extends ChangeNotifier {
       offline = isSpaceOffline(failure);
       feedError = spaceErrorText(failure);
     } catch (failure) {
+      if (_disposed || generation != _feedGeneration || scope != requested) {
+        return;
+      }
       offline = isSpaceOffline(failure);
       feedError = spaceErrorText(failure);
     } finally {
@@ -743,7 +769,7 @@ class SpaceController extends ChangeNotifier {
     loadingMore = false;
     refreshing = false;
     final _FeedSnapshot? parked = _scopeCache.remove(target);
-    if (parked != null) {
+    if (parked != null && parked.loaded) {
       // Reapply deletion tombstones and reference/comment scrubs: a parked
       // snapshot was captured before events that arrived while it was parked
       // (Q3).
@@ -762,9 +788,17 @@ class SpaceController extends ChangeNotifier {
       pendingNewPosts = parked.pendingNewPosts;
       _pendingPage = _admitIncoming(parked.pendingPage);
       feedNotice = null;
+      _feedLoaded = true;
       _notify();
       return;
     }
+    await _startScopeLoad();
+  }
+
+  /// Starts a fresh first page for the current scope. Used when a scope was
+  /// never completed (parked while its first page was still in flight) and on
+  /// a session reset; the old in-flight response is already generation-fenced.
+  Future<void> _startScopeLoad() async {
     posts.clear();
     nextCursor = null;
     hasMore = false;
@@ -774,6 +808,7 @@ class SpaceController extends ChangeNotifier {
     pendingNewPosts = 0;
     _pendingPage = <SpacePost>[];
     phase = SpacePhase.loading;
+    _feedLoaded = false;
     _notify();
     await _loadFeedFirst(explicit: true);
   }
@@ -788,6 +823,7 @@ class SpaceController extends ChangeNotifier {
       offline: offline,
       pendingNewPosts: pendingNewPosts,
       pendingPage: List<SpacePost>.from(_pendingPage),
+      loaded: _feedLoaded,
     );
   }
 
@@ -811,6 +847,7 @@ class SpaceController extends ChangeNotifier {
     pendingNewPosts = 0;
     _pendingPage = <SpacePost>[];
     phase = SpacePhase.loading;
+    _feedLoaded = false;
     _clearStack();
     _notify();
     await _loadFeedFirst(explicit: true);
