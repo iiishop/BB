@@ -141,13 +141,22 @@ class SpaceFollowStore extends ChangeNotifier {
     _writing.add(account);
     error = null;
     final bool? previous = _states[account];
+    // Any authoritative fact (persisted event, forced read, another result)
+    // applied while this request is in flight advances the revision. A result
+    // from before that point cannot be attributed to the current truth.
+    final int requestRevision = _revision;
     _notify();
     try {
       final SpaceFollowState state = await gateway.setFollow(
         account,
         following: desired,
       );
-      _applyAuthoritative(account, state.following, previous);
+      await _settleWriteResult(
+        account,
+        state.following,
+        previous,
+        requestRevision,
+      );
       return true;
     } catch (failure) {
       error = spaceErrorText(failure);
@@ -158,7 +167,12 @@ class SpaceFollowStore extends ChangeNotifier {
       // following feed otherwise keep a snapshot that contradicts the receiver.
       try {
         final SpaceFollowState state = await gateway.getFollow(account);
-        _applyAuthoritative(account, state.following, previous);
+        await _settleWriteResult(
+          account,
+          state.following,
+          previous,
+          requestRevision,
+        );
       } catch (_) {
         // Keep the previous authoritative value; the UI keeps showing it.
       }
@@ -166,6 +180,52 @@ class SpaceFollowStore extends ChangeNotifier {
     } finally {
       _writing.remove(account);
       _notify();
+    }
+  }
+
+  /// Applies a write/reconciliation result only when no newer authoritative
+  /// fact landed while the request (or its reconciliation) was in flight.
+  ///
+  /// A result delivered after such a fact cannot be ordered against it: the
+  /// request may have been accepted before the newer fact (stale, must not
+  /// roll back) or after it (the receiver's current truth, must still apply).
+  /// Reading the receiver again after the result arrives resolves both cases
+  /// without treating every late result as stale (R5).
+  Future<void> _settleWriteResult(
+    String account,
+    bool following,
+    bool? previous,
+    int requestRevision,
+  ) async {
+    if (_revision == requestRevision) {
+      _applyAuthoritative(account, following, previous);
+      return;
+    }
+    await _readLatestAuthoritative(account);
+  }
+
+  /// Reads the receiver's current relationship after a result whose ordering
+  /// is unknown. The read is fenced like every other authoritative read: if a
+  /// newer fact lands while it is in flight, retry instead of applying a read
+  /// that is already stale. The write's failure message is preserved.
+  Future<void> _readLatestAuthoritative(String account) async {
+    for (int attempt = 0; attempt < 3; attempt++) {
+      final int revision = _revision;
+      try {
+        final SpaceFollowState state = await gateway.getFollow(account);
+        if (_disposed) {
+          return;
+        }
+        if (revision != _revision) {
+          continue;
+        }
+        final bool? before = _states[account];
+        _applyAuthoritative(account, state.following, before);
+        return;
+      } catch (_) {
+        // Keep the last known relationship and the existing error surface.
+        return;
+      }
     }
   }
 
