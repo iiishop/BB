@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../app.dart';
 import '../../models/space_models.dart';
+import '../../services/media_disk_cache.dart';
 import '../../ui/chat/media_actions.dart';
 import '../../ui/chat/media_save.dart';
 import 'space_gateway.dart';
@@ -27,10 +28,14 @@ class SpaceImageInvalidated implements Exception {
 /// was already in flight when the image was invalidated is discarded instead
 /// of refilling the cache.
 class SpaceImageLoader extends ChangeNotifier {
-  SpaceImageLoader(this.gateway, {this.maxEntries = 96});
-
+  SpaceImageLoader(this.gateway, {this.maxEntries = 96, this.disk});
   final SpaceGateway gateway;
   final int maxEntries;
+
+  /// Survives restarts. Without it, reopening a picture re-downloaded the
+  /// original even though it had been viewed a minute earlier.
+  final MediaDiskCache? disk;
+
   final Map<String, Uint8List> _cache = <String, Uint8List>{};
   final List<String> _order = <String>[];
   final Map<String, Future<Uint8List>> _inflight =
@@ -60,9 +65,31 @@ class SpaceImageLoader extends ChangeNotifier {
     if (running != null) {
       return running;
     }
-    final Future<Uint8List> request = _fetch(imageId, variant);
+    final Future<Uint8List> request = _loadWithDisk(imageId, variant, key);
     _inflight[key] = request;
     return request.whenComplete(() => _inflight.remove(key));
+  }
+
+  /// Memory, then disk, then network. A disk hit also warms the memory layer so
+  /// paging back and forth inside the viewer stays synchronous.
+  Future<Uint8List> _loadWithDisk(
+    String imageId,
+    String variant,
+    String key,
+  ) async {
+    final MediaDiskCache? store = disk;
+    if (store != null) {
+      final Uint8List? stored = await store.read(key);
+      if (stored != null) {
+        _cache[key] = stored;
+        _order.add(key);
+        while (_order.length > maxEntries) {
+          _cache.remove(_order.removeAt(0));
+        }
+        return stored;
+      }
+    }
+    return _fetch(imageId, variant);
   }
 
   Future<Uint8List> _fetch(String imageId, String variant) async {
@@ -81,6 +108,12 @@ class SpaceImageLoader extends ChangeNotifier {
     _order.add(key);
     while (_order.length > maxEntries) {
       _cache.remove(_order.removeAt(0));
+    }
+    // Persist in the background: the caller gets its bytes now, and a failed
+    // write only costs a future re-download.
+    final MediaDiskCache? store = disk;
+    if (store != null) {
+      unawaited(store.write(key, bytes));
     }
     return bytes;
   }
@@ -198,6 +231,10 @@ class _SpaceImageViewerState extends State<SpaceImageViewer> {
   late final PageController _controller;
   late int _index;
   bool _saving = false;
+
+  /// True while the current page is pinch-zoomed; the pager stops scrolling
+  /// so gestures stay with [InteractiveViewer].
+  bool _zoomed = false;
   String? _notice;
 
   @override
@@ -384,9 +421,17 @@ class _SpaceImageViewerState extends State<SpaceImageViewer> {
                         PageView.builder(
                           key: SpaceImageViewer.pagesKey,
                           controller: _controller,
+                          // A zoomed picture owns horizontal drags; letting the
+                          // pager keep them would turn a two-finger pinch into a
+                          // page swipe on the first finger.
+                          physics: _zoomed
+                              ? const NeverScrollableScrollPhysics()
+                              : null,
                           itemCount: widget.images.length,
-                          onPageChanged: (int value) =>
-                              setState(() => _index = value),
+                          onPageChanged: (int value) => setState(() {
+                            _index = value;
+                            _zoomed = false;
+                          }),
                           itemBuilder: (BuildContext context, int index) {
                             return _ViewerImage(
                               key: ValueKey<String>(
@@ -394,6 +439,11 @@ class _SpaceImageViewerState extends State<SpaceImageViewer> {
                               ),
                               image: widget.images[index],
                               loader: widget.loader,
+                              onZoomChanged: (bool zoomed) {
+                                if (zoomed != _zoomed && mounted) {
+                                  setState(() => _zoomed = zoomed);
+                                }
+                              },
                             );
                           },
                         ),
@@ -442,10 +492,19 @@ class _SpaceImageViewerState extends State<SpaceImageViewer> {
 }
 
 class _ViewerImage extends StatefulWidget {
-  const _ViewerImage({super.key, required this.image, required this.loader});
+  const _ViewerImage({
+    super.key,
+    required this.image,
+    required this.loader,
+    this.onZoomChanged,
+  });
 
   final SpaceImage image;
   final SpaceImageLoader loader;
+
+  /// Reports pinch-zoom state so the enclosing [PageView] can stop stealing
+  /// horizontal drags while a picture is zoomed in.
+  final ValueChanged<bool>? onZoomChanged;
 
   @override
   State<_ViewerImage> createState() => _ViewerImageState();
@@ -456,18 +515,34 @@ class _ViewerImageState extends State<_ViewerImage> {
   late int _epoch;
   late int _generation;
   bool _invalidated = false;
+  final TransformationController _transform = TransformationController();
+  bool _zoomed = false;
 
   @override
   void initState() {
     super.initState();
     widget.loader.addListener(_onLoaderChanged);
+    _transform.addListener(_onTransformChanged);
     _load();
   }
 
   @override
   void dispose() {
+    _transform.removeListener(_onTransformChanged);
+    _transform.dispose();
     widget.loader.removeListener(_onLoaderChanged);
     super.dispose();
+  }
+
+  /// Pinch starts at scale 1. A single finger drag keeps it at 1, so this
+  /// only flips while the user is actually zooming or panning a zoomed picture.
+  void _onTransformChanged() {
+    final bool zoomed = _transform.value.getMaxScaleOnAxis() > 1.01;
+    if (zoomed == _zoomed) {
+      return;
+    }
+    _zoomed = zoomed;
+    widget.onZoomChanged?.call(zoomed);
   }
 
   void _load() {
@@ -527,6 +602,7 @@ class _ViewerImageState extends State<_ViewerImage> {
         if (snapshot.hasData) {
           return InteractiveViewer(
             maxScale: 4,
+            transformationController: _transform,
             child: Center(
               child: Image.memory(
                 snapshot.data!,
