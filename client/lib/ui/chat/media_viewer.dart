@@ -87,11 +87,8 @@ class _MediaViewerState extends State<MediaViewer> {
   bool _saving = false;
   bool _reloading = false;
   bool _complete = true;
-  double _dragOffset = 0;
   final Map<String, GlobalKey<_ViewerVideoState>> _videoKeys =
       <String, GlobalKey<_ViewerVideoState>>{};
-  double _pointerStartX = 0;
-  double _pointerStartY = 0;
 
   /// One byte-controller per media item; the shared registry keeps a picture
   /// it has already fetched from refetching when the pager rebuilds it.
@@ -100,10 +97,6 @@ class _MediaViewerState extends State<MediaViewer> {
   /// Shared with the Space viewer so originals downloaded on either surface
   /// count against one ceiling.
   final MediaDiskCache _disk = sharedMediaDiskCache();
-
-  /// True while the current page is pinch-zoomed: the downward drag that closes
-  /// the viewer must not fight the pan gesture.
-  bool _pageZoomed = false;
 
   @override
   void initState() {
@@ -212,7 +205,6 @@ class _MediaViewerState extends State<MediaViewer> {
       itemCount: _items.length,
       keys: MediaViewer.keys,
       onDismiss: _close,
-      onZoomChanged: (bool frozen) => _pageZoomed = frozen,
       onPageChanged: (int index) {
         final ChatMediaItem previous = _items[_index];
         if (previous.isVideo) {
@@ -220,7 +212,6 @@ class _MediaViewerState extends State<MediaViewer> {
         }
         setState(() {
           _index = index;
-          _pageZoomed = false;
         });
       },
       itemBuilder:
@@ -309,67 +300,33 @@ class _MediaViewerState extends State<MediaViewer> {
           );
     return Scaffold(
       backgroundColor: const Color(0xFF0B0F10),
-      body: Listener(
-        onPointerDown: (PointerDownEvent event) {
-          _pointerStartX = event.position.dx;
-          _pointerStartY = event.position.dy;
-        },
-        onPointerMove: (PointerMoveEvent event) {
-          // A zoomed picture owns the pointer: panning must not drag the whole
-          // viewer down, and a pinch must not be read as a dismiss gesture.
-          if (_pageZoomed) {
-            return;
-          }
-          final double dy = event.position.dy - _pointerStartY;
-          final double dx = event.position.dx - _pointerStartX;
-          // A pointer listener never joins the gesture arena, so horizontal
-          // PageView swipes and button taps keep working while a downward
-          // drag is tracked for close.
-          if (dy > 0 && dy > dx.abs()) {
-            setState(() => _dragOffset = dy.clamp(0, 320));
-          }
-        },
-        onPointerUp: (PointerUpEvent event) {
-          if (_dragOffset > 96) {
-            _close();
-            return;
-          }
-          if (_dragOffset != 0) {
-            setState(() => _dragOffset = 0);
-          }
-        },
-        onPointerCancel: (PointerCancelEvent event) {
-          if (_dragOffset != 0) {
-            setState(() => _dragOffset = 0);
-          }
-        },
-        child: Transform.translate(
-          offset: Offset(0, _dragOffset),
-          child: Stack(
-            children: <Widget>[
-              Positioned.fill(child: pages),
-              Positioned(
-                left: 0,
-                right: 0,
-                top: 0,
-                child: _TopBar(
-                  index: _index,
-                  total: _items.length,
-                  item: current,
-                  complete: _complete,
-                  reloading: _reloading,
-                  onClose: _close,
-                  onReload: widget.onReload == null ? null : _reload,
-                ),
-              ),
-              Positioned(
-                right: AppSpacing.md,
-                bottom: AppSpacing.lg + MediaQuery.of(context).padding.bottom,
-                child: _SaveButton(busy: _saving, onTap: _save),
-              ),
-            ],
+      // No drag-to-dismiss here: a downward swipe is how people pan a zoomed
+      // picture and how they scroll while reading, so it kept closing the
+      // viewer by accident. Only the close button, Escape and the system back
+      // gesture leave the viewer.
+      body: Stack(
+        children: <Widget>[
+          Positioned.fill(child: pages),
+          Positioned(
+            left: 0,
+            right: 0,
+            top: 0,
+            child: _TopBar(
+              index: _index,
+              total: _items.length,
+              item: current,
+              complete: _complete,
+              reloading: _reloading,
+              onClose: _close,
+              onReload: widget.onReload == null ? null : _reload,
+            ),
           ),
-        ),
+          Positioned(
+            right: AppSpacing.md,
+            bottom: AppSpacing.lg + MediaQuery.of(context).padding.bottom,
+            child: _SaveButton(busy: _saving, onTap: _save),
+          ),
+        ],
       ),
     );
   }
