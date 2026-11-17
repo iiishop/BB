@@ -8,12 +8,35 @@ from bb_auth_contract import ContractError, space, structural_error
 from mcp.types import CallToolResult, ImageContent, TextContent
 from pydantic import Field, ValidationError, model_validator
 
-# HTTP replay is an internal adapter primitive, not an autonomous wakeup tool.
-SPACE_TOOLS = {
-    "space_" + name: model
-    for name, model in space.REQUESTS.items()
-    if name != "read_events"
-}
+# MCP exposure is an explicit product boundary, not every HTTP capability.
+# Keep models in the shared authority; adding an HTTP action grants no tool.
+EXPOSED_SPACE_ACTIONS = (
+    "get_image",
+    "overview",
+    "list_posts",
+    "get_post",
+    "create_draft",
+    "get_draft",
+    "list_drafts",
+    "update_draft",
+    "add_image",
+    "publish_draft",
+    "delete_draft",
+    "delete_post",
+    "set_like",
+    "create_comment",
+    "delete_comment",
+    "list_comments",
+    "get_comment_context",
+    "list_likes",
+    "mark_read",
+    "list_notifications",
+    "ack_notifications",
+    "get_view_summary",
+    "list_visitors",
+    "get_operation",
+)
+SPACE_TOOLS = {"space_" + name: space.REQUESTS[name] for name in EXPOSED_SPACE_ACTIONS}
 SPACE_ERRORS = {
     "unauthenticated": 401,
     "forbidden": 403,
@@ -88,11 +111,7 @@ class AddImageInput(space.AddImage):
         return self
 
 
-TOOL_SCHEMAS = {
-    "space_" + name: model.model_json_schema()
-    for name, model in space.REQUESTS.items()
-    if name != "read_events"
-}
+TOOL_SCHEMAS = {name: model.model_json_schema() for name, model in SPACE_TOOLS.items()}
 TOOL_SCHEMAS["space_add_image"] = AddImageInput.model_json_schema()
 
 
@@ -103,7 +122,9 @@ def materialize_image(tool_input):
     if tool_input.path:
         file = Path(tool_input.path).expanduser()
         if not file.is_file():
-            raise ContractError(422, "validation_error", "image path is not a readable file")
+            raise ContractError(
+                422, "validation_error", "image path is not a readable file"
+            )
         size = file.stat().st_size
         if size == 0:
             raise ContractError(422, "validation_error", "image file is empty")
@@ -116,7 +137,9 @@ def materialize_image(tool_input):
         data = base64.b64encode(file.read_bytes()).decode()
         filename = filename or file.name
     if not filename:
-        raise ContractError(422, "validation_error", "filename is required with inline base64")
+        raise ContractError(
+            422, "validation_error", "filename is required with inline base64"
+        )
     return space.AddImage(
         operation_id=tool_input.operation_id,
         draft_id=tool_input.draft_id,
@@ -137,6 +160,8 @@ async def invoke_space(client, name, arguments):
     from .plugin import result
 
     try:
+        if name not in SPACE_TOOLS:
+            raise ContractError(404, "unknown_tool", "Unknown Space tool")
         try:
             if name == "space_add_image":
                 # The tool input carries a path or inline bytes; the contract

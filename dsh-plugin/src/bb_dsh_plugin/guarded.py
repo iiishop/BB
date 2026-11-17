@@ -62,6 +62,8 @@ class GuardedTransport:
             action = operation.removeprefix('space_')
             path, request, response_model, status = ('/v2/space/' + action,
                 space.LOCAL_REQUESTS[action], space.LOCAL_RESPONSES[action], 200)
+        elif operation.startswith("space_"):
+            raise ContractError(404, "unknown_tool", "Unknown Space tool")
         else:
             path, request, response_model, status, _ = v2.BUSINESS[operation]
         try:
