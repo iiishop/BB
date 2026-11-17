@@ -140,22 +140,25 @@ class SpaceFollowStore extends ChangeNotifier {
     _knownTargets.add(account);
     _writing.add(account);
     error = null;
+    final bool? previous = _states[account];
     _notify();
     try {
       final SpaceFollowState state = await gateway.setFollow(
         account,
         following: desired,
       );
-      _states[account] = state.following;
-      _revision += 1;
+      _applyAuthoritative(account, state.following, previous);
       return true;
     } catch (failure) {
       error = spaceErrorText(failure);
       // Unknown network outcome: reconcile before the user retries, never
-      // retry an old intent over a newer one.
+      // retry an old intent over a newer one. A reconciliation that discovers
+      // a real change is an authoritative relationship change and must advance
+      // the revision exactly like a confirmed write (R4): consumers such as the
+      // following feed otherwise keep a snapshot that contradicts the receiver.
       try {
         final SpaceFollowState state = await gateway.getFollow(account);
-        _states[account] = state.following;
+        _applyAuthoritative(account, state.following, previous);
       } catch (_) {
         // Keep the previous authoritative value; the UI keeps showing it.
       }
@@ -163,6 +166,17 @@ class SpaceFollowStore extends ChangeNotifier {
     } finally {
       _writing.remove(account);
       _notify();
+    }
+  }
+
+  /// Applies an authoritative relationship result from any path (confirmed
+  /// write, reconciliation after an unknown outcome, or a read). Any actual
+  /// change advances the revision so every consumer invalidates its snapshot;
+  /// an unchanged duplicate remains a true no-op.
+  void _applyAuthoritative(String account, bool following, bool? previous) {
+    _states[account] = following;
+    if (previous == null || previous != following) {
+      _revision += 1;
     }
   }
 

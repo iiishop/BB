@@ -107,7 +107,7 @@ void main() {
         spacePost(
           postId: 'all-1',
           author: spaceAuthor(account: spacePeerAccount, username: 'bob'),
-          authorFollowing: true,
+          authorFollowing: false,
         ),
       ]);
       gateway.followingPages[''] = spacePagePost(<SpacePost>[
