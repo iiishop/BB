@@ -97,6 +97,11 @@ class SpaceComposeController extends ChangeNotifier {
   String? _localKey;
   Timer? _debounce;
   bool _saving = false;
+
+  /// Completed when the in-flight save settles, so publish can wait for it
+  /// instead of losing the race for `expectedVersion`.
+  Completer<void>? _saveIdle;
+  bool _publishing = false;
   int _counter = 0;
   bool _disposed = false;
   bool _discarded = false;
@@ -115,17 +120,26 @@ class SpaceComposeController extends ChangeNotifier {
       phase == DraftSavePhase.creating || phase == DraftSavePhase.saving;
   bool get hasReference => referenceId != null;
 
+  /// True whenever there is something to publish.
+  ///
+  /// A pending autosave is no longer a precondition: `publish` captures the
+  /// screen state and syncs it itself, so blocking the button on `phase ==
+  /// saved` only made the user wait for a timer they never asked for. Two
+  /// states still block, because neither can be resolved by publishing:
+  /// a conflict (another writer owns the draft) and a failed image upload.
   bool get canPublish =>
-      _id != null &&
-      _version != null &&
-      phase == DraftSavePhase.saved &&
-      text.text == _serverText &&
-      listEquals(_order, _serverOrder) &&
-      pending.every((PendingDraftImage p) => !p.uploading && p.error == null) &&
-      pending.isEmpty &&
-      (text.text.trim().isNotEmpty || _images.isNotEmpty || hasReference);
+      !_publishing &&
+      phase != DraftSavePhase.conflict &&
+      !pending.any((PendingDraftImage p) => p.error != null) &&
+      (text.text.trim().isNotEmpty ||
+          _images.isNotEmpty ||
+          pending.isNotEmpty ||
+          hasReference);
 
   bool get canDiscard => _id != null && _version != null && !busy;
+
+  /// True while a publish request is running, so the page can label the button.
+  bool get publishing => _publishing;
 
   void _notify() {
     if (!_disposed) {
@@ -322,7 +336,15 @@ class SpaceComposeController extends ChangeNotifier {
     }
   }
 
-  Future<void> saveNow() async {
+  /// Persists the draft.
+  ///
+  /// [snapshotText] / [snapshotOrder] pin the payload. Publish passes the content
+  /// the user had on screen when they tapped send, so anything typed while the
+  /// request is in flight cannot change what gets published.
+  Future<void> saveNow({
+    String? snapshotText,
+    List<String>? snapshotOrder,
+  }) async {
     final String? id = _id;
     final int? version = _version;
     if (id == null ||
@@ -339,8 +361,9 @@ class SpaceComposeController extends ChangeNotifier {
     phase = DraftSavePhase.saving;
     // Snapshot the exact payload this request sends. The response describes
     // that snapshot, never whatever the user typed while it was in flight.
-    final String savedText = text.text;
-    final List<String> savedOrder = List<String>.of(_order);
+    final String savedText = snapshotText ?? text.text;
+    final List<String> savedOrder =
+        snapshotOrder ?? List<String>.of(_order);
     final String signature = jsonEncode(<Object?>[
       id,
       version,
@@ -451,8 +474,24 @@ class SpaceComposeController extends ChangeNotifier {
       _persist(dirty: true);
     } finally {
       _saving = false;
+      final Completer<void>? idle = _saveIdle;
+      _saveIdle = null;
+      idle?.complete();
       _notify();
     }
+  }
+
+  /// Waits while an autosave is in flight.
+  ///
+  /// Publish takes over the draft version, so it must not start writing until
+  /// the current request has settled — two writers sharing one `expectedVersion`
+  /// turn into a spurious 409.
+  Future<void> _settleSave() async {
+    if (!_saving) {
+      return;
+    }
+    final Completer<void> idle = _saveIdle = Completer<void>();
+    await idle.future.timeout(const Duration(seconds: 20), onTimeout: () {});
   }
 
   /// Re-reads the server copy after an explicit conflict decision. Local input
@@ -736,44 +775,70 @@ class SpaceComposeController extends ChangeNotifier {
     await moveImage(index, index + delta);
   }
 
+  /// Publishes whatever is on screen at the moment of the tap.
+  ///
+  /// The content is captured on entry, so a pending autosave or a keystroke
+  /// landing mid-request can neither block the tap nor change what goes out:
+  /// publish waits for the in-flight write, syncs the draft to this snapshot,
+  /// and only then asks the server to publish. Images are the one exception —
+  /// they must exist server-side before a post can reference them.
   Future<bool> publish() async {
-    final String? id = _id;
-    final int? version = _version;
-    if (id == null || version == null) {
+    if (_publishing) {
       return false;
     }
-    if (pending.isNotEmpty) {
-      error = '还有图片没有上传完成，暂时不能发布';
-      _notify();
-      return false;
-    }
-    if (phase != DraftSavePhase.saved) {
-      error = '请等待草稿保存完成再发布';
-      _notify();
-      return false;
-    }
-    if (text.text != _serverText || !listEquals(_order, _serverOrder)) {
-      // Defensive: a saved phase must never pair with unsynced content.
-      phase = DraftSavePhase.dirty;
-      error = '请等待草稿保存完成再发布';
-      _persist(dirty: true);
-      _scheduleSave();
-      _notify();
-      return false;
-    }
-    if (text.text.trim().isEmpty && _images.isEmpty && !hasReference) {
+    final String snapshotText = text.text;
+    final List<String> snapshotOrder = List<String>.of(_order);
+    if (snapshotText.trim().isEmpty &&
+        snapshotOrder.isEmpty &&
+        pending.isEmpty &&
+        !hasReference) {
       error = '写一点正文或添加一张图片后再发布';
       _notify();
       return false;
     }
+    _publishing = true;
+    // A scheduled autosave would race this request for `expectedVersion`.
     _debounce?.cancel();
-    if (_publishOpId == null || _publishVersion != version) {
-      _publishOpId = _opId;
-      _publishVersion = version;
-    }
+    publishError = null;
+    _notify();
     try {
+      if (_id == null) {
+        await start();
+      }
+      if (_id == null || _disposed || _discarded) {
+        return false;
+      }
+      await _awaitUploads();
+      if (pending.any((PendingDraftImage p) => p.error != null)) {
+        error = '有图片上传失败，请重试或移除后再发布';
+        _notify();
+        return false;
+      }
+      await _settleSave();
+      if (_serverText != snapshotText ||
+          !listEquals(_serverOrder, snapshotOrder)) {
+        await saveNow(
+          snapshotText: snapshotText,
+          snapshotOrder: snapshotOrder,
+        );
+      }
+      final int? version = _version;
+      final bool synced =
+          _serverText == snapshotText &&
+          listEquals(_serverOrder, snapshotOrder);
+      if (version == null || !synced) {
+        // The save failed or another writer moved the draft. Surface the phase
+        // the save left behind rather than publishing stale content.
+        error ??= '草稿尚未同步，请重试';
+        _notify();
+        return false;
+      }
+      if (_publishOpId == null || _publishVersion != version) {
+        _publishOpId = _opId;
+        _publishVersion = version;
+      }
       final SpaceOperation operation = await gateway.publishDraft(
-        draftId: id,
+        draftId: _id!,
         operationId: _publishOpId!,
         expectedVersion: version,
       );
@@ -781,7 +846,7 @@ class SpaceComposeController extends ChangeNotifier {
       _publishOpId = null;
       _publishVersion = null;
       publishError = null;
-      store.deleteDraft(id);
+      store.deleteDraft(_id!);
       return publishedPostId != null;
     } on AuthFailure catch (failure) {
       publishError = spaceErrorText(failure);
@@ -789,13 +854,28 @@ class SpaceComposeController extends ChangeNotifier {
         phase = DraftSavePhase.conflict;
       }
       _persist(dirty: true);
-      _notify();
       return false;
     } catch (failure) {
       publishError = spaceErrorText(failure);
       _persist(dirty: true);
-      _notify();
       return false;
+    } finally {
+      _publishing = false;
+      _notify();
+    }
+  }
+
+  /// Waits for queued image uploads.
+  ///
+  /// A post can only reference media the server already stored, so these cannot
+  /// be skipped the way a text save can.
+  Future<void> _awaitUploads() async {
+    const int ticks = 1200; // 60s at 50ms
+    for (int i = 0; i < ticks; i++) {
+      if (_disposed || !pending.any((PendingDraftImage p) => p.uploading)) {
+        return;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 50));
     }
   }
 
