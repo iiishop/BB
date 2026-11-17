@@ -4,15 +4,18 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../app.dart';
+import '../../config/media_policy.dart';
 import '../../models/space_models.dart';
 import '../../services/media_disk_cache.dart';
 import '../../services/space_download_log.dart';
 import '../../ui/chat/media_actions.dart';
 import '../../ui/chat/media_save.dart';
+import '../../ui/media/photo_page.dart';
+import '../../ui/media/photo_pager.dart';
+import '../../ui/media/photo_source.dart';
 import 'space_gateway.dart';
 
 /// Thrown when an image response arrives after the image was invalidated, or
@@ -78,19 +81,45 @@ class SpaceImageLoader extends ChangeNotifier {
     String variant,
     String key,
   ) async {
-    final MediaDiskCache? store = disk;
-    if (store != null) {
-      final Uint8List? stored = await store.read(key);
-      if (stored != null) {
-        _cache[key] = stored;
-        _order.add(key);
-        while (_order.length > maxEntries) {
-          _cache.remove(_order.removeAt(0));
-        }
-        return stored;
-      }
+    final Uint8List? stored = await peek(imageId, variant: variant);
+    if (stored != null) {
+      return stored;
     }
     return _fetch(imageId, variant);
+  }
+
+  /// Memory then disk, never the network.
+  ///
+  /// The viewer uses this to tell "this original was downloaded earlier" from
+  /// "nothing cached", so reopening a picture can show the original without a
+  /// download and without an extra "查看原图" tap.
+  Future<Uint8List?> peek(String imageId, {String variant = 'thumb'}) async {
+    final String key = _key(imageId, variant);
+    final Uint8List? hit = _cache[key];
+    if (hit != null) {
+      return hit;
+    }
+    final MediaDiskCache? store = disk;
+    if (store == null) {
+      return null;
+    }
+    final Uint8List? stored = await store.read(key);
+    if (stored == null) {
+      return null;
+    }
+    _remember(key, stored);
+    return stored;
+  }
+
+  void _remember(String key, Uint8List bytes) {
+    if (_cache.containsKey(key)) {
+      _order.remove(key);
+    }
+    _cache[key] = bytes;
+    _order.add(key);
+    while (_order.length > maxEntries) {
+      _cache.remove(_order.removeAt(0));
+    }
   }
 
   Future<Uint8List> _fetch(String imageId, String variant) async {
@@ -105,11 +134,7 @@ class SpaceImageLoader extends ChangeNotifier {
     }
     final Uint8List bytes = base64Decode(content.base64);
     final String key = _key(imageId, variant);
-    _cache[key] = bytes;
-    _order.add(key);
-    while (_order.length > maxEntries) {
-      _cache.remove(_order.removeAt(0));
-    }
+    _remember(key, bytes);
     // Persist in the background: the caller gets its bytes now, and a failed
     // write only costs a future re-download.
     final MediaDiskCache? store = disk;
@@ -184,11 +209,63 @@ Future<String?> defaultSpaceImageSaver(
   }
 }
 
+/// Adapts [SpaceImageLoader] to the shared photo contract.
+///
+/// Space image ids are immutable, so the cache key stays `variant|imageId`. The
+/// loader's epoch/generation pair is what tells the viewer that a picture it is
+/// already showing belongs to a post that no longer exists.
+class SpacePhotoSource implements PhotoSource {
+  SpacePhotoSource({required this.image, required this.loader})
+    : _epoch = loader.epoch,
+      _generation = loader.generationFor(image.imageId);
+
+  final SpaceImage image;
+  final SpaceImageLoader loader;
+  final int _epoch;
+  final int _generation;
+
+  @override
+  int? get byteSize => image.byteSize;
+
+  /// Space images are never "just sent by this account"; there is no local copy
+  /// to hand over.
+  @override
+  Uint8List? get heldOriginal => null;
+
+  @override
+  Listenable? get changes => loader;
+
+  @override
+  bool get invalidated => loader.isStale(image.imageId, _epoch, _generation);
+
+  @override
+  Future<Uint8List?> readCachedOriginal() =>
+      loader.peek(image.imageId, variant: 'original');
+
+  @override
+  Future<PhotoPreview> loadPreview() async {
+    // Same DEA-471 rule as chat: only a large image gets a bounded derivative
+    // first, everything else is shown at full quality immediately.
+    final bool derivative = mediaNeedsExplicitOriginal(image.byteSize);
+    final Uint8List bytes = await loader.load(
+      image.imageId,
+      variant: derivative ? 'thumb' : 'original',
+    );
+    return PhotoPreview(bytes: bytes, isDerivative: derivative);
+  }
+
+  @override
+  Future<Uint8List> loadOriginal({PhotoProgress? onProgress}) =>
+      loader.load(image.imageId, variant: 'original');
+}
+
 /// Full-screen viewer for the current post's ordered images only.
 ///
-/// Interaction mirrors the chat viewer: original bytes, previous/next,
-/// save, and keyboard left/right/escape. Switching posts is impossible by
-/// design, so an image sequence never blends with a reference or neighbour.
+/// Paging, pinch zoom, the preview→original switch and the on-disk cache all
+/// come from `ui/media`; this file owns only what is Space-specific: the
+/// ordered sequence of one post, the save flow with its download log, and the
+/// status line. Switching posts is impossible by design, so an image sequence
+/// never blends with a reference or a neighbour.
 class SpaceImageViewer extends StatefulWidget {
   const SpaceImageViewer({
     super.key,
@@ -207,6 +284,8 @@ class SpaceImageViewer extends StatefulWidget {
   /// Remembers earlier downloads so re-saving the same picture asks first.
   final SpaceDownloadLog? downloadLog;
 
+  static const PhotoViewerKeys keys = PhotoViewerKeys('space-viewer');
+
   static const Key pagesKey = Key('space-viewer-pages');
   static const Key closeKey = Key('space-viewer-close');
   static const Key saveKey = Key('space-viewer-save');
@@ -219,43 +298,40 @@ class SpaceImageViewer extends StatefulWidget {
   State<SpaceImageViewer> createState() => _SpaceImageViewerState();
 }
 
-/// Paging request produced by the arrow keys.
-///
-/// Arrow keys are declared as shortcuts instead of being read in
-/// [Focus.onKeyEvent]: WidgetsApp binds them to `DirectionalFocusIntent` above
-/// the page, so a listener on this node never sees them and the keys travel
-/// focus instead of paging. A shortcut closer to the focused node wins, and
-/// this one is closer.
-class _StepIntent extends Intent {
-  const _StepIntent(this.delta);
-
-  final int delta;
-}
-
 class _SpaceImageViewerState extends State<SpaceImageViewer> {
   late final PageController _controller;
   late int _index;
   bool _saving = false;
-
-  /// True while the current page is pinch-zoomed; the pager stops scrolling
-  /// so gestures stay with [InteractiveViewer].
-  bool _zoomed = false;
   String? _notice;
+  final PhotoPageRegistry _pages = PhotoPageRegistry();
 
   @override
   void initState() {
     super.initState();
-    _index = widget.initialIndex.clamp(0, widget.images.length - 1);
+    _index = widget.images.isEmpty
+        ? 0
+        : widget.initialIndex.clamp(0, widget.images.length - 1);
     _controller = PageController(initialPage: _index);
   }
 
   @override
   void dispose() {
+    _pages.dispose();
     _controller.dispose();
     super.dispose();
   }
 
   SpaceImage get _current => widget.images[_index];
+
+  /// One controller per image, created on first sight so paging back and forth
+  /// does not refetch. Starting the load is the registry's job.
+  PhotoPageController _pageFor(int index) {
+    final SpaceImage image = widget.images[index];
+    return _pages.of(
+      image.imageId,
+      () => SpacePhotoSource(image: image, loader: widget.loader),
+    );
+  }
 
   /// Asks before saving a picture that was downloaded once before.
   ///
@@ -318,11 +394,11 @@ class _SpaceImageViewerState extends State<SpaceImageViewer> {
     });
     try {
       final Uint8List bytes = await widget.loader.load(
-        _current.imageId,
+        image.imageId,
         variant: 'original',
       );
       final String? location = await (widget.saver ?? defaultSpaceImageSaver)(
-        _current,
+        image,
         bytes,
       );
       if (location != null && log != null) {
@@ -347,304 +423,47 @@ class _SpaceImageViewerState extends State<SpaceImageViewer> {
     }
   }
 
-  /// Desktop gets explicit paging affordances; mobile stays swipe-only.
-  ///
-  /// Reads `Theme.of(context).platform` rather than `Platform.isWindows` so a
-  /// widget test can exercise both branches via an injected theme.
-  static bool desktopOf(BuildContext context) {
-    final TargetPlatform platform = Theme.of(context).platform;
-    return platform == TargetPlatform.windows ||
-        platform == TargetPlatform.linux ||
-        platform == TargetPlatform.macOS;
-  }
-
-  void _step(int delta) {
-    final int next = (_index + delta).clamp(0, widget.images.length - 1);
-    if (next == _index) {
-      return;
-    }
-    setState(() => _index = next);
-    _controller.animateToPage(
-      next,
-      duration: const Duration(milliseconds: 180),
-      curve: Curves.easeOutCubic,
-    );
-  }
-
-  /// Desktop-only affordance: the arrow keys page, but nothing on screen says
-  /// so. Kept off mobile where it would cover the photo with no hover to hide.
-  Widget _pagingArrow({
-    required Key key,
-    required int delta,
-    required IconData icon,
-    required String tooltip,
-    required Alignment alignment,
-  }) {
-    return Align(
-      alignment: alignment,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
-        child: IconButton(
-          key: key,
-          onPressed: () => _step(delta),
-          tooltip: tooltip,
-          style: IconButton.styleFrom(
-            backgroundColor: Colors.black54,
-            foregroundColor: Colors.white,
-            minimumSize: const Size(48, 48),
-          ),
-          icon: Icon(icon, size: 32),
-        ),
+  Widget _topBar() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.sm,
+        vertical: AppSpacing.xs,
       ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final bool desktop = desktopOf(context);
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: Shortcuts(
-        shortcuts: const <ShortcutActivator, Intent>{
-          SingleActivator(LogicalKeyboardKey.arrowLeft): _StepIntent(-1),
-          SingleActivator(LogicalKeyboardKey.arrowRight): _StepIntent(1),
-          SingleActivator(LogicalKeyboardKey.escape): DismissIntent(),
-        },
-        child: Actions(
-          actions: <Type, Action<Intent>>{
-            _StepIntent: CallbackAction<_StepIntent>(
-              onInvoke: (_StepIntent intent) {
-                _step(intent.delta);
-                return null;
-              },
-            ),
-            DismissIntent: CallbackAction<DismissIntent>(
-              onInvoke: (_) {
-                Navigator.of(context).maybePop();
-                return null;
-              },
-            ),
-          },
-          child: Focus(
-            autofocus: true,
-            child: SafeArea(
-              child: Column(
-                children: <Widget>[
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.sm,
-                      vertical: AppSpacing.xs,
-                    ),
-                    child: Row(
-                      children: <Widget>[
-                        IconButton(
-                          key: SpaceImageViewer.closeKey,
-                          onPressed: () => Navigator.of(context).maybePop(),
-                          color: Colors.white,
-                          icon: const Icon(Icons.close_rounded),
-                          tooltip: '关闭',
-                        ),
-                        const Spacer(),
-                        Text(
-                          '${_index + 1} / ${widget.images.length}',
-                          key: SpaceImageViewer.indexKey,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const Spacer(),
-                        IconButton(
-                          key: SpaceImageViewer.saveKey,
-                          onPressed: _saving ? null : _save,
-                          color: Colors.white,
-                          icon: _saving
-                              ? const SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white,
-                                  ),
-                                )
-                              : const Icon(Icons.download_rounded),
-                          tooltip: '保存原图',
-                        ),
-                      ],
-                    ),
-                  ),
-                  Expanded(
-                    child: Stack(
-                      alignment: Alignment.center,
-                      children: <Widget>[
-                        PageView.builder(
-                          key: SpaceImageViewer.pagesKey,
-                          controller: _controller,
-                          // A zoomed picture owns horizontal drags; letting the
-                          // pager keep them would turn a two-finger pinch into a
-                          // page swipe on the first finger.
-                          physics: _zoomed
-                              ? const NeverScrollableScrollPhysics()
-                              : null,
-                          itemCount: widget.images.length,
-                          onPageChanged: (int value) => setState(() {
-                            _index = value;
-                            _zoomed = false;
-                          }),
-                          itemBuilder: (BuildContext context, int index) {
-                            return _ViewerImage(
-                              key: ValueKey<String>(
-                                widget.images[index].imageId,
-                              ),
-                              image: widget.images[index],
-                              loader: widget.loader,
-                              onZoomChanged: (bool zoomed) {
-                                if (zoomed != _zoomed && mounted) {
-                                  setState(() => _zoomed = zoomed);
-                                }
-                              },
-                            );
-                          },
-                        ),
-                        // Mobile stays swipe-only: a persistent arrow would sit on
-                        // top of the photo and there is no hover to reveal it.
-                        if (desktop && _index > 0)
-                          _pagingArrow(
-                            key: SpaceImageViewer.previousKey,
-                            delta: -1,
-                            icon: Icons.chevron_left_rounded,
-                            tooltip: '上一张',
-                            alignment: Alignment.centerLeft,
-                          ),
-                        if (desktop && _index < widget.images.length - 1)
-                          _pagingArrow(
-                            key: SpaceImageViewer.nextKey,
-                            delta: 1,
-                            icon: Icons.chevron_right_rounded,
-                            tooltip: '下一张',
-                            alignment: Alignment.centerRight,
-                          ),
-                      ],
-                    ),
-                  ),
-                  SizedBox(
-                    height: 40,
-                    child: Center(
-                      child: Text(
-                        _notice ?? '',
-                        key: SpaceImageViewer.statusKey,
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 13,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ViewerImage extends StatefulWidget {
-  const _ViewerImage({
-    super.key,
-    required this.image,
-    required this.loader,
-    this.onZoomChanged,
-  });
-
-  final SpaceImage image;
-  final SpaceImageLoader loader;
-
-  /// Reports pinch-zoom state so the enclosing [PageView] can stop stealing
-  /// horizontal drags while a picture is zoomed in.
-  final ValueChanged<bool>? onZoomChanged;
-
-  @override
-  State<_ViewerImage> createState() => _ViewerImageState();
-}
-
-class _ViewerImageState extends State<_ViewerImage> {
-  late Future<Uint8List> _future;
-  late int _epoch;
-  late int _generation;
-  bool _invalidated = false;
-  final TransformationController _transform = TransformationController();
-  bool _zoomed = false;
-
-  @override
-  void initState() {
-    super.initState();
-    widget.loader.addListener(_onLoaderChanged);
-    _transform.addListener(_onTransformChanged);
-    _load();
-  }
-
-  @override
-  void dispose() {
-    _transform.removeListener(_onTransformChanged);
-    _transform.dispose();
-    widget.loader.removeListener(_onLoaderChanged);
-    super.dispose();
-  }
-
-  /// Pinch starts at scale 1. A single finger drag keeps it at 1, so this
-  /// only flips while the user is actually zooming or panning a zoomed picture.
-  void _onTransformChanged() {
-    final bool zoomed = _transform.value.getMaxScaleOnAxis() > 1.01;
-    if (zoomed == _zoomed) {
-      return;
-    }
-    _zoomed = zoomed;
-    widget.onZoomChanged?.call(zoomed);
-  }
-
-  void _load() {
-    _invalidated = false;
-    _epoch = widget.loader.epoch;
-    _generation = widget.loader.generationFor(widget.image.imageId);
-    _future = widget.loader.load(widget.image.imageId, variant: 'original');
-  }
-
-  void _onLoaderChanged() {
-    if (!mounted) {
-      return;
-    }
-    if (!widget.loader.isStale(widget.image.imageId, _epoch, _generation)) {
-      return;
-    }
-    setState(() {
-      _invalidated = true;
-      _epoch = widget.loader.epoch;
-      _generation = widget.loader.generationFor(widget.image.imageId);
-    });
-  }
-
-  void _retry() {
-    setState(_load);
-  }
-
-  Widget _errorView() {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
+      child: Row(
         children: <Widget>[
-          const Icon(
-            Icons.broken_image_outlined,
-            color: Colors.white54,
-            size: 40,
+          IconButton(
+            key: SpaceImageViewer.closeKey,
+            onPressed: () => Navigator.of(context).maybePop(),
+            color: Colors.white,
+            icon: const Icon(Icons.close_rounded),
+            tooltip: '关闭',
           ),
-          const SizedBox(height: AppSpacing.sm),
-          const Text('原图加载失败', style: TextStyle(color: Colors.white70)),
-          TextButton(
-            onPressed: _retry,
-            child: const Text('重试', style: TextStyle(color: Colors.white)),
+          const Spacer(),
+          Text(
+            '${_index + 1} / ${widget.images.length}',
+            key: SpaceImageViewer.indexKey,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const Spacer(),
+          IconButton(
+            key: SpaceImageViewer.saveKey,
+            onPressed: _saving ? null : _save,
+            color: Colors.white,
+            icon: _saving
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Icon(Icons.download_rounded),
+            tooltip: '保存原图',
           ),
         ],
       ),
@@ -653,33 +472,104 @@ class _ViewerImageState extends State<_ViewerImage> {
 
   @override
   Widget build(BuildContext context) {
-    if (_invalidated) {
-      return _errorView();
+    if (widget.images.isEmpty) {
+      return const Scaffold(backgroundColor: Colors.black);
     }
-    return FutureBuilder<Uint8List>(
-      future: _future,
-      builder: (BuildContext context, AsyncSnapshot<Uint8List> snapshot) {
-        if (snapshot.hasData) {
-          return InteractiveViewer(
-            maxScale: 4,
-            transformationController: _transform,
-            child: Center(
-              child: Image.memory(
-                snapshot.data!,
-                fit: BoxFit.contain,
-                filterQuality: FilterQuality.medium,
-                gaplessPlayback: true,
-              ),
-            ),
-          );
-        }
-        if (snapshot.hasError) {
-          return _errorView();
-        }
-        return const Center(
-          child: CircularProgressIndicator(color: Colors.white),
+    final PhotoPageController current = _pageFor(_index);
+    final Widget pager = PhotoPager(
+      controller: _controller,
+      initialIndex: _index,
+      itemCount: widget.images.length,
+      keys: SpaceImageViewer.keys,
+      onPageChanged: (int value) => setState(() => _index = value),
+      onDismiss: () => Navigator.of(context).maybePop(),
+      itemBuilder: (BuildContext context, int index, ValueChanged<bool> onZoom) {
+        return PhotoPage(
+          key: ValueKey<String>(widget.images[index].imageId),
+          controller: _pageFor(index),
+          onZoomChanged: onZoom,
+          retryKey: SpaceImageViewer.keys.previewRetry,
+          failureLabel: '原图加载失败',
         );
       },
+    );
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: SafeArea(
+        child: Column(
+          children: <Widget>[
+            _topBar(),
+            Expanded(
+              child: AnimatedBuilder(
+                animation: current,
+                child: pager,
+                builder: (BuildContext context, Widget? child) {
+                  return Stack(
+                    alignment: Alignment.center,
+                    children: <Widget>[
+                      child!,
+                      if (current.offersOriginal)
+                        Positioned(
+                          left: AppSpacing.md,
+                          bottom: AppSpacing.lg,
+                          child: SafeArea(
+                            right: false,
+                            top: false,
+                            child: OutlinedButton.icon(
+                              key: SpaceImageViewer.keys.original,
+                              onPressed: current.isDownloading
+                                  ? null
+                                  : () => unawaited(current.loadOriginal()),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.white,
+                                backgroundColor: const Color(0x99000000),
+                                side: const BorderSide(color: Colors.white24),
+                                minimumSize: const Size(0, 44),
+                              ),
+                              icon: current.isDownloading
+                                  ? const SizedBox(
+                                      width: 14,
+                                      height: 14,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  : const Icon(Icons.hd_outlined, size: 18),
+                              label: Text(current.originalLabel),
+                            ),
+                          ),
+                        ),
+                      if (current.isDownloading)
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          child: LinearProgressIndicator(
+                            key: SpaceImageViewer.keys.originalProgress,
+                            value: current.progress,
+                            minHeight: 3,
+                            backgroundColor: Colors.white12,
+                          ),
+                        ),
+                    ],
+                  );
+                },
+              ),
+            ),
+            SizedBox(
+              height: 40,
+              child: Center(
+                child: Text(
+                  _notice ?? '',
+                  key: SpaceImageViewer.statusKey,
+                  style: const TextStyle(color: Colors.white70, fontSize: 13),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

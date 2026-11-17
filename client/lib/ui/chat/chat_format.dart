@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 
+// The shared photo viewer needs the same byte formatting; one implementation
+// lives in ui/media and is re-exported here so existing imports keep working.
+export '../media/photo_format.dart' show formatBytes;
+
 /// Human-facing date/time formatting for the chat surface.
 String formatContactTime(DateTime? time, {DateTime? now}) {
   if (time == null) {
@@ -92,16 +96,6 @@ bool continuesMessageRun(
     return false;
   }
   return current.difference(previousTime).abs() < chatMessageRunWindow;
-}
-
-String formatBytes(int bytes) {
-  if (bytes < 1024) {
-    return '$bytes B';
-  }
-  if (bytes < 1024 * 1024) {
-    return '${(bytes / 1024).toStringAsFixed(1)} KB';
-  }
-  return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
 }
 
 String initialsOf(String username) {
