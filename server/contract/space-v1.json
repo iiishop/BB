@@ -1,6 +1,1602 @@
 {
   "contract": "dea481-space-v1",
   "actions": {
+    "get_follow": {
+      "method": "POST",
+      "server_path": "/space/get_follow",
+      "local_path": "/v2/space/get_follow",
+      "request": {
+        "additionalProperties": false,
+        "properties": {
+          "target_account": {
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Target Account",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target_account"
+        ],
+        "title": "FollowTarget",
+        "type": "object"
+      },
+      "response": {
+        "additionalProperties": false,
+        "properties": {
+          "target_account": {
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Target Account",
+            "type": "string"
+          },
+          "following": {
+            "title": "Following",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "target_account",
+          "following"
+        ],
+        "title": "FollowState",
+        "type": "object"
+      },
+      "local_request": {
+        "$defs": {
+          "ExpectedIdentity": {
+            "additionalProperties": false,
+            "properties": {
+              "account": {
+                "pattern": "^[1-9][0-9]{7}$",
+                "title": "Account",
+                "type": "string"
+              },
+              "auth_generation": {
+                "maxLength": 200,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "title": "Auth Generation",
+                "type": "string"
+              },
+              "consumer_id": {
+                "maxLength": 200,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "title": "Consumer Id",
+                "type": "string"
+              },
+              "binding_revision": {
+                "maximum": 9007199254740991,
+                "minimum": 1,
+                "title": "Binding Revision",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "account",
+              "auth_generation",
+              "consumer_id",
+              "binding_revision"
+            ],
+            "title": "ExpectedIdentity",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "target_account": {
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Target Account",
+            "type": "string"
+          },
+          "expected_identity": {
+            "$ref": "#/$defs/ExpectedIdentity"
+          }
+        },
+        "required": [
+          "target_account",
+          "expected_identity"
+        ],
+        "title": "LocalSpaceFollowTarget",
+        "type": "object"
+      },
+      "local_response": {
+        "$defs": {
+          "ExpectedIdentity": {
+            "additionalProperties": false,
+            "properties": {
+              "account": {
+                "pattern": "^[1-9][0-9]{7}$",
+                "title": "Account",
+                "type": "string"
+              },
+              "auth_generation": {
+                "maxLength": 200,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "title": "Auth Generation",
+                "type": "string"
+              },
+              "consumer_id": {
+                "maxLength": 200,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "title": "Consumer Id",
+                "type": "string"
+              },
+              "binding_revision": {
+                "maximum": 9007199254740991,
+                "minimum": 1,
+                "title": "Binding Revision",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "account",
+              "auth_generation",
+              "consumer_id",
+              "binding_revision"
+            ],
+            "title": "ExpectedIdentity",
+            "type": "object"
+          },
+          "FollowState": {
+            "additionalProperties": false,
+            "properties": {
+              "target_account": {
+                "pattern": "^[1-9][0-9]{7}$",
+                "title": "Target Account",
+                "type": "string"
+              },
+              "following": {
+                "title": "Following",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "target_account",
+              "following"
+            ],
+            "title": "FollowState",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "identity": {
+            "$ref": "#/$defs/ExpectedIdentity"
+          },
+          "result": {
+            "$ref": "#/$defs/FollowState"
+          }
+        },
+        "required": [
+          "identity",
+          "result"
+        ],
+        "title": "LocalResult[FollowState]",
+        "type": "object"
+      }
+    },
+    "set_follow": {
+      "method": "POST",
+      "server_path": "/space/set_follow",
+      "local_path": "/v2/space/set_follow",
+      "request": {
+        "additionalProperties": false,
+        "properties": {
+          "target_account": {
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Target Account",
+            "type": "string"
+          },
+          "following": {
+            "title": "Following",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "target_account",
+          "following"
+        ],
+        "title": "SetFollow",
+        "type": "object"
+      },
+      "response": {
+        "additionalProperties": false,
+        "properties": {
+          "target_account": {
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Target Account",
+            "type": "string"
+          },
+          "following": {
+            "title": "Following",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "target_account",
+          "following"
+        ],
+        "title": "FollowState",
+        "type": "object"
+      },
+      "local_request": {
+        "$defs": {
+          "ExpectedIdentity": {
+            "additionalProperties": false,
+            "properties": {
+              "account": {
+                "pattern": "^[1-9][0-9]{7}$",
+                "title": "Account",
+                "type": "string"
+              },
+              "auth_generation": {
+                "maxLength": 200,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "title": "Auth Generation",
+                "type": "string"
+              },
+              "consumer_id": {
+                "maxLength": 200,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "title": "Consumer Id",
+                "type": "string"
+              },
+              "binding_revision": {
+                "maximum": 9007199254740991,
+                "minimum": 1,
+                "title": "Binding Revision",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "account",
+              "auth_generation",
+              "consumer_id",
+              "binding_revision"
+            ],
+            "title": "ExpectedIdentity",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "target_account": {
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Target Account",
+            "type": "string"
+          },
+          "following": {
+            "title": "Following",
+            "type": "boolean"
+          },
+          "expected_identity": {
+            "$ref": "#/$defs/ExpectedIdentity"
+          }
+        },
+        "required": [
+          "target_account",
+          "following",
+          "expected_identity"
+        ],
+        "title": "LocalSpaceSetFollow",
+        "type": "object"
+      },
+      "local_response": {
+        "$defs": {
+          "ExpectedIdentity": {
+            "additionalProperties": false,
+            "properties": {
+              "account": {
+                "pattern": "^[1-9][0-9]{7}$",
+                "title": "Account",
+                "type": "string"
+              },
+              "auth_generation": {
+                "maxLength": 200,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "title": "Auth Generation",
+                "type": "string"
+              },
+              "consumer_id": {
+                "maxLength": 200,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "title": "Consumer Id",
+                "type": "string"
+              },
+              "binding_revision": {
+                "maximum": 9007199254740991,
+                "minimum": 1,
+                "title": "Binding Revision",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "account",
+              "auth_generation",
+              "consumer_id",
+              "binding_revision"
+            ],
+            "title": "ExpectedIdentity",
+            "type": "object"
+          },
+          "FollowState": {
+            "additionalProperties": false,
+            "properties": {
+              "target_account": {
+                "pattern": "^[1-9][0-9]{7}$",
+                "title": "Target Account",
+                "type": "string"
+              },
+              "following": {
+                "title": "Following",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "target_account",
+              "following"
+            ],
+            "title": "FollowState",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "identity": {
+            "$ref": "#/$defs/ExpectedIdentity"
+          },
+          "result": {
+            "$ref": "#/$defs/FollowState"
+          }
+        },
+        "required": [
+          "identity",
+          "result"
+        ],
+        "title": "LocalResult[FollowState]",
+        "type": "object"
+      }
+    },
+    "list_profile_posts": {
+      "method": "POST",
+      "server_path": "/space/list_profile_posts",
+      "local_path": "/v2/space/list_profile_posts",
+      "request": {
+        "additionalProperties": false,
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Cursor"
+          },
+          "limit": {
+            "default": 20,
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "target_account": {
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Target Account",
+            "type": "string"
+          },
+          "timezone_offset_minutes": {
+            "maximum": 840,
+            "minimum": -840,
+            "title": "Timezone Offset Minutes",
+            "type": "integer"
+          },
+          "month": {
+            "anyOf": [
+              {
+                "pattern": "^(?:[1-9][0-9]{3})-(?:0[1-9]|1[0-2])$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Month"
+          }
+        },
+        "required": [
+          "target_account",
+          "timezone_offset_minutes"
+        ],
+        "title": "ProfileTimeline",
+        "type": "object"
+      },
+      "response": {
+        "$defs": {
+          "Author": {
+            "additionalProperties": false,
+            "properties": {
+              "account": {
+                "pattern": "^[1-9][0-9]{7}$",
+                "title": "Account",
+                "type": "string"
+              },
+              "username": {
+                "title": "Username",
+                "type": "string"
+              },
+              "avatar_url": {
+                "title": "Avatar Url",
+                "type": "string"
+              }
+            },
+            "required": [
+              "account",
+              "username",
+              "avatar_url"
+            ],
+            "title": "Author",
+            "type": "object"
+          },
+          "Branch": {
+            "additionalProperties": false,
+            "properties": {
+              "root": {
+                "$ref": "#/$defs/Comment"
+              },
+              "replies": {
+                "items": {
+                  "$ref": "#/$defs/Comment"
+                },
+                "title": "Replies",
+                "type": "array"
+              },
+              "remaining_replies": {
+                "title": "Remaining Replies",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "root",
+              "replies",
+              "remaining_replies"
+            ],
+            "title": "Branch",
+            "type": "object"
+          },
+          "Comment": {
+            "additionalProperties": false,
+            "properties": {
+              "comment_id": {
+                "maxLength": 200,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "title": "Comment Id",
+                "type": "string"
+              },
+              "post_id": {
+                "maxLength": 200,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "title": "Post Id",
+                "type": "string"
+              },
+              "root_id": {
+                "maxLength": 200,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "title": "Root Id",
+                "type": "string"
+              },
+              "reply_to_id": {
+                "anyOf": [
+                  {
+                    "maxLength": 200,
+                    "minLength": 1,
+                    "pattern": "^[A-Za-z0-9_-]+$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Reply To Id"
+              },
+              "reply_to_author": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Author"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "author": {
+                "$ref": "#/$defs/Author"
+              },
+              "created_at": {
+                "title": "Created At",
+                "type": "string"
+              },
+              "text": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Text"
+              },
+              "deleted": {
+                "title": "Deleted",
+                "type": "boolean"
+              },
+              "can_delete": {
+                "title": "Can Delete",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "comment_id",
+              "post_id",
+              "root_id",
+              "reply_to_id",
+              "reply_to_author",
+              "author",
+              "created_at",
+              "text",
+              "deleted",
+              "can_delete"
+            ],
+            "title": "Comment",
+            "type": "object"
+          },
+          "Image": {
+            "additionalProperties": false,
+            "properties": {
+              "image_id": {
+                "maxLength": 200,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "title": "Image Id",
+                "type": "string"
+              },
+              "filename": {
+                "title": "Filename",
+                "type": "string"
+              },
+              "mime_type": {
+                "enum": [
+                  "image/png",
+                  "image/jpeg",
+                  "image/webp"
+                ],
+                "title": "Mime Type",
+                "type": "string"
+              },
+              "byte_size": {
+                "title": "Byte Size",
+                "type": "integer"
+              },
+              "original_url": {
+                "title": "Original Url",
+                "type": "string"
+              },
+              "thumbnail_url": {
+                "title": "Thumbnail Url",
+                "type": "string"
+              }
+            },
+            "required": [
+              "image_id",
+              "filename",
+              "mime_type",
+              "byte_size",
+              "original_url",
+              "thumbnail_url"
+            ],
+            "title": "Image",
+            "type": "object"
+          },
+          "Post": {
+            "additionalProperties": false,
+            "properties": {
+              "post_id": {
+                "maxLength": 200,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "title": "Post Id",
+                "type": "string"
+              },
+              "author": {
+                "$ref": "#/$defs/Author"
+              },
+              "author_following": {
+                "default": false,
+                "title": "Author Following",
+                "type": "boolean"
+              },
+              "created_at": {
+                "title": "Created At",
+                "type": "string"
+              },
+              "text": {
+                "title": "Text",
+                "type": "string"
+              },
+              "images": {
+                "items": {
+                  "$ref": "#/$defs/Image"
+                },
+                "title": "Images",
+                "type": "array"
+              },
+              "reference": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Reference"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "liked": {
+                "title": "Liked",
+                "type": "boolean"
+              },
+              "read": {
+                "title": "Read",
+                "type": "boolean"
+              },
+              "like_count": {
+                "title": "Like Count",
+                "type": "integer"
+              },
+              "comment_count": {
+                "title": "Comment Count",
+                "type": "integer"
+              },
+              "root_count": {
+                "title": "Root Count",
+                "type": "integer"
+              },
+              "repost_count": {
+                "title": "Repost Count",
+                "type": "integer"
+              },
+              "view_count": {
+                "title": "View Count",
+                "type": "integer"
+              },
+              "can_delete": {
+                "title": "Can Delete",
+                "type": "boolean"
+              },
+              "can_list_visitors": {
+                "title": "Can List Visitors",
+                "type": "boolean"
+              },
+              "preview_comments": {
+                "items": {
+                  "$ref": "#/$defs/Branch"
+                },
+                "title": "Preview Comments",
+                "type": "array"
+              },
+              "remaining_roots": {
+                "title": "Remaining Roots",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "post_id",
+              "author",
+              "created_at",
+              "text",
+              "images",
+              "reference",
+              "liked",
+              "read",
+              "like_count",
+              "comment_count",
+              "root_count",
+              "repost_count",
+              "view_count",
+              "can_delete",
+              "can_list_visitors",
+              "preview_comments",
+              "remaining_roots"
+            ],
+            "title": "Post",
+            "type": "object"
+          },
+          "Reference": {
+            "additionalProperties": false,
+            "properties": {
+              "post_id": {
+                "maxLength": 200,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "title": "Post Id",
+                "type": "string"
+              },
+              "deleted": {
+                "title": "Deleted",
+                "type": "boolean"
+              },
+              "author": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Author"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "text": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Text"
+              },
+              "image": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Image"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              }
+            },
+            "required": [
+              "post_id",
+              "deleted"
+            ],
+            "title": "Reference",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/$defs/Post"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor",
+          "has_more"
+        ],
+        "title": "Page[Post]",
+        "type": "object"
+      },
+      "local_request": {
+        "$defs": {
+          "ExpectedIdentity": {
+            "additionalProperties": false,
+            "properties": {
+              "account": {
+                "pattern": "^[1-9][0-9]{7}$",
+                "title": "Account",
+                "type": "string"
+              },
+              "auth_generation": {
+                "maxLength": 200,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "title": "Auth Generation",
+                "type": "string"
+              },
+              "consumer_id": {
+                "maxLength": 200,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "title": "Consumer Id",
+                "type": "string"
+              },
+              "binding_revision": {
+                "maximum": 9007199254740991,
+                "minimum": 1,
+                "title": "Binding Revision",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "account",
+              "auth_generation",
+              "consumer_id",
+              "binding_revision"
+            ],
+            "title": "ExpectedIdentity",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Cursor"
+          },
+          "limit": {
+            "default": 20,
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "target_account": {
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Target Account",
+            "type": "string"
+          },
+          "timezone_offset_minutes": {
+            "maximum": 840,
+            "minimum": -840,
+            "title": "Timezone Offset Minutes",
+            "type": "integer"
+          },
+          "month": {
+            "anyOf": [
+              {
+                "pattern": "^(?:[1-9][0-9]{3})-(?:0[1-9]|1[0-2])$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Month"
+          },
+          "expected_identity": {
+            "$ref": "#/$defs/ExpectedIdentity"
+          }
+        },
+        "required": [
+          "target_account",
+          "timezone_offset_minutes",
+          "expected_identity"
+        ],
+        "title": "LocalSpaceProfileTimeline",
+        "type": "object"
+      },
+      "local_response": {
+        "$defs": {
+          "Author": {
+            "additionalProperties": false,
+            "properties": {
+              "account": {
+                "pattern": "^[1-9][0-9]{7}$",
+                "title": "Account",
+                "type": "string"
+              },
+              "username": {
+                "title": "Username",
+                "type": "string"
+              },
+              "avatar_url": {
+                "title": "Avatar Url",
+                "type": "string"
+              }
+            },
+            "required": [
+              "account",
+              "username",
+              "avatar_url"
+            ],
+            "title": "Author",
+            "type": "object"
+          },
+          "Branch": {
+            "additionalProperties": false,
+            "properties": {
+              "root": {
+                "$ref": "#/$defs/Comment"
+              },
+              "replies": {
+                "items": {
+                  "$ref": "#/$defs/Comment"
+                },
+                "title": "Replies",
+                "type": "array"
+              },
+              "remaining_replies": {
+                "title": "Remaining Replies",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "root",
+              "replies",
+              "remaining_replies"
+            ],
+            "title": "Branch",
+            "type": "object"
+          },
+          "Comment": {
+            "additionalProperties": false,
+            "properties": {
+              "comment_id": {
+                "maxLength": 200,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "title": "Comment Id",
+                "type": "string"
+              },
+              "post_id": {
+                "maxLength": 200,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "title": "Post Id",
+                "type": "string"
+              },
+              "root_id": {
+                "maxLength": 200,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "title": "Root Id",
+                "type": "string"
+              },
+              "reply_to_id": {
+                "anyOf": [
+                  {
+                    "maxLength": 200,
+                    "minLength": 1,
+                    "pattern": "^[A-Za-z0-9_-]+$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Reply To Id"
+              },
+              "reply_to_author": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Author"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "author": {
+                "$ref": "#/$defs/Author"
+              },
+              "created_at": {
+                "title": "Created At",
+                "type": "string"
+              },
+              "text": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Text"
+              },
+              "deleted": {
+                "title": "Deleted",
+                "type": "boolean"
+              },
+              "can_delete": {
+                "title": "Can Delete",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "comment_id",
+              "post_id",
+              "root_id",
+              "reply_to_id",
+              "reply_to_author",
+              "author",
+              "created_at",
+              "text",
+              "deleted",
+              "can_delete"
+            ],
+            "title": "Comment",
+            "type": "object"
+          },
+          "ExpectedIdentity": {
+            "additionalProperties": false,
+            "properties": {
+              "account": {
+                "pattern": "^[1-9][0-9]{7}$",
+                "title": "Account",
+                "type": "string"
+              },
+              "auth_generation": {
+                "maxLength": 200,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "title": "Auth Generation",
+                "type": "string"
+              },
+              "consumer_id": {
+                "maxLength": 200,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "title": "Consumer Id",
+                "type": "string"
+              },
+              "binding_revision": {
+                "maximum": 9007199254740991,
+                "minimum": 1,
+                "title": "Binding Revision",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "account",
+              "auth_generation",
+              "consumer_id",
+              "binding_revision"
+            ],
+            "title": "ExpectedIdentity",
+            "type": "object"
+          },
+          "Image": {
+            "additionalProperties": false,
+            "properties": {
+              "image_id": {
+                "maxLength": 200,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "title": "Image Id",
+                "type": "string"
+              },
+              "filename": {
+                "title": "Filename",
+                "type": "string"
+              },
+              "mime_type": {
+                "enum": [
+                  "image/png",
+                  "image/jpeg",
+                  "image/webp"
+                ],
+                "title": "Mime Type",
+                "type": "string"
+              },
+              "byte_size": {
+                "title": "Byte Size",
+                "type": "integer"
+              },
+              "original_url": {
+                "title": "Original Url",
+                "type": "string"
+              },
+              "thumbnail_url": {
+                "title": "Thumbnail Url",
+                "type": "string"
+              }
+            },
+            "required": [
+              "image_id",
+              "filename",
+              "mime_type",
+              "byte_size",
+              "original_url",
+              "thumbnail_url"
+            ],
+            "title": "Image",
+            "type": "object"
+          },
+          "Page_Post_": {
+            "additionalProperties": false,
+            "properties": {
+              "items": {
+                "items": {
+                  "$ref": "#/$defs/Post"
+                },
+                "title": "Items",
+                "type": "array"
+              },
+              "next_cursor": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Next Cursor"
+              },
+              "has_more": {
+                "title": "Has More",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "items",
+              "next_cursor",
+              "has_more"
+            ],
+            "title": "Page[Post]",
+            "type": "object"
+          },
+          "Post": {
+            "additionalProperties": false,
+            "properties": {
+              "post_id": {
+                "maxLength": 200,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "title": "Post Id",
+                "type": "string"
+              },
+              "author": {
+                "$ref": "#/$defs/Author"
+              },
+              "author_following": {
+                "default": false,
+                "title": "Author Following",
+                "type": "boolean"
+              },
+              "created_at": {
+                "title": "Created At",
+                "type": "string"
+              },
+              "text": {
+                "title": "Text",
+                "type": "string"
+              },
+              "images": {
+                "items": {
+                  "$ref": "#/$defs/Image"
+                },
+                "title": "Images",
+                "type": "array"
+              },
+              "reference": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Reference"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "liked": {
+                "title": "Liked",
+                "type": "boolean"
+              },
+              "read": {
+                "title": "Read",
+                "type": "boolean"
+              },
+              "like_count": {
+                "title": "Like Count",
+                "type": "integer"
+              },
+              "comment_count": {
+                "title": "Comment Count",
+                "type": "integer"
+              },
+              "root_count": {
+                "title": "Root Count",
+                "type": "integer"
+              },
+              "repost_count": {
+                "title": "Repost Count",
+                "type": "integer"
+              },
+              "view_count": {
+                "title": "View Count",
+                "type": "integer"
+              },
+              "can_delete": {
+                "title": "Can Delete",
+                "type": "boolean"
+              },
+              "can_list_visitors": {
+                "title": "Can List Visitors",
+                "type": "boolean"
+              },
+              "preview_comments": {
+                "items": {
+                  "$ref": "#/$defs/Branch"
+                },
+                "title": "Preview Comments",
+                "type": "array"
+              },
+              "remaining_roots": {
+                "title": "Remaining Roots",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "post_id",
+              "author",
+              "created_at",
+              "text",
+              "images",
+              "reference",
+              "liked",
+              "read",
+              "like_count",
+              "comment_count",
+              "root_count",
+              "repost_count",
+              "view_count",
+              "can_delete",
+              "can_list_visitors",
+              "preview_comments",
+              "remaining_roots"
+            ],
+            "title": "Post",
+            "type": "object"
+          },
+          "Reference": {
+            "additionalProperties": false,
+            "properties": {
+              "post_id": {
+                "maxLength": 200,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "title": "Post Id",
+                "type": "string"
+              },
+              "deleted": {
+                "title": "Deleted",
+                "type": "boolean"
+              },
+              "author": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Author"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "text": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Text"
+              },
+              "image": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Image"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              }
+            },
+            "required": [
+              "post_id",
+              "deleted"
+            ],
+            "title": "Reference",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "identity": {
+            "$ref": "#/$defs/ExpectedIdentity"
+          },
+          "result": {
+            "$ref": "#/$defs/Page_Post_"
+          }
+        },
+        "required": [
+          "identity",
+          "result"
+        ],
+        "title": "LocalResult[Page[Post]]",
+        "type": "object"
+      }
+    },
+    "list_profile_months": {
+      "method": "POST",
+      "server_path": "/space/list_profile_months",
+      "local_path": "/v2/space/list_profile_months",
+      "request": {
+        "additionalProperties": false,
+        "properties": {
+          "target_account": {
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Target Account",
+            "type": "string"
+          },
+          "timezone_offset_minutes": {
+            "maximum": 840,
+            "minimum": -840,
+            "title": "Timezone Offset Minutes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "target_account",
+          "timezone_offset_minutes"
+        ],
+        "title": "ProfileMonths",
+        "type": "object"
+      },
+      "response": {
+        "$defs": {
+          "ProfileMonth": {
+            "additionalProperties": false,
+            "properties": {
+              "year": {
+                "maximum": 9999,
+                "minimum": 1,
+                "title": "Year",
+                "type": "integer"
+              },
+              "month": {
+                "maximum": 12,
+                "minimum": 1,
+                "title": "Month",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "year",
+              "month"
+            ],
+            "title": "ProfileMonth",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/$defs/ProfileMonth"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "ProfileMonthDirectory",
+        "type": "object"
+      },
+      "local_request": {
+        "$defs": {
+          "ExpectedIdentity": {
+            "additionalProperties": false,
+            "properties": {
+              "account": {
+                "pattern": "^[1-9][0-9]{7}$",
+                "title": "Account",
+                "type": "string"
+              },
+              "auth_generation": {
+                "maxLength": 200,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "title": "Auth Generation",
+                "type": "string"
+              },
+              "consumer_id": {
+                "maxLength": 200,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "title": "Consumer Id",
+                "type": "string"
+              },
+              "binding_revision": {
+                "maximum": 9007199254740991,
+                "minimum": 1,
+                "title": "Binding Revision",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "account",
+              "auth_generation",
+              "consumer_id",
+              "binding_revision"
+            ],
+            "title": "ExpectedIdentity",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "target_account": {
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Target Account",
+            "type": "string"
+          },
+          "timezone_offset_minutes": {
+            "maximum": 840,
+            "minimum": -840,
+            "title": "Timezone Offset Minutes",
+            "type": "integer"
+          },
+          "expected_identity": {
+            "$ref": "#/$defs/ExpectedIdentity"
+          }
+        },
+        "required": [
+          "target_account",
+          "timezone_offset_minutes",
+          "expected_identity"
+        ],
+        "title": "LocalSpaceProfileMonths",
+        "type": "object"
+      },
+      "local_response": {
+        "$defs": {
+          "ExpectedIdentity": {
+            "additionalProperties": false,
+            "properties": {
+              "account": {
+                "pattern": "^[1-9][0-9]{7}$",
+                "title": "Account",
+                "type": "string"
+              },
+              "auth_generation": {
+                "maxLength": 200,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "title": "Auth Generation",
+                "type": "string"
+              },
+              "consumer_id": {
+                "maxLength": 200,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "title": "Consumer Id",
+                "type": "string"
+              },
+              "binding_revision": {
+                "maximum": 9007199254740991,
+                "minimum": 1,
+                "title": "Binding Revision",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "account",
+              "auth_generation",
+              "consumer_id",
+              "binding_revision"
+            ],
+            "title": "ExpectedIdentity",
+            "type": "object"
+          },
+          "ProfileMonth": {
+            "additionalProperties": false,
+            "properties": {
+              "year": {
+                "maximum": 9999,
+                "minimum": 1,
+                "title": "Year",
+                "type": "integer"
+              },
+              "month": {
+                "maximum": 12,
+                "minimum": 1,
+                "title": "Month",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "year",
+              "month"
+            ],
+            "title": "ProfileMonth",
+            "type": "object"
+          },
+          "ProfileMonthDirectory": {
+            "additionalProperties": false,
+            "properties": {
+              "items": {
+                "items": {
+                  "$ref": "#/$defs/ProfileMonth"
+                },
+                "title": "Items",
+                "type": "array"
+              }
+            },
+            "required": [
+              "items"
+            ],
+            "title": "ProfileMonthDirectory",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "identity": {
+            "$ref": "#/$defs/ExpectedIdentity"
+          },
+          "result": {
+            "$ref": "#/$defs/ProfileMonthDirectory"
+          }
+        },
+        "required": [
+          "identity",
+          "result"
+        ],
+        "title": "LocalResult[ProfileMonthDirectory]",
+        "type": "object"
+      }
+    },
     "get_image": {
       "method": "POST",
       "server_path": "/space/get_image",
@@ -453,6 +2049,15 @@
             "default": false,
             "title": "Unread Only",
             "type": "boolean"
+          },
+          "scope": {
+            "default": "all",
+            "enum": [
+              "all",
+              "following"
+            ],
+            "title": "Scope",
+            "type": "string"
           }
         },
         "title": "PostList",
@@ -660,6 +2265,11 @@
               },
               "author": {
                 "$ref": "#/$defs/Author"
+              },
+              "author_following": {
+                "default": false,
+                "title": "Author Following",
+                "type": "boolean"
               },
               "created_at": {
                 "title": "Created At",
@@ -927,6 +2537,15 @@
             "default": false,
             "title": "Unread Only",
             "type": "boolean"
+          },
+          "scope": {
+            "default": "all",
+            "enum": [
+              "all",
+              "following"
+            ],
+            "title": "Scope",
+            "type": "string"
           },
           "expected_identity": {
             "$ref": "#/$defs/ExpectedIdentity"
@@ -1212,6 +2831,11 @@
               },
               "author": {
                 "$ref": "#/$defs/Author"
+              },
+              "author_following": {
+                "default": false,
+                "title": "Author Following",
+                "type": "boolean"
               },
               "created_at": {
                 "title": "Created At",
@@ -1677,6 +3301,11 @@
           "author": {
             "$ref": "#/$defs/Author"
           },
+          "author_following": {
+            "default": false,
+            "title": "Author Following",
+            "type": "boolean"
+          },
           "created_at": {
             "title": "Created At",
             "type": "string"
@@ -2088,6 +3717,11 @@
               },
               "author": {
                 "$ref": "#/$defs/Author"
+              },
+              "author_following": {
+                "default": false,
+                "title": "Author Following",
+                "type": "boolean"
               },
               "created_at": {
                 "title": "Created At",
@@ -9113,7 +10747,8 @@
                   "comment.deleted",
                   "notification.changed",
                   "read.changed",
-                  "draft.changed"
+                  "draft.changed",
+                  "follow.changed"
                 ],
                 "title": "Type",
                 "type": "string"
@@ -9296,7 +10931,8 @@
                   "comment.deleted",
                   "notification.changed",
                   "read.changed",
-                  "draft.changed"
+                  "draft.changed",
+                  "follow.changed"
                 ],
                 "title": "Type",
                 "type": "string"

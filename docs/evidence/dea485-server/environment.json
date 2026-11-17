@@ -1,0 +1,22 @@
+{
+  "os": "Linux-7.2.4-arch1-2-x86_64-with-glibc2.44",
+  "python": "3.13.15",
+  "sqlite": "3.53.1",
+  "uv": "uv 0.12.10 (3c979abda 2026-09-04 x86_64-unknown-linux-gnu)",
+  "dependencies": {
+    "fastapi": "0.162.4",
+    "pydantic": "2.14.3",
+    "uvicorn": "0.54.0",
+    "pytest": "9.2.0",
+    "httpx": "0.28.1",
+    "ruff": "0.17.4"
+  },
+  "lockfiles": {
+    "server/uv.lock": "8f1e26a0a2ab8fd52f3a4a9a6fde02f2f6aa870937040b08bdd33b0d6785f252",
+    "server/pyproject.toml": "ac84c4deded899359ca51b9d2ffa20e4ea93ee124400b2bf21af1763a59adaa8",
+    "server/contract/pyproject.toml": "7e3ee702a2cd9d72ee075aa2f9ed80d9dda0e566bfb61962869553a2a2799117"
+  },
+  "android_probe": "adb devices: no connected devices",
+  "windows_device": "NOT RUN (Linux runtime)",
+  "model": "not required"
+}
