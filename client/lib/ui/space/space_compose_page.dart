@@ -173,7 +173,7 @@ class _SpaceComposePageState extends State<SpaceComposePage> {
                 minimumSize: const Size(0, 42),
                 padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
               ),
-              child: const Text('发布'),
+              child: Text(_compose.publishing ? '发布中' : '发布'),
             ),
           ),
         ],

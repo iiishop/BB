@@ -562,4 +562,92 @@ void main() {
     expect(harness.store.draft(draftId), isNull);
     expect(harness.popped, isNull);
   });
+
+  test('a tap during an in-flight autosave publishes the tapped text', () async {
+    final _GateSpaceGateway gateway = _GateSpaceGateway();
+    final SpaceOperation created = await gateway.createDraft(
+      operationId: 'create',
+      text: 'seed',
+    );
+    final String draftId = created.resourceId!;
+    final SpaceComposeController controller = SpaceComposeController(
+      gateway: gateway,
+      store: SpaceLocalStore(scopeKey: gateway.scopeKey),
+      draftId: draftId,
+    );
+    addTearDown(controller.dispose);
+    await controller.start();
+
+    controller.text.text = 'tapped content';
+    final Completer<void> gate = gateway.updateGate = Completer<void>();
+    final Future<void> save = controller.saveNow();
+    await Future<void>.delayed(Duration.zero);
+    expect(controller.phase, DraftSavePhase.saving);
+    // The point of the change: a save in flight no longer disables the button.
+    expect(controller.canPublish, isTrue);
+
+    final Future<bool> publish = controller.publish();
+    await Future<void>.delayed(Duration.zero);
+    expect(controller.publishing, isTrue);
+
+    gateway.updateGate = null;
+    gate.complete();
+    await save;
+    expect(await publish, isTrue);
+
+    final String? postId = controller.publishedPostId;
+    expect(postId, isNotNull);
+    expect(gateway.posts[postId]!.text, 'tapped content');
+  });
+
+  test('a second tap while publishing does not send again', () async {
+    final FakeSpaceGateway gateway = FakeSpaceGateway();
+    final SpaceOperation created = await gateway.createDraft(
+      operationId: 'create',
+      text: 'seed',
+    );
+    final String draftId = created.resourceId!;
+    final SpaceComposeController controller = SpaceComposeController(
+      gateway: gateway,
+      store: SpaceLocalStore(scopeKey: gateway.scopeKey),
+      draftId: draftId,
+    );
+    addTearDown(controller.dispose);
+    await controller.start();
+    controller.text.text = 'once';
+
+    final Future<bool> first = controller.publish();
+    final Future<bool> second = controller.publish();
+    expect(await second, isFalse);
+    expect(await first, isTrue);
+    expect(gateway.publishOperationIds.length, 1);
+  });
+}
+
+/// Holds one draft write open so a test can start a second operation on top.
+class _GateSpaceGateway extends FakeSpaceGateway {
+  Completer<void>? updateGate;
+
+  @override
+  Future<SpaceOperation> updateDraft({
+    required String draftId,
+    required String operationId,
+    required int expectedVersion,
+    required String text,
+    String? referenceId,
+    required List<String> imageIds,
+  }) async {
+    final Completer<void>? gate = updateGate;
+    if (gate != null) {
+      await gate.future;
+    }
+    return super.updateDraft(
+      draftId: draftId,
+      operationId: operationId,
+      expectedVersion: expectedVersion,
+      text: text,
+      referenceId: referenceId,
+      imageIds: imageIds,
+    );
+  }
 }
