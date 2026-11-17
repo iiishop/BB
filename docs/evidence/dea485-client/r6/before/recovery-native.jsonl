@@ -1,0 +1,17 @@
+{"protocolVersion":"0.1.1","runnerVersion":null,"pid":2337512,"type":"start","time":0}
+{"suite":{"id":0,"platform":"vm","path":"/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-bac7692aa6f7/workdir/BB/client/.qa-artifacts/dea485_round6_recovery_probe_test.dart"},"type":"suite","time":0}
+{"test":{"id":1,"name":"loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-bac7692aa6f7/workdir/BB/client/.qa-artifacts/dea485_round6_recovery_probe_test.dart","suiteID":0,"groupIDs":[],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":null},"type":"testStart","time":0}
+{"count":1,"time":3,"type":"allSuites"}
+{"testID":1,"result":"success","skipped":false,"hidden":true,"type":"testDone","time":1407}
+{"group":{"id":2,"suiteID":0,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":3,"line":null,"column":null,"url":null},"type":"group","time":1409}
+{"test":{"id":3,"name":"R6 authority recovery resolves truth or reports failure: later_ok","suiteID":0,"groupIDs":[2],"metadata":{"skip":false,"skipReason":null},"line":22,"column":5,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-bac7692aa6f7/workdir/BB/client/.qa-artifacts/dea485_round6_recovery_probe_test.dart"},"type":"testStart","time":1410}
+{"testID":3,"messageType":"print","message":"R6 later_ok: receiver=false store=false applied=true hasError=false failedReads=0","type":"print","time":1900}
+{"testID":3,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":1903}
+{"test":{"id":4,"name":"R6 authority recovery resolves truth or reports failure: later_unavailable","suiteID":0,"groupIDs":[2],"metadata":{"skip":false,"skipReason":null},"line":22,"column":5,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-bac7692aa6f7/workdir/BB/client/.qa-artifacts/dea485_round6_recovery_probe_test.dart"},"type":"testStart","time":1904}
+{"testID":4,"messageType":"print","message":"R6 later_unavailable: receiver=false store=true applied=true hasError=false failedReads=1","type":"print","time":2336}
+{"testID":4,"error":"Expected: false\n  Actual: <true>\nUnresolved failed recovery must not report settled success while displayed relationship contradicts receiver\n","stackTrace":"package:matcher                                            expect\npackage:flutter_test/src/widget_tester.dart 473:18         expect\n.qa-artifacts/dea485_round6_recovery_probe_test.dart 91:9  main.<fn>\n","isFailure":true,"type":"error","time":2349}
+{"testID":4,"result":"failure","skipped":false,"hidden":false,"type":"testDone","time":2349}
+{"test":{"id":5,"name":"R6 authority recovery resolves truth or reports failure: earlier_unavailable","suiteID":0,"groupIDs":[2],"metadata":{"skip":false,"skipReason":null},"line":22,"column":5,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-bac7692aa6f7/workdir/BB/client/.qa-artifacts/dea485_round6_recovery_probe_test.dart"},"type":"testStart","time":2349}
+{"testID":5,"messageType":"print","message":"R6 earlier_unavailable: receiver=true store=true applied=true hasError=false failedReads=1","type":"print","time":2757}
+{"testID":5,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2757}
+{"success":false,"type":"done","time":2770}
