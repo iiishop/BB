@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../../models/auth_models.dart';
 import '../../models/space_models.dart';
 import '../../services/media_disk_cache.dart';
+import '../../services/space_download_log.dart';
 import 'space_detail_controller.dart';
 import 'space_gateway.dart';
 import 'space_image_viewer.dart';
@@ -23,14 +24,20 @@ class SpaceController extends ChangeNotifier {
     required this.gateway,
     required this.store,
     SpaceImageLoader? images,
+    SpaceDownloadLog? downloads,
     this.onSessionExpired,
     this.pollInterval = const Duration(seconds: 20),
     this.autoPoll = true,
-  }) : images = images ?? SpaceImageLoader(gateway, disk: MediaDiskCache());
+  }) : images = images ?? SpaceImageLoader(gateway, disk: MediaDiskCache()),
+       downloads = downloads ?? SpaceDownloadLog(scopeKey: gateway.scopeKey);
 
   final SpaceGateway gateway;
   final SpaceLocalStore store;
   final SpaceImageLoader images;
+
+  /// Per-account record of downloaded space images, used to ask before a
+  /// second save of the same picture.
+  final SpaceDownloadLog downloads;
   final VoidCallback? onSessionExpired;
   final Duration? pollInterval;
   final bool autoPoll;
