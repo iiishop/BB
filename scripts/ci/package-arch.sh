@@ -35,9 +35,15 @@ done
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 
-# 仓库根，用来取图标源；脚本可能被从任意 cwd 调用。
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-APP_ICON="$REPO_ROOT/docs/images/logo-512.png"
+# 图标优先取脚本旁的 assets/：CI 的打包沙箱只拷 scripts/，那时仓库根不成立。
+# 本地开发布局下回退到 docs/images/logo-512.png。
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+if [[ -f "$SCRIPT_DIR/assets/icon-512.png" ]]; then
+  APP_ICON="$SCRIPT_DIR/assets/icon-512.png"
+else
+  APP_ICON="$REPO_ROOT/docs/images/logo-512.png"
+fi
 
 [[ -n "$BUNDLE" ]] || die "缺少 --bundle"
 [[ -n "$VERSION" ]] || die "缺少 --version"

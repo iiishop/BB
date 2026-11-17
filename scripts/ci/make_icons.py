@@ -108,9 +108,16 @@ def main() -> int:
     square(source, LEGACY_CONTENT, (255, 255, 255, 255)).resize(
         (1024, 1024), Image.Resampling.LANCZOS
     ).save(CLIENT / "assets/icon.png")
-    square(source, LEGACY_CONTENT, (255, 255, 255, 255)).resize(
-        (512, 512), Image.Resampling.LANCZOS
-    ).save(Path("docs/images/logo-512.png"))
+    flat = square(source, LEGACY_CONTENT, (255, 255, 255, 255))
+    flat.resize((512, 512), Image.Resampling.LANCZOS).save(
+        Path("docs/images/logo-512.png")
+    )
+    # Ships next to the packaging scripts: CI copies only `scripts/` into the
+    # packaging sandbox, so the icon cannot live under docs/ alone.
+    (Path("scripts/ci/assets")).mkdir(parents=True, exist_ok=True)
+    flat.resize((512, 512), Image.Resampling.LANCZOS).save(
+        Path("scripts/ci/assets/icon-512.png")
+    )
 
     print("icons regenerated")
     return 0
