@@ -1,0 +1,13 @@
+{"protocolVersion":"0.1.1","runnerVersion":null,"pid":2219164,"type":"start","time":0}
+{"suite":{"id":0,"platform":"vm","path":"/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-bac7692aa6f7/workdir/BB/client/.qa-artifacts/dea485_review_probe_test.dart"},"type":"suite","time":0}
+{"test":{"id":1,"name":"loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-bac7692aa6f7/workdir/BB/client/.qa-artifacts/dea485_review_probe_test.dart","suiteID":0,"groupIDs":[],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":null},"type":"testStart","time":0}
+{"count":1,"time":4,"type":"allSuites"}
+{"testID":1,"result":"success","skipped":false,"hidden":true,"type":"testDone","time":1639}
+{"group":{"id":2,"suiteID":0,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":3,"line":null,"column":null,"url":null},"type":"group","time":1641}
+{"test":{"id":3,"name":"QA follow success survives an older feed snapshot","suiteID":0,"groupIDs":[2],"metadata":{"skip":false,"skipReason":null},"line":174,"column":5,"url":"package:flutter_test/src/widget_tester.dart","root_line":29,"root_column":3,"root_url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-bac7692aa6f7/workdir/BB/client/.qa-artifacts/dea485_review_probe_test.dart"},"type":"testStart","time":1642}
+{"testID":3,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2404}
+{"test":{"id":4,"name":"QA returning to a parked scope cannot resurrect a deleted post","suiteID":0,"groupIDs":[2],"metadata":{"skip":false,"skipReason":null},"line":71,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-bac7692aa6f7/workdir/BB/client/.qa-artifacts/dea485_review_probe_test.dart"},"type":"testStart","time":2404}
+{"testID":4,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2412}
+{"test":{"id":5,"name":"QA scope change releases the old pagination loading flag","suiteID":0,"groupIDs":[2],"metadata":{"skip":false,"skipReason":null},"line":106,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-bac7692aa6f7/workdir/BB/client/.qa-artifacts/dea485_review_probe_test.dart"},"type":"testStart","time":2412}
+{"testID":5,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2417}
+{"success":true,"type":"done","time":2432}

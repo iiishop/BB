@@ -16,6 +16,11 @@ import 'space_layout.dart';
 import 'space_lists_view.dart';
 import 'space_local_store.dart';
 import 'space_widgets.dart';
+import 'space_follow_button.dart';
+import 'space_follow_store.dart';
+import 'profile/space_profile_adapter.dart';
+import 'profile/space_profile_gateway.dart';
+import 'profile/space_profile_page.dart';
 
 /// The signed-in Space surface.
 ///
@@ -28,6 +33,8 @@ class SpacePage extends StatefulWidget {
     super.key,
     required this.gateway,
     required this.store,
+    required this.followStore,
+    this.active = true,
     this.profile,
     this.onSessionExpired,
     this.pollInterval = const Duration(seconds: 20),
@@ -36,6 +43,14 @@ class SpacePage extends StatefulWidget {
 
   final SpaceGateway gateway;
   final SpaceLocalStore store;
+
+  /// Shared follow relationship owner; the same store feeds the author home
+  /// page so card and header states never diverge.
+  final SpaceFollowStore followStore;
+
+  /// Whether the Space main area is the visible primary section. Leaving and
+  /// re-entering ends the Space session (the scope switch is not remembered).
+  final bool active;
 
   /// Existing authorized avatar entry. When absent, author avatars keep the
   /// deterministic initials (standalone widget tests, profile-less clients).
@@ -53,6 +68,10 @@ class SpacePage extends StatefulWidget {
   static const Key loadMoreKey = Key('space-load-more');
   static const Key capabilityKey = Key('space-capability');
   static const Key retryKey = Key('space-retry');
+  static const Key scopeAllKey = Key('space-scope-all');
+  static const Key scopeFollowingKey = Key('space-scope-following');
+  static const Key followingEmptyKey = Key('space-following-empty');
+  static const Key feedNoticeKey = Key('space-feed-notice');
 
   @override
   State<SpacePage> createState() => _SpacePageState();
@@ -61,6 +80,7 @@ class SpacePage extends StatefulWidget {
 class _SpacePageState extends State<SpacePage> {
   late final SpaceController _space;
   final ScrollController _feedScroll = ScrollController();
+  final Map<SpaceFeedScope, double> _scopeOffsets = <SpaceFeedScope, double>{};
   SpaceAvatarStore? _avatars;
 
   @override
@@ -73,18 +93,32 @@ class _SpacePageState extends State<SpacePage> {
     _space = SpaceController(
       gateway: widget.gateway,
       store: widget.store,
+      followStore: widget.followStore,
       onSessionExpired: widget.onSessionExpired,
       pollInterval: widget.pollInterval,
       autoPoll: widget.autoPoll,
     );
     _space.addListener(_onChanged);
+    widget.followStore.addListener(_onChanged);
     _feedScroll.addListener(_onScroll);
     unawaited(_space.start());
   }
 
   @override
+  void didUpdateWidget(SpacePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!oldWidget.active && widget.active) {
+      // Re-entered the Space main area: default back to "all" and drop both
+      // parked browse positions.
+      _scopeOffsets.clear();
+      unawaited(_space.resetSession());
+    }
+  }
+
+  @override
   void dispose() {
     _space.removeListener(_onChanged);
+    widget.followStore.removeListener(_onChanged);
     _feedScroll.dispose();
     _space.dispose();
     _avatars?.dispose();
@@ -114,6 +148,59 @@ class _SpacePageState extends State<SpacePage> {
     if (_feedScroll.position.extentAfter < 320) {
       unawaited(_space.loadMore());
     }
+  }
+
+  Future<void> _switchScope(SpaceFeedScope target) async {
+    if (_space.scope == target) {
+      return;
+    }
+    if (_feedScroll.hasClients) {
+      _scopeOffsets[_space.scope] = _feedScroll.offset;
+    }
+    await _space.switchScope(target);
+    if (!mounted) {
+      return;
+    }
+    final double targetOffset = _scopeOffsets[target] ?? 0;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_feedScroll.hasClients) {
+        return;
+      }
+      _feedScroll.jumpTo(
+        targetOffset.clamp(0, _feedScroll.position.maxScrollExtent),
+      );
+    });
+  }
+
+  /// Both product entries reach the same page; the Space card avatar reuses the
+  /// shared timeline, cards, image loader and month directory.
+  /// Fixed browsing offset for one home-page session. A real device zone is
+  /// read once here; tests inject the page offset directly.
+  int _displayOffsetMinutes() =>
+      DateTime.now().timeZoneOffset.inMinutes.clamp(-840, 840);
+
+  Future<void> _openAuthor(SpacePost post) async {
+    await openSpaceProfile(
+      context,
+      gateway: SpaceProfileAdapter(
+        space: widget.gateway,
+        profile: widget.profile,
+      ),
+      space: widget.gateway,
+      followStore: widget.followStore,
+      userId: post.author.account,
+      viewerAccount: widget.gateway.account,
+      images: _space.images,
+      displayOffsetMinutes: _displayOffsetMinutes(),
+      initialIdentity: SpaceProfileIdentity(
+        account: post.author.account,
+        username: post.author.username,
+        avatarUrl: post.author.avatarUrl,
+      ),
+      profile: widget.profile,
+      localStore: widget.store,
+      downloads: _space.downloads,
+    );
   }
 
   Future<void> _openCompose({SpacePost? reference, SpaceDraft? draft}) async {
@@ -251,8 +338,10 @@ class _SpacePageState extends State<SpacePage> {
     return SpaceDetailView(
       key: key,
       controller: detail,
-      space: _space,
+      images: _space.images,
+      downloads: _space.downloads,
       layout: layout,
+      historyDepth: _space.detailHistory.length,
       onClose: _space.closeDetail,
       onBack: _space.backDetail,
       onOpenReference: (String postId) => _space.openReference(postId),
@@ -274,7 +363,16 @@ class _SpacePageState extends State<SpacePage> {
           onNotifications: _space.showNotifications,
           onPublish: () => _openCompose(),
         ),
+        _ScopeSwitch(scope: _space.scope, onChanged: _switchScope),
         if (_space.refreshing) const LinearProgressIndicator(minHeight: 2),
+        if (_space.feedNotice != null)
+          SpaceInlineBanner(
+            key: SpacePage.feedNoticeKey,
+            message: _space.feedNotice!,
+            icon: Icons.sync_rounded,
+            tone: AppColors.accentDeep,
+            background: AppColors.accentSoft,
+          ),
         if (_space.hasUnseenNewPosts)
           SpaceInlineBanner(
             key: SpacePage.newPostsKey,
@@ -329,6 +427,12 @@ class _SpacePageState extends State<SpacePage> {
           actionLabel: '重试',
           onAction: () => _refresh(),
         ),
+        _ when _space.scope == SpaceFeedScope.following => SpaceStateView(
+          key: SpacePage.followingEmptyKey,
+          icon: Icons.person_search_rounded,
+          title: '只看已关注里还没有说说',
+          message: '这里只显示已关注用户的原创和主动转发，包括关注前的历史；没有内容时不会退回全部。',
+        ),
         _ => const SpaceStateView(
           icon: Icons.forum_outlined,
           title: '还没有说说',
@@ -368,11 +472,25 @@ class _SpacePageState extends State<SpacePage> {
             );
           }
           final SpacePost post = _space.posts[index];
+          final SpaceFollowStore follows = widget.followStore;
+          final bool ownAuthor = post.author.account == widget.gateway.account;
           return Padding(
             padding: const EdgeInsets.only(bottom: AppSpacing.md),
             child: SpacePostCard(
               post: post,
               loader: _space.images,
+              following: ownAuthor
+                  ? null
+                  : follows.stateFor(post.author.account),
+              followBusy: follows.isWriting(post.author.account),
+              onFollow: ownAuthor
+                  ? null
+                  : () => toggleSpaceFollow(
+                      context,
+                      store: follows,
+                      account: post.author.account,
+                      name: post.author.username,
+                    ),
               actionsEnabled: !_space.refreshing,
               onOpen: () => _space.openPost(post.postId),
               onOpenReference: () => _space.openPost(post.reference!.postId),
@@ -382,9 +500,78 @@ class _SpacePageState extends State<SpacePage> {
               onOpenImage: (int imageIndex) => _openViewer(post, imageIndex),
               onDelete: post.canDelete ? () => _confirmDelete(post) : null,
               onOpenVisitors: () => _space.openPost(post.postId),
+              onOpenAuthor: () => _openAuthor(post),
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+class _ScopeSwitch extends StatelessWidget {
+  const _ScopeSwitch({required this.scope, required this.onChanged});
+
+  final SpaceFeedScope scope;
+  final ValueChanged<SpaceFeedScope> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final TextTheme text = Theme.of(context).textTheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.md,
+        AppSpacing.xs,
+        AppSpacing.md,
+        AppSpacing.xs,
+      ),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Container(
+          padding: const EdgeInsets.all(3),
+          decoration: BoxDecoration(
+            color: AppColors.accentSoft,
+            borderRadius: BorderRadius.circular(AppRadius.brand),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              for (final SpaceFeedScope value in SpaceFeedScope.values)
+                InkWell(
+                  key: value == SpaceFeedScope.all
+                      ? SpacePage.scopeAllKey
+                      : SpacePage.scopeFollowingKey,
+                  onTap: () => onChanged(value),
+                  borderRadius: BorderRadius.circular(AppRadius.brand),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 160),
+                    curve: Curves.easeOutCubic,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.md,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: scope == value
+                          ? AppColors.surface
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(AppRadius.brand),
+                    ),
+                    child: Text(
+                      value.label,
+                      style: text.labelMedium?.copyWith(
+                        color: scope == value
+                            ? AppColors.accentDeep
+                            : AppColors.inkMuted,
+                        fontWeight: scope == value
+                            ? FontWeight.w700
+                            : FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }

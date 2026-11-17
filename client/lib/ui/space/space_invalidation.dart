@@ -7,10 +7,7 @@ import '../../models/space_models.dart';
 /// detail copies must not keep rendering the removed text, author or image
 /// between a `post.deleted` event and the next full read. A reference to any
 /// other post is returned unchanged.
-SpacePost spacePostWithScrubbedReference(
-  SpacePost post,
-  String deletedPostId,
-) {
+SpacePost spacePostWithScrubbedReference(SpacePost post, String deletedPostId) {
   final SpaceReference? reference = post.reference;
   if (reference == null ||
       reference.postId != deletedPostId ||
@@ -20,6 +17,7 @@ SpacePost spacePostWithScrubbedReference(
   return SpacePost(
     postId: post.postId,
     author: post.author,
+    authorFollowing: post.authorFollowing,
     createdAt: post.createdAt,
     text: post.text,
     images: post.images,
@@ -112,6 +110,7 @@ SpacePost spacePostWithScrubbedComments(
   return SpacePost(
     postId: post.postId,
     author: post.author,
+    authorFollowing: post.authorFollowing,
     createdAt: post.createdAt,
     text: post.text,
     images: post.images,

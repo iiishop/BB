@@ -1,0 +1,14 @@
+{"protocolVersion":"0.1.1","runnerVersion":null,"pid":2386115,"type":"start","time":0}
+{"suite":{"id":0,"platform":"vm","path":"/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-bac7692aa6f7/workdir/BB/client/.qa-artifacts/dea485_round8_refresh_feedback_probe_test.dart"},"type":"suite","time":0}
+{"test":{"id":1,"name":"loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-bac7692aa6f7/workdir/BB/client/.qa-artifacts/dea485_round8_refresh_feedback_probe_test.dart","suiteID":0,"groupIDs":[],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":null},"type":"testStart","time":0}
+{"count":1,"time":4,"type":"allSuites"}
+{"testID":1,"result":"success","skipped":false,"hidden":true,"type":"testDone","time":1416}
+{"group":{"id":2,"suiteID":0,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":2,"line":null,"column":null,"url":null},"type":"group","time":1418}
+{"test":{"id":3,"name":"R8 pending failed write keeps feedback through event refresh: replay=false","suiteID":0,"groupIDs":[2],"metadata":{"skip":false,"skipReason":null},"line":22,"column":5,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-bac7692aa6f7/workdir/BB/client/.qa-artifacts/dea485_round8_refresh_feedback_probe_test.dart"},"type":"testStart","time":1418}
+{"testID":3,"messageType":"print","message":"R8 replay=false: receiverA=true storeA=true applied=false hasError=true backgroundReads=0","type":"print","time":1939}
+{"testID":3,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":1942}
+{"test":{"id":4,"name":"R8 pending failed write keeps feedback through event refresh: replay=true","suiteID":0,"groupIDs":[2],"metadata":{"skip":false,"skipReason":null},"line":22,"column":5,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-bac7692aa6f7/workdir/BB/client/.qa-artifacts/dea485_round8_refresh_feedback_probe_test.dart"},"type":"testStart","time":1942}
+{"testID":4,"messageType":"print","message":"R8 replay=true: receiverA=true storeA=true applied=false hasError=false backgroundReads=2","type":"print","time":2429}
+{"testID":4,"error":"Expected: not null\n  Actual: <null>\nA background refresh must not erase a still-pending failed unfollow feedback before its caller can display it\n","stackTrace":"package:matcher                                                    expect\npackage:flutter_test/src/widget_tester.dart 473:18                 expect\n.qa-artifacts/dea485_round8_refresh_feedback_probe_test.dart 66:7  main.<fn>\n","isFailure":true,"type":"error","time":2441}
+{"testID":4,"result":"failure","skipped":false,"hidden":false,"type":"testDone","time":2442}
+{"success":false,"type":"done","time":2457}

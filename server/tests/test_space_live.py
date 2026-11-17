@@ -130,3 +130,80 @@ def test_real_image_bytes_draft_acl_and_delete_survive_process_restart(tmp_path)
             api.get(f"/space/images/{mid}?variant=thumb", headers=b[1]).status_code
             == 404
         )
+
+
+def test_real_profile_follow_reconciliation_restart_and_revoked_session(tmp_path):
+    with server(tmp_path) as api:
+        a, b = register(api, "Profile owner"), register(api, "Viewer")
+        pid = publish(api, a, "persisted profile post")
+        assert call(api, b, "list_posts", scope="following")["items"] == []
+        call(api, b, "set_follow", target_account=a[0], following=True)
+        state = call(api, b, "get_follow", target_account=a[0])
+        page = call(
+            api,
+            b,
+            "list_profile_posts",
+            target_account=a[0],
+            timezone_offset_minutes=345,
+        )
+        assert page["items"][0]["post_id"] == pid
+        assert page["items"][0]["author_following"]
+        months = call(
+            api,
+            b,
+            "list_profile_months",
+            target_account=a[0],
+            timezone_offset_minutes=345,
+        )
+        assert len(months["items"]) == 1
+    with server(tmp_path) as api:
+        # Read authoritative state after a lost reply/restart before retrying.
+        assert call(api, b, "get_follow", target_account=a[0]) == state
+        assert call(api, b, "set_follow", target_account=a[0], following=True) == state
+        assert (
+            call(
+                api,
+                b,
+                "list_profile_posts",
+                target_account=a[0],
+                timezone_offset_minutes=345,
+            )
+            == page
+        )
+        assert (
+            call(
+                api,
+                b,
+                "list_profile_months",
+                target_account=a[0],
+                timezone_offset_minutes=345,
+            )
+            == months
+        )
+        assert [
+            p["post_id"] for p in call(api, b, "list_posts", scope="following")["items"]
+        ] == [pid]
+        assert (
+            len(
+                [
+                    e
+                    for e in call(api, b, "read_events")["items"]
+                    if e["type"] == "follow.changed"
+                ]
+            )
+            == 1
+        )
+        call(api, b, "set_follow", target_account=a[0], following=False)
+    with server(tmp_path) as api:
+        assert not call(api, b, "get_follow", target_account=a[0])["following"]
+        assert call(api, b, "list_posts", scope="following")["items"] == []
+        assert api.post("/auth/logout", headers=b[1]).status_code == 204
+        call(api, b, "set_follow", target_account=a[0], following=True, status=401)
+        call(
+            api,
+            b,
+            "list_profile_posts",
+            target_account=a[0],
+            timezone_offset_minutes=345,
+            status=401,
+        )

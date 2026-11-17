@@ -6,6 +6,7 @@ import '../../app.dart';
 import '../../models/space_models.dart';
 import '../chat/chat_format.dart';
 import 'space_avatars.dart';
+import 'space_follow_button.dart';
 import 'space_format.dart';
 import 'space_image_viewer.dart';
 
@@ -76,16 +77,15 @@ class _SpaceAvatarState extends State<SpaceAvatar> {
                 fit: BoxFit.cover,
                 gaplessPlayback: true,
                 filterQuality: FilterQuality.medium,
-                errorBuilder:
-                    (BuildContext context, Object error, StackTrace? stack) =>
-                        _initials(),
+                errorBuilder: (
+                  BuildContext context,
+                  Object error,
+                  StackTrace? stack,
+                ) => _initials(),
               ),
             ),
           );
-    return Semantics(
-      label: '${widget.author.username}的头像',
-      child: avatar,
-    );
+    return Semantics(label: '${widget.author.username}的头像', child: avatar);
   }
 
   Widget _initials() {
@@ -319,6 +319,12 @@ class SpacePostCard extends StatelessWidget {
     required this.onOpenImage,
     this.onDelete,
     this.onOpenVisitors,
+    this.onOpenAuthor,
+    this.timelineAt,
+    this.timezoneOffsetMinutes,
+    this.following,
+    this.onFollow,
+    this.followBusy = false,
     this.actionsEnabled = true,
   });
 
@@ -332,17 +338,38 @@ class SpacePostCard extends StatelessWidget {
   final void Function(int index) onOpenImage;
   final void Function()? onDelete;
   final void Function()? onOpenVisitors;
+
+  /// Opens the author's home page. Null keeps the header inert, so a read-only
+  /// host (or a widget test) never renders a dead affordance.
+  final void Function()? onOpenAuthor;
+
+  /// Author-scoped timeline time for this row. Defaults to the post's own
+  /// publication time; a repost row passes the repost time so the visible date
+  /// matches the month it is archived under.
+  final String? timelineAt;
+
+  /// Fixed DEA-485 browsing offset for the visible date. Null keeps the legacy
+  /// local-zone label for the global feed.
+  final int? timezoneOffsetMinutes;
+
+  /// Author follow state from the shared store. Null renders no follow control
+  /// (own posts, unknown state, read-only hosts).
+  final bool? following;
+  final void Function()? onFollow;
+  final bool followBusy;
   final bool actionsEnabled;
 
   static const int previewLines = 4;
 
   Key get cardKey => Key('space-post-${post.postId}');
+  Key get authorKey => Key('space-post-author-${post.postId}');
   Key get bodyKey => Key('space-post-body-${post.postId}');
   Key get likeKey => Key('space-post-like-${post.postId}');
   Key get commentKey => Key('space-post-comment-${post.postId}');
   Key get repostKey => Key('space-post-repost-${post.postId}');
   Key get expandKey => Key('space-post-expand-${post.postId}');
   Key get deleteKey => Key('space-post-delete-${post.postId}');
+  Key get followKey => Key('space-post-follow-${post.postId}');
   Key get visitorsKey => Key('space-post-visitors-${post.postId}');
 
   @override
@@ -361,20 +388,42 @@ class SpacePostCard extends StatelessWidget {
         children: <Widget>[
           Row(
             children: <Widget>[
-              SpaceAvatar(author: post.author),
-              const SizedBox(width: AppSpacing.sm + 2),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Text(post.author.username, style: text.titleMedium),
-                    Text(
-                      spaceRelativeTime(post.createdAt),
-                      style: text.bodySmall,
-                    ),
-                  ],
+                child: InkWell(
+                  key: authorKey,
+                  onTap: onOpenAuthor,
+                  borderRadius: BorderRadius.circular(AppRadius.brand),
+                  child: Row(
+                    children: <Widget>[
+                      SpaceAvatar(author: post.author),
+                      const SizedBox(width: AppSpacing.sm + 2),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            Text(post.author.username, style: text.titleMedium),
+                            Text(
+                              spaceRelativeTime(
+                                timelineAt ?? post.createdAt,
+                                offsetMinutes: timezoneOffsetMinutes,
+                              ),
+                              style: text.bodySmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
+              if (following != null && onFollow != null)
+                SpaceFollowButton(
+                  key: followKey,
+                  following: following!,
+                  busy: followBusy,
+                  compact: true,
+                  onPressed: onFollow,
+                ),
               if (post.canDelete && onDelete != null)
                 IconButton(
                   key: deleteKey,

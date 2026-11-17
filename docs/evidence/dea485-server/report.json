@@ -1,0 +1,115 @@
+{
+  "candidate_sha": "36e968409704fba28a211e60306a61ea31a5e014",
+  "rules": [
+    {
+      "id": "profile-order-directory",
+      "rule": "Original/repost order, sparse months, forward jump continuation and deleted source projection",
+      "entry": "POST /space actions via real FastAPI handlers and isolated SQLite; live-restart uses python -m bb_server over TCP",
+      "status": "tested",
+      "run": "run/run.json",
+      "testcase": {
+        "classname": "tests.test_profile_timeline",
+        "name": "test_profile_month_jump_continues_and_repost_uses_own_time"
+      }
+    },
+    {
+      "id": "month-offset",
+      "rule": "Month/year archive matches the explicit display offset",
+      "entry": "POST /space actions via real FastAPI handlers and isolated SQLite; live-restart uses python -m bb_server over TCP",
+      "status": "tested",
+      "run": "run/run.json",
+      "testcase": {
+        "classname": "tests.test_profile_timeline",
+        "name": "test_directory_jump_matches_explicit_display_offset_at_month_and_year_edges[345]"
+      }
+    },
+    {
+      "id": "timeline-pagination",
+      "rule": "Equal timestamps, deletion and later publication do not duplicate or leak into continuation",
+      "entry": "POST /space actions via real FastAPI handlers and isolated SQLite; live-restart uses python -m bb_server over TCP",
+      "status": "tested",
+      "run": "run/run.json",
+      "testcase": {
+        "classname": "tests.test_profile_timeline",
+        "name": "test_equal_timestamp_keyset_snapshot_and_deletion"
+      }
+    },
+    {
+      "id": "scope-fences",
+      "rule": "Cursors reject changes to viewer, target, month, offset, action, feed filters and follow revision",
+      "entry": "POST /space actions via real FastAPI handlers and isolated SQLite; live-restart uses python -m bb_server over TCP",
+      "status": "tested",
+      "run": "run/run.json",
+      "testcase": {
+        "classname": "tests.test_profile_timeline",
+        "name": "test_cursor_binding_to_viewer_target_month_offset_action_and_feed_query"
+      }
+    },
+    {
+      "id": "following-selection",
+      "rule": "Followed publisher includes pre-follow history and reposts, preserving empty scope",
+      "entry": "POST /space actions via real FastAPI handlers and isolated SQLite; live-restart uses python -m bb_server over TCP",
+      "status": "tested",
+      "run": "run/run.json",
+      "testcase": {
+        "classname": "tests.test_profile_timeline",
+        "name": "test_follow_filter_publisher_history_empty_and_shared_post_state"
+      }
+    },
+    {
+      "id": "follow-idempotence",
+      "rule": "Concurrent duplicate desired states produce one relationship transition and private event",
+      "entry": "POST /space actions via real FastAPI handlers and isolated SQLite; live-restart uses python -m bb_server over TCP",
+      "status": "tested",
+      "run": "run/run.json",
+      "testcase": {
+        "classname": "tests.test_profile_timeline",
+        "name": "test_follow_idempotence_concurrent_requests_and_private_events"
+      }
+    },
+    {
+      "id": "follow-rollback",
+      "rule": "Failed revision/event write rolls back relationship and supports reconciliation/retry",
+      "entry": "POST /space actions via real FastAPI handlers and isolated SQLite; live-restart uses python -m bb_server over TCP",
+      "status": "tested",
+      "run": "run/run.json",
+      "testcase": {
+        "classname": "tests.test_profile_timeline",
+        "name": "test_follow_failure_rolls_back_state_revision_event_then_retry[event-True]"
+      }
+    },
+    {
+      "id": "migration-upgrade",
+      "rule": "V4 upgrade and failed migration preserve existing chat, posts and identities",
+      "entry": "POST /space actions via real FastAPI handlers and isolated SQLite; live-restart uses python -m bb_server over TCP",
+      "status": "tested",
+      "run": "run/run.json",
+      "testcase": {
+        "classname": "tests.test_follow_migration",
+        "name": "test_v4_upgrade_rollback_retains_posts_chat_and_accounts"
+      }
+    },
+    {
+      "id": "live-restart",
+      "rule": "Real TCP startup and cold restart retain follow/profile facts and reject revoked sessions",
+      "entry": "POST /space actions via real FastAPI handlers and isolated SQLite; live-restart uses python -m bb_server over TCP",
+      "status": "tested",
+      "run": "run/run.json",
+      "testcase": {
+        "classname": "tests.test_space_live",
+        "name": "test_real_profile_follow_reconciliation_restart_and_revoked_session"
+      }
+    },
+    {
+      "id": "auth-errors",
+      "rule": "Self follow, missing users, empty profiles and malformed queries keep existing errors",
+      "entry": "POST /space actions via real FastAPI handlers and isolated SQLite; live-restart uses python -m bb_server over TCP",
+      "status": "tested",
+      "run": "run/run.json",
+      "testcase": {
+        "classname": "tests.test_profile_timeline",
+        "name": "test_profile_and_follow_errors_keep_existing_envelope"
+      }
+    }
+  ]
+}

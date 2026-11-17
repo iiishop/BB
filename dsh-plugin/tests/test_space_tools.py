@@ -2,15 +2,53 @@
 
 import base64
 import json
+import subprocess
+import sys
 
 import httpx
 import pytest
-from bb_auth_contract import space
-from mcp.types import ListToolsRequest
+from bb_auth_contract import ContractError, space
+from mcp.types import CallToolRequest, CallToolRequestParams, ListToolsRequest
 
 from bb_dsh_plugin.guarded import AwaitingBinding, GuardedTransport
 from bb_dsh_plugin.plugin import LocalClient, create_server
-from bb_dsh_plugin.space_tools import SPACE_TOOLS, invoke_space
+from bb_dsh_plugin.space_tools import SPACE_TOOLS, TOOL_SCHEMAS, invoke_space
+
+# Authorized legacy surface, independently frozen to catch substitutions as well
+# as count growth. Field protocols continue to come from bb_auth_contract.
+LEGACY_SPACE_ACTIONS = {
+    "get_image",
+    "overview",
+    "list_posts",
+    "get_post",
+    "create_draft",
+    "get_draft",
+    "list_drafts",
+    "update_draft",
+    "add_image",
+    "publish_draft",
+    "delete_draft",
+    "delete_post",
+    "set_like",
+    "create_comment",
+    "delete_comment",
+    "list_comments",
+    "get_comment_context",
+    "list_likes",
+    "mark_read",
+    "list_notifications",
+    "ack_notifications",
+    "get_view_summary",
+    "list_visitors",
+    "get_operation",
+}
+HTTP_ONLY_SPACE_ACTIONS = (
+    "get_follow",
+    "set_follow",
+    "list_profile_posts",
+    "list_profile_months",
+    "read_events",
+)
 
 IDENTITY = {
     "account": "10000001",
@@ -29,7 +67,10 @@ async def test_discovery_exact_contract_and_no_internal_replay():
     tools = {t.name: t for t in reply.root.tools if t.name.startswith("space_")}
     assert set(tools) == set(SPACE_TOOLS)
     assert len(tools) == 24
+    assert set(tools) == {"space_" + action for action in LEGACY_SPACE_ACTIONS}
+    assert set(TOOL_SCHEMAS) == set(tools)
     for name, model in SPACE_TOOLS.items():
+        assert model is space.REQUESTS[name.removeprefix("space_")]
         if name == "space_add_image":
             # The single tool whose input is not the wire shape: a model cannot
             # push megabytes of base64 through a tool call, so it hands over a
@@ -46,6 +87,90 @@ async def test_discovery_exact_contract_and_no_internal_replay():
     assert (
         result.isError and result.structuredContent["error"]["code"] == "stale_binding"
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action", HTTP_ONLY_SPACE_ACTIONS)
+async def test_http_only_actions_cannot_be_called_through_mcp_or_guarded_transport(
+    action,
+):
+    name = "space_" + action
+
+    def unreachable(request):
+        raise AssertionError("HTTP-only action must not reach the client")
+
+    class NoDispatch:
+        async def call(self, operation, payload):
+            raise AssertionError("Unexposed tool must not dispatch")
+
+    guarded = GuardedTransport(
+        "http://127.0.0.1",
+        "A" * 43,
+        IDENTITY,
+        transport=httpx.MockTransport(unreachable),
+    )
+    assert name not in SPACE_TOOLS and name not in TOOL_SCHEMAS
+    direct = await invoke_space(NoDispatch(), name, {})
+    assert direct.isError and direct.structuredContent["status"] == 404
+    assert direct.structuredContent["error"]["code"] == "unknown_tool"
+    # Use the actual MCP call handler, including its unknown-name dispatch.
+    server = create_server(
+        LocalClient("http://127.0.0.1", transport=httpx.MockTransport(unreachable)),
+        NoDispatch(),
+    )
+    reply = await server.request_handlers[CallToolRequest](
+        CallToolRequest(
+            method="tools/call", params=CallToolRequestParams(name=name, arguments={})
+        )
+    )
+    assert reply.root.isError and reply.root.structuredContent["status"] == 404
+    assert reply.root.structuredContent["error"]["code"] == "unknown_tool"
+    # GuardedTransport is a separate internal admission path. It must deny a
+    # direct attempt too, instead of reaching /v2/space or raising KeyError.
+    with pytest.raises(ContractError) as error:
+        await guarded.call(name, {})
+    assert error.value.status == 404
+    assert error.value.body["error"]["code"] == "unknown_tool"
+
+
+def test_future_http_request_does_not_become_an_mcp_tool():
+    # Fresh interpreter re-runs the real registry construction with a synthetic
+    # future HTTP extension; no installed dependency or host is modified.
+    probe = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            """
+import asyncio
+from bb_auth_contract import space
+space.REQUESTS['future_extension'] = space.Empty
+from bb_dsh_plugin.plugin import LocalClient, create_server
+from bb_dsh_plugin.space_tools import SPACE_TOOLS, TOOL_SCHEMAS, invoke_space
+from mcp.types import ListToolsRequest
+
+class NoDispatch:
+    async def call(self, operation, payload):
+        raise AssertionError('unexposed tool dispatched')
+
+async def check():
+    reply = await create_server(LocalClient('http://127.0.0.1')).request_handlers[ListToolsRequest](
+        ListToolsRequest(method='tools/list'))
+    names = {t.name for t in reply.root.tools if t.name.startswith('space_')}
+    assert len(names) == 24
+    assert names == set(SPACE_TOOLS) == set(TOOL_SCHEMAS)
+    assert 'space_future_extension' not in names
+    result = await invoke_space(NoDispatch(), 'space_future_extension', {})
+    assert result.isError and result.structuredContent['error']['code'] == 'unknown_tool'
+
+asyncio.run(check())
+""",
+        ],
+        capture_output=True,
+        check=False,
+        text=True,
+        timeout=15,
+    )
+    assert probe.returncode == 0, probe.stdout + probe.stderr
 
 
 @pytest.mark.asyncio
@@ -157,9 +282,7 @@ async def test_add_image_rejects_unusable_path_and_ambiguous_source(tmp_path):
 
     empty = tmp_path / "empty.png"
     empty.write_bytes(b"")
-    blank = await invoke_space(
-        client, "space_add_image", {**base, "path": str(empty)}
-    )
+    blank = await invoke_space(client, "space_add_image", {**base, "path": str(empty)})
     assert blank.isError
     assert blank.structuredContent["error"]["code"] == "validation_error"
 

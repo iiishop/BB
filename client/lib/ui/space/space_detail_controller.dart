@@ -249,9 +249,8 @@ class SpaceDetailController extends ChangeNotifier {
           .map((SpaceComment c) => c.commentId)
           .toSet();
       roots.addAll(
-        _admitComments(page.items).where(
-          (SpaceComment c) => seen.add(c.commentId),
-        ),
+        _admitComments(page.items)
+            .where((SpaceComment c) => seen.add(c.commentId)),
       );
       rootsCursor = page.nextCursor;
       rootsHasMore = page.hasMore;
@@ -286,9 +285,8 @@ class SpaceDetailController extends ChangeNotifier {
           .toSet();
       replies[rootId] = <SpaceComment>[
         ...existing,
-        ..._admitComments(page.items).where(
-          (SpaceComment c) => seen.add(c.commentId),
-        ),
+        ..._admitComments(page.items)
+            .where((SpaceComment c) => seen.add(c.commentId)),
       ];
       repliesCursor[rootId] = page.nextCursor;
       repliesHasMore[rootId] = page.hasMore;
@@ -310,9 +308,7 @@ class SpaceDetailController extends ChangeNotifier {
         postId: loaded.postId,
         root: _admitComment(loaded.root),
         target: _admitComment(loaded.target),
-        parent: loaded.parent == null
-            ? null
-            : _admitComment(loaded.parent!),
+        parent: loaded.parent == null ? null : _admitComment(loaded.parent!),
         nearby: _admitComments(loaded.nearby),
         beforeCursor: loaded.beforeCursor,
         afterCursor: loaded.afterCursor,
@@ -368,7 +364,9 @@ class SpaceDetailController extends ChangeNotifier {
       return true;
     } catch (failure) {
       final SpacePost? latest = post;
-      if (latest != null && !deleted && !(isTombstoned?.call(postId) ?? false)) {
+      if (latest != null &&
+          !deleted &&
+          !(isTombstoned?.call(postId) ?? false)) {
         // Only revert the like fields on the live snapshot; a deletion event
         // during the request must not be undone by the old captured object.
         post = _withLikeFields(
@@ -404,6 +402,7 @@ class SpaceDetailController extends ChangeNotifier {
     return SpacePost(
       postId: target.postId,
       author: target.author,
+      authorFollowing: target.authorFollowing,
       createdAt: target.createdAt,
       text: target.text,
       images: target.images,
@@ -526,7 +525,6 @@ class SpaceDetailController extends ChangeNotifier {
       post = spacePostWithScrubbedComments(currentPost, _isCommentDeleted);
     }
   }
-
 
   Future<bool> deletePost() async {
     try {

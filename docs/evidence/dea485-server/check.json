@@ -1,0 +1,322 @@
+[
+  {
+    "id": "profile-order-directory",
+    "candidate_sha": "36e968409704fba28a211e60306a61ea31a5e014",
+    "command": [
+      "uv",
+      "run",
+      "--project",
+      ".",
+      "--locked",
+      "pytest",
+      "-q",
+      "--junitxml=/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-1d940ac9891d/workdir/qa-dea485-server.xml",
+      "tests"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": "tests.test_profile_timeline",
+      "name": "test_profile_month_jump_continues_and_repost_uses_own_time"
+    },
+    "tests": 483,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 483,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "docs/evidence/dea485-server/run/run.json",
+      "docs/evidence/dea485-server/run/output.log",
+      "docs/evidence/dea485-server/run/junit.xml"
+    ]
+  },
+  {
+    "id": "month-offset",
+    "candidate_sha": "36e968409704fba28a211e60306a61ea31a5e014",
+    "command": [
+      "uv",
+      "run",
+      "--project",
+      ".",
+      "--locked",
+      "pytest",
+      "-q",
+      "--junitxml=/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-1d940ac9891d/workdir/qa-dea485-server.xml",
+      "tests"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": "tests.test_profile_timeline",
+      "name": "test_directory_jump_matches_explicit_display_offset_at_month_and_year_edges[345]"
+    },
+    "tests": 483,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 483,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "docs/evidence/dea485-server/run/run.json",
+      "docs/evidence/dea485-server/run/output.log",
+      "docs/evidence/dea485-server/run/junit.xml"
+    ]
+  },
+  {
+    "id": "timeline-pagination",
+    "candidate_sha": "36e968409704fba28a211e60306a61ea31a5e014",
+    "command": [
+      "uv",
+      "run",
+      "--project",
+      ".",
+      "--locked",
+      "pytest",
+      "-q",
+      "--junitxml=/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-1d940ac9891d/workdir/qa-dea485-server.xml",
+      "tests"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": "tests.test_profile_timeline",
+      "name": "test_equal_timestamp_keyset_snapshot_and_deletion"
+    },
+    "tests": 483,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 483,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "docs/evidence/dea485-server/run/run.json",
+      "docs/evidence/dea485-server/run/output.log",
+      "docs/evidence/dea485-server/run/junit.xml"
+    ]
+  },
+  {
+    "id": "scope-fences",
+    "candidate_sha": "36e968409704fba28a211e60306a61ea31a5e014",
+    "command": [
+      "uv",
+      "run",
+      "--project",
+      ".",
+      "--locked",
+      "pytest",
+      "-q",
+      "--junitxml=/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-1d940ac9891d/workdir/qa-dea485-server.xml",
+      "tests"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": "tests.test_profile_timeline",
+      "name": "test_cursor_binding_to_viewer_target_month_offset_action_and_feed_query"
+    },
+    "tests": 483,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 483,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "docs/evidence/dea485-server/run/run.json",
+      "docs/evidence/dea485-server/run/output.log",
+      "docs/evidence/dea485-server/run/junit.xml"
+    ]
+  },
+  {
+    "id": "following-selection",
+    "candidate_sha": "36e968409704fba28a211e60306a61ea31a5e014",
+    "command": [
+      "uv",
+      "run",
+      "--project",
+      ".",
+      "--locked",
+      "pytest",
+      "-q",
+      "--junitxml=/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-1d940ac9891d/workdir/qa-dea485-server.xml",
+      "tests"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": "tests.test_profile_timeline",
+      "name": "test_follow_filter_publisher_history_empty_and_shared_post_state"
+    },
+    "tests": 483,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 483,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "docs/evidence/dea485-server/run/run.json",
+      "docs/evidence/dea485-server/run/output.log",
+      "docs/evidence/dea485-server/run/junit.xml"
+    ]
+  },
+  {
+    "id": "follow-idempotence",
+    "candidate_sha": "36e968409704fba28a211e60306a61ea31a5e014",
+    "command": [
+      "uv",
+      "run",
+      "--project",
+      ".",
+      "--locked",
+      "pytest",
+      "-q",
+      "--junitxml=/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-1d940ac9891d/workdir/qa-dea485-server.xml",
+      "tests"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": "tests.test_profile_timeline",
+      "name": "test_follow_idempotence_concurrent_requests_and_private_events"
+    },
+    "tests": 483,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 483,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "docs/evidence/dea485-server/run/run.json",
+      "docs/evidence/dea485-server/run/output.log",
+      "docs/evidence/dea485-server/run/junit.xml"
+    ]
+  },
+  {
+    "id": "follow-rollback",
+    "candidate_sha": "36e968409704fba28a211e60306a61ea31a5e014",
+    "command": [
+      "uv",
+      "run",
+      "--project",
+      ".",
+      "--locked",
+      "pytest",
+      "-q",
+      "--junitxml=/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-1d940ac9891d/workdir/qa-dea485-server.xml",
+      "tests"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": "tests.test_profile_timeline",
+      "name": "test_follow_failure_rolls_back_state_revision_event_then_retry[event-True]"
+    },
+    "tests": 483,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 483,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "docs/evidence/dea485-server/run/run.json",
+      "docs/evidence/dea485-server/run/output.log",
+      "docs/evidence/dea485-server/run/junit.xml"
+    ]
+  },
+  {
+    "id": "migration-upgrade",
+    "candidate_sha": "36e968409704fba28a211e60306a61ea31a5e014",
+    "command": [
+      "uv",
+      "run",
+      "--project",
+      ".",
+      "--locked",
+      "pytest",
+      "-q",
+      "--junitxml=/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-1d940ac9891d/workdir/qa-dea485-server.xml",
+      "tests"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": "tests.test_follow_migration",
+      "name": "test_v4_upgrade_rollback_retains_posts_chat_and_accounts"
+    },
+    "tests": 483,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 483,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "docs/evidence/dea485-server/run/run.json",
+      "docs/evidence/dea485-server/run/output.log",
+      "docs/evidence/dea485-server/run/junit.xml"
+    ]
+  },
+  {
+    "id": "live-restart",
+    "candidate_sha": "36e968409704fba28a211e60306a61ea31a5e014",
+    "command": [
+      "uv",
+      "run",
+      "--project",
+      ".",
+      "--locked",
+      "pytest",
+      "-q",
+      "--junitxml=/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-1d940ac9891d/workdir/qa-dea485-server.xml",
+      "tests"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": "tests.test_space_live",
+      "name": "test_real_profile_follow_reconciliation_restart_and_revoked_session"
+    },
+    "tests": 483,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 483,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "docs/evidence/dea485-server/run/run.json",
+      "docs/evidence/dea485-server/run/output.log",
+      "docs/evidence/dea485-server/run/junit.xml"
+    ]
+  },
+  {
+    "id": "auth-errors",
+    "candidate_sha": "36e968409704fba28a211e60306a61ea31a5e014",
+    "command": [
+      "uv",
+      "run",
+      "--project",
+      ".",
+      "--locked",
+      "pytest",
+      "-q",
+      "--junitxml=/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-1d940ac9891d/workdir/qa-dea485-server.xml",
+      "tests"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": "tests.test_profile_timeline",
+      "name": "test_profile_and_follow_errors_keep_existing_envelope"
+    },
+    "tests": 483,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 483,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "docs/evidence/dea485-server/run/run.json",
+      "docs/evidence/dea485-server/run/output.log",
+      "docs/evidence/dea485-server/run/junit.xml"
+    ]
+  }
+]

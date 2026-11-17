@@ -1,0 +1,13 @@
+{"protocolVersion":"0.1.1","runnerVersion":null,"pid":2239391,"type":"start","time":0}
+{"suite":{"id":0,"platform":"vm","path":"/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-bac7692aa6f7/workdir/BB/client/.qa-artifacts/dea485_round2_mechanism_probe_test.dart"},"type":"suite","time":0}
+{"test":{"id":1,"name":"loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-bac7692aa6f7/workdir/BB/client/.qa-artifacts/dea485_round2_mechanism_probe_test.dart","suiteID":0,"groupIDs":[],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":null},"type":"testStart","time":0}
+{"count":1,"time":3,"type":"allSuites"}
+{"testID":1,"result":"success","skipped":false,"hidden":true,"type":"testDone","time":1366}
+{"group":{"id":2,"suiteID":0,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":3,"line":null,"column":null,"url":null},"type":"group","time":1368}
+{"test":{"id":3,"name":"R2 pending following first page survives all-following return","suiteID":0,"groupIDs":[2],"metadata":{"skip":false,"skipReason":null},"line":174,"column":5,"url":"package:flutter_test/src/widget_tester.dart","root_line":18,"root_column":3,"root_url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-bac7692aa6f7/workdir/BB/client/.qa-artifacts/dea485_round2_mechanism_probe_test.dart"},"type":"testStart","time":1368}
+{"testID":3,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2121}
+{"test":{"id":4,"name":"R2 old first page failure cannot poison a restored successful scope","suiteID":0,"groupIDs":[2],"metadata":{"skip":false,"skipReason":null},"line":56,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-bac7692aa6f7/workdir/BB/client/.qa-artifacts/dea485_round2_mechanism_probe_test.dart"},"type":"testStart","time":2121}
+{"testID":4,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2129}
+{"test":{"id":5,"name":"R2 repeated follow invalidations finish with a usable authoritative state","suiteID":0,"groupIDs":[2],"metadata":{"skip":false,"skipReason":null},"line":87,"column":3,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-bac7692aa6f7/workdir/BB/client/.qa-artifacts/dea485_round2_mechanism_probe_test.dart"},"type":"testStart","time":2129}
+{"testID":5,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2134}
+{"success":true,"type":"done","time":2150}

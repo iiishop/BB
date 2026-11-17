@@ -49,6 +49,43 @@ class FakeSpaceGateway implements SpaceGateway {
   final Map<String, Uint8List> imageBytes = <String, Uint8List>{};
   final List<SpaceEventPage> eventPages = <SpaceEventPage>[];
 
+  /// Author filter of every `listPosts` call, in request order.
+  final List<String?> requestedAuthors = <String?>[];
+
+  /// Feed scope of every `listPosts` call, in request order.
+  final List<String> requestedScopes = <String>[];
+
+  /// Cursor of every `listPosts` call, in request order.
+  final List<String?> postCursors = <String?>[];
+
+  /// Pages for the "following" scope, keyed by cursor (empty string first).
+  final Map<String, SpacePagePost> followingPages = <String, SpacePagePost>{};
+
+  /// Author follow states returned by `getFollow` / changed by `setFollow`.
+  final Map<String, bool> followStates = <String, bool>{};
+  final List<String> followReads = <String>[];
+  final List<({String account, bool following})> followWrites =
+      <({String account, bool following})>[];
+
+  /// Profile timeline pages keyed by `<target>|<month|latest>|<cursor>`.
+  final Map<String, SpacePagePost> profilePages = <String, SpacePagePost>{};
+  final Map<String, List<SpaceMonthCoordinate>> profileMonths =
+      <String, List<SpaceMonthCoordinate>>{};
+  final List<
+    ({String target, int offset, String? month, String? cursor, int limit})
+  >
+  profileCalls =
+      <
+        ({String target, int offset, String? month, String? cursor, int limit})
+      >[];
+  final List<({String target, int offset})> monthCalls =
+      <({String target, int offset})>[];
+  final List<String> profileCursors = <String>[];
+
+  /// Optional gate for profile timeline calls (out-of-order responses).
+  bool holdProfilePosts = false;
+  final List<Completer<void>> profileGates = <Completer<void>>[];
+
   /// Per-action one-shot failures (FIFO). The UI must surface them, not turn
   /// them into an empty list.
   final Map<String, List<Object>> failures = <String, List<Object>>{};
@@ -134,10 +171,16 @@ class FakeSpaceGateway implements SpaceGateway {
     String? cursor,
     int limit = 20,
     bool unreadOnly = false,
+    String? author,
+    String scope = 'all',
   }) async {
     _record('list_posts');
-    final SpacePagePost page =
-        postPages[cursor ?? ''] ?? spacePagePost(const <SpacePost>[]);
+    requestedAuthors.add(author);
+    requestedScopes.add(scope);
+    postCursors.add(cursor);
+    final SpacePagePost page = scope == 'following'
+        ? (followingPages[cursor ?? ''] ?? spacePagePost(const <SpacePost>[]))
+        : (postPages[cursor ?? ''] ?? spacePagePost(const <SpacePost>[]));
     if (holdListPosts) {
       holdListPosts = false;
       final Completer<void>? captured = listPostsCaptured;
@@ -636,5 +679,66 @@ class FakeSpaceGateway implements SpaceGateway {
       action: 'delete_comment',
       resourceId: commentId,
     );
+  }
+
+  @override
+  Future<SpacePagePost> listProfilePosts({
+    required String targetAccount,
+    required int timezoneOffsetMinutes,
+    String? month,
+    String? cursor,
+    int limit = 20,
+  }) async {
+    _record('list_profile_posts');
+    profileCalls.add((
+      target: targetAccount,
+      offset: timezoneOffsetMinutes,
+      month: month,
+      cursor: cursor,
+      limit: limit,
+    ));
+    profileCursors.add(cursor ?? '');
+    final SpacePagePost page =
+        profilePages['$targetAccount|${month ?? 'latest'}|${cursor ?? ''}'] ??
+        spacePagePost(const <SpacePost>[]);
+    if (holdProfilePosts) {
+      final Completer<void> gate = Completer<void>();
+      profileGates.add(gate);
+      await gate.future;
+    }
+    return page;
+  }
+
+  @override
+  Future<SpaceProfileMonthDirectory> listProfileMonths({
+    required String targetAccount,
+    required int timezoneOffsetMinutes,
+  }) async {
+    _record('list_profile_months');
+    monthCalls.add((target: targetAccount, offset: timezoneOffsetMinutes));
+    return SpaceProfileMonthDirectory(
+      items: profileMonths[targetAccount] ?? const <SpaceMonthCoordinate>[],
+    );
+  }
+
+  @override
+  Future<SpaceFollowState> getFollow(String targetAccount) async {
+    _record('get_follow');
+    followReads.add(targetAccount);
+    return SpaceFollowState(
+      targetAccount: targetAccount,
+      following: followStates[targetAccount] ?? false,
+    );
+  }
+
+  @override
+  Future<SpaceFollowState> setFollow(
+    String targetAccount, {
+    required bool following,
+  }) async {
+    _record('set_follow');
+    followWrites.add((account: targetAccount, following: following));
+    followStates[targetAccount] = following;
+    return SpaceFollowState(targetAccount: targetAccount, following: following);
   }
 }

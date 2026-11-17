@@ -7,12 +7,61 @@ import '../../models/space_models.dart';
 import '../../services/media_disk_cache.dart';
 import '../../services/space_download_log.dart';
 import 'space_detail_controller.dart';
+import 'space_follow_store.dart';
 import 'space_gateway.dart';
 import 'space_image_viewer.dart';
 import 'space_invalidation.dart';
 import 'space_local_store.dart';
 
 enum SpaceSection { feed, notifications, drafts }
+
+/// Space feed scope. `following` filters by the publisher and never falls back
+/// to the global feed when empty.
+enum SpaceFeedScope {
+  all,
+  following;
+
+  String get wire => name;
+
+  String get label => this == all ? '全部' : '只看已关注';
+}
+
+/// Parked state of one feed scope. The two scopes keep independent pages,
+/// cursors and pending counters so switching restores a real browse position
+/// instead of reloading from the top.
+class _FeedSnapshot {
+  _FeedSnapshot({
+    required this.posts,
+    required this.nextCursor,
+    required this.hasMore,
+    required this.phase,
+    required this.feedError,
+    required this.offline,
+    required this.pendingNewPosts,
+    required this.pendingPage,
+    required this.loaded,
+    required this.followRevision,
+  });
+
+  final List<SpacePost> posts;
+  final String? nextCursor;
+  final bool hasMore;
+  final SpacePhase phase;
+  final String? feedError;
+  final bool offline;
+  final int pendingNewPosts;
+  final List<SpacePost> pendingPage;
+
+  /// Whether this scope ever completed a first-page read. A parked snapshot
+  /// captured while the first page was still in flight is not a usable empty
+  /// result and must be refetched on restore (R2-A).
+  final bool loaded;
+
+  /// Follow-store revision this snapshot's following list was loaded under.
+  /// Completion alone is not enough: an unfollow invalidates the content even
+  /// when the page finished loading (R3).
+  final int followRevision;
+}
 
 /// Feed, notification and draft state for one account/server pair.
 ///
@@ -23,16 +72,22 @@ class SpaceController extends ChangeNotifier {
   SpaceController({
     required this.gateway,
     required this.store,
+    this.followStore,
     SpaceImageLoader? images,
     SpaceDownloadLog? downloads,
     this.onSessionExpired,
     this.pollInterval = const Duration(seconds: 20),
     this.autoPoll = true,
-  }) : images = images ?? SpaceImageLoader(gateway, disk: sharedMediaDiskCache()),
+  }) : images =
+           images ?? SpaceImageLoader(gateway, disk: sharedMediaDiskCache()),
        downloads = downloads ?? SpaceDownloadLog(scopeKey: gateway.scopeKey);
 
   final SpaceGateway gateway;
   final SpaceLocalStore store;
+
+  /// Single owner of the viewer's follow relationships, shared with the author
+  /// home page. Null in isolated controller tests that do not exercise follow.
+  final SpaceFollowStore? followStore;
   final SpaceImageLoader images;
 
   /// Per-account record of downloaded space images, used to ask before a
@@ -56,6 +111,28 @@ class SpaceController extends ChangeNotifier {
   int unreadPosts = 0;
 
   SpaceSection section = SpaceSection.feed;
+
+  /// Active feed scope; both scopes keep their own parked snapshot.
+  SpaceFeedScope scope = SpaceFeedScope.all;
+  final Map<SpaceFeedScope, _FeedSnapshot> _scopeCache =
+      <SpaceFeedScope, _FeedSnapshot>{};
+  int _feedGeneration = 0;
+  int _seenFollowRevision = 0;
+  bool _followReloadPending = false;
+
+  /// True once the active scope has a completed first-page read. Reset when the
+  /// scope changes or the session restarts.
+  bool _feedLoaded = false;
+
+  /// Follow revision the active feed was loaded under. Restoring a following
+  /// snapshot from an older revision is a stale relationship view.
+  int _feedFollowRevision = 0;
+
+  int get _currentFollowRevision => followStore?.revision ?? 0;
+
+  /// A non-fatal notice such as "following changed, refreshed" shown above the
+  /// feed without replacing the list.
+  String? feedNotice;
 
   int pendingNewPosts = 0;
   List<SpacePost> _pendingPage = <SpacePost>[];
@@ -82,6 +159,7 @@ class SpaceController extends ChangeNotifier {
 
   int? _eventCursor;
   bool _eventsReady = false;
+
   /// Posts whose deletion was already observed. Late responses captured before
   /// that point must not reinsert them or restore their reference snapshots.
   final Set<String> _tombstones = <String>{};
@@ -120,6 +198,11 @@ class SpaceController extends ChangeNotifier {
       return;
     }
     _loadedOnce = true;
+    final SpaceFollowStore? follows = followStore;
+    if (follows != null) {
+      _seenFollowRevision = follows.revision;
+      follows.addListener(_onFollowRevision);
+    }
     await Future.wait<void>(<Future<void>>[
       _loadOverview(),
       _loadFeedFirst(explicit: true),
@@ -152,8 +235,29 @@ class SpaceController extends ChangeNotifier {
   }
 
   Future<void> _loadFeedFirst({required bool explicit}) async {
+    final int generation = ++_feedGeneration;
+    // Any parked/old pagination request belongs to the previous generation; its
+    // finally block no longer owns this flag (Q4).
+    loadingMore = false;
+    final SpaceFeedScope requested = scope;
+    final int requestedFollowRevision = _currentFollowRevision;
     try {
-      final SpacePagePost page = await gateway.listPosts(limit: 20);
+      final SpacePagePost page = await gateway.listPosts(
+        limit: 20,
+        scope: requested.wire,
+      );
+      if (_disposed || generation != _feedGeneration || scope != requested) {
+        return;
+      }
+      // The relationship changed while this page was in flight: its rows no
+      // longer describe the following view. The revision listener already
+      // queued/started the legitimate query, so complete that instead of
+      // certifying this stale result (R3).
+      if (requested == SpaceFeedScope.following &&
+          requestedFollowRevision != _currentFollowRevision) {
+        return;
+      }
+      followStore?.seedFromPosts(page.items);
       final List<SpacePost> admitted = _admitIncoming(page.items);
       final bool wasOffline = offline;
       if (explicit) {
@@ -178,13 +282,23 @@ class SpaceController extends ChangeNotifier {
       hasMore = page.hasMore;
       phase = posts.isEmpty ? SpacePhase.empty : SpacePhase.ready;
       feedError = null;
+      feedNotice = null;
       offline = false;
       unsupportedServer = false;
+      _feedLoaded = true;
+      _feedFollowRevision = requestedFollowRevision;
+      _scopeCache.remove(requested);
       _notify();
       if (wasOffline) {
         unawaited(_reconnectReplay());
       }
     } on AuthFailure catch (failure) {
+      // An abandoned request must not inject its failure into the scope the
+      // person is looking at now (R2-B). Success already had this fence; the
+      // error branches need the same one.
+      if (_disposed || generation != _feedGeneration || scope != requested) {
+        return;
+      }
       if (isSpaceUnauthorized(failure)) {
         onSessionExpired?.call();
         phase = SpacePhase.error;
@@ -200,6 +314,9 @@ class SpaceController extends ChangeNotifier {
       }
       _notify();
     } catch (failure) {
+      if (_disposed || generation != _feedGeneration || scope != requested) {
+        return;
+      }
       offline = isSpaceOffline(failure);
       phase = posts.isEmpty ? SpacePhase.error : phase;
       feedError = spaceErrorText(failure);
@@ -223,6 +340,12 @@ class SpaceController extends ChangeNotifier {
       ]);
     } finally {
       refreshing = false;
+      if (_followReloadPending) {
+        _followReloadPending = false;
+        if (scope == SpaceFeedScope.following) {
+          unawaited(_loadFeedFirst(explicit: true));
+        }
+      }
       _notify();
     }
   }
@@ -231,13 +354,29 @@ class SpaceController extends ChangeNotifier {
     if (loadingMore || !hasMore) {
       return;
     }
+    final int generation = _feedGeneration;
+    final SpaceFeedScope requested = scope;
+    final int requestedFollowRevision = _currentFollowRevision;
     loadingMore = true;
     _notify();
     try {
       final SpacePagePost page = await gateway.listPosts(
         cursor: nextCursor,
         limit: 20,
+        scope: requested.wire,
       );
+      if (_disposed || generation != _feedGeneration || scope != requested) {
+        return;
+      }
+      // The relationship changed while this page was in flight: its rows no
+      // longer describe the following view. The revision listener already
+      // queued/started the legitimate query, so complete that instead of
+      // certifying this stale result (R3).
+      if (requested == SpaceFeedScope.following &&
+          requestedFollowRevision != _currentFollowRevision) {
+        return;
+      }
+      followStore?.seedFromPosts(page.items);
       final Set<String> seen = posts.map((SpacePost p) => p.postId).toSet();
       posts.addAll(
         _admitIncoming(page.items).where((SpacePost p) => seen.add(p.postId)),
@@ -246,14 +385,44 @@ class SpaceController extends ChangeNotifier {
       hasMore = page.hasMore;
       offline = false;
       feedError = null;
+    } on AuthFailure catch (failure) {
+      if (_disposed || generation != _feedGeneration || scope != requested) {
+        return;
+      }
+      // The server invalidates a following cursor when the viewer's follow
+      // revision changed. Refresh that view from its first page instead of
+      // mixing scopes or looping on the stale cursor.
+      if (requested == SpaceFeedScope.following &&
+          generation == _feedGeneration &&
+          _isStaleCursor(failure)) {
+        loadingMore = false;
+        await _loadFeedFirst(explicit: true);
+        if (!_disposed) {
+          feedNotice = '关注关系已变化，已从首屏刷新';
+          _notify();
+        }
+        return;
+      }
+      offline = isSpaceOffline(failure);
+      feedError = spaceErrorText(failure);
     } catch (failure) {
+      if (_disposed || generation != _feedGeneration || scope != requested) {
+        return;
+      }
       offline = isSpaceOffline(failure);
       feedError = spaceErrorText(failure);
     } finally {
-      loadingMore = false;
-      _notify();
+      if (!_disposed && generation == _feedGeneration) {
+        loadingMore = false;
+        _notify();
+      }
     }
   }
+
+  bool _isStaleCursor(Object failure) =>
+      failure is AuthFailure &&
+      failure.status == 422 &&
+      failure.code == 'validation_error';
 
   /// Applies posts discovered by a background comparison. Used only by the
   /// explicit "有新说说" affordance so reading position never jumps.
@@ -268,7 +437,9 @@ class SpaceController extends ChangeNotifier {
       _notify();
       return;
     }
-    final Set<String> incoming = admitted.map((SpacePost p) => p.postId).toSet();
+    final Set<String> incoming = admitted
+        .map((SpacePost p) => p.postId)
+        .toSet();
     posts
       ..removeWhere((SpacePost p) => incoming.contains(p.postId))
       ..insertAll(0, admitted);
@@ -338,6 +509,7 @@ class SpaceController extends ChangeNotifier {
     return SpacePost(
       postId: target.postId,
       author: target.author,
+      authorFollowing: target.authorFollowing,
       createdAt: target.createdAt,
       text: target.text,
       images: target.images,
@@ -442,8 +614,9 @@ class SpaceController extends ChangeNotifier {
     // Invalidate the owned image bytes before removing the last snapshot that
     // still knows which images belong to this post.
     _invalidateImagesForPostId(postId);
-    posts.removeWhere((SpacePost p) => p.postId == postId);
-    _pendingPage.removeWhere((SpacePost p) => p.postId == postId);
+    for (final List<SpacePost> list in _allPostLists) {
+      list.removeWhere((SpacePost p) => p.postId == postId);
+    }
     _scrubReferencesTo(postId);
     _scrubCommentCaches();
     if (posts.isEmpty && phase == SpacePhase.ready) {
@@ -468,11 +641,10 @@ class SpaceController extends ChangeNotifier {
       }
     }
 
-    for (final SpacePost post in posts) {
-      invalidate(post);
-    }
-    for (final SpacePost post in _pendingPage) {
-      invalidate(post);
+    for (final List<SpacePost> list in _allPostLists) {
+      for (final SpacePost post in list) {
+        invalidate(post);
+      }
     }
     invalidate(_details[postId]?.post);
     // Snapshots can be gone (detail backed out or closed) before the deletion
@@ -545,14 +717,10 @@ class SpaceController extends ChangeNotifier {
   }
 
   void _scrubCommentCaches() {
-    for (int i = 0; i < posts.length; i++) {
-      posts[i] = spacePostWithScrubbedComments(posts[i], _isDeletedComment);
-    }
-    for (int i = 0; i < _pendingPage.length; i++) {
-      _pendingPage[i] = spacePostWithScrubbedComments(
-        _pendingPage[i],
-        _isDeletedComment,
-      );
+    for (final List<SpacePost> list in _allPostLists) {
+      for (int i = 0; i < list.length; i++) {
+        list[i] = spacePostWithScrubbedComments(list[i], _isDeletedComment);
+      }
     }
     for (int i = 0; i < notifications.length; i++) {
       notifications[i] = _scrubNotification(notifications[i]);
@@ -564,6 +732,18 @@ class SpaceController extends ChangeNotifier {
       for (final SpacePost post in items)
         if (!_tombstones.contains(post.postId)) _scrubIncoming(post),
     ];
+  }
+
+  /// Every mutable post snapshot the controller can restore or show: the
+  /// active feed, its pending page and both parked scope snapshots with their
+  /// pending pages. Deletion/comment invalidation must reach all of them.
+  Iterable<List<SpacePost>> get _allPostLists sync* {
+    yield posts;
+    yield _pendingPage;
+    for (final _FeedSnapshot snapshot in _scopeCache.values) {
+      yield snapshot.posts;
+      yield snapshot.pendingPage;
+    }
   }
 
   /// A deleted post can still be embedded as a reference card in other loaded
@@ -585,8 +765,9 @@ class SpaceController extends ChangeNotifier {
       }
     }
 
-    scrub(posts);
-    scrub(_pendingPage);
+    for (final List<SpacePost> list in _allPostLists) {
+      scrub(list);
+    }
     for (final SpaceDetailController controller in _details.values) {
       final SpaceReference? reference = controller.post?.reference;
       if (reference != null && reference.postId == postId) {
@@ -602,6 +783,139 @@ class SpaceController extends ChangeNotifier {
   String _newVisitId() {
     _visitCounter += 1;
     return 'visit-${DateTime.now().microsecondsSinceEpoch}-$_visitCounter';
+  }
+
+  /// Switches the feed scope, parking the current scope's page/cursor so both
+  /// views keep an independent position. Scroll offsets themselves are owned by
+  /// the page (two saved offsets).
+  Future<void> switchScope(SpaceFeedScope target) async {
+    if (scope == target) {
+      return;
+    }
+    _parkScope();
+    scope = target;
+    // Old requests belong to the previous scope; they must neither apply nor
+    // hold the new scope's pagination flag (Q4).
+    _feedGeneration += 1;
+    loadingMore = false;
+    refreshing = false;
+    final _FeedSnapshot? parked = _scopeCache.remove(target);
+    final bool relationshipValid =
+        target != SpaceFeedScope.following ||
+        (parked != null && parked.followRevision == _currentFollowRevision);
+    if (parked != null && parked.loaded && relationshipValid) {
+      // Reapply deletion tombstones and reference/comment scrubs: a parked
+      // snapshot was captured before events that arrived while it was parked
+      // (Q3).
+      final List<SpacePost> restored = _admitIncoming(parked.posts);
+      posts
+        ..clear()
+        ..addAll(restored);
+      nextCursor = parked.nextCursor;
+      hasMore = parked.hasMore;
+      phase = posts.isEmpty ? SpacePhase.empty : parked.phase;
+      if (posts.isEmpty && phase == SpacePhase.ready) {
+        phase = SpacePhase.empty;
+      }
+      feedError = parked.feedError;
+      offline = parked.offline;
+      pendingNewPosts = parked.pendingNewPosts;
+      _pendingPage = _admitIncoming(parked.pendingPage);
+      feedNotice = null;
+      _feedLoaded = true;
+      _feedFollowRevision = parked.followRevision;
+      _notify();
+      return;
+    }
+    await _startScopeLoad();
+  }
+
+  /// Starts a fresh first page for the current scope. Used when a scope was
+  /// never completed (parked while its first page was still in flight) and on
+  /// a session reset; the old in-flight response is already generation-fenced.
+  Future<void> _startScopeLoad() async {
+    posts.clear();
+    nextCursor = null;
+    hasMore = false;
+    feedError = null;
+    feedNotice = null;
+    offline = false;
+    pendingNewPosts = 0;
+    _pendingPage = <SpacePost>[];
+    phase = SpacePhase.loading;
+    _feedLoaded = false;
+    _notify();
+    await _loadFeedFirst(explicit: true);
+  }
+
+  void _parkScope() {
+    _scopeCache[scope] = _FeedSnapshot(
+      posts: List<SpacePost>.from(posts),
+      nextCursor: nextCursor,
+      hasMore: hasMore,
+      phase: phase,
+      feedError: feedError,
+      offline: offline,
+      pendingNewPosts: pendingNewPosts,
+      pendingPage: List<SpacePost>.from(_pendingPage),
+      loaded: _feedLoaded,
+      followRevision: _feedFollowRevision,
+    );
+  }
+
+  /// Leaving the Space main area ends the Space session: the scope switch is
+  /// not remembered, and both scopes' parked state is dropped. Re-entering
+  /// starts from "all" with the newest page.
+  Future<void> resetSession() async {
+    _scopeCache.clear();
+    _feedGeneration += 1;
+    loadingMore = false;
+    refreshing = false;
+    _followReloadPending = false;
+    scope = SpaceFeedScope.all;
+    section = SpaceSection.feed;
+    posts.clear();
+    nextCursor = null;
+    hasMore = false;
+    feedError = null;
+    feedNotice = null;
+    offline = false;
+    pendingNewPosts = 0;
+    _pendingPage = <SpacePost>[];
+    phase = SpacePhase.loading;
+    _feedLoaded = false;
+    _clearStack();
+    _notify();
+    await _loadFeedFirst(explicit: true);
+  }
+
+  /// The shared follow store changed (local write or a `follow.changed`
+  /// replay): anything cached for "following" is stale and, when that view is
+  /// active, it reloads from its first page.
+  void _onFollowRevision() {
+    final SpaceFollowStore? follows = followStore;
+    if (follows == null || follows.revision == _seenFollowRevision) {
+      return;
+    }
+    _seenFollowRevision = follows.revision;
+    _scopeCache.remove(SpaceFeedScope.following);
+    if (scope == SpaceFeedScope.following) {
+      // Completion and relationship validity are separate: the loaded list is
+      // stale even though its read finished, and any in-flight continuation
+      // belongs to the old revision.
+      _feedLoaded = false;
+      _feedGeneration += 1;
+      loadingMore = false;
+      if (refreshing) {
+        // The in-flight first page was captured before the relationship
+        // changed; reload it once the refresh finishes instead of showing a
+        // stale following list.
+        _followReloadPending = true;
+      } else {
+        unawaited(_loadFeedFirst(explicit: true));
+      }
+    }
+    _notify();
   }
 
   void showFeed() {
@@ -872,16 +1186,8 @@ class SpaceController extends ChangeNotifier {
       case 'post.deleted':
         final String? postId = event.postId;
         if (postId != null) {
-          _tombstones.add(postId);
-          _invalidateImagesForPostId(postId);
-          posts.removeWhere((SpacePost p) => p.postId == postId);
-          _pendingPage.removeWhere((SpacePost p) => p.postId == postId);
+          _handlePostDeleted(postId);
           _details[postId]?.onDeletedEvent();
-          _scrubReferencesTo(postId);
-          _scrubCommentCaches();
-          if (posts.isEmpty && phase == SpacePhase.ready) {
-            phase = SpacePhase.empty;
-          }
         }
         break;
       case 'post.changed':
@@ -915,12 +1221,18 @@ class SpaceController extends ChangeNotifier {
           unawaited(loadDrafts(silent: true));
         }
         break;
+      case 'follow.changed':
+        // Private invalidation (no post/comment/notification IDs): refetch the
+        // viewer's follow state and invalidate the following feed.
+        followStore?.handleFollowChanged();
+        break;
     }
   }
 
   @override
   void dispose() {
     _disposed = true;
+    followStore?.removeListener(_onFollowRevision);
     _timer?.cancel();
     _timer = null;
     for (final SpaceDetailController controller in _details.values) {

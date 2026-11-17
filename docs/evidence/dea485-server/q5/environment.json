@@ -1,0 +1,20 @@
+{
+  "python": "3.13.15",
+  "os": "Linux-7.2.4-arch1-2-x86_64-with-glibc2.44",
+  "uv": "uv 0.12.10 (3c979abda 2026-09-04 x86_64-unknown-linux-gnu)",
+  "node": "v26.8.2",
+  "deps": {
+    "mcp": "1.30.0",
+    "httpx": "0.28.1",
+    "pydantic": "2.14.3",
+    "pytest": "9.2.0",
+    "pytest-asyncio": "1.4.1.post1",
+    "ruff": "0.17.4"
+  },
+  "locks": {
+    "dsh-plugin/uv.lock": "74091dc3dedcf8135098c9412ba5f3a9313bbbba2fad4ba3a395749902e09c85",
+    "dsh-plugin/pyproject.toml": "52ae3465597426aa2491cb10e5ddf0d79e1a22c47252904f8b70ce9025756bc0",
+    "server/contract/pyproject.toml": "7e3ee702a2cd9d72ee075aa2f9ed80d9dda0e566bfb61962869553a2a2799117"
+  },
+  "qa_attachment_sha256": "c8b32f7b3a59ccad2e11b93ca4625862088fdb82f5de355ca696f341106bcf8c"
+}

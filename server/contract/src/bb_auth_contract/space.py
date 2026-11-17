@@ -49,6 +49,46 @@ class CommentKey(Wire):
 class PostList(PageQuery):
     author: Account | None = None
     unread_only: bool = False
+    scope: Literal["all", "following"] = "all"
+
+
+class FollowTarget(Wire):
+    target_account: Account
+
+
+class SetFollow(FollowTarget):
+    following: bool
+
+
+class FollowState(FollowTarget):
+    following: bool
+
+
+class ProfileMonths(FollowTarget):
+    # One fixed display offset per browsing session; no server regional default.
+    timezone_offset_minutes: int = Field(ge=-840, le=840)
+
+
+class ProfileTimeline(ProfileMonths, PageQuery):
+    # Upper time bound, never an equality filter. Repeat on subsequent pages.
+    month: (
+        Annotated[str, Field(pattern=r"^(?:[1-9][0-9]{3})-(?:0[1-9]|1[0-2])$")] | None
+    ) = None
+
+    @model_validator(mode="after")
+    def supported_year(self):
+        if self.month is not None and self.month.startswith("9999-"):
+            raise ValueError("month year must be at most 9998")
+        return self
+
+
+class ProfileMonth(Wire):
+    year: int = Field(ge=1, le=9999)
+    month: int = Field(ge=1, le=12)
+
+
+class ProfileMonthDirectory(Wire):
+    items: list[ProfileMonth]
 
 
 class GetPost(PostKey):
@@ -212,6 +252,7 @@ class Branch(Wire):
 class Post(Wire):
     post_id: Id
     author: Author
+    author_following: bool = False
     created_at: str
     text: str
     images: list[Image]
@@ -304,6 +345,7 @@ class Event(Wire):
         "notification.changed",
         "read.changed",
         "draft.changed",
+        "follow.changed",
     ]
     post_id: Id | None
     comment_id: Id | None
@@ -319,6 +361,10 @@ class EventPage(Wire):
 
 # Real routes, generated schemas and test requests consume this same registry.
 REQUESTS = {
+    "get_follow": FollowTarget,
+    "set_follow": SetFollow,
+    "list_profile_posts": ProfileTimeline,
+    "list_profile_months": ProfileMonths,
     "get_image": GetImage,
     "overview": Empty,
     "list_posts": PostList,
@@ -346,6 +392,10 @@ REQUESTS = {
     "read_events": Events,
 }
 RESPONSES = {
+    "get_follow": FollowState,
+    "set_follow": FollowState,
+    "list_profile_posts": Page[Post],
+    "list_profile_months": ProfileMonthDirectory,
     "get_image": ImageContent,
     "overview": Overview,
     "list_posts": Page[Post],

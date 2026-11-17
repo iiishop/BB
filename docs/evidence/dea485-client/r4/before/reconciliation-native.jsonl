@@ -1,0 +1,14 @@
+{"protocolVersion":"0.1.1","runnerVersion":null,"pid":2282267,"type":"start","time":0}
+{"suite":{"id":0,"platform":"vm","path":"/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-bac7692aa6f7/workdir/BB/client/.qa-artifacts/dea485_round4_reconciliation_probe_test.dart"},"type":"suite","time":0}
+{"test":{"id":1,"name":"loading /home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-bac7692aa6f7/workdir/BB/client/.qa-artifacts/dea485_round4_reconciliation_probe_test.dart","suiteID":0,"groupIDs":[],"metadata":{"skip":false,"skipReason":null},"line":null,"column":null,"url":null},"type":"testStart","time":0}
+{"count":1,"time":4,"type":"allSuites"}
+{"testID":1,"result":"success","skipped":false,"hidden":true,"type":"testDone","time":1380}
+{"group":{"id":2,"suiteID":0,"parentID":null,"name":"","metadata":{"skip":false,"skipReason":null},"testCount":3,"line":null,"column":null,"url":null},"type":"group","time":1382}
+{"test":{"id":3,"name":"R4 real receiver unfollow reconciliation keeps feed consistent: confirmed","suiteID":0,"groupIDs":[2],"metadata":{"skip":false,"skipReason":null},"line":21,"column":5,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-bac7692aa6f7/workdir/BB/client/.qa-artifacts/dea485_round4_reconciliation_probe_test.dart"},"type":"testStart","time":1382}
+{"testID":3,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":1806}
+{"test":{"id":4,"name":"R4 real receiver unfollow reconciliation keeps feed consistent: reply_lost","suiteID":0,"groupIDs":[2],"metadata":{"skip":false,"skipReason":null},"line":21,"column":5,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-bac7692aa6f7/workdir/BB/client/.qa-artifacts/dea485_round4_reconciliation_probe_test.dart"},"type":"testStart","time":1806}
+{"testID":4,"error":"Expected: Set:[]\n  Actual: Set:['05525f89e080411989c061610068b378']\n   Which: larger than expected\nAuthoritative reconciliation must invalidate following snapshots just like a confirmed mutation\n","stackTrace":"package:matcher                                                  expect\npackage:flutter_test/src/widget_tester.dart 473:18               expect\n.qa-artifacts/dea485_round4_reconciliation_probe_test.dart 80:9  main.<fn>\n","isFailure":true,"type":"error","time":2165}
+{"testID":4,"result":"failure","skipped":false,"hidden":false,"type":"testDone","time":2165}
+{"test":{"id":5,"name":"R4 real receiver unfollow reconciliation keeps feed consistent: not_sent","suiteID":0,"groupIDs":[2],"metadata":{"skip":false,"skipReason":null},"line":21,"column":5,"url":"file:///home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-bac7692aa6f7/workdir/BB/client/.qa-artifacts/dea485_round4_reconciliation_probe_test.dart"},"type":"testStart","time":2165}
+{"testID":5,"result":"success","skipped":false,"hidden":false,"type":"testDone","time":2490}
+{"success":false,"type":"done","time":2503}

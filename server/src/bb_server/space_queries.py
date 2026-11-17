@@ -2,6 +2,7 @@
 
 import base64
 import json
+from datetime import UTC, datetime, timedelta
 
 from bb_auth_contract import ContractError
 
@@ -26,6 +27,25 @@ def own_draft(db, account, draft_id):
     if row is None:
         fail(404, "not_found")
     return row
+
+
+def require_account(db, account):
+    if db.execute("SELECT 1 FROM users WHERE account=?", (account,)).fetchone() is None:
+        fail(404, "not_found")
+
+
+def following(db, account, target):
+    return bool(
+        db.execute(
+            "SELECT 1 FROM space_follows WHERE account=? AND target_account=?",
+            (account, target),
+        ).fetchone()
+    )
+
+
+def follow_state(db, account, target):
+    require_account(db, target)
+    return {"target_account": target, "following": following(db, account, target)}
 
 
 def author(db, account):
@@ -155,6 +175,7 @@ def post(db, row, account):
     return {
         "post_id": pid,
         "author": author(db, row["author"]),
+        "author_following": following(db, account, row["author"]),
         "created_at": row["created_at"],
         "text": row["text"],
         "images": images(db, "post_id", pid),
@@ -377,6 +398,69 @@ def comment_context(db, account, body):
     }
 
 
+def post_page(db, account, action, body):
+    profile = action == "list_profile_posts"
+    if profile:
+        require_account(db, body.target_account)
+        scope = [
+            action,
+            account,
+            body.target_account,
+            body.timezone_offset_minutes,
+            body.month,
+        ]
+    else:
+        scope = [action, account, body.author, body.unread_only, body.scope]
+        if body.scope == "following":
+            revision = db.execute(
+                "SELECT revision FROM space_follow_versions WHERE account=?", (account,)
+            ).fetchone()
+            scope.append(revision[0] if revision else 0)
+    key = decode_cursor(body.cursor, scope, 3)
+    if key:
+        if not key[2].isdigit() or len(key[2]) > 16:
+            fail(422, "validation_error")
+        upper = int(key[2])
+    else:
+        upper = db.execute("SELECT coalesce(max(seq),0) FROM space_posts").fetchone()[0]
+    query, params = "SELECT * FROM space_posts WHERE deleted=0 AND seq<=?", [upper]
+    target = body.target_account if profile else body.author
+    if target:
+        query += " AND author=?"
+        params.append(target)
+    if profile and body.month is not None:
+        year, month = map(int, body.month.split("-"))
+        upper_time = datetime(year + (month == 12), month % 12 + 1, 1, tzinfo=UTC)
+        upper_time -= timedelta(minutes=body.timezone_offset_minutes)
+        query += " AND created_at<?"
+        params.append(
+            upper_time.isoformat(timespec="microseconds").replace("+00:00", "Z")
+        )
+    if not profile and body.unread_only:
+        query += " AND NOT EXISTS(SELECT 1 FROM space_reads r WHERE r.post_id=space_posts.id AND r.account=?)"
+        params.append(account)
+    if not profile and body.scope == "following":
+        query += " AND EXISTS(SELECT 1 FROM space_follows f WHERE f.account=? AND f.target_account=space_posts.author)"
+        params.append(account)
+    anchored = body.model_copy(
+        update={"cursor": encode_cursor(scope, key[:2]) if key else None}
+    )
+    result = page(
+        db,
+        query,
+        params,
+        anchored,
+        scope,
+        ["created_at", "id"],
+        lambda r: post(db, r, account),
+        descending=True,
+    )
+    if result["next_cursor"]:
+        next_key = decode_cursor(result["next_cursor"], scope, 2)
+        result["next_cursor"] = encode_cursor(scope, [*next_key, str(upper)])
+    return result
+
+
 def read(db, account, action, body):
     if action == "overview":
         return {
@@ -398,41 +482,20 @@ def read(db, account, action, body):
         }
     if action == "get_post":
         return post(db, live_post(db, body.post_id), account)
-    if action == "list_posts":
-        scope = [action, account, body.author, body.unread_only]
-        key = decode_cursor(body.cursor, scope, 3)
-        if key:
-            if not key[2].isdigit() or len(key[2]) > 16:
-                fail(422, "validation_error")
-            upper = int(key[2])
-        else:
-            upper = db.execute(
-                "SELECT coalesce(max(seq),0) FROM space_posts"
-            ).fetchone()[0]
-        query, params = "SELECT * FROM space_posts WHERE deleted=0 AND seq<=?", [upper]
-        if body.author:
-            query += " AND author=?"
-            params.append(body.author)
-        if body.unread_only:
-            query += " AND NOT EXISTS(SELECT 1 FROM space_reads r WHERE r.post_id=space_posts.id AND r.account=?)"
-            params.append(account)
-        anchored = body.model_copy(
-            update={"cursor": encode_cursor(scope, key[:2]) if key else None}
+    if action in ("list_posts", "list_profile_posts"):
+        return post_page(db, account, action, body)
+    if action == "list_profile_months":
+        require_account(db, body.target_account)
+        rows = db.execute(
+            "SELECT DISTINCT strftime('%Y-%m',created_at,?) AS month "
+            "FROM space_posts WHERE deleted=0 AND author=? ORDER BY month DESC",
+            (f"{body.timezone_offset_minutes:+d} minutes", body.target_account),
         )
-        result = page(
-            db,
-            query,
-            params,
-            anchored,
-            scope,
-            ["created_at", "id"],
-            lambda r: post(db, r, account),
-            descending=True,
-        )
-        if result["next_cursor"]:
-            next_key = decode_cursor(result["next_cursor"], scope, 2)
-            result["next_cursor"] = encode_cursor(scope, [*next_key, str(upper)])
-        return result
+        return {
+            "items": [{"year": int(r[0][:4]), "month": int(r[0][5:])} for r in rows]
+        }
+    if action == "get_follow":
+        return follow_state(db, account, body.target_account)
     if action == "get_draft":
         return draft(db, own_draft(db, account, body.draft_id))
     if action == "list_drafts":

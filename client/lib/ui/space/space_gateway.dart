@@ -20,6 +20,34 @@ abstract interface class SpaceGateway {
     String? cursor,
     int limit = 20,
     bool unreadOnly = false,
+    String? author,
+    String scope = 'all',
+  });
+
+  /// DEA-485: one author's timeline. `month` is a `YYYY-MM` upper bound in the
+  /// explicit display offset; older months stay reachable through the cursor.
+  Future<SpacePagePost> listProfilePosts({
+    required String targetAccount,
+    required int timezoneOffsetMinutes,
+    String? month,
+    String? cursor,
+    int limit = 20,
+  });
+
+  /// Visible (non-empty) months for one author under the same display offset.
+  Future<SpaceProfileMonthDirectory> listProfileMonths({
+    required String targetAccount,
+    required int timezoneOffsetMinutes,
+  });
+
+  Future<SpaceFollowState> getFollow(String targetAccount);
+
+  /// Desired-state write; returns the authoritative relationship. No operation
+  /// ID by contract: duplicates are no-ops and a lost reply is reconciled with
+  /// [getFollow].
+  Future<SpaceFollowState> setFollow(
+    String targetAccount, {
+    required bool following,
   });
 
   Future<SpacePost> getPost(String postId, {String? visitId});
@@ -146,7 +174,49 @@ class SpaceServiceGateway implements SpaceGateway {
     String? cursor,
     int limit = 20,
     bool unreadOnly = false,
-  }) => service.listPosts(cursor: cursor, limit: limit, unreadOnly: unreadOnly);
+    String? author,
+    String scope = 'all',
+  }) => service.listPosts(
+    cursor: cursor,
+    limit: limit,
+    unreadOnly: unreadOnly,
+    author: author,
+    scope: scope,
+  );
+
+  @override
+  Future<SpacePagePost> listProfilePosts({
+    required String targetAccount,
+    required int timezoneOffsetMinutes,
+    String? month,
+    String? cursor,
+    int limit = 20,
+  }) => service.listProfilePosts(
+    targetAccount: targetAccount,
+    timezoneOffsetMinutes: timezoneOffsetMinutes,
+    month: month,
+    cursor: cursor,
+    limit: limit,
+  );
+
+  @override
+  Future<SpaceProfileMonthDirectory> listProfileMonths({
+    required String targetAccount,
+    required int timezoneOffsetMinutes,
+  }) => service.listProfileMonths(
+    targetAccount: targetAccount,
+    timezoneOffsetMinutes: timezoneOffsetMinutes,
+  );
+
+  @override
+  Future<SpaceFollowState> getFollow(String targetAccount) =>
+      service.getFollow(targetAccount: targetAccount);
+
+  @override
+  Future<SpaceFollowState> setFollow(
+    String targetAccount, {
+    required bool following,
+  }) => service.setFollow(targetAccount: targetAccount, following: following);
 
   @override
   Future<SpacePost> getPost(String postId, {String? visitId}) =>

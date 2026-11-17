@@ -1,0 +1,264 @@
+[
+  {
+    "id": "q5-discovery",
+    "candidate_sha": "a8d3070ec210787ff6e17942781420d85507f974",
+    "command": [
+      "uv",
+      "run",
+      "--project",
+      ".",
+      "--locked",
+      "pytest",
+      "tests",
+      "-q",
+      "--junitxml=/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-1d940ac9891d/workdir/q5-after.xml"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": "tests.test_space_tools",
+      "name": "test_discovery_exact_contract_and_no_internal_replay"
+    },
+    "tests": 122,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 122,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "docs/evidence/dea485-server/q5/after/run.json",
+      "docs/evidence/dea485-server/q5/after/output.log",
+      "docs/evidence/dea485-server/q5/after/junit.xml"
+    ],
+    "before": {
+      "sha": "b6becc4f143b2489ddc04f12a8ec0af1e20f8a86",
+      "failure_kind": "assertion",
+      "raw_type": "",
+      "run": "before/run.json"
+    }
+  },
+  {
+    "id": "q5-future-request",
+    "candidate_sha": "a8d3070ec210787ff6e17942781420d85507f974",
+    "command": [
+      "uv",
+      "run",
+      "--project",
+      ".",
+      "--locked",
+      "pytest",
+      "tests",
+      "-q",
+      "--junitxml=/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-1d940ac9891d/workdir/q5-after.xml"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": "tests.test_space_tools",
+      "name": "test_future_http_request_does_not_become_an_mcp_tool"
+    },
+    "tests": 122,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 122,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "docs/evidence/dea485-server/q5/after/run.json",
+      "docs/evidence/dea485-server/q5/after/output.log",
+      "docs/evidence/dea485-server/q5/after/junit.xml"
+    ]
+  },
+  {
+    "id": "q5-stdio",
+    "candidate_sha": "a8d3070ec210787ff6e17942781420d85507f974",
+    "command": [
+      "uv",
+      "run",
+      "--project",
+      ".",
+      "--locked",
+      "pytest",
+      "tests",
+      "-q",
+      "--junitxml=/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-1d940ac9891d/workdir/q5-after.xml"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": "tests.test_stdio",
+      "name": "test_stdio_eight_tools_and_stateless_http"
+    },
+    "tests": 122,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 122,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "docs/evidence/dea485-server/q5/after/run.json",
+      "docs/evidence/dea485-server/q5/after/output.log",
+      "docs/evidence/dea485-server/q5/after/junit.xml"
+    ]
+  },
+  {
+    "id": "q5-deny-get_follow",
+    "candidate_sha": "a8d3070ec210787ff6e17942781420d85507f974",
+    "command": [
+      "uv",
+      "run",
+      "--project",
+      ".",
+      "--locked",
+      "pytest",
+      "tests",
+      "-q",
+      "--junitxml=/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-1d940ac9891d/workdir/q5-after.xml"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": "tests.test_space_tools",
+      "name": "test_http_only_actions_cannot_be_called_through_mcp_or_guarded_transport[get_follow]"
+    },
+    "tests": 122,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 122,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "docs/evidence/dea485-server/q5/after/run.json",
+      "docs/evidence/dea485-server/q5/after/output.log",
+      "docs/evidence/dea485-server/q5/after/junit.xml"
+    ]
+  },
+  {
+    "id": "q5-deny-set_follow",
+    "candidate_sha": "a8d3070ec210787ff6e17942781420d85507f974",
+    "command": [
+      "uv",
+      "run",
+      "--project",
+      ".",
+      "--locked",
+      "pytest",
+      "tests",
+      "-q",
+      "--junitxml=/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-1d940ac9891d/workdir/q5-after.xml"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": "tests.test_space_tools",
+      "name": "test_http_only_actions_cannot_be_called_through_mcp_or_guarded_transport[set_follow]"
+    },
+    "tests": 122,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 122,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "docs/evidence/dea485-server/q5/after/run.json",
+      "docs/evidence/dea485-server/q5/after/output.log",
+      "docs/evidence/dea485-server/q5/after/junit.xml"
+    ]
+  },
+  {
+    "id": "q5-deny-list_profile_posts",
+    "candidate_sha": "a8d3070ec210787ff6e17942781420d85507f974",
+    "command": [
+      "uv",
+      "run",
+      "--project",
+      ".",
+      "--locked",
+      "pytest",
+      "tests",
+      "-q",
+      "--junitxml=/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-1d940ac9891d/workdir/q5-after.xml"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": "tests.test_space_tools",
+      "name": "test_http_only_actions_cannot_be_called_through_mcp_or_guarded_transport[list_profile_posts]"
+    },
+    "tests": 122,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 122,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "docs/evidence/dea485-server/q5/after/run.json",
+      "docs/evidence/dea485-server/q5/after/output.log",
+      "docs/evidence/dea485-server/q5/after/junit.xml"
+    ]
+  },
+  {
+    "id": "q5-deny-list_profile_months",
+    "candidate_sha": "a8d3070ec210787ff6e17942781420d85507f974",
+    "command": [
+      "uv",
+      "run",
+      "--project",
+      ".",
+      "--locked",
+      "pytest",
+      "tests",
+      "-q",
+      "--junitxml=/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-1d940ac9891d/workdir/q5-after.xml"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": "tests.test_space_tools",
+      "name": "test_http_only_actions_cannot_be_called_through_mcp_or_guarded_transport[list_profile_months]"
+    },
+    "tests": 122,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 122,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "docs/evidence/dea485-server/q5/after/run.json",
+      "docs/evidence/dea485-server/q5/after/output.log",
+      "docs/evidence/dea485-server/q5/after/junit.xml"
+    ]
+  },
+  {
+    "id": "q5-deny-read_events",
+    "candidate_sha": "a8d3070ec210787ff6e17942781420d85507f974",
+    "command": [
+      "uv",
+      "run",
+      "--project",
+      ".",
+      "--locked",
+      "pytest",
+      "tests",
+      "-q",
+      "--junitxml=/home/iiishop/multica_workspaces/deardeer-60c9c9e52ffd/dea-485-1d940ac9891d/workdir/q5-after.xml"
+    ],
+    "exit_code": 0,
+    "testcase": {
+      "classname": "tests.test_space_tools",
+      "name": "test_http_only_actions_cannot_be_called_through_mcp_or_guarded_transport[read_events]"
+    },
+    "tests": 122,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed": 122,
+    "failure_kind": null,
+    "gaps": [],
+    "evidence_paths": [
+      "docs/evidence/dea485-server/q5/after/run.json",
+      "docs/evidence/dea485-server/q5/after/output.log",
+      "docs/evidence/dea485-server/q5/after/junit.xml"
+    ]
+  }
+]

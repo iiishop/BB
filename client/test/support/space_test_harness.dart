@@ -2,6 +2,7 @@ import 'dart:ui' show DisplayFeature, DisplayFeatureState, DisplayFeatureType;
 
 import 'package:bb_client/app.dart';
 import 'package:bb_client/services/profile_service.dart';
+import 'package:bb_client/ui/space/space_follow_store.dart';
 import 'package:bb_client/ui/space/space_local_store.dart';
 import 'package:bb_client/ui/space/space_page.dart';
 import 'package:flutter/material.dart';
@@ -40,6 +41,8 @@ Future<void> pumpSpacePage(
   Duration? pollInterval,
   bool autoPoll = false,
   SpaceLocalStore? store,
+  SpaceFollowStore? followStore,
+  bool active = true,
   bool remount = true,
 }) async {
   tester.view.physicalSize = size;
@@ -63,6 +66,13 @@ Future<void> pumpSpacePage(
           key: pageKey,
           gateway: gateway,
           store: store ?? SpaceLocalStore(scopeKey: gateway.scopeKey),
+          followStore:
+              followStore ??
+              SpaceFollowStore(
+                gateway: gateway,
+                viewerAccount: gateway.account,
+              ),
+          active: active,
           profile: profile,
           onSessionExpired: onSessionExpired,
           pollInterval: pollInterval,

@@ -1,0 +1,20 @@
+F........                                                                [100%]
+=================================== FAILURES ===================================
+_____________ test_discovery_exact_contract_and_no_internal_replay _____________
+
+    @pytest.mark.asyncio
+    async def test_discovery_exact_contract_and_no_internal_replay():
+        server = create_server(LocalClient("http://127.0.0.1"))
+        reply = await server.request_handlers[ListToolsRequest](
+            ListToolsRequest(method="tools/list")
+        )
+        tools = {t.name: t for t in reply.root.tools if t.name.startswith("space_")}
+        assert set(tools) == set(SPACE_TOOLS)
+>       assert len(tools) == 24
+E       AssertionError: assert 28 == 24
+E        +  where 28 = len({'space_get_follow': Tool(name='space_get_follow', title=None, description='BB Space is shared with all logged-in acco...e, readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True), meta=None, execution=None), ...})
+
+tests/test_space_tools.py:31: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_space_tools.py::test_discovery_exact_contract_and_no_internal_replay
+1 failed, 8 passed in 0.91s
