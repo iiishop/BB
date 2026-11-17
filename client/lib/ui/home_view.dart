@@ -12,6 +12,7 @@ import '../services/auth_service.dart';
 import '../services/chat_service.dart';
 import '../services/heartbeat_controller.dart';
 import '../services/presence_directory.dart';
+import '../services/media_disk_cache.dart';
 import '../services/profile_service.dart';
 import '../models/chat_models.dart';
 import 'chat/chat_page.dart';
@@ -20,8 +21,12 @@ import 'updates/update_scope.dart';
 import 'updates/update_settings_host.dart';
 import 'profile/profile_panel.dart';
 import 'space/space_gateway.dart';
+import 'space/space_image_viewer.dart';
 import 'space/space_local_store.dart';
 import 'space/space_page.dart';
+import 'space/profile/space_profile_adapter.dart';
+import 'space/profile/space_profile_gateway.dart';
+import 'space/profile/space_profile_page.dart';
 import 'widgets/profile_avatar.dart';
 
 /// Signed-in home surface for STEP-2.
@@ -169,9 +174,44 @@ class _HomeViewState extends State<HomeView> {
         return;
       }
     }
+    final String? homeAccount = result?.openHomeAccount;
+    if (homeAccount != null) {
+      await _openAuthorHome(homeAccount);
+      if (!mounted) {
+        return;
+      }
+    }
     // A barrier dismissal also returns null; reload anyway so edits made just
     // before closing can never leave the home surface stale.
     await _load();
+  }
+
+  /// Opens the shared author home page through the same page the Space surface
+  /// uses. The production adapter uses the existing author-scoped Space page
+  /// and the existing authorized Profile entry; no second transport is added.
+  Future<void> _openAuthorHome(String account) async {
+    final SpaceGateway? space = widget.space;
+    if (space == null) {
+      return;
+    }
+    final Profile? me = _profile;
+    final SpaceProfileIdentity? identity = me != null && me.account == account
+        ? SpaceProfileIdentity(
+            account: me.account,
+            username: me.username,
+            signature: me.signature,
+            avatarUrl: me.avatarUrl,
+          )
+        : null;
+    await openSpaceProfile(
+      context,
+      gateway: SpaceProfileAdapter(space: space, profile: widget.profile),
+      userId: account,
+      viewerAccount: space.account,
+      images: SpaceImageLoader(space, disk: sharedMediaDiskCache()),
+      initialIdentity: identity,
+      profile: widget.profile,
+    );
   }
 
   Future<void> _openSettings() async {
@@ -212,10 +252,7 @@ class _HomeViewState extends State<HomeView> {
     return _appScaffold(context, space);
   }
 
-  Widget _chatScaffold(
-    BuildContext context, {
-    required bool showProfileEntry,
-  }) {
+  Widget _chatScaffold(BuildContext context, {required bool showProfileEntry}) {
     final TextTheme text = Theme.of(context).textTheme;
     final bool reconnecting =
         widget.heartbeat.phase == HeartbeatPhase.reconnecting;

@@ -16,6 +16,9 @@ import 'space_layout.dart';
 import 'space_lists_view.dart';
 import 'space_local_store.dart';
 import 'space_widgets.dart';
+import 'profile/space_profile_adapter.dart';
+import 'profile/space_profile_gateway.dart';
+import 'profile/space_profile_page.dart';
 
 /// The signed-in Space surface.
 ///
@@ -114,6 +117,27 @@ class _SpacePageState extends State<SpacePage> {
     if (_feedScroll.position.extentAfter < 320) {
       unawaited(_space.loadMore());
     }
+  }
+
+  /// Both product entries reach the same page; the Space card avatar reuses the
+  /// shared timeline, cards, image loader and month directory.
+  Future<void> _openAuthor(SpacePost post) async {
+    await openSpaceProfile(
+      context,
+      gateway: SpaceProfileAdapter(
+        space: widget.gateway,
+        profile: widget.profile,
+      ),
+      userId: post.author.account,
+      viewerAccount: widget.gateway.account,
+      images: _space.images,
+      initialIdentity: SpaceProfileIdentity(
+        account: post.author.account,
+        username: post.author.username,
+        avatarUrl: post.author.avatarUrl,
+      ),
+      profile: widget.profile,
+    );
   }
 
   Future<void> _openCompose({SpacePost? reference, SpaceDraft? draft}) async {
@@ -382,6 +406,7 @@ class _SpacePageState extends State<SpacePage> {
               onOpenImage: (int imageIndex) => _openViewer(post, imageIndex),
               onDelete: post.canDelete ? () => _confirmDelete(post) : null,
               onOpenVisitors: () => _space.openPost(post.postId),
+              onOpenAuthor: () => _openAuthor(post),
             ),
           );
         },

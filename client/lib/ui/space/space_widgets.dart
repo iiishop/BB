@@ -76,16 +76,15 @@ class _SpaceAvatarState extends State<SpaceAvatar> {
                 fit: BoxFit.cover,
                 gaplessPlayback: true,
                 filterQuality: FilterQuality.medium,
-                errorBuilder:
-                    (BuildContext context, Object error, StackTrace? stack) =>
-                        _initials(),
+                errorBuilder: (
+                  BuildContext context,
+                  Object error,
+                  StackTrace? stack,
+                ) => _initials(),
               ),
             ),
           );
-    return Semantics(
-      label: '${widget.author.username}的头像',
-      child: avatar,
-    );
+    return Semantics(label: '${widget.author.username}的头像', child: avatar);
   }
 
   Widget _initials() {
@@ -319,6 +318,8 @@ class SpacePostCard extends StatelessWidget {
     required this.onOpenImage,
     this.onDelete,
     this.onOpenVisitors,
+    this.onOpenAuthor,
+    this.timelineAt,
     this.actionsEnabled = true,
   });
 
@@ -332,11 +333,21 @@ class SpacePostCard extends StatelessWidget {
   final void Function(int index) onOpenImage;
   final void Function()? onDelete;
   final void Function()? onOpenVisitors;
+
+  /// Opens the author's home page. Null keeps the header inert, so a read-only
+  /// host (or a widget test) never renders a dead affordance.
+  final void Function()? onOpenAuthor;
+
+  /// Author-scoped timeline time for this row. Defaults to the post's own
+  /// publication time; a repost row passes the repost time so the visible date
+  /// matches the month it is archived under.
+  final String? timelineAt;
   final bool actionsEnabled;
 
   static const int previewLines = 4;
 
   Key get cardKey => Key('space-post-${post.postId}');
+  Key get authorKey => Key('space-post-author-${post.postId}');
   Key get bodyKey => Key('space-post-body-${post.postId}');
   Key get likeKey => Key('space-post-like-${post.postId}');
   Key get commentKey => Key('space-post-comment-${post.postId}');
@@ -361,18 +372,29 @@ class SpacePostCard extends StatelessWidget {
         children: <Widget>[
           Row(
             children: <Widget>[
-              SpaceAvatar(author: post.author),
-              const SizedBox(width: AppSpacing.sm + 2),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Text(post.author.username, style: text.titleMedium),
-                    Text(
-                      spaceRelativeTime(post.createdAt),
-                      style: text.bodySmall,
-                    ),
-                  ],
+                child: InkWell(
+                  key: authorKey,
+                  onTap: onOpenAuthor,
+                  borderRadius: BorderRadius.circular(AppRadius.brand),
+                  child: Row(
+                    children: <Widget>[
+                      SpaceAvatar(author: post.author),
+                      const SizedBox(width: AppSpacing.sm + 2),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            Text(post.author.username, style: text.titleMedium),
+                            Text(
+                              spaceRelativeTime(timelineAt ?? post.createdAt),
+                              style: text.bodySmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
               if (post.canDelete && onDelete != null)

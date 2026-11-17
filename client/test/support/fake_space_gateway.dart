@@ -49,6 +49,9 @@ class FakeSpaceGateway implements SpaceGateway {
   final Map<String, Uint8List> imageBytes = <String, Uint8List>{};
   final List<SpaceEventPage> eventPages = <SpaceEventPage>[];
 
+  /// Author filter of every `listPosts` call, in request order.
+  final List<String?> requestedAuthors = <String?>[];
+
   /// Per-action one-shot failures (FIFO). The UI must surface them, not turn
   /// them into an empty list.
   final Map<String, List<Object>> failures = <String, List<Object>>{};
@@ -134,8 +137,10 @@ class FakeSpaceGateway implements SpaceGateway {
     String? cursor,
     int limit = 20,
     bool unreadOnly = false,
+    String? author,
   }) async {
     _record('list_posts');
+    requestedAuthors.add(author);
     final SpacePagePost page =
         postPages[cursor ?? ''] ?? spacePagePost(const <SpacePost>[]);
     if (holdListPosts) {

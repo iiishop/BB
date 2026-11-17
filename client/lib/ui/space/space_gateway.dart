@@ -20,6 +20,7 @@ abstract interface class SpaceGateway {
     String? cursor,
     int limit = 20,
     bool unreadOnly = false,
+    String? author,
   });
 
   Future<SpacePost> getPost(String postId, {String? visitId});
@@ -146,7 +147,13 @@ class SpaceServiceGateway implements SpaceGateway {
     String? cursor,
     int limit = 20,
     bool unreadOnly = false,
-  }) => service.listPosts(cursor: cursor, limit: limit, unreadOnly: unreadOnly);
+    String? author,
+  }) => service.listPosts(
+    cursor: cursor,
+    limit: limit,
+    unreadOnly: unreadOnly,
+    author: author,
+  );
 
   @override
   Future<SpacePost> getPost(String postId, {String? visitId}) =>

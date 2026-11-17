@@ -69,6 +69,7 @@ class ProfilePanelResult {
     this.signedOut = false,
     this.logout,
     this.openSettings = false,
+    this.openHomeAccount,
   });
 
   final bool changed;
@@ -78,6 +79,10 @@ class ProfilePanelResult {
   /// The user asked for the settings surface; the host opens it after the panel
   /// closes so the update page is not stacked behind a dialog.
   final bool openSettings;
+
+  /// The user opened a home page from this Profile. The host pushes the shared
+  /// home page after the panel closes, so it is not stacked inside the dialog.
+  final String? openHomeAccount;
 }
 
 /// Opens the Profile panel in the right presentation for this viewport.
@@ -390,6 +395,7 @@ class ProfilePanel extends StatefulWidget {
   static const Key logoutButtonKey = Key('profile-logout');
   static const Key settingsButtonKey = Key('profile-settings');
   static const Key otherProfileKey = Key('profile-other-account');
+  static const Key homeButtonKey = Key('profile-home');
   static const Key errorKey = Key('profile-error');
 
   @override
@@ -635,6 +641,14 @@ class _ProfilePanelState extends State<ProfilePanel> {
     }
   }
 
+  void _openHome() {
+    Navigator.of(context).pop(
+      ProfilePanelResult(
+        openHomeAccount: _profile?.account ?? widget.user.account,
+      ),
+    );
+  }
+
   Future<void> _viewOtherAccount() async {
     final String? account = await showDialog<String>(
       context: context,
@@ -653,11 +667,15 @@ class _ProfilePanelState extends State<ProfilePanel> {
       if (!mounted) {
         return;
       }
-      await showDialog<void>(
+      final String? openHome = await showDialog<String>(
         context: context,
         builder: (BuildContext context) =>
             _OtherProfileDialog(profile: profile, avatar: image.bytes),
       );
+      if (openHome != null && mounted) {
+        Navigator.of(context)
+            .pop(ProfilePanelResult(openHomeAccount: openHome));
+      }
     } on AuthFailure catch (failure) {
       _showSnack(_failureMessage(failure));
     }
@@ -798,6 +816,17 @@ class _ProfilePanelState extends State<ProfilePanel> {
             ),
           ),
           const SizedBox(height: AppSpacing.lg),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: FilledButton.icon(
+              key: ProfilePanel.homeButtonKey,
+              onPressed: _busy ? null : _openHome,
+              style: FilledButton.styleFrom(minimumSize: const Size(0, 40)),
+              icon: const Icon(Icons.account_circle_outlined, size: 18),
+              label: const Text('个人主页'),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
           Align(
             alignment: Alignment.centerLeft,
             child: TextButton.icon(
@@ -1268,9 +1297,7 @@ class _AvatarSourceDialogState extends State<_AvatarSourceDialog> {
     } catch (_) {
       if (mounted) {
         setState(() {
-          _error = widget.galleryMode
-              ? '无法打开系统相册，请稍后重试'
-              : '无法打开系统文件选择器，请稍后重试';
+          _error = widget.galleryMode ? '无法打开系统相册，请稍后重试' : '无法打开系统文件选择器，请稍后重试';
         });
       }
       return null;
@@ -1590,6 +1617,7 @@ class _AvatarSourceDialogState extends State<_AvatarSourceDialog> {
     ];
   }
 }
+
 class _AccountLookupDialog extends StatefulWidget {
   const _AccountLookupDialog();
 
@@ -1679,6 +1707,12 @@ class _OtherProfileDialog extends StatelessWidget {
         ],
       ),
       actions: <Widget>[
+        FilledButton.icon(
+          key: const Key('profile-other-home'),
+          onPressed: () => Navigator.of(context).pop(profile.account),
+          icon: const Icon(Icons.account_circle_outlined, size: 18),
+          label: const Text('个人主页'),
+        ),
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('关闭'),
