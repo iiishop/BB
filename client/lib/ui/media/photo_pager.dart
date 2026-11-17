@@ -45,9 +45,26 @@ class _StepIntent extends Intent {
   final int delta;
 }
 
-/// Reports the zoom state of the page it builds.
+/// Callbacks a page gets from the pager.
+///
+/// The page owns gestures (the scale recognizer is closest to the pixels and
+/// wins a single finger), so it relays swipes up here; [onZoom] is for the
+/// caller's own chrome (the chat viewer keeps a downward-drag-to-close gesture
+/// that must not fire while a picture is zoomed).
+class PhotoPagerHandlers {
+  const PhotoPagerHandlers({
+    required this.onZoom,
+    required this.onPanDelta,
+    required this.onPanEnd,
+  });
+
+  final ValueChanged<bool> onZoom;
+  final ValueChanged<Offset> onPanDelta;
+  final VoidCallback onPanEnd;
+}
+
 typedef PhotoPageBuilder =
-    Widget Function(BuildContext context, int index, ValueChanged<bool> onZoom);
+    Widget Function(BuildContext context, int index, PhotoPagerHandlers handlers);
 
 class PhotoPager extends StatefulWidget {
   const PhotoPager({
@@ -59,6 +76,7 @@ class PhotoPager extends StatefulWidget {
     required this.keys,
     this.onPageChanged,
     this.onDismiss,
+    this.onZoomChanged,
     this.desktopArrows = true,
   });
 
@@ -66,17 +84,20 @@ class PhotoPager extends StatefulWidget {
   final int initialIndex;
   final int itemCount;
 
-  /// Builds one page. The callback it receives flips the pager between
-  /// scrollable and frozen.
+  /// Builds one page and hands it the pager callbacks.
   final PhotoPageBuilder itemBuilder;
 
   final PhotoViewerKeys keys;
 
-  /// Fired after the pager settles on a new page, with zoom already reset.
+  /// Fired after the pager settles on a new page.
   final ValueChanged<int>? onPageChanged;
 
   /// Escape. Null keeps Escape inert (the chat viewer closes on drag).
   final VoidCallback? onDismiss;
+
+  /// Pinch state of the page on screen, for chrome that must stand down while a
+  /// picture is zoomed (the chat viewer's downward-drag-to-close).
+  final ValueChanged<bool>? onZoomChanged;
 
   /// Desktop-only chevrons; mobile stays swipe-only because a persistent arrow
   /// would sit on the photo with no hover to reveal it.
@@ -96,8 +117,11 @@ class PhotoPager extends StatefulWidget {
 class _PhotoPagerState extends State<PhotoPager> {
   late int _index;
 
-  /// True while the current page is pinch-zoomed.
-  bool _zoomed = false;
+  /// Where the current swipe started: pixel offset and page. Snapping compares
+  /// against these so a half-page drag returns to where it began.
+  double _dragStartPixels = 0;
+  int _dragStartPage = 0;
+  bool _dragging = false;
 
   @override
   void initState() {
@@ -107,11 +131,60 @@ class _PhotoPagerState extends State<PhotoPager> {
         : widget.initialIndex.clamp(0, widget.itemCount - 1);
   }
 
-  void _setZoomed(bool zoomed) {
-    if (zoomed == _zoomed || !mounted) {
+  /// Single-finger swipe relayed by a page. The `PageView` keeps
+  /// `NeverScrollableScrollPhysics` because a page's scale recognizer wins that
+  /// arena, so this is the only thing that moves pages by finger.
+  void _onPanDelta(Offset delta) {
+    final PageController controller = widget.controller;
+    if (!controller.hasClients) {
       return;
     }
-    setState(() => _zoomed = zoomed);
+    final ScrollPosition position = controller.position;
+    final double viewport = position.viewportDimension;
+    if (viewport <= 0) {
+      return;
+    }
+    if (!_dragging) {
+      _dragging = true;
+      _dragStartPixels = position.pixels;
+      _dragStartPage = (position.pixels / viewport).round();
+    }
+    controller.jumpTo(
+      (position.pixels - delta.dx).clamp(
+        position.minScrollExtent,
+        position.maxScrollExtent,
+      ),
+    );
+  }
+
+  /// Snaps after a swipe: a quarter of a page is enough to advance, anything
+  /// less returns to the page the swipe started on.
+  void _onPanEnd() {
+    if (!_dragging) {
+      return;
+    }
+    _dragging = false;
+    final PageController controller = widget.controller;
+    if (!controller.hasClients) {
+      return;
+    }
+    final double viewport = controller.position.viewportDimension;
+    if (viewport <= 0) {
+      return;
+    }
+    final double moved = (controller.position.pixels - _dragStartPixels) / viewport;
+    int target = _dragStartPage;
+    if (moved > 0.25) {
+      target += 1;
+    } else if (moved < -0.25) {
+      target -= 1;
+    }
+    target = target.clamp(0, widget.itemCount == 0 ? 0 : widget.itemCount - 1);
+    controller.animateToPage(
+      target,
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOutCubic,
+    );
   }
 
   void _step(int delta) {
@@ -189,45 +262,59 @@ class _PhotoPagerState extends State<PhotoPager> {
         },
         child: Focus(
           autofocus: true,
-          child: Stack(
-            alignment: Alignment.center,
-            children: <Widget>[
-              PageView.builder(
-                key: widget.keys.pages,
-                controller: widget.controller,
-                // A zoomed picture owns horizontal drags.
-                physics: _zoomed ? const NeverScrollableScrollPhysics() : null,
-                itemCount: widget.itemCount,
-                onPageChanged: (int value) {
-                  // A zoomed page must not leave the pager frozen when the user
-                  // swipes back to a neighbour.
-                  setState(() {
-                    _index = value;
-                    _zoomed = false;
-                  });
-                  widget.onPageChanged?.call(value);
-                },
-                itemBuilder: (BuildContext context, int index) {
-                  return widget.itemBuilder(context, index, _setZoomed);
-                },
-              ),
-              if (arrows && _index > 0)
-                _pagingArrow(
-                  key: widget.keys.previous,
-                  delta: -1,
-                  icon: Icons.chevron_left_rounded,
-                  tooltip: '上一张',
-                  alignment: Alignment.centerLeft,
+          child: GestureDetector(
+            // Fallback for pages that carry no gesture layer of their own (a
+            // video page). On an image page the scale recognizer is nearer the
+            // pixels and wins the arena, so this never fires there.
+            behavior: HitTestBehavior.opaque,
+            onHorizontalDragUpdate: (DragUpdateDetails details) =>
+                _onPanDelta(Offset(details.delta.dx, 0)),
+            onHorizontalDragEnd: (DragEndDetails details) => _onPanEnd(),
+            child: Stack(
+              alignment: Alignment.center,
+              children: <Widget>[
+                PageView.builder(
+                  key: widget.keys.pages,
+                  controller: widget.controller,
+                  // Pages drive paging themselves (single-finger swipes are
+                  // relayed by the page's scale recognizer), so the view never
+                  // scrolls on its own.
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: widget.itemCount,
+                  onPageChanged: (int value) {
+                    setState(() => _index = value);
+                    widget.onPageChanged?.call(value);
+                  },
+                  itemBuilder: (BuildContext context, int index) {
+                    return widget.itemBuilder(
+                      context,
+                      index,
+                      PhotoPagerHandlers(
+                        onZoom: widget.onZoomChanged ?? (bool _) {},
+                        onPanDelta: _onPanDelta,
+                        onPanEnd: _onPanEnd,
+                      ),
+                    );
+                  },
                 ),
-              if (arrows && _index < widget.itemCount - 1)
-                _pagingArrow(
-                  key: widget.keys.next,
-                  delta: 1,
-                  icon: Icons.chevron_right_rounded,
-                  tooltip: '下一张',
-                  alignment: Alignment.centerRight,
-                ),
-            ],
+                if (arrows && _index > 0)
+                  _pagingArrow(
+                    key: widget.keys.previous,
+                    delta: -1,
+                    icon: Icons.chevron_left_rounded,
+                    tooltip: '上一张',
+                    alignment: Alignment.centerLeft,
+                  ),
+                if (arrows && _index < widget.itemCount - 1)
+                  _pagingArrow(
+                    key: widget.keys.next,
+                    delta: 1,
+                    icon: Icons.chevron_right_rounded,
+                    tooltip: '下一张',
+                    alignment: Alignment.centerRight,
+                  ),
+              ],
+            ),
           ),
         ),
       ),
