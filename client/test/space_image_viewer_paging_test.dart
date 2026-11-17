@@ -1,4 +1,5 @@
 import 'package:bb_client/models/space_models.dart';
+import 'package:bb_client/services/space_download_log.dart';
 import 'package:bb_client/ui/space/space_image_viewer.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -97,5 +98,51 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
     await tester.pumpAndSettle();
     expect(find.text('2 / 3'), findsOneWidget);
+  });
+
+  testWidgets('saving a picture twice asks before the second copy', (
+    WidgetTester tester,
+  ) async {
+    final FakeSpaceGateway gateway = FakeSpaceGateway();
+    gateway.imageBytes['img-1'] = spaceTinyPng;
+    final List<String> saved = <String>[];
+    final SpaceDownloadLog log = SpaceDownloadLog(scopeKey: 'test-scope');
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SpaceImageViewer(
+          images: <SpaceImage>[spaceImage(imageId: 'img-1')],
+          initialIndex: 0,
+          loader: SpaceImageLoader(gateway),
+          downloadLog: log,
+          saver: (SpaceImage image, Uint8List bytes) async {
+            saved.add(image.imageId);
+            return '/tmp/${image.imageId}.png';
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // First save goes through without a prompt.
+    await tester.tap(find.byKey(SpaceImageViewer.saveKey));
+    await tester.pumpAndSettle();
+    expect(saved.length, 1);
+    expect(log.find('img-1'), isNotNull);
+
+    // Second save asks; cancelling leaves the count untouched.
+    await tester.tap(find.byKey(SpaceImageViewer.saveKey));
+    await tester.pumpAndSettle();
+    expect(find.text('这张图保存过'), findsOneWidget);
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(saved.length, 1);
+
+    // Confirming saves anyway.
+    await tester.tap(find.byKey(SpaceImageViewer.saveKey));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('仍然保存'));
+    await tester.pumpAndSettle();
+    expect(saved.length, 2);
   });
 }

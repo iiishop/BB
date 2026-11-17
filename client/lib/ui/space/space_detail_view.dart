@@ -232,6 +232,7 @@ class _SpaceDetailViewState extends State<SpaceDetailView> {
           images: post.images,
           initialIndex: index,
           loader: widget.space.images,
+          downloadLog: widget.space.downloads,
         ),
       ),
     );

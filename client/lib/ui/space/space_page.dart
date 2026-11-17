@@ -146,6 +146,7 @@ class _SpacePageState extends State<SpacePage> {
           images: post.images,
           initialIndex: index,
           loader: _space.images,
+          downloadLog: _space.downloads,
         ),
       ),
     );

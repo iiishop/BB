@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 import '../../app.dart';
 import '../../models/space_models.dart';
 import '../../services/media_disk_cache.dart';
+import '../../services/space_download_log.dart';
 import '../../ui/chat/media_actions.dart';
 import '../../ui/chat/media_save.dart';
 import 'space_gateway.dart';
@@ -195,12 +196,16 @@ class SpaceImageViewer extends StatefulWidget {
     required this.initialIndex,
     required this.loader,
     this.saver,
+    this.downloadLog,
   });
 
   final List<SpaceImage> images;
   final int initialIndex;
   final SpaceImageLoader loader;
   final SpaceImageSaver? saver;
+
+  /// Remembers earlier downloads so re-saving the same picture asks first.
+  final SpaceDownloadLog? downloadLog;
 
   static const Key pagesKey = Key('space-viewer-pages');
   static const Key closeKey = Key('space-viewer-close');
@@ -252,9 +257,60 @@ class _SpaceImageViewerState extends State<SpaceImageViewer> {
 
   SpaceImage get _current => widget.images[_index];
 
+  /// Asks before saving a picture that was downloaded once before.
+  ///
+  /// On mobile the earlier location is a gallery handle, not a path we can stat,
+  /// so the prompt says "saved once" rather than claiming the file is still
+  /// there — the user may have deleted it.
+  Future<bool> _confirmRedownload(SpaceDownloadRecord earlier) async {
+    final bool mobile = !kIsWeb && (Platform.isAndroid || Platform.isIOS);
+    final String when = _formatSavedAt(earlier.savedAt);
+    final bool? answer = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) => AlertDialog(
+        title: const Text('这张图保存过'),
+        content: Text(
+          mobile
+              ? '你在 $when 保存过一次。相册里可能还在，也可能已经删了——系统查不到。还要再存一份吗？'
+              : '你在 $when 保存过一次。还要再存一份吗？',
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('仍然保存'),
+          ),
+        ],
+      ),
+    );
+    return answer ?? false;
+  }
+
+  String _formatSavedAt(DateTime at) {
+    final DateTime local = at.toLocal();
+    String two(int value) => value.toString().padLeft(2, '0');
+    return '${local.year}-${two(local.month)}-${two(local.day)} '
+        '${two(local.hour)}:${two(local.minute)}';
+  }
+
   Future<void> _save() async {
     if (_saving) {
       return;
+    }
+    final SpaceImage image = _current;
+    final SpaceDownloadLog? log = widget.downloadLog;
+    if (log != null) {
+      await log.load();
+      final SpaceDownloadRecord? earlier = log.find(image.imageId);
+      if (earlier != null && mounted) {
+        final bool again = await _confirmRedownload(earlier);
+        if (!again) {
+          return;
+        }
+      }
     }
     setState(() {
       _saving = true;
@@ -269,6 +325,10 @@ class _SpaceImageViewerState extends State<SpaceImageViewer> {
         _current,
         bytes,
       );
+      if (location != null && log != null) {
+        // Bookkeeping only; a failure here must not report a bad save.
+        await log.record(image.imageId, location: location);
+      }
       if (!mounted) {
         return;
       }
