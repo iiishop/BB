@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:typed_data' show BytesBuilder;
 
 import '../models/auth_models.dart';
+import 'http_transport.dart';
 
 /// HTTP client for the FastAPI auth/session endpoints.
 ///
@@ -18,6 +19,9 @@ class AuthApiClient {
 
   final Uri baseUri;
   final Duration timeout;
+
+  /// Reused across calls so the TLS connection is not rebuilt per request.
+  late final HttpTransport _http = HttpTransport(connectionTimeout: timeout);
 
   /// Upper bound on a response body; auth payloads are tiny.
   static const int maxResponseBytes = 64 * 1024;
@@ -170,7 +174,7 @@ class AuthApiClient {
     String? token,
   }) async {
     final Uri url = baseUri.resolve(path);
-    final HttpClient client = HttpClient()..connectionTimeout = timeout;
+    final HttpClient client = _http.client;
     try {
       final HttpClientRequest request = await client
           .openUrl(method, url)
@@ -198,8 +202,6 @@ class AuthApiClient {
       throw upstreamUnavailable;
     } on TimeoutException {
       throw upstreamTimeout;
-    } finally {
-      client.close(force: true);
     }
   }
 

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import '../models/auth_models.dart';
+import 'http_transport.dart';
 import 'space_schema.g.dart';
 export '../models/space_models.dart';
 export 'space_methods.g.dart';
@@ -18,13 +19,16 @@ class SpaceApiClient {
   final Uri baseUri;
   final Duration timeout;
 
+  /// Reused across calls so the TLS connection is not rebuilt per request.
+  late final HttpTransport _http = HttpTransport(connectionTimeout: timeout);
+
   Future<Map<String, dynamic>> call(
     String action,
     Map<String, dynamic> body, {
     required String token,
   }) async {
     validateSpace(action, body);
-    final client = HttpClient()..connectionTimeout = timeout;
+    final HttpClient client = _http.client;
     try {
       final request = await client
           .postUrl(baseUri.resolve('/space/$action'))
@@ -68,8 +72,6 @@ class SpaceApiClient {
       throw upstreamTimeout;
     } on FormatException {
       throw upstreamMalformed;
-    } finally {
-      client.close(force: true);
     }
   }
 }

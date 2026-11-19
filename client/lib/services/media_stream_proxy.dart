@@ -5,6 +5,7 @@ import 'dart:math';
 import '../models/auth_models.dart';
 import 'auth_session.dart';
 import 'chat_api_client.dart';
+import 'http_transport.dart';
 
 /// Bytes delivered through the loopback stream for the current request.
 ///
@@ -54,6 +55,11 @@ class MediaStreamProxy {
   final AuthSession session;
   final Set<_LoopbackStream> _open = <_LoopbackStream>{};
 
+  /// Reused across streams so each open does not rebuild the TLS connection.
+  late final HttpTransport _http = HttpTransport(
+    connectionTimeout: const Duration(seconds: 15),
+  );
+
   Future<MediaStreamHandle> open(String mediaId) async {
     if (mediaId.isEmpty) {
       throw const AuthFailure(
@@ -78,6 +84,7 @@ class MediaStreamProxy {
       api: api,
       session: session,
       identity: captured,
+      http: _http,
       onClosed: (_LoopbackStream value) => _open.remove(value),
     );
     _open.add(stream);
@@ -119,6 +126,7 @@ class _LoopbackStream implements MediaStreamHandle {
     required this.api,
     required this.session,
     required this.identity,
+    required this.http,
     required this.onClosed,
   });
 
@@ -128,6 +136,7 @@ class _LoopbackStream implements MediaStreamHandle {
   final ChatApiClient api;
   final AuthSession session;
   final AuthIdentity identity;
+  final HttpTransport http;
   final void Function(_LoopbackStream stream) onClosed;
   bool _closed = false;
   final StreamController<MediaStreamProgress> _progress =
@@ -181,8 +190,7 @@ class _LoopbackStream implements MediaStreamHandle {
       }
       return;
     }
-    final HttpClient client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 15);
+    final HttpClient client = http.client;
     try {
       final Uri upstream = api.baseUri.resolve(
         '/media/${Uri.encodeComponent(mediaId)}',
@@ -247,7 +255,6 @@ class _LoopbackStream implements MediaStreamHandle {
     } on TimeoutException {
       await _writeError(request, HttpStatus.gatewayTimeout);
     } finally {
-      client.close(force: true);
       if (_closed) {
         await _stop();
       }

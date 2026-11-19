@@ -7,6 +7,7 @@ import '../models/auth_models.dart';
 import '../models/chat_models.dart';
 import 'chat_ledger.dart';
 import 'ffmpeg_tool.dart';
+import 'http_transport.dart';
 
 /// A client-side media source: exactly one of path/url/base64/bytes.
 class MediaSource {
@@ -126,6 +127,9 @@ class MediaSourceResolver {
   final Duration timeout;
   final int maxBytes;
 
+  /// Reused across calls so the TLS connection is not rebuilt per request.
+  late final HttpTransport _http = HttpTransport(connectionTimeout: timeout);
+
   Future<ResolvedMedia> resolve(MediaSource source) async {
     if (!source.hasExactlyOne) {
       throw _badSource('来源必须且只能提供 path、url、base64 或 bytes 之一');
@@ -186,7 +190,7 @@ class MediaSourceResolver {
   }
 
   Future<Uint8List> _download(Uri uri) async {
-    final HttpClient client = HttpClient()..connectionTimeout = timeout;
+    final HttpClient client = _http.client;
     try {
       final HttpClientRequest request = await client
           .getUrl(uri)
@@ -213,8 +217,6 @@ class MediaSourceResolver {
       throw _badSource('无法连接来源地址');
     } on TimeoutException {
       throw _badSource('来源地址请求超时');
-    } finally {
-      client.close(force: true);
     }
   }
 

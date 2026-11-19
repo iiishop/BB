@@ -5,6 +5,7 @@ import 'dart:typed_data' show BytesBuilder, Uint8List;
 
 import '../models/auth_models.dart';
 import '../models/chat_models.dart';
+import 'http_transport.dart';
 
 /// HTTP/WebSocket client for the server's STEP-3 chat REST surface.
 ///
@@ -23,6 +24,9 @@ class ChatApiClient {
 
   /// Large media transfers get a longer bound than JSON calls.
   final Duration mediaTimeout;
+
+  /// Reused across calls so the TLS connection is not rebuilt per request.
+  late final HttpTransport _http = HttpTransport(connectionTimeout: timeout);
 
   static const int maxJsonBytes = 8 * 1024 * 1024;
   static const int maxMediaResponseBytes = chatMaxUploadBytes + (1024 * 1024);
@@ -275,7 +279,7 @@ class ChatApiClient {
     String? variant,
     void Function(int received, int? total)? onProgress,
   }) async {
-    final HttpClient client = HttpClient()..connectionTimeout = mediaTimeout;
+    final HttpClient client = _http.client;
     try {
       final Uri url = _query(
         '/media/${Uri.encodeComponent(mediaId)}',
@@ -325,8 +329,6 @@ class ChatApiClient {
       throw upstreamUnavailable;
     } on TimeoutException {
       throw upstreamTimeout;
-    } finally {
-      client.close(force: true);
     }
   }
 
@@ -352,7 +354,7 @@ class ChatApiClient {
     required String token,
     required String mediaId,
   }) async {
-    final HttpClient client = HttpClient()..connectionTimeout = timeout;
+    final HttpClient client = _http.client;
     try {
       final HttpClientRequest request = await client
           .getUrl(_query('/media/${Uri.encodeComponent(mediaId)}'))
@@ -391,8 +393,6 @@ class ChatApiClient {
       throw upstreamUnavailable;
     } on TimeoutException {
       throw upstreamTimeout;
-    } finally {
-      client.close(force: true);
     }
   }
 
@@ -463,7 +463,7 @@ class ChatApiClient {
     ContentType? contentType,
     required Duration timeout,
   }) async {
-    final HttpClient client = HttpClient()..connectionTimeout = timeout;
+    final HttpClient client = _http.client;
     try {
       final HttpClientRequest request = await client
           .openUrl(method, url)
@@ -494,8 +494,6 @@ class ChatApiClient {
       throw upstreamUnavailable;
     } on TimeoutException {
       throw upstreamTimeout;
-    } finally {
-      client.close(force: true);
     }
   }
 
