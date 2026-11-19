@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import '../models/auth_models.dart';
 import '../validation/profile_rules.dart';
+import 'http_transport.dart';
 
 /// Avatar byte sources used by `update_avatar`.
 ///
@@ -116,6 +117,12 @@ class DefaultAvatarSourceReader implements AvatarSourceReader {
   final int maxRedirects;
   final HttpClient Function() _clientFactory;
 
+  /// Reused across calls so the TLS connection is not rebuilt per request.
+  late final HttpTransport _http = HttpTransport(
+    connectionTimeout: timeout,
+    factory: _clientFactory,
+  );
+
   @override
   Future<Uint8List> readPath(String path) async {
     if (!isAbsoluteAvatarPath(path)) {
@@ -142,7 +149,7 @@ class DefaultAvatarSourceReader implements AvatarSourceReader {
     if (!isSupportedAvatarUrl(url)) {
       throw _sourceError('url', 'format', '必须为有效 http/https URL');
     }
-    final HttpClient client = _clientFactory()..connectionTimeout = timeout;
+    final HttpClient client = _http.client;
     Uri current = Uri.parse(url);
     try {
       for (int hop = 0; hop <= maxRedirects; hop++) {
@@ -189,8 +196,6 @@ class DefaultAvatarSourceReader implements AvatarSourceReader {
       throw upstreamUnavailable;
     } on HttpException {
       throw upstreamUnavailable;
-    } finally {
-      client.close(force: true);
     }
   }
 

@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import '../models/auth_models.dart';
 import '../models/profile_models.dart';
+import 'http_transport.dart';
 
 /// Result of a conditional avatar fetch.
 class AvatarFetch {
@@ -36,6 +37,9 @@ class ProfileApiClient {
 
   final Uri baseUri;
   final Duration timeout;
+
+  /// Reused across calls so the TLS connection is not rebuilt per request.
+  late final HttpTransport _http = HttpTransport(connectionTimeout: timeout);
 
   static const int maxJsonResponseBytes = 64 * 1024;
   static const int maxAvatarResponseBytes = 5 * 1024 * 1024;
@@ -233,7 +237,7 @@ class ProfileApiClient {
     bool allowNotModified = false,
   }) async {
     final Uri url = baseUri.resolve(path);
-    final HttpClient client = HttpClient()..connectionTimeout = timeout;
+    final HttpClient client = _http.client;
     try {
       final HttpClientRequest request = await client
           .openUrl(method, url)
@@ -271,8 +275,6 @@ class ProfileApiClient {
       throw upstreamUnavailable;
     } on HttpException {
       throw upstreamUnavailable;
-    } finally {
-      client.close(force: true);
     }
   }
 
