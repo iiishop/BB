@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -126,7 +125,6 @@ class ProfileApiClient {
       token: token,
       extraHeaders: extra,
       maxBytes: maxAvatarResponseBytes,
-      allowNotModified: true,
     );
     if (response.status == HttpStatus.notModified) {
       return AvatarFetch(
@@ -234,77 +232,22 @@ class ProfileApiClient {
     String? contentType,
     Map<String, String> extraHeaders = const <String, String>{},
     int maxBytes = maxJsonResponseBytes,
-    bool allowNotModified = false,
   }) async {
-    final Uri url = baseUri.resolve(path);
-    final HttpClient client = _http.client;
-    try {
-      final HttpClientRequest request = await client
-          .openUrl(method, url)
-          .timeout(timeout);
-      request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
-      request.headers.set(HttpHeaders.acceptHeader, 'application/json');
-      extraHeaders.forEach(request.headers.set);
-      if (body != null) {
-        request.headers.set(HttpHeaders.contentTypeHeader, contentType!);
-        request.contentLength = body.length;
-        request.add(body);
-      }
-      final HttpClientResponse response = await request.close().timeout(
-        timeout,
-      );
-      final Uint8List bytes = await _readBounded(
-        response,
-        maxBytes: maxBytes,
-        allowNotModified: allowNotModified,
-      );
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        return _Response(response.statusCode, bytes, _headers(response));
-      }
-      if (allowNotModified && response.statusCode == HttpStatus.notModified) {
-        return _Response(response.statusCode, bytes, _headers(response));
-      }
-      return _Response(response.statusCode, bytes, _headers(response));
-    } on AuthFailure {
-      rethrow;
-    } on TimeoutException {
-      throw upstreamTimeout;
-    } on SocketException {
-      throw upstreamUnavailable;
-    } on HandshakeException {
-      throw upstreamUnavailable;
-    } on HttpException {
-      throw upstreamUnavailable;
-    }
-  }
-
-  Map<String, String> _headers(HttpClientResponse response) {
-    final Map<String, String> headers = <String, String>{};
-    response.headers.forEach((String name, List<String> values) {
-      if (values.isNotEmpty) {
-        headers[name.toLowerCase()] = values.first;
-      }
-    });
-    return headers;
-  }
-
-  Future<Uint8List> _readBounded(
-    HttpClientResponse response, {
-    required int maxBytes,
-    required bool allowNotModified,
-  }) async {
-    if (allowNotModified && response.statusCode == HttpStatus.notModified) {
-      await response.drain<void>();
-      return Uint8List(0);
-    }
-    final BytesBuilder builder = BytesBuilder(copy: false);
-    await for (final List<int> chunk in response.timeout(timeout)) {
-      builder.add(chunk);
-      if (builder.length > maxBytes) {
-        throw upstreamMalformed;
-      }
-    }
-    return builder.takeBytes();
+    final response = await _http.send(
+      method,
+      baseUri.resolve(path),
+      service: 'profile',
+      timeout: timeout,
+      maxBytes: maxBytes,
+      headers: {
+        HttpHeaders.authorizationHeader: 'Bearer $token',
+        HttpHeaders.acceptHeader: 'application/json',
+        ...extraHeaders,
+        if (body != null) HttpHeaders.contentTypeHeader: contentType!,
+      },
+      body: body,
+    );
+    return _Response(response.status, response.bytes, response.headers);
   }
 }
 

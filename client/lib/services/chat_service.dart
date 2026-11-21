@@ -478,6 +478,7 @@ class ChatService {
     await requireIdentity(expectedIdentity);
     return eventFeed.read(
       consumerSession: expectedIdentity.consumerId,
+      expectedIdentity: expectedIdentity,
       afterCursor: afterCursor,
       limit: limit,
     );
@@ -495,6 +496,7 @@ class ChatService {
     await requireIdentity(expectedIdentity);
     return eventFeed.wait(
       consumerSession: expectedIdentity.consumerId,
+      expectedIdentity: expectedIdentity,
       afterCursor: afterCursor,
       limit: limit,
       timeout: Duration(seconds: timeoutSeconds),

@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'app.dart';
 import 'config/client_config.dart';
 import 'config/session_path.dart';
+import 'foreground_recovery.dart';
 import 'services/auth_api_client.dart';
 import 'services/auth_service.dart';
 import 'services/auth_session.dart';
@@ -71,14 +72,27 @@ class _BbRootState extends State<BbRoot> {
   bool _loading = true;
   bool _changing = false;
 
+  /// GUI-only lifecycle bridge. The standalone Dart entry never installs it.
+  late final ForegroundRecovery _foregroundRecovery = ForegroundRecovery(
+    onResumed: () async {
+      final _AppServices? services = _services;
+      if (services == null) return;
+      // Same catch-up used by login/restore: pending origin-account work plus
+      // an immediate durable event replay instead of waiting for the next tick.
+      await services.chat.resumeForCurrentSession();
+    },
+  );
+
   @override
   void initState() {
     super.initState();
+    _foregroundRecovery.attach();
     unawaited(_restore());
   }
 
   @override
   void dispose() {
+    _foregroundRecovery.detach();
     unawaited(_services?.dispose());
     super.dispose();
   }

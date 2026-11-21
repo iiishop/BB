@@ -1,7 +1,5 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data' show BytesBuilder;
 
 import '../models/auth_models.dart';
 import 'http_transport.dart';
@@ -173,51 +171,22 @@ class AuthApiClient {
     Map<String, String>? payload,
     String? token,
   }) async {
-    final Uri url = baseUri.resolve(path);
-    final HttpClient client = _http.client;
-    try {
-      final HttpClientRequest request = await client
-          .openUrl(method, url)
-          .timeout(timeout);
-      if (token != null) {
-        request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
-      }
-      if (payload != null) {
-        request.headers.contentType = ContentType.json;
-        final List<int> bodyBytes = utf8.encode(jsonEncode(payload));
-        request.contentLength = bodyBytes.length;
-        request.add(bodyBytes);
-      }
-
-      final HttpClientResponse response = await request.close().timeout(
-        timeout,
-      );
-      final String rawBody = await _readBody(response);
-      return _RawResponse(response.statusCode, rawBody);
-    } on SocketException {
-      throw upstreamUnavailable;
-    } on HandshakeException {
-      throw upstreamUnavailable;
-    } on HttpException {
-      throw upstreamUnavailable;
-    } on TimeoutException {
-      throw upstreamTimeout;
-    }
-  }
-
-  Future<String> _readBody(HttpClientResponse response) async {
-    if (response.statusCode == 204) {
-      await response.drain<void>();
-      return '';
-    }
-    final BytesBuilder builder = BytesBuilder(copy: false);
-    await for (final List<int> chunk in response.timeout(timeout)) {
-      builder.add(chunk);
-      if (builder.length > maxResponseBytes) {
-        throw upstreamMalformed;
-      }
-    }
-    return utf8.decode(builder.takeBytes(), allowMalformed: true);
+    final response = await _http.send(
+      method,
+      baseUri.resolve(path),
+      service: 'auth',
+      timeout: timeout,
+      maxBytes: maxResponseBytes,
+      headers: {
+        if (token != null) HttpHeaders.authorizationHeader: 'Bearer $token',
+        if (payload != null) HttpHeaders.contentTypeHeader: 'application/json',
+      },
+      body: payload == null ? null : utf8.encode(jsonEncode(payload)),
+    );
+    return _RawResponse(
+      response.status,
+      utf8.decode(response.bytes, allowMalformed: true),
+    );
   }
 }
 
