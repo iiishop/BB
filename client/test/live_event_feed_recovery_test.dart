@@ -82,7 +82,9 @@ void main() {
       'live WSS reconnect, replay and dispose seed=$seed',
       () async {
         void record(String stage, String result) {
-          print(jsonEncode({'seed': seed, 'stage': stage, 'result': result}));
+          Zone.current.print(
+            jsonEncode({'seed': seed, 'stage': stage, 'result': result}),
+          );
         }
 
         final auth = AuthApiClient(baseUri: baseUri);

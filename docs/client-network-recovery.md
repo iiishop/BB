@@ -3,7 +3,7 @@
 ## 范围与行为
 
 - `EventFeed` 保留 2 秒轮询和每个 consumer/peer 的持久游标。WebSocket 只是提示；失败或断开后用可取消 Timer 重连，等抖动退避依次为 0.5–1 秒、1–2 秒、2–4 秒……上限 15–30 秒。稳定连接至少 30 秒后才重置退避，避免「握手成功后立刻断开」形成热循环。
-- `start` 幂等；连接中的尝试与已连接 socket 都有单实例保护。`stop`/`dispose` 取消重连，旧连接/迟到握手不能覆盖新代连接。周期检查跟踪登录身份变化；重连成功立即补跑持久回放，游标和 ACK 规则未改。
+- `start` 幂等；连接中的尝试与已连接 socket 都有单实例保护。`stop`/`dispose` 取消重连，旧连接/迟到握手不能覆盖新代连接。周期检查跟踪登录身份变化；重连成功立即补跑持久回放。停止后，旧 HTTP 响应不能发起后续请求、更新回放游标或追加事件。dispose 等待账本已接纳的回放写入完成；已接纳下载的终态始终归原账号。v2 读取与等待在账本快照里核验 consumer binding，保留历史事件的 origin_identity 和游标。
 - 共享层 `EventFeed` 同时服务 GUI 与 standalone，不持有 widget binding，也没有伪造生命周期。GUI 宿主 `main.dart` 用 Flutter 真实的 `WidgetsBindingObserver`（`lib/foreground_recovery.dart`）在 `resumed` 时调用既有 `ChatService.resumeForCurrentSession()`：补跑待恢复下载并立即持久回放一次事件，而不是等被后台暂停的 Timer。standalone 入口不安装该 observer。未实现操作系统级后台常驻或推送。
 - `HttpTransport.send` 集中实现整次网络请求 deadline（open、upload flush、headers、完整 body），不是每一阶段重新给一份预算。deadline/显式取消会 abort 当前 request、cancel body subscription；不会 force-close 整个共享池，也没有自动重试。阻塞上传的 deadline/取消由真实 TCP 关闭验证，服务端不会继续收到整份请求体。
 - Auth/Chat/Space/Profile 的所有 HTTP 入口接入同一机制；业务 JSON/schema/error envelope 仍由原 API 处理。Chat 的上传、下载继续用 **120 秒**媒体预算，普通 JSON 和 probe 仍用各自原预算。禁止自动跟随重定向以避免凭据外带/写请求重放；3xx 由原业务层判为非预期响应，除合法 304 外的拒绝状态都会留下带 status 的安全诊断。
@@ -91,6 +91,8 @@ final recentChat = HttpTransport.diagnostics
 | `BB_LIVE_SERVER_URL=... flutter test --no-pub test/live_chat_e2e_test.dart --test-randomize-ordering-seed=2052099866` | 2 通过 1 失败：`ordered ...` 期望历史 1 条，实际 2 条 | 10 轮随机 seed 全部 3 通过 0 失败 0 跳过；固定 seed 2052099866、2029577020 均通过 |
 
 live 用例改为每个 test 自建合成账号、ledger 与 cache，并遍历 `/users` 全部分页后再做目录断言；共享 `setUpAll` 账号导致的顺序依赖已消除，`hasLength(1)` 等业务断言保留。跳过（未设置 `BB_LIVE_SERVER_URL`）仍记为 skip，不算通过。
+
+公网 WSS 回归在 `client` 运行 `BB_LIVE_WSS_URL=<HTTPS上游> BB_LIVE_WSS_SEEDS=41,101,2026 flutter test --no-pub test/live_event_feed_recovery_test.dart`。每轮使用独立合成账号，分别记录首次握手、重连、补漏和 dispose，并通过授权历史逐条核对内容。未配置上游时记为跳过。
 
 ## 验证与未覆盖
 
