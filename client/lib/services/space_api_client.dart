@@ -1,7 +1,5 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import '../models/auth_models.dart';
 import 'http_transport.dart';
@@ -28,29 +26,27 @@ class SpaceApiClient {
     required String token,
   }) async {
     validateSpace(action, body);
-    final HttpClient client = _http.client;
     try {
-      final request = await client
-          .postUrl(baseUri.resolve('/space/$action'))
-          .timeout(timeout);
-      request.followRedirects = false;
-      request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
-      request.headers.contentType = ContentType.json;
-      request.add(utf8.encode(jsonEncode(body)));
-      final response = await request.close().timeout(timeout);
-      final bytes = BytesBuilder(copy: false);
-      await for (final chunk in response.timeout(timeout)) {
-        bytes.add(chunk);
-        if (bytes.length > 48 * 1024 * 1024) throw upstreamMalformed;
-      }
-      final decoded = jsonDecode(utf8.decode(bytes.takeBytes()));
-      if (response.statusCode != 200) {
+      final response = await _http.send(
+        'POST',
+        baseUri.resolve('/space/$action'),
+        service: 'space',
+        timeout: timeout,
+        maxBytes: 48 * 1024 * 1024,
+        headers: {
+          HttpHeaders.authorizationHeader: 'Bearer $token',
+          HttpHeaders.contentTypeHeader: 'application/json',
+        },
+        body: utf8.encode(jsonEncode(body)),
+      );
+      final decoded = jsonDecode(utf8.decode(response.bytes));
+      if (response.status != 200) {
         final error = decoded is Map ? decoded['error'] : null;
         final code = error is Map ? error['code'] : null;
-        if (code is String && spaceErrorStatus[code] == response.statusCode) {
-          throw spaceFailure(response.statusCode, code);
+        if (code is String && spaceErrorStatus[code] == response.status) {
+          throw spaceFailure(response.status, code);
         }
-        if (response.statusCode == 404 && action == 'overview') {
+        if (response.status == 404 && action == 'overview') {
           throw spaceFailure(404, 'unsupported_space');
         }
         throw upstreamMalformed;
@@ -62,14 +58,6 @@ class SpaceApiClient {
         throw upstreamMalformed;
       }
       return decoded;
-    } on SocketException {
-      throw upstreamUnavailable;
-    } on HttpException {
-      throw upstreamUnavailable;
-    } on HandshakeException {
-      throw upstreamUnavailable;
-    } on TimeoutException {
-      throw upstreamTimeout;
     } on FormatException {
       throw upstreamMalformed;
     }
@@ -168,7 +156,8 @@ void _validate(Map<String, dynamic> s, Object? v, Map<String, dynamic> root) {
           length > (s['maxLength'] as int? ?? 0x7fffffffffffffff)) {
         bad();
       }
-      if (s['pattern'] is String && !RegExp(s['pattern'] as String).hasMatch(v)) {
+      if (s['pattern'] is String &&
+          !RegExp(s['pattern'] as String).hasMatch(v)) {
         bad();
       }
     case 'integer':

@@ -34,7 +34,11 @@ class ChatApiClient {
   // ---------------------------------------------------------------- REST ----
 
   Future<int> eventHead({required String token}) async {
-    final _RawResponse response = await _send('GET', _query('/events/head'), token: token);
+    final _RawResponse response = await _send(
+      'GET',
+      _query('/events/head'),
+      token: token,
+    );
     _requireSuccess(response, const <int>{200});
     final Object? value = _decode(response.body)['event_id'];
     if (value is! int || value < 0) throw upstreamMalformed;
@@ -279,57 +283,35 @@ class ChatApiClient {
     String? variant,
     void Function(int received, int? total)? onProgress,
   }) async {
-    final HttpClient client = _http.client;
-    try {
-      final Uri url = _query(
+    final response = await _http.send(
+      'GET',
+      _query(
         '/media/${Uri.encodeComponent(mediaId)}',
-        variant == null || variant.isEmpty
-            ? null
-            : <String, String>{'variant': variant},
-      );
-      final HttpClientRequest request = await client
-          .getUrl(url)
-          .timeout(mediaTimeout);
-      request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
-      if (range != null && range.isNotEmpty) {
-        request.headers.set(HttpHeaders.rangeHeader, range);
-      }
-      final HttpClientResponse response = await request.close().timeout(
-        mediaTimeout,
-      );
-      // A 206 carries the full size in Content-Range; Content-Length is only
-      // the size of this partial response.
-      final int? declaredTotal =
-          _contentRangeTotal(response) ?? _contentLength(response);
-      final Uint8List bytes = await _readBytes(
-        response,
-        maxMediaResponseBytes,
-        total: declaredTotal,
-        onProgress: onProgress,
-      );
-      if (response.statusCode != 200 && response.statusCode != 206) {
-        throw _decodeFailure(response.statusCode, utf8.decode(bytes));
-      }
-      return MediaResponse(
-        status: response.statusCode,
-        bytes: bytes,
-        mimeType:
-            response.headers.contentType?.mimeType ??
-            'application/octet-stream',
-        filename: _filenameFromDisposition(
-          response.headers.value(HttpHeaders.contentDisposition),
-        ),
-        byteSize: declaredTotal,
-      );
-    } on SocketException {
-      throw upstreamUnavailable;
-    } on HandshakeException {
-      throw upstreamUnavailable;
-    } on HttpException {
-      throw upstreamUnavailable;
-    } on TimeoutException {
-      throw upstreamTimeout;
+        variant == null || variant.isEmpty ? null : {'variant': variant},
+      ),
+      service: 'chat',
+      timeout: mediaTimeout,
+      maxBytes: maxMediaResponseBytes,
+      headers: {
+        HttpHeaders.authorizationHeader: 'Bearer $token',
+        if (range != null && range.isNotEmpty) HttpHeaders.rangeHeader: range,
+      },
+      onProgress: onProgress,
+    );
+    if (response.status != 200 && response.status != 206) {
+      throw _decodeFailure(response.status, utf8.decode(response.bytes));
     }
+    return MediaResponse(
+      status: response.status,
+      bytes: response.bytes,
+      mimeType: ContentType.parse(
+        response.headers['content-type'] ?? 'application/octet-stream',
+      ).mimeType,
+      filename: _filenameFromDisposition(
+        response.headers[HttpHeaders.contentDisposition],
+      ),
+      byteSize: response.totalBytes,
+    );
   }
 
   /// `GET /media/{id}/metadata` (DEA-471): the shared `Media` DTO including
@@ -354,46 +336,37 @@ class ChatApiClient {
     required String token,
     required String mediaId,
   }) async {
-    final HttpClient client = _http.client;
-    try {
-      final HttpClientRequest request = await client
-          .getUrl(_query('/media/${Uri.encodeComponent(mediaId)}'))
-          .timeout(timeout);
-      request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
-      request.headers.set(HttpHeaders.rangeHeader, 'bytes=0-0');
-      final HttpClientResponse response = await request.close().timeout(
-        timeout,
-      );
-      await response.drain<void>();
-      if (response.statusCode != 200 && response.statusCode != 206) {
-        if (response.statusCode == 401) {
-          throw unauthenticated;
-        }
-        if (response.statusCode == 404) {
-          throw const AuthFailure(
-            status: 404,
-            code: 'not_found',
-            message: '附件不存在或无权访问',
-          );
-        }
-        throw _decodeFailure(response.statusCode, '');
+    final response = await _http.send(
+      'GET',
+      _query('/media/${Uri.encodeComponent(mediaId)}'),
+      service: 'chat',
+      timeout: timeout,
+      maxBytes: maxMediaResponseBytes,
+      headers: {
+        HttpHeaders.authorizationHeader: 'Bearer $token',
+        HttpHeaders.rangeHeader: 'bytes=0-0',
+      },
+    );
+    if (response.status != 200 && response.status != 206) {
+      if (response.status == 401) throw unauthenticated;
+      if (response.status == 404) {
+        throw const AuthFailure(
+          status: 404,
+          code: 'not_found',
+          message: '附件不存在或无权访问',
+        );
       }
-      return MediaProbe(
-        mimeType:
-            response.headers.contentType?.mimeType ??
-            'application/octet-stream',
-        filename: _filenameFromDisposition(
-          response.headers.value(HttpHeaders.contentDisposition),
-        ),
-        byteSize: _contentRangeTotal(response) ?? _contentLength(response),
-      );
-    } on SocketException {
-      throw upstreamUnavailable;
-    } on HttpException {
-      throw upstreamUnavailable;
-    } on TimeoutException {
-      throw upstreamTimeout;
+      throw _decodeFailure(response.status, '');
     }
+    return MediaProbe(
+      mimeType: ContentType.parse(
+        response.headers['content-type'] ?? 'application/octet-stream',
+      ).mimeType,
+      filename: _filenameFromDisposition(
+        response.headers[HttpHeaders.contentDisposition],
+      ),
+      byteSize: response.totalBytes,
+    );
   }
 
   Future<ServerEventPage> events({
@@ -417,12 +390,26 @@ class ChatApiClient {
       path: '/events',
       query: '',
     );
-    return WebSocket.connect(
-      ws.toString(),
-      headers: <String, Object>{
-        HttpHeaders.authorizationHeader: 'Bearer $token',
-      },
-    ).timeout(timeout);
+    // Dedicated handshake client: unlike Future.timeout alone this closes a
+    // stalled upgrade. Successful WebSockets detach their socket from the pool.
+    final client = HttpClient()..connectionTimeout = timeout;
+    try {
+      return await WebSocket.connect(
+        ws.toString(),
+        customClient: client,
+        headers: <String, Object>{
+          HttpHeaders.authorizationHeader: 'Bearer $token',
+        },
+      ).timeout(
+        timeout,
+        onTimeout: () {
+          client.close(force: true);
+          throw TimeoutException('WebSocket handshake deadline');
+        },
+      );
+    } finally {
+      client.close();
+    }
   }
 
   // ------------------------------------------------------------- private ----
@@ -463,91 +450,27 @@ class ChatApiClient {
     ContentType? contentType,
     required Duration timeout,
   }) async {
-    final HttpClient client = _http.client;
-    try {
-      final HttpClientRequest request = await client
-          .openUrl(method, url)
-          .timeout(timeout);
-      request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
-      request.headers.set('X-BB-Message-Association', '1');
-      if (body != null) {
-        request.headers.contentType = contentType ?? ContentType.json;
-        request.contentLength = body.length;
-        request.add(body);
-      }
-      final HttpClientResponse response = await request.close().timeout(
-        timeout,
-      );
-      final String raw = await _readString(response, timeout);
-      final String? retryAfter = response.headers.value('retry-after');
-      return _RawResponse(
-        response.statusCode,
-        raw,
-        retryAfterSeconds: int.tryParse(retryAfter ?? ''),
-        association: response.headers.value('X-BB-Message-Association') == '1',
-      );
-    } on SocketException {
-      throw upstreamUnavailable;
-    } on HandshakeException {
-      throw upstreamUnavailable;
-    } on HttpException {
-      throw upstreamUnavailable;
-    } on TimeoutException {
-      throw upstreamTimeout;
-    }
-  }
-
-  Future<String> _readString(
-    HttpClientResponse response,
-    Duration limit,
-  ) async {
-    if (response.statusCode == 204) {
-      await response.drain<void>();
-      return '';
-    }
-    final BytesBuilder builder = BytesBuilder(copy: false);
-    await for (final List<int> chunk in response.timeout(limit)) {
-      builder.add(chunk);
-      if (builder.length > maxJsonBytes) {
-        throw upstreamMalformed;
-      }
-    }
-    return utf8.decode(builder.takeBytes(), allowMalformed: true);
-  }
-
-  Future<Uint8List> _readBytes(
-    HttpClientResponse response,
-    int maxBytes, {
-    int? total,
-    void Function(int received, int? total)? onProgress,
-  }) async {
-    final BytesBuilder builder = BytesBuilder(copy: false);
-    await for (final List<int> chunk in response.timeout(mediaTimeout)) {
-      builder.add(chunk);
-      if (builder.length > maxBytes) {
-        throw upstreamMalformed;
-      }
-      onProgress?.call(builder.length, total);
-    }
-    return builder.takeBytes();
-  }
-
-  int? _contentLength(HttpClientResponse response) {
-    final String? raw = response.headers.value(HttpHeaders.contentLengthHeader);
-    return raw == null ? null : int.tryParse(raw);
-  }
-
-  /// Total size from `Content-Range: bytes 0-0/12345`.
-  int? _contentRangeTotal(HttpClientResponse response) {
-    final String? raw = response.headers.value(HttpHeaders.contentRangeHeader);
-    if (raw == null) {
-      return null;
-    }
-    final int slash = raw.lastIndexOf('/');
-    if (slash < 0 || slash + 1 >= raw.length) {
-      return null;
-    }
-    return int.tryParse(raw.substring(slash + 1).trim());
+    final response = await _http.send(
+      method,
+      url,
+      service: 'chat',
+      timeout: timeout,
+      maxBytes: maxJsonBytes,
+      headers: {
+        HttpHeaders.authorizationHeader: 'Bearer $token',
+        'X-BB-Message-Association': '1',
+        if (body != null)
+          HttpHeaders.contentTypeHeader: (contentType ?? ContentType.json)
+              .toString(),
+      },
+      body: body,
+    );
+    return _RawResponse(
+      response.status,
+      utf8.decode(response.bytes, allowMalformed: true),
+      retryAfterSeconds: int.tryParse(response.headers['retry-after'] ?? ''),
+      association: response.headers['x-bb-message-association'] == '1',
+    );
   }
 
   Map<String, dynamic> _decodeMessages(_RawResponse response) {

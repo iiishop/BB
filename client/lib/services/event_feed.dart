@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 
 import '../models/auth_models.dart';
 import '../models/chat_models.dart';
@@ -30,6 +31,12 @@ class EventFeed {
 
   Timer? _timer;
   WebSocket? _socket;
+  Timer? _reconnectTimer;
+  final Random _jitter = Random();
+  bool _connecting = false;
+  int _socketEpoch = 0;
+  int _retryAttempt = 0;
+  AuthIdentity? _hintIdentity;
   Future<void>? _activePoll;
   AuthFailure? lastFailure;
   bool _disposed = false;
@@ -43,16 +50,21 @@ class EventFeed {
     if (_timer != null || _disposed) {
       return;
     }
-    _timer = Timer.periodic(pollInterval, (_) => unawaited(_backgroundPoll()));
+    _timer = Timer.periodic(pollInterval, (_) {
+      _checkHintConnection();
+      unawaited(_backgroundPoll());
+    });
     unawaited(_backgroundPoll());
-    if (webSocketHints) {
-      unawaited(_connectHintSocket());
-    }
+    _checkHintConnection();
   }
 
   void stop() {
     _timer?.cancel();
     _timer = null;
+    _socketEpoch++;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    _retryAttempt = 0;
     unawaited(_socket?.close());
     _socket = null;
   }
@@ -436,24 +448,91 @@ class EventFeed {
     }
   }
 
-  Future<void> _connectHintSocket() async {
-    final String? token = session.tokenForRequest;
-    if (token == null || token.isEmpty) {
-      return;
+  bool get _hintsRunning => webSocketHints && !_disposed && _timer != null;
+
+  void _checkHintConnection() {
+    if (!_hintsRunning) return;
+    final current = session.identity;
+    if (!(current?.sameAs(_hintIdentity) ?? _hintIdentity == null)) {
+      _socketEpoch++;
+      _reconnectTimer?.cancel();
+      _reconnectTimer = null;
+      _retryAttempt = 0;
+      final old = _socket;
+      _socket = null;
+      unawaited(old?.close());
     }
+    _hintIdentity = current;
+    if (_reconnectTimer == null) unawaited(_connectHintSocket());
+  }
+
+  void _scheduleReconnect() {
+    if (!_hintsRunning || _reconnectTimer != null) return;
+    // Equal jitter: 0.5–1 s, 1–2 s, ... capped at 15–30 s. A socket
+    // that immediately closes must not reset the exponential backoff.
+    final int ceiling = min(30000, 1000 * (1 << min(_retryAttempt++, 5)));
+    _reconnectTimer = Timer(
+      Duration(milliseconds: ceiling ~/ 2 + _jitter.nextInt(ceiling ~/ 2 + 1)),
+      () {
+        _reconnectTimer = null;
+        unawaited(_connectHintSocket());
+      },
+    );
+  }
+
+  Future<void> _replayAfterConnect(AuthIdentity captured, int epoch) async {
     try {
-      final WebSocket socket = await api.connectEvents(token);
+      if (_activePoll != null) await _backgroundPoll();
+    } finally {
+      // An older snapshot cannot cover the handshake gap, even if it fails.
+      if (_hintsRunning &&
+          epoch == _socketEpoch &&
+          session.isCurrent(captured)) {
+        await _backgroundPoll();
+      }
+    }
+  }
+
+  Future<void> _connectHintSocket() async {
+    if (!_hintsRunning || _connecting || _socket != null) return;
+    final AuthIdentity? captured = session.identity;
+    if (captured == null) return;
+    final int epoch = _socketEpoch;
+    _connecting = true;
+    try {
+      final WebSocket socket = await api.connectEvents(captured.token);
+      if (!_hintsRunning ||
+          epoch != _socketEpoch ||
+          !session.isCurrent(captured)) {
+        await socket.close();
+        return;
+      }
       _socket = socket;
+      final stable = Stopwatch()..start();
+      void disconnected() {
+        if (!identical(_socket, socket)) return;
+        _socket = null;
+        unawaited(socket.close());
+        if (stable.elapsed >= const Duration(seconds: 30)) _retryAttempt = 0;
+        _scheduleReconnect();
+      }
+
       socket.listen(
         (_) => unawaited(_backgroundPoll()),
-        onError: (Object _) {},
-        onDone: () {
-          _socket = null;
-        },
+        onError: (Object _) => disconnected(),
+        onDone: disconnected,
         cancelOnError: true,
       );
+      // Recover the gap even if no new hint arrives after the handshake.
+      unawaited(_replayAfterConnect(captured, epoch));
     } catch (_) {
-      // Hints are optional; the durable GET replay remains authoritative.
+      // Hints are optional; durable replay keeps running during backoff.
+      if (epoch == _socketEpoch) _scheduleReconnect();
+    } finally {
+      _connecting = false;
+      if (epoch != _socketEpoch && _hintsRunning) {
+        unawaited(_connectHintSocket());
+      }
     }
   }
 }
