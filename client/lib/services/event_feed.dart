@@ -37,7 +37,10 @@ class EventFeed {
   int _socketEpoch = 0;
   int _retryAttempt = 0;
   AuthIdentity? _hintIdentity;
+  int _replayEpoch = 0;
   Future<void>? _activePoll;
+  Future<void>? _replayCommit;
+  Future<void>? _disposal;
   AuthFailure? lastFailure;
   bool _disposed = false;
   int _revision = 0;
@@ -61,6 +64,8 @@ class EventFeed {
   void stop() {
     _timer?.cancel();
     _timer = null;
+    _replayEpoch++;
+    _activePoll = null;
     _socketEpoch++;
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
@@ -69,9 +74,13 @@ class EventFeed {
     _socket = null;
   }
 
-  Future<void> dispose() async {
+  Future<void> dispose() {
+    if (_disposal case final disposal?) return disposal;
     _disposed = true;
     stop();
+    // Let any write already admitted by the ledger settle. Late HTTP
+    // responses cannot queue new replay writes or start additional requests.
+    return _disposal = _replayCommit ?? Future<void>.value();
   }
 
   Future<void> subscribe({
@@ -96,9 +105,15 @@ class EventFeed {
         message: 'consumer_session 不能为空',
       );
     }
-    await ledger.subscribe(captured.account, consumerSession, peerAccount,
-      discover: discover, expectedIdentity: expectedIdentity,
-      stillCurrent: () => session.isCurrent(captured));
+    final int epoch = _replayEpoch;
+    await ledger.subscribe(
+      captured.account,
+      consumerSession,
+      peerAccount,
+      discover: discover,
+      expectedIdentity: expectedIdentity,
+      stillCurrent: () => session.isCurrent(captured),
+    );
     if (!session.isCurrent(captured)) {
       throw unauthenticated;
     }
@@ -107,7 +122,7 @@ class EventFeed {
     // pre-registration backlog instead of racing an unawaited poll.
     // A poll that started before registration cannot satisfy this backfill.
     await _activePoll;
-    await _pollAll(captured);
+    if (epoch == _replayEpoch) await _pollAll(captured);
   }
 
   /// Fetches each consumer's own durable source range into its local feed.
@@ -116,15 +131,21 @@ class EventFeed {
   /// backlog for its peer. Advancing `consumer A` never marks consumer B as
   /// having accepted anything.
   Future<void> _backgroundPoll() async {
+    final int epoch = _replayEpoch;
     try {
       await pollOnce();
-      lastFailure = null;
+      if (epoch == _replayEpoch) lastFailure = null;
     } on AuthFailure catch (failure) {
       // Scheduled work has no HTTP caller. Preserve the failure for diagnostics;
       // explicit subscribe/poll still throws identity/storage errors.
-      lastFailure = failure;
+      if (epoch == _replayEpoch) lastFailure = failure;
     } on FileSystemException {
-      lastFailure = const AuthFailure(status: 503, code: 'storage_unavailable', message: '事件存储不可用');
+      if (epoch != _replayEpoch) return;
+      lastFailure = const AuthFailure(
+        status: 503,
+        code: 'storage_unavailable',
+        message: '事件存储不可用',
+      );
     }
   }
 
@@ -138,58 +159,107 @@ class EventFeed {
   Future<void> _pollAll(AuthIdentity captured) async {
     if (_disposed) return;
     if (_activePoll != null) return _activePoll!;
-    final Future<void> run = _pollSubscriptions(captured);
+    final int epoch = _replayEpoch;
+    bool requireCurrentReplay() {
+      if (epoch != _replayEpoch) throw const _ReplayStopped();
+      if (!session.isCurrent(captured)) throw staleIdentity;
+      return true;
+    }
+
+    final Future<void> run = _replaySubscriptions(
+      captured,
+      requireCurrentReplay,
+    ).onError<_ReplayStopped>((_, _) {});
     _activePoll = run;
     try {
       await run;
     } finally {
-      _activePoll = null;
+      if (identical(_activePoll, run)) _activePoll = null;
     }
   }
 
-  Future<void> _pollSubscriptions(AuthIdentity captured) async {
+  Future<T> _commitReplay<T>(Future<T> commit) {
+    // Replay commits enter the same serialized ledger. The latest settles
+    // after previously queued writes, including those from stopped runs.
+    _replayCommit = commit.then<void>((_) {}, onError: (Object _) {});
+    return commit;
+  }
+
+  Future<void> _replaySubscriptions(
+    AuthIdentity captured,
+    bool Function() requireCurrentReplay,
+  ) async {
     await deliverPendingFor(captured.account);
-    final Map<String, List<String>> subscriptions = await ledger.subscriptions(captured.account);
-    for (final MapEntry<String, List<String>> subscription in subscriptions.entries) {
-      _ensureCurrent(captured);
+    requireCurrentReplay();
+    final Map<String, List<String>> subscriptions = await ledger.subscriptions(
+      captured.account,
+    );
+    for (final MapEntry<String, List<String>> subscription
+        in subscriptions.entries) {
+      requireCurrentReplay();
       final Set<String> peers = subscription.value.toSet();
-      if (await ledger.discoversConversations(captured.account, subscription.key)) {
+      if (await ledger.discoversConversations(
+        captured.account,
+        subscription.key,
+      )) {
         String after = '';
         do {
-          final ConversationRecordPage page = await api.conversations(token: captured.token, afterAccount: after, limit: 100);
-          _ensureCurrent(captured);
+          requireCurrentReplay();
+          final ConversationRecordPage page = await api.conversations(
+            token: captured.token,
+            afterAccount: after,
+            limit: 100,
+          );
+          requireCurrentReplay();
           for (final ConversationRecord row in page.items) {
-            await ledger.subscribe(captured.account, subscription.key, row.peerAccount,
-              stillCurrent: () => session.isCurrent(captured));
+            requireCurrentReplay();
+            await _commitReplay(
+              ledger.subscribe(
+                captured.account,
+                subscription.key,
+                row.peerAccount,
+                stillCurrent: requireCurrentReplay,
+              ),
+            );
             peers.add(row.peerAccount);
           }
           if (page.nextCursor == null) break;
-          if (page.nextCursor!.compareTo(after) <= 0) throw const FormatException('conversation cursor did not advance');
+          if (page.nextCursor!.compareTo(after) <= 0) {
+            throw const FormatException('conversation cursor did not advance');
+          }
           after = page.nextCursor!;
-        } while (!_disposed);
+        } while (true);
       }
       for (final String peer in peers) {
-        _ensureCurrent(captured);
-        if (_disposed) return;
+        requireCurrentReplay();
         try {
-          await _pollConsumer(captured: captured, consumerSession: subscription.key, peerAccount: peer);
+          await _pollConsumer(
+            captured: captured,
+            consumerSession: subscription.key,
+            peerAccount: peer,
+            requireCurrentReplay: requireCurrentReplay,
+          );
         } on AuthFailure catch (failure) {
           // Only peer-local availability failures can be isolated. Shared
           // identity, owner/CAS and storage failures must remain visible.
-          if (!const <String>{'not_found', 'upstream_unavailable', 'upstream_timeout', 'network_error'}.contains(failure.code)) rethrow;
+          if (!const <String>{
+            'not_found',
+            'upstream_unavailable',
+            'upstream_timeout',
+            'network_error',
+          }.contains(failure.code)) {
+            rethrow;
+          }
         }
       }
     }
-  }
-
-  void _ensureCurrent(AuthIdentity captured) {
-    if (!session.isCurrent(captured)) throw staleIdentity;
   }
 
   Future<void> _pollConsumer({
     required AuthIdentity captured,
     required String consumerSession,
     required String peerAccount,
+    required void Function() requireCurrentReplay,
   }) async {
     int cursor = await ledger.subscriptionCursor(
       captured.account,
@@ -203,15 +273,17 @@ class EventFeed {
       consumerSession,
     );
     bool advanced = true;
-    while (advanced && !_disposed) {
+    while (advanced) {
+      requireCurrentReplay();
       advanced = false;
       final ServerEventPage page = await api.events(
         token: captured.token,
         afterEventId: cursor,
         limit: 100,
       );
-      _ensureCurrent(captured);
+      requireCurrentReplay();
       for (final ServerEvent event in page.items) {
+        requireCurrentReplay();
         if (event.peerAccount == peerAccount) {
           final ChatMessage? message = await _readable(
             captured.token,
@@ -219,23 +291,26 @@ class EventFeed {
             event.position,
             event.messageId,
           );
-          _ensureCurrent(captured);
+          requireCurrentReplay();
           if (message == null) {
             // Not readable yet: keep this consumer's cursor so a later poll
             // retries the source event instead of dropping it.
             return;
           }
           if (message.senderAccount != captured.account) {
-            await _append(
-              LocalEvent(
-                eventId: 'server:${event.eventId}',
-                account: captured.account,
-                consumerSession: consumerSession,
-                type: LocalEventType.messageAvailable,
-                peerAccount: event.peerAccount,
-                position: event.position,
-                messageId: event.messageId,
-                originIdentity: originIdentity?.toJson(),
+            await _commitReplay(
+              _append(
+                LocalEvent(
+                  eventId: 'server:${event.eventId}',
+                  account: captured.account,
+                  consumerSession: consumerSession,
+                  type: LocalEventType.messageAvailable,
+                  peerAccount: event.peerAccount,
+                  position: event.position,
+                  messageId: event.messageId,
+                  originIdentity: originIdentity?.toJson(),
+                ),
+                requireCurrentReplay: requireCurrentReplay,
               ),
             );
           }
@@ -243,11 +318,15 @@ class EventFeed {
         cursor = event.eventId;
         advanced = true;
       }
-      await ledger.setSubscriptionCursor(
-        captured.account,
-        consumerSession,
-        peerAccount,
-        cursor,
+      requireCurrentReplay();
+      await _commitReplay(
+        ledger.setSubscriptionCursor(
+          captured.account,
+          consumerSession,
+          peerAccount,
+          cursor,
+          beforeMutation: requireCurrentReplay,
+        ),
       );
       if (!page.hasMore) {
         break;
@@ -294,11 +373,15 @@ class EventFeed {
     await _append(event);
   }
 
-  Future<void> _append(LocalEvent event) async {
+  Future<void> _append(
+    LocalEvent event, {
+    void Function()? requireCurrentReplay,
+  }) async {
     await ledger.appendLocalEvent(
       account: event.account,
       consumerSession: event.consumerSession,
       event: event,
+      beforeMutation: requireCurrentReplay,
     );
     _revision += 1;
   }
@@ -307,11 +390,9 @@ class EventFeed {
     required String consumerSession,
     required int afterCursor,
     int limit = 50,
+    ExpectedIdentity? expectedIdentity,
   }) async {
-    final AuthIdentity? captured = session.identity;
-    if (captured == null) {
-      throw unauthenticated;
-    }
+    final AuthIdentity captured = _captureReadIdentity(expectedIdentity);
     if (afterCursor < 0) {
       throw const AuthFailure(
         status: 422,
@@ -325,11 +406,24 @@ class EventFeed {
       consumerSession: consumerSession,
       afterCursor: afterCursor,
       limit: limit,
+      expectedIdentity: expectedIdentity,
     );
     if (!session.isCurrent(captured)) {
-      throw unauthenticated;
+      throw expectedIdentity == null ? unauthenticated : staleIdentity;
     }
     return page;
+  }
+
+  AuthIdentity _captureReadIdentity(ExpectedIdentity? expected) {
+    final AuthIdentity? captured = session.identity;
+    if (expected != null &&
+        (captured == null ||
+            expected.account != captured.account ||
+            expected.authGeneration != captured.authGeneration)) {
+      throw staleIdentity;
+    }
+    if (captured == null) throw unauthenticated;
+    return captured;
   }
 
   Future<LocalEventPage> _readAs(
@@ -337,6 +431,7 @@ class EventFeed {
     required String consumerSession,
     required int afterCursor,
     required int limit,
+    required ExpectedIdentity? expectedIdentity,
   }) async {
     await deliverPendingFor(captured.account);
     return ledger.readLocalEvents(
@@ -344,6 +439,10 @@ class EventFeed {
       consumerSession: consumerSession,
       afterCursor: afterCursor,
       limit: limit,
+      expectedIdentity: expectedIdentity,
+      stillCurrent: expectedIdentity == null
+          ? null
+          : () => session.isCurrent(captured),
     );
   }
 
@@ -352,11 +451,9 @@ class EventFeed {
     required int afterCursor,
     int limit = 50,
     Duration timeout = const Duration(seconds: 60),
+    ExpectedIdentity? expectedIdentity,
   }) async {
-    final AuthIdentity? captured = session.identity;
-    if (captured == null) {
-      throw unauthenticated;
-    }
+    final AuthIdentity captured = _captureReadIdentity(expectedIdentity);
     if (afterCursor < 0) {
       throw const AuthFailure(
         status: 422,
@@ -369,6 +466,7 @@ class EventFeed {
     while (!_disposed) {
       final AuthIdentity? current = session.identity;
       if (current == null) {
+        if (expectedIdentity != null) throw staleIdentity;
         return LocalEventPage(
           items: const <LocalEventEntry>[],
           nextCursor: afterCursor,
@@ -377,6 +475,7 @@ class EventFeed {
         );
       }
       if (!captured.sameAs(current)) {
+        if (expectedIdentity != null) throw staleIdentity;
         // A→B, A→B→A and same-account re-login all change the generation.
         // Return the original cursor and never expose the new account's data.
         return LocalEventPage(
@@ -395,8 +494,10 @@ class EventFeed {
         consumerSession: consumerSession,
         afterCursor: afterCursor,
         limit: limit,
+        expectedIdentity: expectedIdentity,
       );
       if (!session.isCurrent(captured)) {
+        if (expectedIdentity != null) throw staleIdentity;
         final bool loggedOut = session.identity == null;
         return LocalEventPage(
           items: const <LocalEventEntry>[],
@@ -405,6 +506,7 @@ class EventFeed {
           reason: loggedOut ? 'logout' : 'cancelled',
         );
       }
+      if (_disposed) break;
       if (page.items.isNotEmpty) {
         return LocalEventPage(
           items: page.items,
@@ -535,4 +637,8 @@ class EventFeed {
       }
     }
   }
+}
+
+class _ReplayStopped implements Exception {
+  const _ReplayStopped();
 }
