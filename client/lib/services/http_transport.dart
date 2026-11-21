@@ -44,10 +44,18 @@ class RequestCancellation {
 }
 
 class TransportResponse {
-  const TransportResponse(this.status, this.bytes, this.headers);
+  const TransportResponse(
+    this.status,
+    this.bytes,
+    this.headers, {
+    this.elapsed = Duration.zero,
+  });
   final int status;
   final Uint8List bytes;
   final Map<String, String> headers;
+
+  /// Time from opening the request until the full body was received.
+  final Duration elapsed;
 
   /// Content-Range is the original size; Content-Length can be a partial range.
   int? get totalBytes => _totalBytes(headers);
@@ -78,6 +86,50 @@ class HttpTransport {
   static List<NetworkDiagnostic> get diagnostics =>
       List.unmodifiable(_diagnostics);
 
+  /// Appends one allowlisted diagnostic and keeps only the newest 100.
+  ///
+  /// Shared so a caller that classifies a failure after [send] returned (for
+  /// example parsing a response `Content-Type`) records the same safe shape
+  /// instead of growing a second mechanism.
+  static void recordDiagnostic(NetworkDiagnostic diagnostic) {
+    _diagnostics.add(diagnostic);
+    while (_diagnostics.length > 100) {
+      _diagnostics.removeFirst();
+    }
+  }
+
+  /// Parses a response `Content-Type` without leaking `dart:io`'s raw
+  /// [HttpException]: a malformed header is recorded once and reported as the
+  /// stable upstream failure the rest of the client already understands.
+  static ContentType parseContentType(
+    Map<String, String> headers, {
+    required String service,
+    required Duration elapsed,
+    int? status,
+  }) {
+    final String raw =
+        headers[HttpHeaders.contentTypeHeader] ?? 'application/octet-stream';
+    try {
+      return ContentType.parse(raw);
+    } catch (error) {
+      if (error is! HttpException && error is! FormatException) {
+        rethrow;
+      }
+      recordDiagnostic(
+        NetworkDiagnostic(
+          service,
+          NetworkPhase.headers,
+          NetworkErrorKind.http,
+          error.runtimeType.toString(),
+          elapsed,
+          DateTime.now().toUtc(),
+          status: status,
+        ),
+      );
+      throw upstreamUnavailable;
+    }
+  }
+
   /// A single deadline covers opening, upload, headers and the entire body.
   /// Cancellation aborts the request and cancels the response subscription.
   /// DNS/openUrl itself is not cancellable in dart:io: a late request is aborted
@@ -101,7 +153,7 @@ class HttpTransport {
     final result = Completer<TransportResponse>();
     bool ended = false;
     void record(NetworkErrorKind kind, String type, {int? status}) {
-      _diagnostics.add(
+      recordDiagnostic(
         NetworkDiagnostic(
           service,
           phase,
@@ -112,9 +164,6 @@ class HttpTransport {
           status: status,
         ),
       );
-      while (_diagnostics.length > 100) {
-        _diagnostics.removeFirst();
-      }
     }
 
     void fail(Object error, {NetworkErrorKind? kind}) {
@@ -205,7 +254,11 @@ class HttpTransport {
           onDone: () {
             if (ended) return;
             ended = true;
-            if (response.statusCode >= 400) {
+            // A redirect is never followed with credentials, so the business
+            // layer rejects it; keep that rejected status queryable. 304 is the
+            // legitimate conditional-avatar answer, not a rejection.
+            if (response.statusCode >= 300 &&
+                response.statusCode != HttpStatus.notModified) {
               record(
                 NetworkErrorKind.response,
                 'HttpStatus',
@@ -217,6 +270,7 @@ class HttpTransport {
                 response.statusCode,
                 bytes.takeBytes(),
                 responseHeaders,
+                elapsed: clock.elapsed,
               ),
             );
           },

@@ -72,7 +72,32 @@ void main() {
         );
       }
 
-      setUpAll(() async {
+      /// `GET /users` is keyset paginated by account. A single page only
+      /// contained the expected peers on an almost-empty database, so the
+      /// directory assertions below walk every page instead of depending on
+      /// how many synthetic accounts earlier rounds left behind.
+      Future<List<ChatUser>> listAllUsers(ChatService chat) async {
+        final List<ChatUser> users = <ChatUser>[];
+        String after = '';
+        while (true) {
+          final UserPage page = await chat.listUsers(
+            afterAccount: after,
+            limit: 100,
+          );
+          users.addAll(page.items);
+          final String? next = page.nextCursor;
+          if (next == null || next == after) break;
+          after = next;
+        }
+        return users;
+      }
+
+      // Every test gets its own synthetic accounts and local ledgers. Sharing
+      // one A/B pair across the group made assertions such as "this pair has
+      // exactly one message" depend on execution order (DEA-487 item 6); the
+      // business assertions stay unchanged and each test starts from a clean
+      // server-side history.
+      setUp(() async {
         root = await Directory.systemTemp.createTemp('bb-live-chat-');
         authA = AuthService(
           api: AuthApiClient(baseUri: baseUri),
@@ -108,7 +133,7 @@ void main() {
         chatC.start();
       });
 
-      tearDownAll(() async {
+      tearDown(() async {
         await chatA.dispose();
         await chatB.dispose();
         await chatC.dispose();
@@ -157,20 +182,20 @@ void main() {
             reason: 'two distinct images must stay distinct and ordered',
           );
 
-          final UserPage users = await chatB.listUsers();
-          final ChatUser rowA = users.items.firstWhere(
+          final List<ChatUser> users = await listAllUsers(chatB);
+          final ChatUser rowA = users.firstWhere(
             (ChatUser user) => user.account == userA.account,
           );
           expect(rowA.presence, Presence.online);
           expect(rowA.lastMessage, isNotNull);
           expect(rowA.lastMessage!.senderAccount, userA.account);
           expect(rowA.lastMessage!.previewBody, contains('文字A'));
-          final ChatUser rowC = users.items.firstWhere(
+          final ChatUser rowC = users.firstWhere(
             (ChatUser user) => user.account == userC.account,
           );
           expect(rowC.lastMessage, isNull);
           expect(
-            users.items.any((ChatUser u) => u.account == userB.account),
+            users.any((ChatUser u) => u.account == userB.account),
             isFalse,
           );
 

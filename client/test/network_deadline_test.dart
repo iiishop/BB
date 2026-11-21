@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:bb_client/models/auth_models.dart';
 import 'package:bb_client/services/auth_api_client.dart';
@@ -147,4 +149,80 @@ void main() {
       expect(requests, 1, reason: 'writes must never be automatically retried');
     },
   );
+
+  for (final explicitCancel in <bool>[false, true]) {
+    test(
+      '${explicitCancel ? 'cancel' : 'deadline'} of a blocked upload actually closes the socket',
+      () async {
+        final ServerSocket server = await ServerSocket.bind(
+          InternetAddress.loopbackIPv4,
+          0,
+        );
+        final Completer<StreamSubscription<List<int>>> accepted =
+            Completer<StreamSubscription<List<int>>>();
+        final Completer<void> closed = Completer<void>();
+        final List<Socket> sockets = <Socket>[];
+        int received = 0;
+        server.listen((Socket socket) {
+          sockets.add(socket);
+          final StreamSubscription<List<int>> subscription = socket.listen(
+            (List<int> data) => received += data.length,
+            onDone: () {
+              if (!closed.isCompleted) closed.complete();
+            },
+            onError: (Object _) {
+              if (!closed.isCompleted) closed.complete();
+            },
+          );
+          // Stop reading so the 16 MiB upload blocks on the wire.
+          subscription.pause();
+          accepted.complete(subscription);
+        });
+        addTearDown(() async {
+          for (final Socket socket in sockets) {
+            socket.destroy();
+          }
+          await server.close();
+        });
+        final HttpTransport transport = HttpTransport();
+        addTearDown(() => transport.client.close(force: true));
+        final RequestCancellation cancellation = RequestCancellation();
+        final Future<TransportResponse> pending = transport.send(
+          'POST',
+          Uri.parse('http://127.0.0.1:${server.port}/upload'),
+          service: 'chat',
+          timeout: Duration(milliseconds: explicitCancel ? 2000 : 200),
+          maxBytes: 100,
+          body: Uint8List(16 * 1024 * 1024),
+          cancellation: explicitCancel ? cancellation : null,
+        );
+        final Future<void> assertion = expectLater(
+          pending,
+          throwsA(
+            isA<AuthFailure>().having(
+              (AuthFailure f) => f.code,
+              'code',
+              explicitCancel ? 'upstream_unavailable' : 'upstream_timeout',
+            ),
+          ),
+        );
+        final StreamSubscription<List<int>> subscription =
+            await accepted.future;
+        if (explicitCancel) {
+          await Future<void>.delayed(const Duration(milliseconds: 200));
+          cancellation.cancel();
+        }
+        await assertion;
+        expect(HttpTransport.diagnostics.last.phase, NetworkPhase.sending);
+        subscription.resume();
+        await closed.future.timeout(const Duration(seconds: 3));
+        expect(
+          received,
+          lessThan(16 * 1024 * 1024),
+          reason: 'the client must stop sending, not just return early',
+        );
+        expect(sockets, hasLength(1), reason: 'a write is never replayed');
+      },
+    );
+  }
 }

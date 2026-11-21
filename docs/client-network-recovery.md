@@ -4,14 +4,15 @@
 
 - `EventFeed` 保留 2 秒轮询和每个 consumer/peer 的持久游标。WebSocket 只是提示；失败或断开后用可取消 Timer 重连，等抖动退避依次为 0.5–1 秒、1–2 秒、2–4 秒……上限 15–30 秒。稳定连接至少 30 秒后才重置退避，避免「握手成功后立刻断开」形成热循环。
 - `start` 幂等；连接中的尝试与已连接 socket 都有单实例保护。`stop`/`dispose` 取消重连，旧连接/迟到握手不能覆盖新代连接。周期检查跟踪登录身份变化；重连成功立即补跑持久回放，游标和 ACK 规则未改。
-- 源码没有现成 `WidgetsBindingObserver`/`AppLifecycleListener` 传入这一同时服务 GUI 和 standalone 的层，因此没有添加虚假的前台生命周期。恢复调度后沿用已有 Timer 检查连接；未实现操作系统级后台常驻或推送。
-- `HttpTransport.send` 集中实现整次网络请求 deadline（open、upload flush、headers、完整 body），不是每一阶段重新给一份预算。deadline/显式取消会 abort 当前 request、cancel body subscription；不会 force-close 整个共享池，也没有自动重试。
-- Auth/Chat/Space/Profile 的所有 HTTP 入口接入同一机制；业务 JSON/schema/error envelope 仍由原 API 处理。Chat 的上传、下载继续用 **120 秒**媒体预算，普通 JSON 和 probe 仍用各自原预算。禁止自动跟随重定向以避免凭据外带/写请求重放；3xx 由原业务层判为非预期响应。
+- 共享层 `EventFeed` 同时服务 GUI 与 standalone，不持有 widget binding，也没有伪造生命周期。GUI 宿主 `main.dart` 用 Flutter 真实的 `WidgetsBindingObserver`（`lib/foreground_recovery.dart`）在 `resumed` 时调用既有 `ChatService.resumeForCurrentSession()`：补跑待恢复下载并立即持久回放一次事件，而不是等被后台暂停的 Timer。standalone 入口不安装该 observer。未实现操作系统级后台常驻或推送。
+- `HttpTransport.send` 集中实现整次网络请求 deadline（open、upload flush、headers、完整 body），不是每一阶段重新给一份预算。deadline/显式取消会 abort 当前 request、cancel body subscription；不会 force-close 整个共享池，也没有自动重试。阻塞上传的 deadline/取消由真实 TCP 关闭验证，服务端不会继续收到整份请求体。
+- Auth/Chat/Space/Profile 的所有 HTTP 入口接入同一机制；业务 JSON/schema/error envelope 仍由原 API 处理。Chat 的上传、下载继续用 **120 秒**媒体预算，普通 JSON 和 probe 仍用各自原预算。禁止自动跟随重定向以避免凭据外带/写请求重放；3xx 由原业务层判为非预期响应，除合法 304 外的拒绝状态都会留下带 status 的安全诊断。
+- 响应 `Content-Type` 由共享 `HttpTransport.parseContentType` 解析：畸形 header 不再把原生 `HttpException` 抛给 UI，而是记录一次 `headers`/`http` 诊断并以 `upstream_unavailable` 返回；合法类型照常工作。
 - 其余 `media_source`、`avatar_source`、`media_stream_proxy` 未迁移，避免扩散到九份业务。WebSocket 握手使用独立 HttpClient，超时时实际关闭握手 TCP，不影响 HTTP keep-alive 池。
 
 ## GUI 与事件消费者的真实链路
 
-- `client/lib/main.dart:219–225` 为 GUI 创建 ChatService 并调用 `chat.start()`，因此 GUI 进程确实也启动同一 EventFeed；`chat_service.dart:129/189` 分别创建/启动 EventFeed。没有第二套 GUI WebSocket 实现。
+- `client/lib/main.dart` 的 `_AppServices.create` 为 GUI 创建 ChatService 并调用 `chat.start()`，因此 GUI 进程确实也启动同一 EventFeed；`chat_service.dart:129/189` 分别创建/启动 EventFeed。没有第二套 GUI WebSocket 实现。GUI 宿主另在 `_BbRootState` 安装前台恢复 observer（见上）。
 - **但聊天消息 UI 并不读取 EventFeed/WS**：`ui/chat/chat_page.dart:187–191` 的 3 秒 Timer 调 `_pollNew`，`400–458` 经 `ChatService.loadConversation` 做 HTTP 增量读取；失败 catch 后 finally 释放 `_fetching`，后续 tick 可继续。`_fetchedThrough` 只在成功合并后前移。这是原有恢复路径，不是本 PR 新增的 GUI WS 恢复。
 - 用户列表 `ui/chat/users_view.dart:61` 与在线状态 `services/presence_directory.dart:111` 默认 30 秒；Space `ui/space/space_controller.dart` 默认 20 秒事件轮询。它们的 HTTP 请求经此次共同 API 传输层受总 deadline/取消约束，但没有改 GUI 调度，也没有对其新增 resume 生命周期。
 - 所以本 PR 的真实 WS 断连回归证明的是 **EventFeed 事件消费者链路**；共同 HTTP 修复惠及 GUI，不能据此声称 Windows/Android GUI 的断网恢复已实机验证。完整 headless widget 回归不等于平台真机验证。
@@ -78,9 +79,22 @@ final recentChat = HttpTransport.diagnostics
 - 同一 transport 的并发 HTTP 请求：取消一个正在接收 body 的请求，另一请求仍完成；下一次请求复用未被取消请求的同一 TCP 连接。
 - 原生 TLS 协议不匹配保留 tls/opening，HTTP 截断 body 保留 http/body；四个 API 断连均保留 socket/opening。keep-alive 连接复用与旧 idle socket 恢复保持通过。
 
+## DEA-487 补漏（复现基线 4fbafbe6）
+
+审查补了三类缺口，均为真实本地 HTTP/进程测试：
+
+| 命令（工作目录 `client`） | 基线 RED | 修复后 GREEN |
+| --- | --- | --- |
+| `flutter test --no-pub test/network_diagnostics_regression_test.dart` | fetch/probe 均抛原生 `HttpException: Failed to parse header value`、诊断增量 0；302 诊断增量 0 | 5 通过；媒体畸形 `Content-Type` 为 `upstream_unavailable` + 1 条 headers/http 诊断，302 为 1 条带 302 的诊断且只请求一次，Profile 304 不记录 |
+| `flutter test --no-pub test/network_deadline_test.dart` | 既有 7 例通过；缺少堵住上传后的真实 TCP 关闭断言 | 9 通过；deadline/取消后服务端观测 socket 关闭且收到的字节数小于整份请求体 |
+| `flutter test --no-pub test/foreground_recovery_test.dart` | 基线无宿主前台恢复接入（无此用例） | 3 通过；真实 `flutter/lifecycle` 平台消息触发一次 `resumeForCurrentSession`，paused 不触发，detach 后停止，异常不外泄 |
+| `BB_LIVE_SERVER_URL=... flutter test --no-pub test/live_chat_e2e_test.dart --test-randomize-ordering-seed=2052099866` | 2 通过 1 失败：`ordered ...` 期望历史 1 条，实际 2 条 | 10 轮随机 seed 全部 3 通过 0 失败 0 跳过；固定 seed 2052099866、2029577020 均通过 |
+
+live 用例改为每个 test 自建合成账号、ledger 与 cache，并遍历 `/users` 全部分页后再做目录断言；共享 `setUpAll` 账号导致的顺序依赖已消除，`hasLength(1)` 等业务断言保留。跳过（未设置 `BB_LIVE_SERVER_URL`）仍记为 skip，不算通过。
+
 ## 验证与未覆盖
 
-- Linux 无 GUI：`flutter analyze --no-pub` 无问题；最终 `flutter test --no-pub --reporter json` **883 通过、14 跳过、0 失败**。定向网络/WS 三文件 **27 通过**。JSON 原始执行记录在 `/tmp/bb-network-test-results-final.jsonl`（临时文件，不入库）。
+- Linux 无 GUI：`flutter analyze --no-pub` 无问题；最终 `flutter test --no-pub --reporter compact` **893 通过、14 跳过、0 失败**（复现基线为 883 通过、14 跳过，新增 10 例）。一次完整并发运行中 `chat_query_service_test.dart` 在 30 秒测试超时下偶发 `eventHead` 超时，单独重跑该文件 13 例全通过、随后的完整重跑 893 通过；此 flake 作为已知并发负载问题保留，未改断言。
 - 独立只读审查找出「旧空快照吞掉重连补跑」竞态后，新增真实 HTTP/WS RED 用例并修复，父执行会话实跑 GREEN。子执行器曾被 sandbox 的 Flutter SDK 缓存写权限挡住，那次退出 1 不是有效 RED；有效 RED/GREEN 均由主执行会话完成。
 - 未运行 Windows GUI/安装包、Android 真机、Linux GUI/integration_test、真实公网隧道切换或断网演练；条件式 live/真实后端测试跳过不视为通过。
 - 未实测长时间稳定连接的 30 秒退避重置、最终 30 秒上限的全时长等待、操作系统 DNS 强制取消、服务端已提交写请求的撤销（后者本就不可保证）。
