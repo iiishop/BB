@@ -17,6 +17,7 @@ class ChatApiClient {
     required this.baseUri,
     this.timeout = const Duration(seconds: 15),
     this.mediaTimeout = const Duration(seconds: 120),
+    this.transport,
   });
 
   final Uri baseUri;
@@ -25,8 +26,13 @@ class ChatApiClient {
   /// Large media transfers get a longer bound than JSON calls.
   final Duration mediaTimeout;
 
+  /// Optional shared transport. Tests inject one whose client factory returns
+  /// a real [HttpClient] created before the test binding blocks socket access.
+  final HttpTransport? transport;
+
   /// Reused across calls so the TLS connection is not rebuilt per request.
-  late final HttpTransport _http = HttpTransport(connectionTimeout: timeout);
+  late final HttpTransport _http =
+      transport ?? HttpTransport(connectionTimeout: timeout);
 
   static const int maxJsonBytes = 8 * 1024 * 1024;
   static const int maxMediaResponseBytes = chatMaxUploadBytes + (1024 * 1024);
@@ -304,8 +310,11 @@ class ChatApiClient {
     return MediaResponse(
       status: response.status,
       bytes: response.bytes,
-      mimeType: ContentType.parse(
-        response.headers['content-type'] ?? 'application/octet-stream',
+      mimeType: HttpTransport.parseContentType(
+        response.headers,
+        service: 'chat',
+        elapsed: response.elapsed,
+        status: response.status,
       ).mimeType,
       filename: _filenameFromDisposition(
         response.headers[HttpHeaders.contentDisposition],
@@ -359,8 +368,11 @@ class ChatApiClient {
       throw _decodeFailure(response.status, '');
     }
     return MediaProbe(
-      mimeType: ContentType.parse(
-        response.headers['content-type'] ?? 'application/octet-stream',
+      mimeType: HttpTransport.parseContentType(
+        response.headers,
+        service: 'chat',
+        elapsed: response.elapsed,
+        status: response.status,
       ).mimeType,
       filename: _filenameFromDisposition(
         response.headers[HttpHeaders.contentDisposition],
