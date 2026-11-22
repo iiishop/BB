@@ -55,6 +55,12 @@ class _UsersListViewState extends State<UsersListView> {
   Timer? _refreshTimer;
   bool _inFlight = false;
 
+  /// Set when a refresh is requested while a directory read is still running
+  /// (for example, returning from a chat whose send committed meanwhile).
+  /// The in-flight snapshot may predate that send, so it is discarded and the
+  /// directory is read again before anything is applied.
+  bool _reloadQueued = false;
+
   @override
   void initState() {
     super.initState();
@@ -114,6 +120,11 @@ class _UsersListViewState extends State<UsersListView> {
 
   Future<void> _load({bool silent = false}) async {
     if (_inFlight) {
+      // A caller that needs the current directory (notably the refresh after
+      // returning from a conversation) must not be dropped just because a
+      // periodic read started earlier. Queue one more read; the in-flight
+      // snapshot is discarded when it arrives.
+      _reloadQueued = true;
       return;
     }
     _inFlight = true;
@@ -123,34 +134,44 @@ class _UsersListViewState extends State<UsersListView> {
         _error = null;
       });
     }
-    // Reserve the presence ordering ticket before the request starts: a page
-    // that started earlier must not overwrite a targeted read that started
-    // later and already confirmed a value.
     final PresenceDirectory? presence = widget.presence;
-    final int? observation = presence?.beginObservation();
     try {
-      final List<ChatUser> users = sortChatUsersByLastMessage(
-        await _loadDirectory(),
-      );
-      if (!mounted) {
-        return;
+      while (true) {
+        _reloadQueued = false;
+        // Reserve the presence ordering ticket for this read: a snapshot that
+        // started earlier must not overwrite a targeted read that started
+        // later and already confirmed a value.
+        final int? observation = presence?.beginObservation();
+        final List<ChatUser> users = sortChatUsersByLastMessage(
+          await _loadDirectory(),
+        );
+        if (!mounted) {
+          return;
+        }
+        if (_reloadQueued) {
+          // A newer read was requested while this one was in flight; its
+          // snapshot may be older than the send that triggered the request.
+          continue;
+        }
+        setState(() {
+          _users
+            ..clear()
+            ..addAll(users);
+          _loading = false;
+          _error = null;
+        });
+        // A fresh directory read is authoritative for the accounts it
+        // contains; share it so an open conversation cannot keep a stale
+        // header. The ticket makes an older read lose.
+        presence?.seed(users, observation: observation);
+        break;
       }
-      setState(() {
-        _users
-          ..clear()
-          ..addAll(users);
-        _loading = false;
-        _error = null;
-      });
-      // A fresh directory read is authoritative for the accounts it contains;
-      // share it so an open conversation cannot keep a stale header. The
-      // ticket makes a read that started before a newer targeted read lose.
-      presence?.seed(users, observation: observation);
     } on AuthFailure catch (failure) {
       if (!mounted) {
         return;
       }
       if (failure.status == 401) {
+        _reloadQueued = false;
         setState(() {
           _loading = false;
         });
@@ -175,6 +196,14 @@ class _UsersListViewState extends State<UsersListView> {
       });
     } finally {
       _inFlight = false;
+      if (_reloadQueued) {
+        // A request arrived after the loop's last check and could not be
+        // joined, so start a fresh read instead of leaving its caller stale.
+        _reloadQueued = false;
+        if (mounted) {
+          unawaited(_load(silent: true));
+        }
+      }
     }
   }
 

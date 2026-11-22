@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:bb_client/app.dart';
 import 'package:bb_client/models/auth_models.dart';
 import 'package:bb_client/models/chat_models.dart';
 import 'package:bb_client/services/auth_api_client.dart';
 import 'package:bb_client/services/auth_service.dart';
 import 'package:bb_client/services/auth_session.dart';
+import 'package:bb_client/services/client_identity.dart';
 import 'package:bb_client/services/heartbeat_controller.dart';
 import 'package:bb_client/ui/chat/chat_composer.dart';
 import 'package:bb_client/ui/chat/conversation_order.dart';
@@ -22,6 +25,35 @@ import 'support/fake_profile_gateway.dart';
 const AuthUser _self = AuthUser(account: '10000001', username: 'me');
 const String _aliceAccount = '10000002';
 const String _zoeAccount = '10000003';
+
+/// Test double whose next directory response is captured first and delivered
+/// later, so the periodic refresh can overlap sending and returning.
+class DelayedDirectory extends FakeChatService {
+  DelayedDirectory({required super.self, required super.users});
+
+  Completer<void>? delayNext;
+  bool captured = false;
+
+  @override
+  Future<UserPage> listUsers({
+    String afterAccount = '',
+    int limit = 50,
+    ExpectedIdentity? expectedIdentity,
+  }) async {
+    final Completer<void>? gate = delayNext;
+    delayNext = null;
+    final UserPage snapshot = await super.listUsers(
+      afterAccount: afterAccount,
+      limit: limit,
+      expectedIdentity: expectedIdentity,
+    );
+    if (gate != null) {
+      captured = true;
+      await gate.future;
+    }
+    return snapshot;
+  }
+}
 
 ChatUser _peer(
   String account,
@@ -78,12 +110,12 @@ void main() {
   });
 
   group('home conversation order', () {
-    late FakeChatService chat;
+    late DelayedDirectory chat;
     late HeartbeatController heartbeat;
     late FakeProfileGateway profile;
 
     setUp(() {
-      chat = FakeChatService(
+      chat = DelayedDirectory(
         self: _self,
         users: <ChatUser>[
           _peer(_aliceAccount, 'alice'),
@@ -183,11 +215,15 @@ void main() {
         ], reason: 'newest last message comes first, whoever sent it');
         expect(find.text('zoe：Zoe 的最新消息'), findsOneWidget);
 
-        // 3. Sending Alice a reply puts Alice first. The fake commits the
-        // message and updates the same DTO fields `GET /users` derives from;
-        // leaving the chat page refreshes the list instead of waiting 30s.
+        // 3. A periodic refresh captures the directory before the reply is
+        // sent; its delayed response must not win over the post-send refresh
+        // that returning from the chat requests.
         await tester.tap(find.byKey(UsersListView.rowKey(_aliceAccount)));
         await tester.pumpAndSettle();
+        final Completer<void> staleDirectory = Completer<void>();
+        chat.delayNext = staleDirectory;
+        await tester.pump(const Duration(seconds: 30));
+        expect(chat.captured, isTrue);
         await tester.enterText(
           find.byKey(ChatComposer.inputKey),
           '给 Alice 的回复',
@@ -196,11 +232,16 @@ void main() {
         await tester.pumpAndSettle();
         await tester.pageBack();
         await tester.pumpAndSettle();
+        staleDirectory.complete();
+        await tester.pumpAndSettle();
 
-        expect(rowOrder(tester, <String>[_aliceAccount, _zoeAccount]), <String>[
-          _aliceAccount,
-          _zoeAccount,
-        ], reason: 'a sent reply is the newest last message');
+        expect(
+          rowOrder(tester, <String>[_aliceAccount, _zoeAccount]),
+          <String>[_aliceAccount, _zoeAccount],
+          reason:
+              'a sent reply is the newest last message even when an older '
+              'directory read lands afterwards',
+        );
         expect(find.text('我：给 Alice 的回复'), findsOneWidget);
 
         // 4. Opening Zoe without sending changes nothing.
