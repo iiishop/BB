@@ -68,27 +68,39 @@ class _UsersListViewState extends State<UsersListView> {
   Timer? _refreshTimer;
   bool _inFlight = false;
 
-  /// Orders concurrent badge reads so a slow one cannot overwrite a newer
-  /// result with stale facts.
-  int _unreadGeneration = 0;
-
   /// Last-seen directory preview per account (presence = account was seen,
   /// value = its last message id or null).
   ///
-  /// The 30s poll already fetches this page, so a changed preview is the
-  /// lightweight "a message arrived" signal. A preview seen for the first time
-  /// while rows are already shown is the same signal for a newly visible row
-  /// whose first preview may postdate the last unread snapshot. Both only
-  /// trigger the shared unread derivation, never a locally guessed count and
-  /// never a full-history scan on every tick.
+  /// The 30s poll already fetches this page, so a preview that differs from
+  /// the last successfully counted snapshot is the lightweight "recount
+  /// needed" signal. It only triggers the shared unread derivation, never a
+  /// locally guessed count and never a full-history scan on every tick.
   final Map<String, String?> _knownPreviews = <String, String?>{};
+
+  /// Previews covered by the last successful unread derivation, captured when
+  /// that derivation started. A row/preview that is not in here may postdate
+  /// the counts on screen — including the first row after an empty directory —
+  /// so it triggers a recount.
+  Map<String, String?> _coveredPreviews = <String, String?>{};
+
+  /// Counts may be stale and the next list trigger must recompute them.
+  ///
+  /// A failed derivation keeps this set, so the next poll retries instead of
+  /// waiting for another preview change; a successful one clears it.
+  bool _unreadDirty = false;
+  bool _unreadRefreshInFlight = false;
+
+  /// A trigger arrived while a derivation was running: run once more when it
+  /// finishes so the counts cover that newer change.
+  bool _unreadRetryNow = false;
 
   @override
   void initState() {
     super.initState();
     widget.presence?.addListener(_onPresenceChanged);
+    // The first directory response is the first preview snapshot; _load starts
+    // the shared derivation when it differs from the (empty) covered set.
     unawaited(_load(reset: true));
-    unawaited(_refreshUnread());
     _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       if (mounted && !_inFlight) {
         unawaited(_load(reset: true, silent: true));
@@ -123,23 +135,58 @@ class _UsersListViewState extends State<UsersListView> {
 
   /// Recomputes the badges from the shared account-level unread derivation.
   ///
-  /// Kept separate from the directory request so rows render immediately and
-  /// badges fill in. The periodic poll only pays for this full-history scan
-  /// when the directory reports an actual last-message change, not on every
-  /// tick. A failed badge read keeps the last confirmed badges instead of
-  /// turning the whole list into an error.
+  /// Runs are coalesced: a trigger arriving while one is in flight schedules a
+  /// single follow-up. On success the previews seen at the start become the
+  /// covered snapshot, so a message arriving mid-flight is still detected by
+  /// the next directory load, while unchanged previews never trigger a repeat
+  /// scan. A failed attempt keeps the last confirmed badges and stays dirty so
+  /// the next poll retries instead of waiting for another preview change.
   Future<void> _refreshUnread() async {
-    final int generation = ++_unreadGeneration;
-    Map<String, int> unread;
+    if (_unreadRefreshInFlight) {
+      _unreadRetryNow = true;
+      return;
+    }
+    _unreadRefreshInFlight = true;
+    _unreadDirty = false;
+    final Map<String, String?> covered = Map<String, String?>.of(
+      _knownPreviews,
+    );
     try {
-      unread = await widget.chat.incomingUnreadByPeer();
+      final Map<String, int> unread = await widget.chat.incomingUnreadByPeer();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _unread = unread;
+        _coveredPreviews = covered;
+      });
+      _unreadRetryNow = _unreadRetryNow || _previewsDifferFromCovered();
     } catch (_) {
+      // Keep the last confirmed badges; the next list trigger retries.
+      _unreadDirty = true;
+      _unreadRetryNow = false;
       return;
+    } finally {
+      _unreadRefreshInFlight = false;
+      if (_unreadRetryNow && mounted) {
+        _unreadRetryNow = false;
+        unawaited(_refreshUnread());
+      }
     }
-    if (!mounted || generation != _unreadGeneration) {
-      return;
+  }
+
+  /// Whether the directory shows a preview the counts on screen do not cover.
+  bool _previewsDifferFromCovered() {
+    if (_knownPreviews.length != _coveredPreviews.length) {
+      return true;
     }
-    setState(() => _unread = unread);
+    for (final MapEntry<String, String?> entry in _knownPreviews.entries) {
+      if (!_coveredPreviews.containsKey(entry.key) ||
+          _coveredPreviews[entry.key] != entry.value) {
+        return true;
+      }
+    }
+    return false;
   }
 
   Future<void> _load({required bool reset, bool silent = false}) async {
@@ -181,30 +228,11 @@ class _UsersListViewState extends State<UsersListView> {
         }
         after = next;
       }
-      final bool hadRows = _users.isNotEmpty;
       final Map<String, String?> previews = Map<String, String?>.of(
         _knownPreviews,
       );
-      bool needsUnreadRefresh = false;
       for (final ChatUser user in fetched) {
-        final String? previewId = user.lastMessage?.id;
-        if (!previews.containsKey(user.account)) {
-          // A row can enter the list only after the last unread snapshot was
-          // computed: the first append of a second page, or a newly
-          // registered contact. Its first preview may already be newer than
-          // that snapshot, so recompute instead of inheriting the cached
-          // count. Rows already on screen make this a later load, never the
-          // initial page the startup derivation covers.
-          if (hadRows && previewId != null) {
-            needsUnreadRefresh = true;
-          }
-        } else if (previews[user.account] != previewId) {
-          // The directory moved this conversation's last message: a new
-          // message arrived (or the previous one was replaced). The shared
-          // derivation decides whether it is inbound and unread.
-          needsUnreadRefresh = true;
-        }
-        previews[user.account] = previewId;
+        previews[user.account] = user.lastMessage?.id;
       }
       if (!mounted) {
         return;
@@ -232,7 +260,14 @@ class _UsersListViewState extends State<UsersListView> {
         _loadingMore = false;
         _error = null;
       });
-      if (needsUnreadRefresh) {
+      // A preview that the last successful derivation did not cover (a new
+      // row, the first row after an empty directory, or a moved last message)
+      // may postdate the counts on screen; a dirty flag left by a failed
+      // attempt is retried here too. Unchanged previews never trigger a scan.
+      if (_previewsDifferFromCovered()) {
+        _unreadDirty = true;
+      }
+      if (_unreadDirty) {
         unawaited(_refreshUnread());
       }
       // One fresh server response is authoritative for the accounts it
