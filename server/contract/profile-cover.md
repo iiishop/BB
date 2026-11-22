@@ -39,3 +39,54 @@ bounded JSON body budget of 12 MiB for the local upload. It rejects extra
 fields including upload `account`, and uses the existing v2 identity and owner
 checks. An invalid base64 string is a 422. The MCP read projects the returned
 display image as ImageContent and omits `data` from structured/text metadata.
+
+## Source and display policy
+
+- SHA-256 of the original bytes is the first lookup. Successful aliases point
+  to one source, while account-to-cover assignments remain independent.
+- A cross-file match requires oriented aspect ratios within 0.5%, a short side
+  of at least 96 px, spatial detail, and agreement of registered 128×128 color
+  and alpha samples. Across the image we allow mean absolute channel error up
+  to 2.5/255 and up to 3.5% of channels differing by more than 10/255. Each
+  16×16 block must also stay within 5/255 and 16% respectively. Both the first
+  comparison signature and the current source have to agree. Flat, ambiguous
+  and multiple-candidate matches are stored separately.
+- Confirmed variants retain the source with the largest oriented pixel area.
+  Equal-area uploads keep the existing source. When a source is upgraded, all
+  accounts already referencing that same image see the upgraded derivative on
+  revalidation. Only the authenticated account's assignment changes.
+- The display preserves aspect ratio, never upscales and caps the longest edge
+  at 1,600 px and the payload at 512 KiB. A clean static image within both caps
+  is served byte-for-byte. A derivative normalizes orientation and color and
+  removes private metadata. For a small image that requires normalization, the
+  encoder first tries lossless WebP at the original dimensions. Otherwise it
+  tries WebP qualities 88, 82 and 74
+  before reducing the output size. Every attempt uses the current source.
+- Sources are capped at 24 megapixels and 8 MiB. The first frame of an animated
+  upload is used. The original, the display (if different), aliases and account
+  assignments commit atomically in SQLite. Only an unreferenced replaced
+  source and its aliases are collected.
+
+The cover matrix is exercised by `server/tests/test_profile_cover.py`. On an
+integrated tree, run the installed DSH probe with
+`BB_PRODUCT_CASES=profile-cover` and
+`BB_PROFILE_COVER_CLIENT_ASSET=client/<asset-path>` using
+`dsh-plugin/probes/journal/live.py --product`. The probe checks two isolated
+accounts against real DSH tools, the standalone Dart client and FastAPI.
+
+The real FastAPI process was exercised with Pillow 12.3.0. Sample dimensions
+and byte counts came from the uploaded and retrieved files.
+
+| Sample | Upload | Retrieved |
+| --- | --- | --- |
+| Sea crop, resized and encoded as WebP | 480×240, 45,926 B | 480×240 before upgrade, then the 1,200×600 JPEG below |
+| Same sea picture, highest resolution | JPEG 1,200×600, 235,557 B | Same bytes, including after a later low-resolution upload |
+| Same picture and resolution, different codec | WebP 1,200×600, 218,480 B | Existing JPEG, equal pixel area |
+| Same-size mirror and local edit | JPEG 1,200×600, 235,622 B / 234,868 B | Separate covers, each byte-identical to its upload |
+| Small clean PNG | 220×160, 510 B | Same bytes |
+| High-frequency size stress | JPEG 2,400×1,200, 3,672,141 B | WebP 1,280×640, 473,726 B |
+
+The 1,600 px attempt for the size-stress sample exceeded the byte budget, so
+the derivative used a smaller proportional frame. Its original remains at
+2,400×1,200. The two covers still read back after restarting the server on the
+same SQLite database.

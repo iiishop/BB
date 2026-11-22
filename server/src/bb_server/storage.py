@@ -71,7 +71,7 @@ def migrate(path: Path):
     path.parent.mkdir(parents=True, exist_ok=True)
     with connection(path, write=True) as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 5:
+        if version > 6:
             raise RuntimeError("Database schema is newer than this server")
         for number, filename in [
             (1, "001_auth.sql"),
@@ -79,6 +79,7 @@ def migrate(path: Path):
             (3, "003_chat.sql"),
             (4, "004_space.sql"),
             (5, "005_follows.sql"),
+            (6, "006_covers.sql"),
         ]:
             if version >= number:
                 continue

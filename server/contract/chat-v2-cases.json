@@ -518,7 +518,7 @@
       },
       "result": {
         "cover_url": "/covers/10000001",
-        "cover_version": "sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "cover_version": "sha256-b1ff9c8ea3a780bad09b346c423d2d0e46815926879b18e841d928376a946640",
         "account": "10000001",
         "mime_type": "image/png",
         "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC",
@@ -534,7 +534,7 @@
       },
       "result": {
         "cover_url": "/covers/10000001",
-        "cover_version": "sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        "cover_version": "sha256-b1ff9c8ea3a780bad09b346c423d2d0e46815926879b18e841d928376a946640"
       }
     },
     "get_notifications": {

@@ -1,4 +1,5 @@
 from bb_auth_contract import ContractError
+from bb_auth_contract.cover import MAX_COVER_BYTES, UPLOAD_PATH
 from bb_auth_contract.profile import MAX_AVATAR_BYTES
 from starlette.responses import JSONResponse
 
@@ -13,15 +14,17 @@ class UploadLimit:
         if (
             scope["type"] != "http"
             or (
-                scope["path"] not in ("/me/avatar", "/media")
+                scope["path"] not in ("/me/avatar", "/media", UPLOAD_PATH)
                 and not scope["path"].startswith("/space/")
             )
             or scope["method"] != "POST"
         ):
             return await self.app(scope, receive, send)
-        limit = (
-            MAX_AVATAR_BYTES if scope["path"] == "/me/avatar" else 32 * 1024 * 1024
-        ) + 64 * 1024  # bounded multipart overhead
+        limit = {
+            "/me/avatar": MAX_AVATAR_BYTES,
+            UPLOAD_PATH: MAX_COVER_BYTES,
+            "/media": 32 * 1024 * 1024,
+        }.get(scope["path"], 0) + 64 * 1024  # bounded multipart overhead
         if scope["path"].startswith("/space/"):
             limit = (
                 48 * 1024 * 1024 if scope["path"] == "/space/add_image" else 1024 * 1024

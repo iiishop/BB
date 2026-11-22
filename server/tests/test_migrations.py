@@ -30,11 +30,11 @@ def test_failed_migration_rolls_back_entire_schema(tmp_path, monkeypatch):
 def test_newer_schema_is_never_downgraded(tmp_path):
     path = tmp_path / "future.db"
     with sqlite3.connect(path) as db:
-        db.execute("PRAGMA user_version=6")
+        db.execute("PRAGMA user_version=7")
     with pytest.raises(RuntimeError, match="newer"):
         migrate(path)
     with sqlite3.connect(path) as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 6
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 7
 
 
 def test_upgrade_step1_preserves_old_accounts_and_sessions(tmp_path):
@@ -64,7 +64,7 @@ def test_upgrade_step1_preserves_old_accounts_and_sessions(tmp_path):
         )
     migrate(path)
     with sqlite3.connect(path) as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 5
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 6
         assert db.execute("SELECT last_seen_at FROM sessions").fetchone()[0] >= int(
             before
         )
@@ -129,6 +129,6 @@ def test_space_upgrade_preserves_v3_chat_and_rollback(tmp_path, monkeypatch):
     migrate(path)
     migrate(path)
     with sqlite3.connect(path) as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 5
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 6
         assert db.execute("SELECT payload FROM messages").fetchone()[0] == "payload"
         assert db.execute("SELECT count(*) FROM space_posts").fetchone()[0] == 0

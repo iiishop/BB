@@ -163,6 +163,17 @@ def record_sources():
     paths += [repo / "dsh-plugin/build_bundle.py", repo / "dsh-plugin/uv.lock"]
     paths += list((repo / "dsh-plugin/probes/product").glob("*.mjs"))
     paths += [repo / "server/uv.lock", repo / "server/contract/chat-v2-openapi.json"]
+    if os.environ.get("BB_PRODUCT_CASES") == "profile-cover":
+        paths += [
+            repo / "server/src/bb_server" / name
+            for name in (
+                "app.py", "cover_images.py", "covers.py", "storage.py",
+                "migrations/006_covers.sql", "profile_cover_default.webp",
+            )
+        ]
+        asset = os.environ.get("BB_PROFILE_COVER_CLIENT_ASSET")
+        if asset:
+            paths.append(Path(asset).resolve())
     (root / "sources.json").write_text(
         json.dumps(
             {

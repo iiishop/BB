@@ -1,6 +1,8 @@
 """Deterministic exports: uv run --project server --locked python server/contract/export_chat_v2.py."""
 
+import base64
 import copy
+import hashlib
 import json
 from pathlib import Path
 
@@ -216,7 +218,9 @@ def fixtures():
         inputs[name]["message_id"] = message["id"]
     cover = {
         "cover_url": f"/covers/{AUTH['account']}",
-        "cover_version": "sha256-" + "a" * 64,
+        "cover_version": "sha256-" + hashlib.sha256(
+            base64.b64decode(inputs["update_cover"]["base64"], validate=True)
+        ).hexdigest(),
     }
     results = {
         "view_cover": {
