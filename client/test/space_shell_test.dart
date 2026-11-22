@@ -9,6 +9,7 @@ import 'package:bb_client/services/auth_api_client.dart';
 import 'package:bb_client/services/auth_service.dart';
 import 'package:bb_client/services/auth_session.dart';
 import 'package:bb_client/services/heartbeat_controller.dart';
+import 'package:bb_client/ui/chat/users_view.dart';
 import 'package:bb_client/ui/home_view.dart';
 import 'package:bb_client/ui/space/space_detail_view.dart';
 import 'package:bb_client/ui/space/space_local_store.dart';
@@ -39,14 +40,12 @@ Future<void> pumpHome(
   Size size = spacePhone,
   List<DisplayFeature> features = const <DisplayFeature>[],
   bool remount = true,
+  List<ChatUser> users = const <ChatUser>[],
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
-  final FakeChatService chat = FakeChatService(
-    self: _self,
-    users: const <ChatUser>[],
-  );
+  final FakeChatService chat = FakeChatService(self: _self, users: users);
   final FakeProfileGateway profile = FakeProfileGateway(
     profile: const Profile(
       account: spaceSelfAccount,
@@ -88,19 +87,6 @@ Future<void> pumpHome(
     ),
   );
   await tester.pumpAndSettle();
-}
-
-/// Opacity currently applied to the floating profile entry.
-double profileEntryOpacity(WidgetTester tester) {
-  final AnimatedOpacity opacity = tester.widget<AnimatedOpacity>(
-    find
-        .ancestor(
-          of: find.byKey(HomeView.avatarEntryKey),
-          matching: find.byType(AnimatedOpacity),
-        )
-        .first,
-  );
-  return opacity.opacity;
 }
 
 void main() {
@@ -190,27 +176,182 @@ void main() {
     expect(find.byKey(SpacePage.pageKey), findsOneWidget);
   });
 
-  testWidgets('wide shell hides the floating profile entry the rail owns', (
+  testWidgets('wide shell keeps the rail profile entry, not a header avatar', (
     WidgetTester tester,
   ) async {
     final FakeSpaceGateway gateway = shellGateway();
     await pumpHome(tester, gateway: gateway, size: spaceWide);
 
-    // The rail carries the profile entry, so the floating one fades out and
-    // slides toward the rail instead of competing for the same corner.
+    // The rail owns the profile entry on wide layouts, so the message header
+    // keeps its brand badge and does not duplicate the avatar.
     expect(find.byKey(HomeView.railAvatarKey), findsOneWidget);
-    expect(profileEntryOpacity(tester), 0);
+    expect(find.byKey(HomeView.avatarEntryKey), findsNothing);
   });
 
-  testWidgets('phone keeps the floating profile entry and has no rail', (
+  testWidgets('phone puts the profile entry in the message header, no rail', (
     WidgetTester tester,
   ) async {
     final FakeSpaceGateway gateway = shellGateway();
     await pumpHome(tester, gateway: gateway);
 
     expect(find.byKey(HomeView.railAvatarKey), findsNothing);
-    expect(profileEntryOpacity(tester), 1);
+    expect(find.byKey(HomeView.avatarEntryKey), findsOneWidget);
+    // Same header row, left of the account and above the 消息 title, instead of
+    // the removed bottom-left floating entry.
+    final Rect avatar = tester.getRect(find.byKey(HomeView.avatarEntryKey));
+    final Rect title = tester.getRect(find.text('消息'));
+    final Rect account = tester.getRect(find.text(spaceSelfAccount));
+    expect(avatar.top, lessThan(title.top));
+    expect(
+      (avatar.center.dy - account.center.dy).abs(),
+      lessThan(2),
+      reason: 'avatar shares the header row with the account on the right',
+    );
+    expect(avatar.left, lessThan(account.left));
   });
+
+  const List<ChatUser> filterUsers = <ChatUser>[
+    ChatUser(
+      account: '10000002',
+      username: 'bob',
+      avatarUrl: '',
+      avatarVersion: 'v1',
+      presence: Presence.online,
+    ),
+    ChatUser(
+      account: '10000003',
+      username: 'carol',
+      avatarUrl: '',
+      avatarVersion: 'v1',
+      presence: Presence.offline,
+    ),
+  ];
+
+  testWidgets(
+    'wide message page exposes the filter and manual off restores the list',
+    (WidgetTester tester) async {
+      final FakeSpaceGateway gateway = shellGateway();
+      await pumpHome(
+        tester,
+        gateway: gateway,
+        size: spaceWide,
+        users: filterUsers,
+      );
+      expect(find.byKey(HomeView.railAvatarKey), findsOneWidget);
+      final Finder toggle = find.byKey(UsersListView.onlineOnlyKey);
+      expect(toggle, findsOneWidget);
+      expect(find.text('只看在线'), findsOneWidget);
+
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      expect(find.byKey(UsersListView.rowKey('10000002')), findsOneWidget);
+      expect(find.byKey(UsersListView.rowKey('10000003')), findsNothing);
+
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      expect(find.byKey(UsersListView.rowKey('10000003')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'a phone filter stays on across the wide shell and manual off restores',
+    (WidgetTester tester) async {
+      final FakeSpaceGateway gateway = shellGateway();
+      await pumpHome(tester, gateway: gateway, users: filterUsers);
+      final Finder toggle = find.byKey(UsersListView.onlineOnlyKey);
+      expect(toggle, findsOneWidget);
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      expect(find.byKey(UsersListView.rowKey('10000003')), findsNothing);
+
+      await pumpHome(
+        tester,
+        gateway: gateway,
+        users: filterUsers,
+        size: spaceWide,
+        remount: false,
+      );
+      expect(find.byKey(HomeView.railAvatarKey), findsOneWidget);
+      expect(toggle, findsOneWidget);
+      expect(tester.widget<Switch>(toggle).value, isTrue);
+      expect(find.byKey(UsersListView.rowKey('10000002')), findsOneWidget);
+      expect(find.byKey(UsersListView.rowKey('10000003')), findsNothing);
+
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      expect(find.byKey(UsersListView.rowKey('10000003')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('folded message page exposes the filter and filters the list', (
+    WidgetTester tester,
+  ) async {
+    final FakeSpaceGateway gateway = shellGateway();
+    await pumpHome(
+      tester,
+      gateway: gateway,
+      size: spaceFold,
+      features: <DisplayFeature>[verticalHinge(512, 768)],
+      users: filterUsers,
+    );
+    final Finder toggle = find.byKey(UsersListView.onlineOnlyKey);
+    expect(toggle, findsOneWidget);
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    expect(find.byKey(UsersListView.rowKey('10000002')), findsOneWidget);
+    expect(find.byKey(UsersListView.rowKey('10000003')), findsNothing);
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    expect(find.byKey(UsersListView.rowKey('10000003')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  // The rail appears when the shell decides the window is wide. The filter must
+  // stay on across that layout change; only a manual toggle restores offline
+  // peers.
+  for (final double width in <double>[720, 811, 812]) {
+    testWidgets(
+      'resizing to the rail layout at ${width.toInt()}px keeps the filter on '
+      'and manual off restores the offline peer',
+      (WidgetTester tester) async {
+        final FakeSpaceGateway gateway = shellGateway();
+        const ChatUser offline = ChatUser(
+          account: '10000003',
+          username: 'carol',
+          avatarUrl: '',
+          avatarVersion: 'v1',
+          presence: Presence.offline,
+        );
+        await pumpHome(
+          tester,
+          gateway: gateway,
+          size: const Size(719, 900),
+          users: <ChatUser>[offline],
+        );
+        final Finder toggle = find.byKey(UsersListView.onlineOnlyKey);
+        final Finder peer = find.byKey(UsersListView.rowKey(offline.account));
+        expect(peer, findsOneWidget);
+        await tester.tap(toggle);
+        await tester.pumpAndSettle();
+        expect(peer, findsNothing);
+
+        tester.view.physicalSize = Size(width, 900);
+        await tester.pumpAndSettle();
+        expect(find.byKey(HomeView.railAvatarKey), findsOneWidget);
+        expect(toggle, findsOneWidget);
+        expect(tester.widget<Switch>(toggle).value, isTrue);
+        expect(peer, findsNothing);
+
+        await tester.tap(toggle);
+        await tester.pumpAndSettle();
+        expect(peer, findsOneWidget);
+        expect(find.text('只看在线'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 
   testWidgets('wide space shows master-detail and restores the single feed', (
     WidgetTester tester,

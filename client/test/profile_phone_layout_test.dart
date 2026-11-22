@@ -363,12 +363,20 @@ void main() {
     final Rect flight = tester.getRect(
       find.byKey(ProfilePanel.avatarFlightKey),
     );
-    expect(flight.center.dy, lessThan(entryRect.center.dy));
 
     await tester.pumpAndSettle();
     expect(find.byKey(ProfilePanel.avatarFlightKey), findsNothing);
     final Rect landed = tester.getRect(find.byKey(ScallopedAvatar.photoKey));
-    expect(landed.center.dy, lessThan(entryRect.center.dy));
+    // The entry sits in the messages header and the cover is further down the
+    // page, so the flight must travel between the two and never jump elsewhere.
+    final double lowerDy = entryRect.center.dy < landed.center.dy
+        ? entryRect.center.dy
+        : landed.center.dy;
+    final double upperDy = entryRect.center.dy < landed.center.dy
+        ? landed.center.dy
+        : entryRect.center.dy;
+    expect(flight.center.dy, inInclusiveRange(lowerDy, upperDy));
+    expect(flight.center.dx, isNot(0));
     expect(landed.height, greaterThan(entryRect.height));
 
     await tester.tap(find.byKey(ProfilePanel.closeButtonKey));
