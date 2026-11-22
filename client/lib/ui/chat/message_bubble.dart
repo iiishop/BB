@@ -21,7 +21,7 @@ class MessageEntrance extends StatefulWidget {
     super.key,
     required this.child,
     required this.animate,
-    this.duration = const Duration(milliseconds: 240),
+    this.duration = const Duration(milliseconds: 160),
   });
 
   final Widget child;
@@ -105,6 +105,7 @@ class MessageBubble extends StatelessWidget {
     this.statusUnconfirmed = false,
     this.showAvatar = true,
     this.isRunEnd = true,
+    this.originKeyFor,
   });
 
   final ChatMessage message;
@@ -134,11 +135,15 @@ class MessageBubble extends StatelessWidget {
   /// It keeps the retry entry but must not claim the message was not sent.
   final bool statusUnconfirmed;
 
-  /// Grouping: only the last bubble of a same-sender run shows the avatar.
+  /// Grouping: only the first bubble of a same-sender run shows the avatar.
   final bool showAvatar;
 
   /// Grouping: the sender-side bottom corner tightens at the run end.
   final bool isRunEnd;
+
+  /// Page-owned key for the painted thumbnail of [mediaId]; the viewer route
+  /// captures that exact rectangle for the origin-expand transition.
+  final GlobalKey? Function(String mediaId)? originKeyFor;
 
   static const Key sendingKey = Key('chat-bubble-sending');
   static const Key failedKey = Key('chat-bubble-failed');
@@ -213,8 +218,8 @@ class MessageBubble extends StatelessWidget {
                 localMediaPreview: localMediaPreview,
                 onSaveAs: interactive ? onSaveAs : null,
                 onDownload: interactive ? onDownload : null,
-                onPlay: interactive ? onPlay : null,
                 onOpenMedia: interactive ? onOpenMedia : null,
+                originKeyFor: originKeyFor,
               )
             else
               ..._bodyContent(context, textColor, interactive),
@@ -236,7 +241,11 @@ class MessageBubble extends StatelessWidget {
     );
 
     final Widget content = Row(
-      crossAxisAlignment: CrossAxisAlignment.end,
+      // The group's first bubble keeps its avatar at the top of the run; later
+      // bubbles keep the hidden 32px slot on the text edge.
+      crossAxisAlignment: showAvatar
+          ? CrossAxisAlignment.start
+          : CrossAxisAlignment.end,
       mainAxisAlignment: mine ? MainAxisAlignment.end : MainAxisAlignment.start,
       children: <Widget>[
         if (!mine) ...<Widget>[
@@ -314,14 +323,19 @@ class MessageBubble extends StatelessWidget {
               onTap: onOpenMedia == null
                   ? null
                   : () => onOpenMedia!(message, index),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: _MediaImage(
-                  chat: chat,
-                  mediaId: part.mediaId,
-                  localBytes: localMediaPreview?.call(part.mediaId),
-                  width: 160,
-                  height: 160,
+              child: RepaintBoundary(
+                key: originKeyFor?.call(part.mediaId),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: _MediaImage(
+                    chat: chat,
+                    mediaId: part.mediaId,
+                    localBytes: localMediaPreview?.call(part.mediaId),
+                    // A fixed 4:3 slot reserves the layout before the preview
+                    // arrives, so a late image never pushes reading text.
+                    width: 200,
+                    height: 150,
+                  ),
                 ),
               ),
             ),
@@ -475,8 +489,8 @@ class _AttachmentCard extends StatelessWidget {
     this.localMediaPreview,
     this.onSaveAs,
     this.onDownload,
-    this.onPlay,
     this.onOpenMedia,
+    this.originKeyFor,
   });
 
   final ChatMessage message;
@@ -489,125 +503,162 @@ class _AttachmentCard extends StatelessWidget {
   final Uint8List? Function(String mediaId)? localMediaPreview;
   final VoidCallback? onSaveAs;
   final VoidCallback? onDownload;
-  final VoidCallback? onPlay;
   final void Function(ChatMessage message, int? partIndex)? onOpenMedia;
+  final GlobalKey? Function(String mediaId)? originKeyFor;
 
   @override
   Widget build(BuildContext context) {
     final Attachment attachment = message.attachment!;
+    final bool video = attachment.kind == AttachmentKind.video;
+    // The thumbnail is the painted media id: a video shows its cover, and the
+    // viewer transition captures exactly this rectangle.
+    final String originMediaId = attachment.coverMediaId ?? attachment.mediaId;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
-        if (attachment.kind == AttachmentKind.video &&
-            attachment.coverMediaId != null)
+        if (video)
           Padding(
-            padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+            padding: const EdgeInsets.only(bottom: 6),
             child: GestureDetector(
               key: ValueKey<String>('chat-media-${attachment.mediaId}'),
               behavior: HitTestBehavior.opaque,
               onTap: onOpenMedia == null
                   ? null
                   : () => onOpenMedia!(message, null),
-              child: Stack(
-                alignment: Alignment.center,
-                children: <Widget>[
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: _MediaImage(
-                      chat: chat,
-                      mediaId: attachment.coverMediaId!,
-                      localBytes: localMediaPreview?.call(
-                        attachment.coverMediaId!,
-                      ),
-                      width: 260,
-                      height: 150,
-                    ),
-                  ),
-                  Container(
-                    width: 48,
-                    height: 48,
-                    decoration: BoxDecoration(
-                      color: AppColors.ink.withValues(alpha: 0.55),
-                      shape: BoxShape.circle,
-                    ),
-                    child: busy
-                        ? const Padding(
-                            padding: EdgeInsets.all(13),
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: AppColors.surface,
+              child: RepaintBoundary(
+                key: originKeyFor?.call(originMediaId),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: SizedBox(
+                    width: 260,
+                    height: 150,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: <Widget>[
+                        if (attachment.coverMediaId != null)
+                          _MediaImage(
+                            chat: chat,
+                            mediaId: attachment.coverMediaId!,
+                            localBytes: localMediaPreview?.call(
+                              attachment.coverMediaId!,
                             ),
+                            width: 260,
+                            height: 150,
                           )
-                        : const Icon(
-                            Icons.play_arrow_rounded,
-                            color: AppColors.surface,
-                            size: 32,
+                        else
+                          Container(
+                            color: AppColors.ink,
+                            alignment: Alignment.center,
+                            child: const Icon(
+                              Icons.videocam_outlined,
+                              color: AppColors.surface,
+                              size: 34,
+                            ),
                           ),
+                        Center(
+                          child: Container(
+                            width: 48,
+                            height: 48,
+                            decoration: BoxDecoration(
+                              color: AppColors.ink.withValues(alpha: 0.55),
+                              shape: BoxShape.circle,
+                            ),
+                            child: busy
+                                ? const Padding(
+                                    padding: EdgeInsets.all(13),
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: AppColors.surface,
+                                    ),
+                                  )
+                                : const Icon(
+                                    Icons.play_arrow_rounded,
+                                    color: AppColors.surface,
+                                    size: 32,
+                                  ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ],
+                ),
               ),
             ),
           ),
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Container(
-              width: 38,
-              height: 38,
-              decoration: BoxDecoration(
-                color: mine
-                    ? AppColors.surface.withValues(alpha: 0.16)
-                    : AppColors.accentSoft,
-                borderRadius: BorderRadius.circular(10),
+        if (video)
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Flexible(
+                child: Text(
+                  attachment.filename,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 11.5, color: mutedColor),
+                ),
               ),
-              child: Icon(
-                attachmentIcon(attachment.mimeType),
-                color: mine
-                    ? AppColors.surface
-                    : attachmentColor(attachment.mimeType),
-                size: 20,
+              Text(
+                ' · ${formatBytes(attachment.byteSize)}',
+                style: TextStyle(fontSize: 11.5, color: mutedColor),
               ),
-            ),
-            const SizedBox(width: AppSpacing.sm),
-            Flexible(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  Text(
-                    attachment.filename,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 14.5,
-                      fontWeight: FontWeight.w600,
-                      color: textColor,
+            ],
+          )
+        else
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: mine
+                      ? AppColors.surface.withValues(alpha: 0.16)
+                      : AppColors.accentSoft,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  attachmentIcon(attachment.mimeType),
+                  color: mine
+                      ? AppColors.surface
+                      : attachmentColor(attachment.mimeType),
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Flexible(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Text(
+                      attachment.filename,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w600,
+                        color: textColor,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '${attachment.kind.previewLabel} · '
-                    '${formatBytes(attachment.byteSize)}',
-                    style: TextStyle(fontSize: 12, color: mutedColor),
-                  ),
-                ],
+                    const SizedBox(height: 2),
+                    Text(
+                      '${attachment.kind.previewLabel} · '
+                      '${formatBytes(attachment.byteSize)}',
+                      style: TextStyle(fontSize: 12, color: mutedColor),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
-        ),
-        if (interactive) ...<Widget>[
+            ],
+          ),
+        // Videos keep only the picture and its actions on long press / right
+        // click. Other attachments keep the visible download/save shortcuts.
+        if (interactive && !video) ...<Widget>[
           const SizedBox(height: AppSpacing.sm),
           Wrap(
             spacing: AppSpacing.xs,
             children: <Widget>[
-              if (attachment.kind == AttachmentKind.video)
-                _TinyAction(
-                  icon: Icons.play_arrow_rounded,
-                  label: '播放',
-                  color: mutedColor,
-                  onTap: busy ? null : onPlay,
-                ),
               _TinyAction(
                 icon: Icons.download_rounded,
                 label: busy ? '下载中…' : '下载',

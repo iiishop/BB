@@ -114,6 +114,7 @@ class _ChatComposerState extends State<ChatComposer> {
   List<SendOutcome> _failed = <SendOutcome>[];
   final List<PendingSend> _pending = <PendingSend>[];
   bool _pasting = false;
+  bool _hadText = false;
   late final Object _draftSession;
   final Set<String> _ownedOperations = <String>{};
 
@@ -129,6 +130,7 @@ class _ChatComposerState extends State<ChatComposer> {
     );
     if (stored != null) {
       _controller.text = stored.text;
+      _hadText = _controller.text.trim().isNotEmpty;
       _parts.addAll(stored.parts);
       _attachments.addAll(stored.attachments);
       _pending.addAll(stored.pending);
@@ -167,6 +169,13 @@ class _ChatComposerState extends State<ChatComposer> {
   }
 
   void _persistDraft() {
+    final bool hasText = _controller.text.trim().isNotEmpty;
+    if (mounted && hasText != _hadText) {
+      _hadText = hasText;
+      // The send affordance follows "is there anything sendable" without a
+      // separate text editing callback.
+      setState(() {});
+    }
     final stored = !mounted
         ? ChatDrafts.instance.read(_draftSession, widget.peerAccount)
         : null;
@@ -898,7 +907,10 @@ class _ChatComposerState extends State<ChatComposer> {
 
   @override
   Widget build(BuildContext context) {
-    final bool hasDraft = _parts.isNotEmpty || _attachments.isNotEmpty;
+    final bool hasDraft =
+        _controller.text.trim().isNotEmpty ||
+        _parts.isNotEmpty ||
+        _attachments.isNotEmpty;
     return IgnorePointer(
       key: ChatComposer.safetyGateKey,
       ignoring: InstallSafetyGate.instance.installing,
@@ -975,6 +987,16 @@ class _ChatComposerState extends State<ChatComposer> {
                           style: FilledButton.styleFrom(
                             padding: EdgeInsets.zero,
                             minimumSize: const Size(48, 48),
+                            // Empty composer: quiet. Sendable content: the
+                            // accent button is the obvious next action. The
+                            // callback stays available because an empty send
+                            // is already a no-op in [_send].
+                            backgroundColor: hasDraft
+                                ? AppColors.accentDeep
+                                : AppColors.border,
+                            disabledBackgroundColor: AppColors.border
+                                .withValues(alpha: 0.55),
+                            disabledForegroundColor: AppColors.inkMuted,
                           ),
                           child: const Icon(Icons.arrow_upward_rounded),
                         ),

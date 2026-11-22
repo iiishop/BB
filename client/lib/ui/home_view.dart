@@ -16,6 +16,7 @@ import '../services/media_disk_cache.dart';
 import '../services/profile_service.dart';
 import '../models/chat_models.dart';
 import 'chat/chat_page.dart';
+import 'chat/chat_workspace.dart';
 import 'chat/users_view.dart';
 import 'updates/update_scope.dart';
 import 'updates/update_settings_host.dart';
@@ -92,6 +93,10 @@ class _HomeViewState extends State<HomeView> {
   SpaceFollowStore? _followStore;
   SpaceLocalStore? _spaceStore;
 
+  /// One "only online" state shared by the phone and split lists: growing the
+  /// window swaps the arrangement, never the user's filter.
+  final ValueNotifier<bool> _onlineFilter = ValueNotifier<bool>(false);
+
   @override
   void initState() {
     super.initState();
@@ -119,6 +124,7 @@ class _HomeViewState extends State<HomeView> {
     widget.heartbeat.removeListener(_onHeartbeatChanged);
     _presence?.dispose();
     _followStore?.dispose();
+    _onlineFilter.dispose();
     super.dispose();
   }
 
@@ -317,6 +323,104 @@ class _HomeViewState extends State<HomeView> {
   }
 
   Widget _chatScaffold(BuildContext context, {required bool showHeaderAvatar}) {
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final ChatService? chat = widget.chat;
+        if (chat != null &&
+            ChatWorkspace.usesSplit(context, constraints.maxWidth)) {
+          return _splitChatScaffold(
+            context,
+            chat,
+            showHeaderAvatar: showHeaderAvatar,
+          );
+        }
+        return _singleChatScaffold(context, showHeaderAvatar: showHeaderAvatar);
+      },
+    );
+  }
+
+  /// Desktop / unfolded foldable: the same conversation list and the same
+  /// chat page mounted side by side. Only selection and layout live here.
+  Widget _splitChatScaffold(
+    BuildContext context,
+    ChatService chat, {
+    required bool showHeaderAvatar,
+  }) {
+    final bool reconnecting =
+        widget.heartbeat.phase == HeartbeatPhase.reconnecting;
+    return Scaffold(
+      backgroundColor: AppColors.paper,
+      body: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            AnimatedSize(
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeOutCubic,
+              child: reconnecting
+                  ? _ReconnectBanner(key: HomeView.reconnectingBannerKey)
+                  : const SizedBox(width: double.infinity),
+            ),
+            Expanded(
+              child: ChatWorkspace(
+                chat: chat,
+                profile: widget.profile,
+                presence: _presence,
+                onlineFilter: _onlineFilter,
+                onSessionExpired: widget.onSessionExpired,
+                listHeader: _chatHeader(
+                  context,
+                  showHeaderAvatar: showHeaderAvatar,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// The brand/「消息」header shared by the phone list and the split list pane.
+  Widget _chatHeader(BuildContext context, {required bool showHeaderAvatar}) {
+    final TextTheme text = Theme.of(context).textTheme;
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 760),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.lg,
+            AppSpacing.sm,
+            AppSpacing.lg,
+            AppSpacing.xs,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              _BrandRow(
+                account: widget.user.account,
+                avatarEntry: showHeaderAvatar ? _headerAvatar() : null,
+              ),
+              const SizedBox(height: AppSpacing.md),
+              Text(
+                '消息',
+                style: text.headlineMedium?.copyWith(
+                  fontSize: 30,
+                  letterSpacing: -0.6,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text('当前服务器的注册用户都在这里，点一行开始聊天。', style: text.bodySmall),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _singleChatScaffold(
+    BuildContext context, {
+    required bool showHeaderAvatar,
+  }) {
     final TextTheme text = Theme.of(context).textTheme;
     final bool reconnecting =
         widget.heartbeat.phase == HeartbeatPhase.reconnecting;
@@ -340,48 +444,13 @@ class _HomeViewState extends State<HomeView> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: <Widget>[
-                    Center(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 760),
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(
-                            AppSpacing.lg,
-                            AppSpacing.sm,
-                            AppSpacing.lg,
-                            AppSpacing.xs,
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: <Widget>[
-                              _BrandRow(
-                                account: widget.user.account,
-                                avatarEntry: showHeaderAvatar
-                                    ? _headerAvatar()
-                                    : null,
-                              ),
-                              const SizedBox(height: AppSpacing.md),
-                              Text(
-                                '消息',
-                                style: text.headlineMedium?.copyWith(
-                                  fontSize: 30,
-                                  letterSpacing: -0.6,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                '当前服务器的注册用户都在这里，点一行开始聊天。',
-                                style: text.bodySmall,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
+                    _chatHeader(context, showHeaderAvatar: showHeaderAvatar),
                     Expanded(
                       child: UsersListView(
                         chat: widget.chat!,
                         profile: widget.profile,
                         presence: _presence,
+                        onlineFilter: _onlineFilter,
                         onOpenChat: _openChat,
                         onSessionExpired: widget.onSessionExpired,
                       ),

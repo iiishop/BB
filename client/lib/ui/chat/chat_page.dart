@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../app.dart';
@@ -38,6 +40,8 @@ class ChatPage extends StatefulWidget {
     this.clipboard = const PlatformClipboardMediaReader(),
     this.coverExtractor = defaultVideoCoverExtractor,
     this.viewerInlineVideoSupported,
+    this.embedded = false,
+    this.leading,
   });
 
   /// Snapshot used for name/avatar; presence is read live from [presence] when
@@ -73,10 +77,23 @@ class ChatPage extends StatefulWidget {
   /// Test/inspection seam: emitted after every ordered merge.
   final void Function(List<ChatMessage> messages)? onMessagesChanged;
 
+  /// Embedded in the split (desktop / unfolded foldable) right pane instead of
+  /// being pushed as its own route. The conversation header and the composer
+  /// are the same widgets; only the back affordance is dropped.
+  final bool embedded;
+
+  /// Optional leading control for an embedded pane (the foldable toggle when
+  /// the chat is full screen). It occupies the AppBar slot instead of floating
+  /// over a message.
+  final Widget? leading;
+
   static const Key listKey = Key('chat-message-list');
   static const Key errorKey = Key('chat-error');
   static const Key emptyKey = Key('chat-empty');
   static const Key refreshKey = Key('chat-refresh');
+  static const Key newMessagesKey = Key('chat-new-messages');
+  static const Key keyboardBodyKey = Key('chat-keyboard-body');
+  static const Key mediaTransitionKey = Key('chat-media-transition');
 
   @override
   State<ChatPage> createState() => _ChatPageState();
@@ -93,6 +110,22 @@ class _ChatPageState extends State<ChatPage> {
   final ChatComposerController _composerController = ChatComposerController();
   List<PendingSend> _pending = <PendingSend>[];
   final Map<String, String> _operationByMessage = <String, String>{};
+
+  /// Immutable page-level keys for the media thumbnails, so the viewer route
+  /// can capture the tapped tile and expand it from its real position.
+  final Map<String, GlobalKey> _mediaOriginKeys = <String, GlobalKey>{};
+
+  /// New server messages that arrived while the reader was parked in history.
+  /// They are announced by the pill instead of moving the list.
+  int _unseenNew = 0;
+
+  /// Last reported keyboard inset, used to re-pin the bottom only when the
+  /// keyboard opens while the reader is already at the end.
+  double _lastKeyboardInset = 0;
+
+  /// True while a keyboard opening should keep the newest message pinned even
+  /// as the viewport height changes across the inset animation.
+  bool _pinBottomOnKeyboard = false;
 
   /// Identities that were not on screen at the previous build. Only these get
   /// the entrance animation; history, scroll rebuilds and refresh do not.
@@ -181,6 +214,7 @@ class _ChatPageState extends State<ChatPage> {
       profile: widget.profile,
       accounts: <String>[widget.chat.selfAccount, widget.peer.account],
     )..addListener(_onAvatarsChanged);
+    _scrollController.addListener(_onScrolled);
     widget.presence?.addListener(_onPresenceChanged);
     widget.presence?.watch(widget.peer.account);
     unawaited(_loadInitial());
@@ -253,7 +287,9 @@ class _ChatPageState extends State<ChatPage> {
       unawaited(handle.close());
     }
     _streamHandles.clear();
-    _scrollController.dispose();
+    _scrollController
+      ..removeListener(_onScrolled)
+      ..dispose();
     super.dispose();
   }
 
@@ -316,6 +352,7 @@ class _ChatPageState extends State<ChatPage> {
         _loadingOlder = false;
         _loading = false;
         _animateIdentities.clear();
+        _unseenNew = 0;
       });
       _recordDisplayed(page.items);
       _forgetCommittedPending();
@@ -440,12 +477,26 @@ class _ChatPageState extends State<ChatPage> {
         for (final ChatMessage message in loaded)
           if (!known.contains(message.identity)) message.identity,
       };
+      final int arrivedCount = loaded
+          .where(
+            (ChatMessage message) =>
+                !known.contains(message.identity) &&
+                message.senderAccount != _selfAccount,
+          )
+          .length;
       setState(() {
         _mergeMessages(loaded);
         // Only a contiguous server read advances the fetch cursor. Local
         // sends in _onSent never touch this value.
         _fetchedThrough = cursor;
         _animateIdentities.addAll(arrived);
+        if (wasNearBottom) {
+          _unseenNew = 0;
+        } else if (arrivedCount > 0) {
+          // A reader parked in history keeps the exact reading position and
+          // gets a count instead of being yanked to the newest message.
+          _unseenNew += arrivedCount;
+        }
       });
       _recordDisplayed(loaded);
       _forgetCommittedPending();
@@ -680,6 +731,9 @@ class _ChatPageState extends State<ChatPage> {
       _animateIdentities.addAll(
         added.map((ChatMessage message) => message.identity),
       );
+      // The sender's own message always reveals the end of the list, so the
+      // history announcement no longer applies.
+      _unseenNew = 0;
     });
     _forgetCommittedPending();
     widget.onMessagesChanged?.call(List<ChatMessage>.unmodifiable(_messages));
@@ -828,6 +882,18 @@ class _ChatPageState extends State<ChatPage> {
     return position.maxScrollExtent - position.pixels <= 96;
   }
 
+  /// Reading the end clears the pending "new messages" announcement.
+  void _onScrolled() {
+    if (!_isNearBottom) {
+      // Wheel / keyboard scrolling away from the end takes over from the
+      // keyboard pin; a later new message must not drag the reader down.
+      _pinBottomOnKeyboard = false;
+    }
+    if (_unseenNew > 0 && _isNearBottom) {
+      setState(() => _unseenNew = 0);
+    }
+  }
+
   void _scrollToBottom({bool animate = true, bool force = false}) {
     if (!force && !_isNearBottom) {
       return;
@@ -838,10 +904,17 @@ class _ChatPageState extends State<ChatPage> {
     });
   }
 
+  void _goToLatest() {
+    setState(() => _unseenNew = 0);
+    _scrollToBottom(animate: true, force: true);
+  }
+
   bool _onScrollNotification(ScrollNotification notification) {
     if (notification is ScrollStartNotification &&
         notification.dragDetails != null) {
       _scrollEpoch += 1;
+      // The reader took over: stop following the keyboard.
+      _pinBottomOnKeyboard = false;
     }
     // The list is chronological, so the top edge is where the past lives.
     // `_loadOlder` guards itself against repeat entry.
@@ -1007,6 +1080,65 @@ class _ChatPageState extends State<ChatPage> {
     );
   }
 
+  /// The thumbnail token the bubble and the viewer route both use. It is the
+  /// media id actually painted in the list (a video's cover, never the video
+  /// original), so the transition starts from the tile the user touched.
+  String _mediaOriginToken(ChatMessage message, int? partIndex) {
+    final Attachment? attachment = message.attachment;
+    if (attachment != null) {
+      return 'media:${attachment.coverMediaId ?? attachment.mediaId}';
+    }
+    if (partIndex != null &&
+        partIndex >= 0 &&
+        partIndex < message.parts.length) {
+      final MessagePart part = message.parts[partIndex];
+      if (part is ImagePart) {
+        return 'media:${part.mediaId}';
+      }
+    }
+    return 'media:${message.id}:${partIndex ?? 0}';
+  }
+
+  GlobalKey _mediaOriginKey(String token) => _mediaOriginKeys.putIfAbsent(
+    token,
+    () => GlobalKey(debugLabel: 'chat-media-origin-$token'),
+  );
+
+  Future<({Rect rect, ui.Image? image})?> _captureOrigin(String token) async {
+    final BuildContext? origin = _mediaOriginKeys[token]?.currentContext;
+    if (origin == null) {
+      return null;
+    }
+    final RenderObject? renderObject = origin.findRenderObject();
+    if (renderObject is! RenderBox ||
+        !renderObject.attached ||
+        !renderObject.hasSize ||
+        renderObject.size.isEmpty) {
+      return null;
+    }
+    final Rect rect =
+        renderObject.localToGlobal(Offset.zero) & renderObject.size;
+    ui.Image? image;
+    if (renderObject is RenderRepaintBoundary) {
+      try {
+        image = await renderObject.toImage(
+          pixelRatio: MediaQuery.devicePixelRatioOf(context),
+        );
+      } catch (_) {
+        // A tile that is mid-paint or already detached still gets the
+        // position-anchored fade instead of failing to open the viewer.
+      }
+    }
+    if (!mounted) {
+      return null;
+    }
+    // The snapshot is owned by the route's transition frames. It is not
+    // disposed when the pop future completes because the final reverse frame
+    // can still build it; releasing the last reference lets the engine reclaim
+    // it with the route.
+    return (rect: rect, image: image);
+  }
+
   Future<void> _openMedia(ChatMessage message, int? partIndex) async {
     final List<ChatMediaItem> items = _buildMediaItems();
     final int index = findConversationMediaIndex(
@@ -1017,21 +1149,89 @@ class _ChatPageState extends State<ChatPage> {
     if (index < 0 || !mounted) {
       return;
     }
-    await Navigator.of(context).push<void>(
-      MaterialPageRoute<void>(
-        fullscreenDialog: true,
-        builder: (BuildContext context) => MediaViewer(
-          items: items,
-          initialIndex: index,
-          chat: widget.chat,
-          saveService: _saveService,
-          sequenceComplete: _error == null,
-          onPlayVideo: _playViewerVideo,
-          onReload: _reloadMediaSequence,
-          localPreviewFor: _localPreviewFor,
-          inlineVideoSupported: widget.viewerInlineVideoSupported,
-        ),
-      ),
+    final String token = _mediaOriginToken(message, partIndex);
+    final ({Rect rect, ui.Image? image})? captured = await _captureOrigin(
+      token,
+    );
+    if (!mounted) {
+      return;
+    }
+    final Widget viewer = MediaViewer(
+      items: items,
+      initialIndex: index,
+      chat: widget.chat,
+      saveService: _saveService,
+      sequenceComplete: _error == null,
+      onPlayVideo: _playViewerVideo,
+      onReload: _reloadMediaSequence,
+      localPreviewFor: _localPreviewFor,
+      inlineVideoSupported: widget.viewerInlineVideoSupported,
+    );
+    // The route keeps the captured frame alive for both directions; see
+    // [_captureOrigin] for why it is not disposed here.
+    await Navigator.of(context).push<void>(_mediaRoute(viewer, captured));
+  }
+
+  /// Opens the existing viewer by expanding the tap target from its real list
+  /// rectangle. The viewer's own playback, zoom, paging and menus are
+  /// untouched; only the entrance/exit is new.
+  PageRoute<void> _mediaRoute(
+    Widget viewer,
+    ({Rect rect, ui.Image? image})? captured,
+  ) {
+    return PageRouteBuilder<void>(
+      fullscreenDialog: true,
+      transitionDuration: const Duration(milliseconds: 260),
+      reverseTransitionDuration: const Duration(milliseconds: 220),
+      pageBuilder: (
+        BuildContext context,
+        Animation<double> animation,
+        Animation<double> secondaryAnimation,
+      ) => viewer,
+      transitionsBuilder:
+          (
+            BuildContext context,
+            Animation<double> animation,
+            Animation<double> secondaryAnimation,
+            Widget child,
+          ) {
+            final Animation<double> eased = animation.drive(
+              CurveTween(curve: Curves.easeOutCubic),
+            );
+            final ui.Image? image = captured?.image;
+            if (image == null) {
+              return FadeTransition(opacity: eased, child: child);
+            }
+            final Size screen = MediaQuery.sizeOf(context);
+            final Rect from = captured!.rect;
+            final Rect to = Offset.zero & screen;
+            return AnimatedBuilder(
+              key: ChatPage.mediaTransitionKey,
+              animation: eased,
+              child: child,
+              builder: (BuildContext context, Widget? child) {
+                final double t = eased.value.clamp(0.0, 1.0);
+                final Rect rect = Rect.lerp(from, to, t)!;
+                // The viewer fades in behind the expanding thumbnail, so neither
+                // surface is stretched while the rectangle changes size.
+                final double reveal = ((t - 0.45) / 0.55).clamp(0.0, 1.0);
+                return Stack(
+                  children: <Widget>[
+                    Positioned.fill(
+                      child: Opacity(opacity: reveal, child: child!),
+                    ),
+                    if (t < 0.999)
+                      Positioned.fromRect(
+                        rect: rect,
+                        child: ClipRect(
+                          child: RawImage(image: image, fit: BoxFit.cover),
+                        ),
+                      ),
+                  ],
+                );
+              },
+            );
+          },
     );
   }
 
@@ -1155,13 +1355,36 @@ class _ChatPageState extends State<ChatPage> {
   @override
   Widget build(BuildContext context) {
     final TextTheme text = Theme.of(context).textTheme;
+    final double keyboardInset = MediaQuery.viewInsetsOf(context).bottom;
+    final bool reducedMotion =
+        MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    // Opening the keyboard while the reader is already at the end keeps the
+    // newest message above the composer; opening it in history only shrinks
+    // the viewport and leaves the reading position untouched.
+    if (keyboardInset != _lastKeyboardInset) {
+      final bool opening = keyboardInset > _lastKeyboardInset;
+      _lastKeyboardInset = keyboardInset;
+      // Re-pin on every metrics change while the inset animates, otherwise the
+      // first frame would target the old height and the bubble would drift.
+      _pinBottomOnKeyboard = opening && _isNearBottom;
+      if (opening && _isNearBottom) {
+        _scrollToBottom(animate: false, force: true);
+      }
+    }
     return Scaffold(
       backgroundColor: AppColors.paper,
+      // The inset is applied to the whole chat column below, not by resizing
+      // only the composer: the transcript and the input rise together while
+      // the AppBar stays where it is.
+      resizeToAvoidBottomInset: false,
       appBar: AppBar(
         backgroundColor: AppColors.surface,
         surfaceTintColor: AppColors.surface,
         elevation: 0,
         scrolledUnderElevation: 1,
+        automaticallyImplyLeading: !widget.embedded && widget.leading == null,
+        leading: widget.leading,
+        leadingWidth: widget.leading == null ? null : 56,
         titleSpacing: 0,
         title: Row(
           children: <Widget>[
@@ -1201,21 +1424,47 @@ class _ChatPageState extends State<ChatPage> {
           ),
         ],
       ),
-      body: Column(
-        children: <Widget>[
-          Expanded(child: _buildBody()),
-          ChatComposer(
-            key: ValueKey<String>('chat-composer-${widget.peer.account}'),
-            chat: widget.chat,
-            peerAccount: widget.peer.account,
-            clipboard: widget.clipboard,
-            coverExtractor: widget.coverExtractor,
-            controller: _composerController,
-            onSent: _onSent,
-            onSentOperations: _onSentOperations,
-            onPendingChanged: _onPendingChanged,
-          ),
-        ],
+      body: AnimatedPadding(
+        key: ChatPage.keyboardBodyKey,
+        duration: reducedMotion
+            ? Duration.zero
+            : const Duration(milliseconds: 160),
+        curve: Curves.easeOutCubic,
+        padding: EdgeInsets.only(bottom: keyboardInset),
+        child: Column(
+          children: <Widget>[
+            Expanded(
+              child: Stack(
+                children: <Widget>[
+                  Positioned.fill(child: _buildBody()),
+                  if (_unseenNew > 0)
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: AppSpacing.sm,
+                      child: Center(
+                        child: _NewMessagesPill(
+                          count: _unseenNew,
+                          onTap: _goToLatest,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            ChatComposer(
+              key: ValueKey<String>('chat-composer-${widget.peer.account}'),
+              chat: widget.chat,
+              peerAccount: widget.peer.account,
+              clipboard: widget.clipboard,
+              coverExtractor: widget.coverExtractor,
+              controller: _composerController,
+              onSent: _onSent,
+              onSentOperations: _onSentOperations,
+              onPendingChanged: _onPendingChanged,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1389,8 +1638,9 @@ class _ChatPageState extends State<ChatPage> {
         onRetry: entry.pending?.state == SendFeedbackState.failed
             ? () => _composerController.retryFailed(entry.operationId!)
             : null,
-        showAvatar: runEnd,
+        showAvatar: runStart,
         isRunEnd: runEnd,
+        originKeyFor: (String mediaId) => _mediaOriginKey('media:$mediaId'),
         onSaveAs: committed && attachment != null
             ? () => _saveAs(attachment)
             : null,
@@ -1443,18 +1693,26 @@ class _ChatPageState extends State<ChatPage> {
     // ListView itself to the reading column made the desktop scrollbar sit at
     // the column edge and dropped wheel input over the side gutters (DEA-478);
     // the column cap now applies to each row instead.
-    return NotificationListener<ScrollNotification>(
-      onNotification: _onScrollNotification,
-      child: ListView(
-        key: ChatPage.listKey,
-        controller: _scrollController,
-        padding: const EdgeInsets.fromLTRB(
-          AppSpacing.md,
-          AppSpacing.md,
-          AppSpacing.md,
-          AppSpacing.lg,
+    return NotificationListener<ScrollMetricsNotification>(
+      onNotification: (ScrollMetricsNotification notification) {
+        if (_pinBottomOnKeyboard) {
+          _scrollToBottom(animate: false, force: true);
+        }
+        return false;
+      },
+      child: NotificationListener<ScrollNotification>(
+        onNotification: _onScrollNotification,
+        child: ListView(
+          key: ChatPage.listKey,
+          controller: _scrollController,
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.md,
+            AppSpacing.md,
+            AppSpacing.md,
+            AppSpacing.lg,
+          ),
+          children: timeline,
         ),
-        children: timeline,
       ),
     );
   }
@@ -1467,6 +1725,51 @@ class _ChatPageState extends State<ChatPage> {
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: _readingColumnMaxWidth),
         child: child,
+      ),
+    );
+  }
+}
+
+/// Floating announcement for messages that arrived while the reader was in
+/// history. It deliberately sits above the composer instead of moving the list.
+class _NewMessagesPill extends StatelessWidget {
+  const _NewMessagesPill({required this.count, required this.onTap});
+
+  final int count;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.accentDeep,
+      borderRadius: BorderRadius.circular(999),
+      elevation: 3,
+      child: InkWell(
+        key: ChatPage.newMessagesKey,
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              const Icon(
+                Icons.arrow_downward_rounded,
+                size: 16,
+                color: AppColors.surface,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                '$count 条新消息',
+                style: const TextStyle(
+                  color: AppColors.surface,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

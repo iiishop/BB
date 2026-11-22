@@ -23,6 +23,10 @@ class UsersListView extends StatefulWidget {
     required this.onOpenChat,
     this.presence,
     this.onSessionExpired,
+    this.selectedAccount,
+    this.onSelect,
+    this.onDirectoryLoaded,
+    this.onlineFilter,
   });
 
   final ChatService chat;
@@ -38,6 +42,26 @@ class UsersListView extends StatefulWidget {
   final Future<void> Function(ChatUser user) onOpenChat;
   final VoidCallback? onSessionExpired;
 
+  /// Account currently shown in the adjoining two-pane chat surface.
+  ///
+  /// Selection is by account, never by row index, so a directory refresh that
+  /// reorders the list keeps the same contact highlighted.
+  final String? selectedAccount;
+
+  /// Split-layout row action: switch the chat pane without pushing a route.
+  /// Null keeps the phone behaviour (open the conversation page).
+  final void Function(ChatUser user)? onSelect;
+
+  /// Called after each successful directory read, before any highlight is
+  /// applied by the parent. Used once by the split surface to pick a first
+  /// conversation; it must not loop.
+  final void Function(List<ChatUser> users)? onDirectoryLoaded;
+
+  /// Optional shared "only online" state. The phone and split surfaces both
+  /// read and write this one value, so resizing the window cannot silently
+  /// reset the filter.
+  final ValueNotifier<bool>? onlineFilter;
+
   static const Key listKey = Key('users-list');
   static const Key emptyKey = Key('users-empty');
   static const Key errorKey = Key('users-error');
@@ -46,6 +70,7 @@ class UsersListView extends StatefulWidget {
   static const Key onlineEmptyKey = Key('users-online-empty');
   static Key rowKey(String account) => Key('user-row-$account');
   static Key unreadKey(String account) => Key('user-unread-$account');
+  static Key selectedKey(String account) => Key('user-selected-$account');
 
   @override
   State<UsersListView> createState() => _UsersListViewState();
@@ -96,7 +121,9 @@ class _UsersListViewState extends State<UsersListView> {
   /// "Only show online" is a view filter: it never rewrites [_users] or clears
   /// the server-derived unread counts, so turning it off restores the complete
   /// list in the same sorted order.
-  bool _onlineOnly = false;
+  bool _localOnlineOnly = false;
+
+  bool get _onlineOnly => widget.onlineFilter?.value ?? _localOnlineOnly;
 
   /// The same last-confirmed presence the row badge renders, so a row cannot
   /// say 在线 while the filter hides it (or the other way round).
@@ -107,6 +134,7 @@ class _UsersListViewState extends State<UsersListView> {
   void initState() {
     super.initState();
     widget.presence?.addListener(_onPresenceChanged);
+    widget.onlineFilter?.addListener(_onFilterChanged);
     unawaited(_load());
     _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       if (mounted && !_inFlight) {
@@ -116,8 +144,18 @@ class _UsersListViewState extends State<UsersListView> {
   }
 
   @override
+  void didUpdateWidget(covariant UsersListView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.onlineFilter != widget.onlineFilter) {
+      oldWidget.onlineFilter?.removeListener(_onFilterChanged);
+      widget.onlineFilter?.addListener(_onFilterChanged);
+    }
+  }
+
+  @override
   void dispose() {
     widget.presence?.removeListener(_onPresenceChanged);
+    widget.onlineFilter?.removeListener(_onFilterChanged);
     _refreshTimer?.cancel();
     super.dispose();
   }
@@ -125,6 +163,21 @@ class _UsersListViewState extends State<UsersListView> {
   void _onPresenceChanged() {
     if (mounted) {
       setState(() {});
+    }
+  }
+
+  void _onFilterChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  void _setOnlineOnly(bool value) {
+    final ValueNotifier<bool>? shared = widget.onlineFilter;
+    if (shared != null) {
+      shared.value = value;
+    } else {
+      setState(() => _localOnlineOnly = value);
     }
   }
 
@@ -256,6 +309,7 @@ class _UsersListViewState extends State<UsersListView> {
           _loading = false;
           _error = null;
         });
+        widget.onDirectoryLoaded?.call(List<ChatUser>.unmodifiable(_users));
         // A fresh directory read is authoritative for the accounts it
         // contains; share it so an open conversation cannot keep a stale
         // header. The ticket makes an older read lose.
@@ -380,8 +434,7 @@ class _UsersListViewState extends State<UsersListView> {
                 child: Switch(
                   key: UsersListView.onlineOnlyKey,
                   value: _onlineOnly,
-                  onChanged: (bool value) =>
-                      setState(() => _onlineOnly = value),
+                  onChanged: _setOnlineOnly,
                 ),
               ),
             ],
@@ -508,7 +561,10 @@ class _UsersListViewState extends State<UsersListView> {
                 unread: _unread[user.account] ?? 0,
                 profile: widget.profile,
                 selfAccount: widget.chat.selfAccount,
-                onTap: () => _open(user),
+                selected: widget.selectedAccount == user.account,
+                onTap: widget.onSelect == null
+                    ? () => _open(user)
+                    : () => widget.onSelect!(user),
               );
             },
           ),
@@ -539,6 +595,7 @@ class _UserRow extends StatelessWidget {
     required this.profile,
     required this.selfAccount,
     required this.onTap,
+    this.selected = false,
   });
 
   final ChatUser user;
@@ -549,6 +606,9 @@ class _UserRow extends StatelessWidget {
   final ProfileGateway profile;
   final String selfAccount;
   final VoidCallback onTap;
+
+  /// True when the adjoining split chat pane is showing this conversation.
+  final bool selected;
 
   @override
   Widget build(BuildContext context) {
@@ -561,99 +621,109 @@ class _UserRow extends StatelessWidget {
         ? '暂无消息'
         : '$senderName：${preview.previewBody}';
     final String? unreadLabel = unreadBadgeLabel(unread);
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(AppRadius.card),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.sm,
-          vertical: AppSpacing.sm + 2,
-        ),
-        child: Row(
-          children: <Widget>[
-            Badge(
-              isLabelVisible: unreadLabel != null,
-              backgroundColor: AppColors.danger,
-              label: Semantics(
-                label: '$unread 条未读',
-                excludeSemantics: true,
-                child: Text(
-                  unreadLabel ?? '',
-                  key: UsersListView.unreadKey(user.account),
-                ),
-              ),
-              child: _UserAvatar(user: user, profile: profile),
+    return Semantics(
+      selected: selected,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadius.card),
+        child: Container(
+          key: selected ? UsersListView.selectedKey(user.account) : null,
+          decoration: BoxDecoration(
+            color: selected ? AppColors.accentSoft : Colors.transparent,
+            borderRadius: BorderRadius.circular(AppRadius.card),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.sm,
+              vertical: AppSpacing.sm + 2,
             ),
-            const SizedBox(width: AppSpacing.md),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Row(
-                    children: <Widget>[
-                      Flexible(
-                        child: Text(
-                          user.username,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: text.titleMedium,
-                        ),
-                      ),
-                      if (user.account == selfAccount) ...<Widget>[
-                        const SizedBox(width: AppSpacing.xs),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 1,
-                          ),
-                          decoration: BoxDecoration(
-                            color: AppColors.accentSoft,
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: const Text(
-                            '本人',
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: AppColors.accentDeep,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    previewText,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: text.bodyMedium?.copyWith(
-                      color: preview == null
-                          ? AppColors.inkMuted
-                          : AppColors.ink,
+            child: Row(
+              children: <Widget>[
+                Badge(
+                  isLabelVisible: unreadLabel != null,
+                  backgroundColor: AppColors.danger,
+                  label: Semantics(
+                    label: '$unread 条未读',
+                    excludeSemantics: true,
+                    child: Text(
+                      unreadLabel ?? '',
+                      key: UsersListView.unreadKey(user.account),
                     ),
                   ),
-                ],
-              ),
-            ),
-            const SizedBox(width: AppSpacing.sm),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: <Widget>[
-                Text(
-                  formatContactTime(user.lastContactAt),
-                  style: TextStyle(
-                    fontSize: 11.5,
-                    color: user.lastContactAt == null
-                        ? AppColors.inkMuted
-                        : AppColors.inkMuted,
+                  child: _UserAvatar(user: user, profile: profile),
+                ),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Row(
+                        children: <Widget>[
+                          Flexible(
+                            child: Text(
+                              user.username,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: text.titleMedium,
+                            ),
+                          ),
+                          if (user.account == selfAccount) ...<Widget>[
+                            const SizedBox(width: AppSpacing.xs),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 1,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppColors.accentSoft,
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: const Text(
+                                '本人',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: AppColors.accentDeep,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        previewText,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: text.bodyMedium?.copyWith(
+                          color: preview == null
+                              ? AppColors.inkMuted
+                              : AppColors.ink,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 6),
-                _PresenceBadge(presence: presence),
+                const SizedBox(width: AppSpacing.sm),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: <Widget>[
+                    Text(
+                      formatContactTime(user.lastContactAt),
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        color: user.lastContactAt == null
+                            ? AppColors.inkMuted
+                            : AppColors.inkMuted,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    _PresenceBadge(presence: presence),
+                  ],
+                ),
               ],
             ),
-          ],
+          ),
         ),
       ),
     );
