@@ -514,4 +514,112 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets(
+    'a peer writing before its page is appended shows 1 when first loaded',
+    (WidgetTester tester) async {
+      // bob and carol fit the first directory page; zoe only appears after
+      // "加载更多用户". Her first message arrives before that page is loaded, so
+      // the unread snapshot taken for the first page is already stale when
+      // her row first appears.
+      final ChatUser zoe = _user('10000004', 'zoe');
+      chat = buildChat(
+        <String, List<ChatMessage>>{
+          bob.account: <ChatMessage>[
+            _message(
+              id: 'b1',
+              position: 1,
+              sender: bob.account,
+              target: _self.account,
+            ),
+          ],
+          carol.account: <ChatMessage>[
+            _message(
+              id: 'c1',
+              position: 1,
+              sender: carol.account,
+              target: _self.account,
+            ),
+          ],
+          zoe.account: <ChatMessage>[],
+        },
+        userPageSize: 2,
+        users: <ChatUser>[
+          _user(
+            bob.account,
+            'bob',
+            lastMessage: UserPreview(
+              id: 'b1',
+              senderAccount: bob.account,
+              senderUsername: 'bob',
+              previewBody: 'hi',
+            ),
+            lastContactAt: DateTime.now().toUtc(),
+          ),
+          _user(
+            carol.account,
+            'carol',
+            lastMessage: UserPreview(
+              id: 'c1',
+              senderAccount: carol.account,
+              senderUsername: 'carol',
+              previewBody: 'hi',
+            ),
+            lastContactAt: DateTime.now().toUtc(),
+          ),
+          zoe,
+        ],
+      );
+
+      await pumpAt(tester);
+      expect(find.byKey(UsersListView.rowKey(zoe.account)), findsNothing);
+      expect(badgeOf(tester, carol.account), '1');
+
+      // The peer writes before her directory page has ever been loaded.
+      chat.conversations[zoe.account]!.add(
+        _message(
+          id: 'z1',
+          position: 1,
+          sender: zoe.account,
+          target: _self.account,
+          text: '第二页的来信',
+        ),
+      );
+      final int index = chat.users.indexWhere(
+        (ChatUser user) => user.account == zoe.account,
+      );
+      chat.users[index] = _user(
+        zoe.account,
+        'zoe',
+        lastMessage: UserPreview(
+          id: 'z1',
+          senderAccount: zoe.account,
+          senderUsername: 'zoe',
+          previewBody: '第二页的来信',
+        ),
+        lastContactAt: DateTime.now().toUtc(),
+      );
+
+      // First append of the page: the row appears and its unread must not be
+      // inherited from the snapshot taken before this peer could be seen.
+      await tester.tap(find.byKey(UsersListView.loadMoreKey));
+      await tester.pumpAndSettle();
+      expect(find.byKey(UsersListView.rowKey(zoe.account)), findsOneWidget);
+      expect(
+        badgeOf(tester, zoe.account),
+        '1',
+        reason: 'newly visible peer has one incoming message',
+      );
+      expect(badgeOf(tester, carol.account), '1');
+
+      // Stay on the list without any operation through one poll cycle: the
+      // already correct count must neither disappear nor double.
+      await tester.pump(const Duration(seconds: 30));
+      await tester.pumpAndSettle();
+      expect(find.byKey(UsersListView.rowKey(zoe.account)), findsOneWidget);
+      expect(badgeOf(tester, zoe.account), '1');
+      expect(badgeOf(tester, carol.account), '1');
+      expect(tester.takeException(), isNull);
+    },
+  );
 }

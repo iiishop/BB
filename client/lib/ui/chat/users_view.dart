@@ -76,9 +76,11 @@ class _UsersListViewState extends State<UsersListView> {
   /// value = its last message id or null).
   ///
   /// The 30s poll already fetches this page, so a changed preview is the
-  /// lightweight "a message arrived" signal: it only triggers the shared
-  /// unread derivation, never a locally guessed count and never a
-  /// full-history scan on every tick.
+  /// lightweight "a message arrived" signal. A preview seen for the first time
+  /// while rows are already shown is the same signal for a newly visible row
+  /// whose first preview may postdate the last unread snapshot. Both only
+  /// trigger the shared unread derivation, never a locally guessed count and
+  /// never a full-history scan on every tick.
   final Map<String, String?> _knownPreviews = <String, String?>{};
 
   @override
@@ -179,18 +181,28 @@ class _UsersListViewState extends State<UsersListView> {
         }
         after = next;
       }
+      final bool hadRows = _users.isNotEmpty;
       final Map<String, String?> previews = Map<String, String?>.of(
         _knownPreviews,
       );
-      bool messageChanged = false;
+      bool needsUnreadRefresh = false;
       for (final ChatUser user in fetched) {
         final String? previewId = user.lastMessage?.id;
-        if (previews.containsKey(user.account) &&
-            previews[user.account] != previewId) {
+        if (!previews.containsKey(user.account)) {
+          // A row can enter the list only after the last unread snapshot was
+          // computed: the first append of a second page, or a newly
+          // registered contact. Its first preview may already be newer than
+          // that snapshot, so recompute instead of inheriting the cached
+          // count. Rows already on screen make this a later load, never the
+          // initial page the startup derivation covers.
+          if (hadRows && previewId != null) {
+            needsUnreadRefresh = true;
+          }
+        } else if (previews[user.account] != previewId) {
           // The directory moved this conversation's last message: a new
           // message arrived (or the previous one was replaced). The shared
           // derivation decides whether it is inbound and unread.
-          messageChanged = true;
+          needsUnreadRefresh = true;
         }
         previews[user.account] = previewId;
       }
@@ -220,7 +232,7 @@ class _UsersListViewState extends State<UsersListView> {
         _loadingMore = false;
         _error = null;
       });
-      if (messageChanged) {
+      if (needsUnreadRefresh) {
         unawaited(_refreshUnread());
       }
       // One fresh server response is authoritative for the accounts it
