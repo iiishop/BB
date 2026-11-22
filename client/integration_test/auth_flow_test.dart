@@ -661,6 +661,20 @@ void main() {
       ),
       isTrue,
     );
+
+    // DEA-494 in the real Linux embedder: coming back to the phone list keeps
+    // the note on the conversation just opened, and the avatar stays outside.
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.byKey(UsersListView.noteKey('10000002')), findsOneWidget);
+    final Rect avatar = tester.getRect(
+      find.byKey(UsersListView.avatarKey('10000002')),
+    );
+    final Rect note = tester.getRect(
+      find.byKey(UsersListView.noteKey('10000002')),
+    );
+    expect(note.left, greaterThan(avatar.right));
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets(
