@@ -907,10 +907,15 @@ class _ChatComposerState extends State<ChatComposer> {
 
   @override
   Widget build(BuildContext context) {
-    final bool hasDraft =
+    // The send key is emphasised for any sendable content, including plain
+    // text that still lives in the input. The staged strip, however, only
+    // belongs to text/image parts and attachments; showing a duplicate text
+    // chip for the field itself used to add a 64px band on every keystroke.
+    final bool hasSendable =
         _controller.text.trim().isNotEmpty ||
         _parts.isNotEmpty ||
         _attachments.isNotEmpty;
+    final bool hasStaged = _parts.isNotEmpty || _attachments.isNotEmpty;
     return IgnorePointer(
       key: ChatComposer.safetyGateKey,
       ignoring: InstallSafetyGate.instance.installing,
@@ -931,7 +936,7 @@ class _ChatComposerState extends State<ChatComposer> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
-                if (hasDraft) _draftStrip(),
+                if (hasStaged) _draftStrip(),
                 if (_failed.isNotEmpty)
                   TextButton(
                     onPressed: _discardFailed,
@@ -991,7 +996,7 @@ class _ChatComposerState extends State<ChatComposer> {
                             // accent button is the obvious next action. The
                             // callback stays available because an empty send
                             // is already a no-op in [_send].
-                            backgroundColor: hasDraft
+                            backgroundColor: hasSendable
                                 ? AppColors.accentDeep
                                 : AppColors.border,
                             disabledBackgroundColor: AppColors.border

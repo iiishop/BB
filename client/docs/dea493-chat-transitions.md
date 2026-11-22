@@ -77,10 +77,12 @@ flutter test test/chat_send_feedback_test.dart test/chat_flow_widget_test.dart \
 新增/更新的定向用例：
 
 - `chat_workspace_widget_test.dart`：双栏复用、按会话滚动/草稿/光标恢复与高亮跟随、
-  折叠双栏→全屏→双栏的果冻越界和状态恢复、铰链避让、零宽 `fold` 仍有开关、手机仍走路由。
+  折叠双栏→全屏→双栏的果冻越界和状态恢复、铰链避让、零宽 `fold` 仍有开关、
+  展开后历史锚点与草稿/光标保持、手机仍走路由。
 - `chat_hidden_display_test.dart`：隐藏会话收到新消息不清未读、轮询在切走后返回即使请求
   已发起也不记展示、页面重新可见时提交暂存的展示事实。
 - `chat_motion_input_test.dart`：键盘整体升降与页头固定、底部重钉、历史打开键盘不跳、
+  纯文字输入不撑高输入区、
   “↓ N 条新消息”计数与点击回底、组首头像、160ms 入场、发送键强调、视频无常驻按钮/
   长按菜单/进入并返回原位、图片原位转场。
 - 既有 45 例发送反馈、列表在线筛选跨尺寸、媒体预览器、消息顺序/历史测试保持通过。
@@ -101,6 +103,9 @@ flutter test test/chat_send_feedback_test.dart test/chat_flow_widget_test.dart \
    只给当前选中会话传 `active: true`。
 2. **零宽折痕没有开关**：`ChatWorkspace` 的拆分特征从只认 `hinge` 扩展到竖向的
    `hinge` 或 `fold`；零宽 `fold` 走同一套 56px gutter、开关和展开动画。
+3. **输入文字时输入区被草稿条撑高**：QA 锚点探针暴露纯文字也触发 64px 草稿条。
+   现在草稿条只对应已暂存的图文 part / 附件，纯文字只影响发送键强调，输入区高度保持
+   稳定；历史锚点在双栏→全屏→双栏后仍可见。
 
 ## 5. 未测 / 限制
 

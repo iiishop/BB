@@ -268,6 +268,21 @@ void main() {
     expect(entrance.duration, const Duration(milliseconds: 160));
   });
 
+  testWidgets('typing plain text does not grow the composer', (
+    WidgetTester tester,
+  ) async {
+    await pumpChat(tester);
+    final double before = tester.getRect(find.byType(ChatComposer)).height;
+    await tester.enterText(find.byKey(ChatComposer.inputKey), '半句草稿');
+    await tester.pump();
+    expect(
+      tester.getRect(find.byType(ChatComposer)).height,
+      closeTo(before, 0.1),
+      reason: 'the staged strip is for parts/attachments, not the text field',
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('send button is emphasised only when something is sendable', (
     WidgetTester tester,
   ) async {

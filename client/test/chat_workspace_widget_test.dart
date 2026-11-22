@@ -407,6 +407,85 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets(
+    'expanding a flat fold keeps the history anchor and draft visible',
+    (WidgetTester tester) async {
+      final List<String> bodies = <String>[
+        for (int position = 1; position <= 30; position += 1)
+          'message $position ${'read this conversation message ' * 12}',
+      ];
+      chat.conversations[bob.account] = <ChatMessage>[
+        for (int index = 0; index < bodies.length; index += 1)
+          _message(
+            position: index + 1,
+            sender: bob.account,
+            target: _self.account,
+            at: now,
+            text: bodies[index],
+          ),
+      ];
+      final DisplayFeature fold = DisplayFeature(
+        bounds: const Rect.fromLTWH(492, 0, 0, 768),
+        type: DisplayFeatureType.fold,
+        state: DisplayFeatureState.postureFlat,
+      );
+      await pumpAt(
+        tester,
+        const Size(1024, 768),
+        features: <DisplayFeature>[fold],
+      );
+
+      final Finder list = find.byKey(ChatPage.listKey);
+      final ScrollController controller = tester
+          .widget<ListView>(list)
+          .controller!;
+      controller.jumpTo(controller.position.maxScrollExtent * 0.45);
+      await tester.pumpAndSettle();
+
+      final Rect viewport = tester.getRect(list);
+      final List<String> visible = <String>[
+        for (final String body in bodies)
+          if (find.text(body).evaluate().isNotEmpty &&
+              tester.getRect(find.text(body)).overlaps(viewport))
+            body,
+      ];
+      expect(visible, isNotEmpty);
+      final String anchor = visible.first;
+
+      await tester.enterText(composerOf(bob.account), '半句草稿');
+      tester.widget<TextField>(composerOf(bob.account)).controller!.selection =
+          const TextSelection.collapsed(offset: 2);
+      await tester.pump();
+      await tester.tap(find.byKey(ChatWorkspace.toggleKey));
+      await tester.pumpAndSettle();
+
+      final Rect expanded = tester.getRect(find.byKey(ChatPage.listKey));
+      expect(
+        find.text(anchor),
+        findsWidgets,
+        reason: 'the same history message stays in the expanded tree',
+      );
+      expect(
+        tester.getRect(find.text(anchor)).overlaps(expanded),
+        isTrue,
+        reason: 'the reading anchor must stay in view after expanding',
+      );
+      expect(
+        tester.widget<TextField>(composerOf(bob.account)).controller!.text,
+        '半句草稿',
+      );
+      expect(
+        tester
+            .widget<TextField>(composerOf(bob.account))
+            .controller!
+            .selection
+            .baseOffset,
+        2,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('phone layout still uses the pushed conversation route', (
     WidgetTester tester,
   ) async {

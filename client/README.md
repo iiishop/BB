@@ -217,7 +217,7 @@ QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_test
 ```
 
 - 默认 `flutter test`：合并最新 main 并加入 Windows 内置 FFmpeg 解析回归后为
-  **978 passed / 20 skipped / exit 0**（2026-11-22 Linux 测试机；DEA-493 候选）。新增覆盖
+  **980 passed / 20 skipped / exit 0**（2026-11-22 Linux 测试机；DEA-493 候选）。新增覆盖
   1000 条真实分页下发送/接收并发补取无缺口、events/wait limit 边界、原子展示确认/冲突/全组
   拒绝/重启幂等、新 consumer 独立补取、有序图文发送、幂等/冲突、read→receipt→ACK 缺口、
   附件只读元信息、异步下载内容、持久事件、wait 积压/提前到达、用户列表分页/预览/在线状态、
@@ -244,7 +244,7 @@ QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_test
   才提交暂存展示；`chat_motion_input_test.dart`
   覆盖键盘整体升降与页头固定、历史打开键盘不跳、`↓ N 条新消息` 提示、组首头像、160ms 入场、
   发送键强调、视频画面卡与长按菜单、媒体原位转场与返回位置。同轮全量 `flutter test`
-  **978 passed / 20 skipped / exit 0**；`xvfb-run -a flutter test integration_test -d linux`
+  **980 passed / 20 skipped / exit 0**；`xvfb-run -a flutter test integration_test -d linux`
   **14 passed / exit 0**（Linux 桌面真实进程，不代表 Android/Windows 真机）。
 - DEA-477 按键/剪贴板回归：`chat_composer_shortcuts_test.dart` 覆盖 Enter 只发送一次、Ctrl+Enter
   换行不发送、IME 组词时 Enter 不发送、空/纯空白不发、长按 Enter 不重复、专用粘贴按钮消失；
