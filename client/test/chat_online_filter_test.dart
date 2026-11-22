@@ -256,7 +256,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('an empty directory shows the filtered hint only while the phone '
+  testWidgets('an empty directory shows the filtered hint only while the '
       'switch is enabled', (WidgetTester tester) async {
     // QA reproduction: only the signed-in account exists.
     chat.users.clear();
@@ -278,8 +278,8 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('a phone filter is not applied on a wide layout and the full '
-      'list returns', (WidgetTester tester) async {
+  testWidgets('the filter keeps applying after the layout grows to wide and '
+      'manual off restores the full list', (WidgetTester tester) async {
     await pumpHome(tester);
     await toggleFilter(tester);
     expect(find.byKey(UsersListView.rowKey(_carol)), findsNothing);
@@ -287,10 +287,18 @@ void main() {
     tester.view.physicalSize = const Size(1440, 900);
     await tester.pumpAndSettle();
 
-    expect(find.byKey(UsersListView.onlineOnlyKey), findsNothing);
-    expect(find.text('只看在线'), findsNothing);
+    final Finder toggle = find.byKey(UsersListView.onlineOnlyKey);
+    expect(toggle, findsOneWidget);
+    expect(tester.widget<Switch>(toggle).value, isTrue);
+    expect(find.text('只看在线'), findsOneWidget);
+    expect(find.byKey(UsersListView.rowKey(_carol)), findsNothing);
     expect(find.byKey(UsersListView.rowKey(_bob)), findsOneWidget);
+    expect(find.byKey(UsersListView.rowKey(_dave)), findsOneWidget);
+
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
     expect(find.byKey(UsersListView.rowKey(_carol)), findsOneWidget);
+    expect(find.byKey(UsersListView.rowKey(_bob)), findsOneWidget);
     expect(find.byKey(UsersListView.rowKey(_dave)), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

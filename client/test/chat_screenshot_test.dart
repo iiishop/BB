@@ -239,6 +239,12 @@ void main() {
     await pumpAt(const Size(1440, 900));
     await capture('chat-users-wide.png');
 
+    // The filter is available on wide layouts too and keeps working there.
+    await tester.tap(find.byKey(UsersListView.onlineOnlyKey));
+    await tester.pumpAndSettle();
+    expect(find.byKey(UsersListView.rowKey('10000003')), findsNothing);
+    await capture('chat-users-online-only-wide.png');
+
     await pumpAt(
       const Size(1024, 768),
       features: <DisplayFeature>[
@@ -280,6 +286,7 @@ void main() {
       'chat-users-phone.png',
       'chat-users-online-only-phone.png',
       'chat-users-wide.png',
+      'chat-users-online-only-wide.png',
       'chat-users-folded.png',
       'chat-thread-phone.png',
       'chat-thread-wide.png',

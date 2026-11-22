@@ -210,64 +210,111 @@ void main() {
     expect(avatar.left, lessThan(account.left));
   });
 
+  const List<ChatUser> filterUsers = <ChatUser>[
+    ChatUser(
+      account: '10000002',
+      username: 'bob',
+      avatarUrl: '',
+      avatarVersion: 'v1',
+      presence: Presence.online,
+    ),
+    ChatUser(
+      account: '10000003',
+      username: 'carol',
+      avatarUrl: '',
+      avatarVersion: 'v1',
+      presence: Presence.offline,
+    ),
+  ];
+
   testWidgets(
-    'wide message page keeps the phone filter out of the desktop list',
+    'wide message page exposes the filter and manual off restores the list',
     (WidgetTester tester) async {
       final FakeSpaceGateway gateway = shellGateway();
-      await pumpHome(tester, gateway: gateway, size: spaceWide);
+      await pumpHome(
+        tester,
+        gateway: gateway,
+        size: spaceWide,
+        users: filterUsers,
+      );
       expect(find.byKey(HomeView.railAvatarKey), findsOneWidget);
-      expect(find.byKey(UsersListView.onlineOnlyKey), findsNothing);
-      expect(find.text('只看在线'), findsNothing);
+      final Finder toggle = find.byKey(UsersListView.onlineOnlyKey);
+      expect(toggle, findsOneWidget);
+      expect(find.text('只看在线'), findsOneWidget);
+
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      expect(find.byKey(UsersListView.rowKey('10000002')), findsOneWidget);
+      expect(find.byKey(UsersListView.rowKey('10000003')), findsNothing);
+
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      expect(find.byKey(UsersListView.rowKey('10000003')), findsOneWidget);
+      expect(tester.takeException(), isNull);
     },
   );
 
   testWidgets(
-    'a phone filter turns off on the wide shell and restores the full list',
+    'a phone filter stays on across the wide shell and manual off restores',
     (WidgetTester tester) async {
       final FakeSpaceGateway gateway = shellGateway();
-      final List<ChatUser> users = <ChatUser>[
-        const ChatUser(
-          account: '10000002',
-          username: 'bob',
-          avatarUrl: '',
-          avatarVersion: 'v1',
-          presence: Presence.online,
-        ),
-        const ChatUser(
-          account: '10000003',
-          username: 'carol',
-          avatarUrl: '',
-          avatarVersion: 'v1',
-          presence: Presence.offline,
-        ),
-      ];
-      await pumpHome(tester, gateway: gateway, users: users);
-      expect(find.byKey(UsersListView.onlineOnlyKey), findsOneWidget);
-      await tester.tap(find.byKey(UsersListView.onlineOnlyKey));
+      await pumpHome(tester, gateway: gateway, users: filterUsers);
+      final Finder toggle = find.byKey(UsersListView.onlineOnlyKey);
+      expect(toggle, findsOneWidget);
+      await tester.tap(toggle);
       await tester.pumpAndSettle();
       expect(find.byKey(UsersListView.rowKey('10000003')), findsNothing);
 
       await pumpHome(
         tester,
         gateway: gateway,
-        users: users,
+        users: filterUsers,
         size: spaceWide,
         remount: false,
       );
       expect(find.byKey(HomeView.railAvatarKey), findsOneWidget);
-      expect(find.byKey(UsersListView.onlineOnlyKey), findsNothing);
+      expect(toggle, findsOneWidget);
+      expect(tester.widget<Switch>(toggle).value, isTrue);
       expect(find.byKey(UsersListView.rowKey('10000002')), findsOneWidget);
+      expect(find.byKey(UsersListView.rowKey('10000003')), findsNothing);
+
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
       expect(find.byKey(UsersListView.rowKey('10000003')), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
 
-  // The rail appears as soon as the shell decides the window is wide. The list
-  // is 92px narrower then, so its own width must not keep the phone filter on.
+  testWidgets('folded message page exposes the filter and filters the list', (
+    WidgetTester tester,
+  ) async {
+    final FakeSpaceGateway gateway = shellGateway();
+    await pumpHome(
+      tester,
+      gateway: gateway,
+      size: spaceFold,
+      features: <DisplayFeature>[verticalHinge(512, 768)],
+      users: filterUsers,
+    );
+    final Finder toggle = find.byKey(UsersListView.onlineOnlyKey);
+    expect(toggle, findsOneWidget);
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    expect(find.byKey(UsersListView.rowKey('10000002')), findsOneWidget);
+    expect(find.byKey(UsersListView.rowKey('10000003')), findsNothing);
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    expect(find.byKey(UsersListView.rowKey('10000003')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  // The rail appears when the shell decides the window is wide. The filter must
+  // stay on across that layout change; only a manual toggle restores offline
+  // peers.
   for (final double width in <double>[720, 811, 812]) {
     testWidgets(
-      'resizing to the rail layout at ${width.toInt()}px restores offline peers '
-      'and hides the phone switch',
+      'resizing to the rail layout at ${width.toInt()}px keeps the filter on '
+      'and manual off restores the offline peer',
       (WidgetTester tester) async {
         final FakeSpaceGateway gateway = shellGateway();
         const ChatUser offline = ChatUser(
@@ -293,13 +340,14 @@ void main() {
         tester.view.physicalSize = Size(width, 900);
         await tester.pumpAndSettle();
         expect(find.byKey(HomeView.railAvatarKey), findsOneWidget);
-        expect(toggle, findsNothing);
+        expect(toggle, findsOneWidget);
+        expect(tester.widget<Switch>(toggle).value, isTrue);
+        expect(peer, findsNothing);
+
+        await tester.tap(toggle);
+        await tester.pumpAndSettle();
         expect(peer, findsOneWidget);
-        expect(
-          find.text('只看在线'),
-          findsNothing,
-          reason: 'the phone switch must leave with the rail breakpoint',
-        );
+        expect(find.text('只看在线'), findsOneWidget);
         expect(tester.takeException(), isNull);
       },
     );
