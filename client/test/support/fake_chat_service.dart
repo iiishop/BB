@@ -201,9 +201,7 @@ class FakeChatService extends ChatService {
     final bool backward = beforePosition != null;
     final List<ChatMessage> candidates = backward
         ? all
-              .where(
-                (ChatMessage message) => message.position < beforePosition,
-              )
+              .where((ChatMessage message) => message.position < beforePosition)
               .toList()
         : all
               .where(
@@ -372,7 +370,50 @@ class FakeChatService extends ChatService {
       operationId: operationId,
     );
     list.add(message);
+    // Mirror the server fact `GET /users` derives its directory row from: a
+    // committed message moves the pair's last contact time and preview. The
+    // home list can then be asserted against the same DTO the real route
+    // returns, without tests hand-editing their own sort input.
+    final int index = users.indexWhere(
+      (ChatUser user) => user.account == target,
+    );
+    if (index >= 0) {
+      final ChatUser previous = users[index];
+      users[index] = ChatUser(
+        account: previous.account,
+        username: previous.username,
+        avatarUrl: previous.avatarUrl,
+        avatarVersion: previous.avatarVersion,
+        presence: previous.presence,
+        lastContactAt: message.createdAt,
+        lastMessage: UserPreview(
+          id: message.id,
+          senderAccount: self.account,
+          senderUsername: self.username,
+          previewBody: _previewBody(kind, parts, attachment),
+        ),
+      );
+    }
     return message;
+  }
+
+  String _previewBody(
+    ChatMessageKind kind,
+    List<MessagePart> parts,
+    Attachment? attachment,
+  ) {
+    if (kind == ChatMessageKind.body) {
+      final String text = parts
+          .map(
+            (MessagePart part) => switch (part) {
+              TextPart(:final String text) => text,
+              ImagePart() => '[图片]',
+            },
+          )
+          .join();
+      return text.isEmpty ? '[消息]' : text;
+    }
+    return attachment == null ? '[附件]' : '[文件]${attachment.filename}';
   }
 
   @override

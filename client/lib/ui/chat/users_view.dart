@@ -11,6 +11,7 @@ import '../../services/chat_service.dart';
 import '../../services/presence_directory.dart';
 import '../../services/profile_service.dart';
 import 'chat_format.dart';
+import 'conversation_order.dart';
 
 /// Default signed-in home: every registered user on the connected server,
 /// including people this account has never chatted with.
@@ -30,13 +31,16 @@ class UsersListView extends StatefulWidget {
   /// Last-confirmed presence shared with the open conversation; when absent
   /// the page falls back to the presence each list page carried.
   final PresenceDirectory? presence;
-  final void Function(ChatUser user) onOpenChat;
+
+  /// Opens the conversation. The returned future completes when the chat page
+  /// pops, so the list can re-read the server's new last-message time instead
+  /// of showing the old order until the next 30s tick.
+  final Future<void> Function(ChatUser user) onOpenChat;
   final VoidCallback? onSessionExpired;
 
   static const Key listKey = Key('users-list');
   static const Key emptyKey = Key('users-empty');
   static const Key errorKey = Key('users-error');
-  static const Key loadMoreKey = Key('users-load-more');
   static const Key refreshKey = Key('users-refresh');
   static Key rowKey(String account) => Key('user-row-$account');
 
@@ -46,9 +50,7 @@ class UsersListView extends StatefulWidget {
 
 class _UsersListViewState extends State<UsersListView> {
   final List<ChatUser> _users = <ChatUser>[];
-  String? _nextCursor;
   bool _loading = true;
-  bool _loadingMore = false;
   String? _error;
   Timer? _refreshTimer;
   bool _inFlight = false;
@@ -57,10 +59,10 @@ class _UsersListViewState extends State<UsersListView> {
   void initState() {
     super.initState();
     widget.presence?.addListener(_onPresenceChanged);
-    unawaited(_load(reset: true));
+    unawaited(_load());
     _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       if (mounted && !_inFlight) {
-        unawaited(_load(reset: true, silent: true));
+        unawaited(_load(silent: true));
       }
     });
   }
@@ -78,17 +80,47 @@ class _UsersListViewState extends State<UsersListView> {
     }
   }
 
-  Future<void> _load({required bool reset, bool silent = false}) async {
+  /// Walks the whole account-keyset directory.
+  ///
+  /// `GET /users` paginates by account, so one page cannot be globally ordered
+  /// by message time: a later account may hold the newest conversation. The
+  /// list therefore reads every page before ordering, exactly as the live
+  /// chat test does, and refuses a cursor that does not advance instead of
+  /// looping forever.
+  Future<List<ChatUser>> _loadDirectory() async {
+    final List<ChatUser> users = <ChatUser>[];
+    final Set<String> seen = <String>{};
+    String after = '';
+    while (true) {
+      final UserPage page = await widget.chat.listUsers(
+        afterAccount: after,
+        limit: 100,
+      );
+      for (final ChatUser user in page.items) {
+        if (seen.add(user.account)) {
+          users.add(user);
+        }
+      }
+      final String? next = page.nextCursor;
+      if (next == null) {
+        return users;
+      }
+      if (next.compareTo(after) <= 0) {
+        throw const FormatException('user cursor did not advance');
+      }
+      after = next;
+    }
+  }
+
+  Future<void> _load({bool silent = false}) async {
     if (_inFlight) {
       return;
     }
     _inFlight = true;
     if (!silent && mounted) {
       setState(() {
-        if (reset) {
-          _loading = true;
-          _error = null;
-        }
+        _loading = true;
+        _error = null;
       });
     }
     // Reserve the presence ordering ticket before the request starts: a page
@@ -97,36 +129,23 @@ class _UsersListViewState extends State<UsersListView> {
     final PresenceDirectory? presence = widget.presence;
     final int? observation = presence?.beginObservation();
     try {
-      final UserPage page = await widget.chat.listUsers(
-        afterAccount: reset ? '' : (_nextCursor ?? ''),
+      final List<ChatUser> users = sortChatUsersByLastMessage(
+        await _loadDirectory(),
       );
       if (!mounted) {
         return;
       }
       setState(() {
-        if (reset) {
-          _users
-            ..clear()
-            ..addAll(page.items);
-        } else {
-          final Set<String> seen = _users
-              .map((ChatUser user) => user.account)
-              .toSet();
-          for (final ChatUser user in page.items) {
-            if (seen.add(user.account)) {
-              _users.add(user);
-            }
-          }
-        }
-        _nextCursor = page.nextCursor;
+        _users
+          ..clear()
+          ..addAll(users);
         _loading = false;
-        _loadingMore = false;
         _error = null;
       });
-      // One fresh server page is authoritative for the accounts it contains;
+      // A fresh directory read is authoritative for the accounts it contains;
       // share it so an open conversation cannot keep a stale header. The
-      // ticket makes a page that started before a newer targeted read lose.
-      presence?.seed(page.items, observation: observation);
+      // ticket makes a read that started before a newer targeted read lose.
+      presence?.seed(users, observation: observation);
     } on AuthFailure catch (failure) {
       if (!mounted) {
         return;
@@ -134,14 +153,12 @@ class _UsersListViewState extends State<UsersListView> {
       if (failure.status == 401) {
         setState(() {
           _loading = false;
-          _loadingMore = false;
         });
         widget.onSessionExpired?.call();
         return;
       }
       setState(() {
         _loading = false;
-        _loadingMore = false;
         if (_users.isEmpty) {
           _error = failure.message;
         }
@@ -152,7 +169,6 @@ class _UsersListViewState extends State<UsersListView> {
       }
       setState(() {
         _loading = false;
-        _loadingMore = false;
         if (_users.isEmpty) {
           _error = '用户列表加载失败，请检查网络后重试';
         }
@@ -162,12 +178,11 @@ class _UsersListViewState extends State<UsersListView> {
     }
   }
 
-  Future<void> _loadMore() async {
-    if (_nextCursor == null || _loadingMore) {
-      return;
+  Future<void> _open(ChatUser user) async {
+    await widget.onOpenChat(user);
+    if (mounted) {
+      await _load(silent: true);
     }
-    setState(() => _loadingMore = true);
-    await _load(reset: false);
   }
 
   @override
@@ -197,7 +212,7 @@ class _UsersListViewState extends State<UsersListView> {
               const SizedBox(height: AppSpacing.md),
               OutlinedButton(
                 key: UsersListView.refreshKey,
-                onPressed: () => _load(reset: true),
+                onPressed: () => _load(),
                 child: const Text('重新加载'),
               ),
             ],
@@ -224,17 +239,14 @@ class _UsersListViewState extends State<UsersListView> {
                 style: const TextStyle(color: AppColors.inkMuted),
               ),
               const SizedBox(height: AppSpacing.sm),
-              TextButton(
-                onPressed: () => _load(reset: true),
-                child: const Text('刷新'),
-              ),
+              TextButton(onPressed: () => _load(), child: const Text('刷新')),
             ],
           ),
         ),
       );
     }
     return RefreshIndicator(
-      onRefresh: () => _load(reset: true),
+      onRefresh: () => _load(),
       child: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 760),
@@ -260,7 +272,7 @@ class _UsersListViewState extends State<UsersListView> {
                     widget.presence?.valueFor(user.account) ?? user.presence,
                 profile: widget.profile,
                 selfAccount: widget.chat.selfAccount,
-                onTap: () => widget.onOpenChat(user),
+                onTap: () => _open(user),
               );
             },
           ),
@@ -270,24 +282,6 @@ class _UsersListViewState extends State<UsersListView> {
   }
 
   Widget _footer() {
-    if (_nextCursor != null) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
-        child: Center(
-          child: _loadingMore
-              ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : TextButton(
-                  key: UsersListView.loadMoreKey,
-                  onPressed: _loadMore,
-                  child: const Text('加载更多用户'),
-                ),
-        ),
-      );
-    }
     return const Padding(
       padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
       child: Center(

@@ -263,12 +263,12 @@ class _HomeViewState extends State<HomeView> {
     );
   }
 
-  void _openChat(ChatUser user) {
+  Future<void> _openChat(ChatUser user) async {
     final ChatService? chat = widget.chat;
     if (chat == null) {
       return;
     }
-    Navigator.of(context).push(
+    await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (BuildContext context) => ChatPage(
           peer: user,
