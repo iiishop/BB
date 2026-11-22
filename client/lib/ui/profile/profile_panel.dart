@@ -13,6 +13,7 @@ import '../../services/profile_service.dart';
 import '../../validation/profile_rules.dart';
 import '../widgets/profile_avatar.dart';
 import 'avatar_picker.dart';
+import 'profile_artwork.dart';
 
 /// Which of the three Profile presentations applies.
 enum ProfilePanelMode {
@@ -86,6 +87,10 @@ class ProfilePanelResult {
 }
 
 /// Opens the Profile panel in the right presentation for this viewport.
+///
+/// A phone gets a full-screen [PageRoute] rather than a dialog because the
+/// avatar has to travel from the messages-page entry to the cover, and Hero
+/// flights only run between [PageRoute]s. Folded and desktop keep the dialog.
 Future<ProfilePanelResult?> openProfilePanel(
   BuildContext context, {
   required ProfileGateway gateway,
@@ -97,6 +102,24 @@ Future<ProfilePanelResult?> openProfilePanel(
   AvatarDecodeCheck? avatarDecodeCheck,
   AvatarSourceReader? avatarSourceReader,
 }) {
+  Widget frame() => _ResponsiveProfileFrame(
+    gateway: gateway,
+    user: user,
+    initialProfile: initialProfile,
+    initialAvatar: initialAvatar,
+    onLogout: onLogout,
+    avatarPicker: avatarPicker,
+    avatarDecodeCheck: avatarDecodeCheck,
+    avatarSourceReader: avatarSourceReader,
+  );
+
+  // Resolved once, at open time: the route type cannot change later without
+  // dropping the panel, and a resize to desktop while open keeps this page
+  // (the frame still reflows to the desktop card).
+  if (resolveProfilePanelMode(context) == ProfilePanelMode.mobile) {
+    return Navigator.of(context)
+        .push<ProfilePanelResult>(_PhoneProfileRoute(builder: (_) => frame()));
+  }
   return showGeneralDialog<ProfilePanelResult>(
     context: context,
     barrierDismissible: true,
@@ -112,16 +135,7 @@ Future<ProfilePanelResult?> openProfilePanel(
           // Recompute the presentation on every MediaQuery/metrics change while
           // the dialog stays open; mode and fold width are never frozen at open
           // time (QA-465-03).
-          return _ResponsiveProfileFrame(
-            gateway: gateway,
-            user: user,
-            initialProfile: initialProfile,
-            initialAvatar: initialAvatar,
-            onLogout: onLogout,
-            avatarPicker: avatarPicker,
-            avatarDecodeCheck: avatarDecodeCheck,
-            avatarSourceReader: avatarSourceReader,
-          );
+          return frame();
         },
     transitionBuilder:
         (
@@ -136,6 +150,44 @@ Future<ProfilePanelResult?> openProfilePanel(
           );
         },
   );
+}
+
+/// Key for the phone page's route fade; the exit is a cross-fade while the
+/// avatar Hero returns, never the old left slide.
+const Key profilePhoneFadeKey = Key('profile-phone-fade');
+
+/// Full-screen phone route for the Profile page.
+///
+/// The page fades in while the avatar Hero flies; both use the same 360 ms
+/// clock so the photo has landed before the scalloped rim starts settling.
+class _PhoneProfileRoute extends PageRouteBuilder<ProfilePanelResult> {
+  _PhoneProfileRoute({required WidgetBuilder builder})
+    : super(
+        opaque: true,
+        barrierDismissible: false,
+        transitionDuration: const Duration(milliseconds: 360),
+        reverseTransitionDuration: const Duration(milliseconds: 300),
+        pageBuilder: (
+          BuildContext context,
+          Animation<double> a,
+          Animation<double> b,
+        ) => builder(context),
+        transitionsBuilder:
+            (
+              BuildContext context,
+              Animation<double> animation,
+              Animation<double> secondary,
+              Widget child,
+            ) => FadeTransition(
+              key: profilePhoneFadeKey,
+              opacity: CurvedAnimation(
+                parent: animation,
+                curve: Curves.easeOutCubic,
+                reverseCurve: Curves.easeInCubic,
+              ),
+              child: child,
+            ),
+      );
 }
 
 /// Rebuilds the Profile presentation from the live MediaQuery.
@@ -258,10 +310,11 @@ class _ResponsiveProfileFrame extends StatelessWidget {
       avatarSourceReader: avatarSourceReader,
     );
     if (mode == ProfilePanelMode.mobile) {
-      return Material(
-        color: AppColors.paper,
-        child: SafeArea(child: panel),
-      );
+      // The phone page draws under the status bar so the sea cover reaches the
+      // top edge; ProfilePanel insets only its own controls. The Scaffold is
+      // the page's own: an opaque route would otherwise show its snackbars on
+      // the hidden messages page underneath.
+      return Scaffold(backgroundColor: AppColors.paper, body: panel);
     }
     if (mode == ProfilePanelMode.folded) {
       return _FoldedFrame(width: foldedPanelWidth(context), child: panel);
@@ -397,6 +450,41 @@ class ProfilePanel extends StatefulWidget {
   static const Key otherProfileKey = Key('profile-other-account');
   static const Key homeButtonKey = Key('profile-home');
   static const Key errorKey = Key('profile-error');
+
+  /// Phone-only entries: the edit sheet and the avatar Hero shared with the
+  /// messages-page entry.
+  static const Key editProfileKey = Key('profile-edit');
+  static const Key editSheetKey = Key('profile-edit-sheet');
+
+  /// The avatar in flight; present only while the entry/cover Hero runs.
+  static const Key avatarFlightKey = Key('profile-avatar-flight');
+  static const String avatarHeroTag = 'profile-avatar-hero';
+
+  /// Shuttle for the entry -> cover avatar flight.
+  ///
+  /// It always carries the avatar that is already decoded (the messages-page
+  /// thumbnail on the way in, the cover photo on the way back) and is scaled by
+  /// the Hero rect, so the flight never flashes an empty placeholder even when
+  /// the full-size fetch is still in flight.
+  static Widget avatarFlightShuttle(
+    BuildContext flightContext,
+    Animation<double> animation,
+    HeroFlightDirection direction,
+    BuildContext fromHeroContext,
+    BuildContext toHeroContext,
+  ) {
+    final BuildContext source = direction == HeroFlightDirection.push
+        ? fromHeroContext
+        : toHeroContext;
+    final Hero hero = source.widget as Hero;
+    // The flight lives in the overlay, outside the page Material; without this
+    // the avatar's tap layer asserts on the missing ancestor mid-flight.
+    return Material(
+      key: avatarFlightKey,
+      type: MaterialType.transparency,
+      child: FittedBox(fit: BoxFit.contain, child: hero.child),
+    );
+  }
 
   @override
   State<ProfilePanel> createState() => _ProfilePanelState();
@@ -722,6 +810,440 @@ class _ProfilePanelState extends State<ProfilePanel> {
 
   @override
   Widget build(BuildContext context) {
+    // The phone is a cover-led page; folded and desktop keep the list card.
+    if (widget.mode == ProfilePanelMode.mobile) {
+      return _buildPhone(context);
+    }
+    return _buildPanel(context);
+  }
+
+  /// Phone layout: sea cover, avatar straddling the seam, plain body actions.
+  Widget _buildPhone(BuildContext context) {
+    final TextTheme text = Theme.of(context).textTheme;
+    final Profile? profile = _profile;
+    final String nickname = profile?.username ?? widget.user.username;
+    final String account = profile?.account ?? widget.user.account;
+    final String? signature = profile?.signature;
+    final bool hasSignature = signature != null && signature.isNotEmpty;
+    final Size viewport = MediaQuery.sizeOf(context);
+    final EdgeInsets insets = MediaQuery.paddingOf(context);
+    final double coverHeight = profileCoverHeight(viewport);
+    final double avatarSize = viewport.width < 360 ? 92 : 104;
+    final double avatarLeft = AppSpacing.lg;
+    final double avatarOverhang = avatarSize * 0.55;
+    // Enlarged text cannot share the seam row with the photo: the name moves
+    // below the avatar and the two actions stack, so nothing is squeezed or
+    // clipped at 200 %.
+    final bool largeText = MediaQuery.textScalerOf(context).scale(1) > 1.35;
+    final bool stackActions = largeText || viewport.width < 340;
+
+    final Widget nameBlock = Padding(
+      padding: EdgeInsets.only(
+        right: AppSpacing.lg,
+        left: largeText ? AppSpacing.lg : 0,
+        top: largeText ? avatarOverhang + AppSpacing.sm : 10,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            nickname,
+            key: ProfilePanel.nicknameValueKey,
+            style: text.headlineSmall?.copyWith(
+              fontSize: 24,
+              fontWeight: FontWeight.w700,
+              height: 1.18,
+              letterSpacing: -0.3,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: <Widget>[
+              Text(
+                '账号  ',
+                style: text.bodySmall?.copyWith(color: AppColors.inkMuted),
+              ),
+              Flexible(
+                child: Text(
+                  account,
+                  key: ProfilePanel.accountValueKey,
+                  style: text.bodyMedium?.copyWith(
+                    color: AppColors.inkMuted,
+                    letterSpacing: 1.1,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+
+    return Column(
+      key: ProfilePanel.panelKey,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Expanded(
+          child: SingleChildScrollView(
+            padding: EdgeInsets.only(bottom: AppSpacing.xl + insets.bottom),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: <Widget>[
+                    ProfileSeaCover(
+                      height: coverHeight,
+                      backBar: Padding(
+                        padding: EdgeInsets.only(
+                          top: insets.top + AppSpacing.sm,
+                          bottom: AppSpacing.sm,
+                        ),
+                        child: _phoneBackBar(context),
+                      ),
+                    ),
+                    Positioned(
+                      left: avatarLeft,
+                      top: coverHeight - avatarOverhang,
+                      child: Hero(
+                        tag: ProfilePanel.avatarHeroTag,
+                        flightShuttleBuilder: ProfilePanel.avatarFlightShuttle,
+                        child: ScallopedAvatar(
+                          bytes: _avatar,
+                          size: avatarSize,
+                          loading: _loading && _avatar == null,
+                          onTap: _busy ? null : _changeAvatar,
+                          semanticLabel: '更换头像',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                if (largeText)
+                  nameBlock
+                else
+                  // The name column starts beside the overhanging avatar; the
+                  // minimum height keeps the signature below the avatar even
+                  // when the nickname is a single short line.
+                  ConstrainedBox(
+                    constraints: BoxConstraints(minHeight: avatarOverhang),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        SizedBox(
+                          width: avatarLeft + avatarSize + AppSpacing.md,
+                        ),
+                        Expanded(child: nameBlock),
+                      ],
+                    ),
+                  ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.lg,
+                    AppSpacing.md,
+                    AppSpacing.lg,
+                    0,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        '签名',
+                        style: text.labelMedium?.copyWith(
+                          color: AppColors.inkMuted,
+                          letterSpacing: 1.2,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        hasSignature ? signature : '还没有签名',
+                        key: ProfilePanel.signatureValueKey,
+                        style: text.bodyLarge?.copyWith(
+                          height: 1.5,
+                          color: hasSignature
+                              ? AppColors.ink
+                              : AppColors.inkMuted,
+                          fontStyle: hasSignature ? null : FontStyle.italic,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (_error != null)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.lg,
+                      AppSpacing.md,
+                      AppSpacing.lg,
+                      0,
+                    ),
+                    child: Text(
+                      _error!,
+                      key: ProfilePanel.errorKey,
+                      style: text.bodySmall?.copyWith(color: AppColors.danger),
+                    ),
+                  ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.lg,
+                    AppSpacing.xl,
+                    AppSpacing.lg,
+                    0,
+                  ),
+                  child: stackActions
+                      ? Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: <Widget>[
+                            _phoneEditButton(),
+                            const SizedBox(height: AppSpacing.sm),
+                            _phoneHomeButton(),
+                          ],
+                        )
+                      : Row(
+                          children: <Widget>[
+                            Expanded(child: _phoneEditButton()),
+                            const SizedBox(width: AppSpacing.md),
+                            Expanded(child: _phoneHomeButton()),
+                          ],
+                        ),
+                ),
+                const SizedBox(height: AppSpacing.lg),
+                _PhoneEntry(
+                  key: ProfilePanel.otherProfileKey,
+                  icon: Icons.people_outline_rounded,
+                  label: '查看其他账号资料',
+                  onTap: _busy ? null : _viewOtherAccount,
+                ),
+                const _PhoneDivider(),
+                _PhoneEntry(
+                  key: ProfilePanel.settingsButtonKey,
+                  icon: Icons.settings_outlined,
+                  label: '设置',
+                  onTap: _busy
+                      ? null
+                      : () => Navigator.of(context)
+                            .pop(const ProfilePanelResult(openSettings: true)),
+                ),
+                const _PhoneDivider(),
+                _PhoneEntry(
+                  key: ProfilePanel.logoutButtonKey,
+                  icon: Icons.logout_rounded,
+                  label: '退出登录',
+                  danger: true,
+                  trailing: false,
+                  onTap: _busy ? null : _logout,
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.lg,
+                    AppSpacing.xs,
+                    AppSpacing.lg,
+                    AppSpacing.lg,
+                  ),
+                  child: Text('退出登录会删除服务端该会话，并清除本机凭据。', style: text.bodySmall),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _phoneBackBar(BuildContext context) {
+    final TextTheme text = Theme.of(context).textTheme;
+    return Row(
+      children: <Widget>[
+        DecoratedBox(
+          decoration: const BoxDecoration(
+            color: Color(0x3D0B1020),
+            shape: BoxShape.circle,
+          ),
+          child: IconButton(
+            key: ProfilePanel.closeButtonKey,
+            onPressed: _close,
+            tooltip: '返回',
+            color: AppColors.surface,
+            icon: const Icon(Icons.arrow_back_rounded),
+          ),
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(
+          child: Text(
+            '个人资料',
+            style: text.titleLarge?.copyWith(
+              color: AppColors.surface,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.2,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        if (_busy || _loading)
+          const Padding(
+            padding: EdgeInsets.only(right: AppSpacing.md),
+            child: SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: AppColors.surface,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _phoneEditButton() {
+    return FilledButton.icon(
+      key: ProfilePanel.editProfileKey,
+      onPressed: _busy ? null : _openEditSheet,
+      style: FilledButton.styleFrom(
+        minimumSize: const Size(0, 48),
+        backgroundColor: AppColors.accentDeep,
+        foregroundColor: AppColors.surface,
+        shape: const StadiumBorder(),
+      ),
+      icon: const Icon(Icons.edit_outlined, size: 18),
+      label: const Text('编辑资料', maxLines: 1, overflow: TextOverflow.ellipsis),
+    );
+  }
+
+  Widget _phoneHomeButton() {
+    return FilledButton.icon(
+      key: ProfilePanel.homeButtonKey,
+      onPressed: _busy ? null : _openHome,
+      style: FilledButton.styleFrom(
+        minimumSize: const Size(0, 48),
+        backgroundColor: AppColors.accentSoft,
+        foregroundColor: AppColors.accentDeep,
+        shape: const StadiumBorder(),
+      ),
+      icon: const Icon(Icons.person_outline_rounded, size: 18),
+      label: const Text('个人主页', maxLines: 1, overflow: TextOverflow.ellipsis),
+    );
+  }
+
+  /// One sheet for everything the reference page no longer shows inline.
+  ///
+  /// Every action closes the sheet and runs the existing handler, so the photo
+  /// picker and text editors stay exactly the surfaces they were; nothing is
+  /// duplicated and a saved value rebuilds the page behind the sheet.
+  Future<void> _openEditSheet() async {
+    final Profile? profile = _profile;
+    final String nickname = profile?.username ?? widget.user.username;
+    final String? signature = profile?.signature;
+    final String signatureText = (signature == null || signature.isEmpty)
+        ? '还没有签名'
+        : signature;
+    final _PhoneEditAction?
+    action = await showModalBottomSheet<_PhoneEditAction>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: AppColors.paper,
+      isScrollControlled: true,
+      builder: (BuildContext sheetContext) {
+        final TextTheme text = Theme.of(sheetContext).textTheme;
+        return SafeArea(
+          child: Padding(
+            key: ProfilePanel.editSheetKey,
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.lg,
+              0,
+              AppSpacing.lg,
+              AppSpacing.lg,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                Text(
+                  '编辑资料',
+                  style: text.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                Row(
+                  children: <Widget>[
+                    ProfileAvatar(bytes: _avatar, size: 48, showBorder: false),
+                    const SizedBox(width: AppSpacing.md),
+                    Expanded(
+                      child: Text(
+                        '头像',
+                        style: text.bodyLarge?.copyWith(color: AppColors.ink),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () =>
+                          Navigator.of(sheetContext)
+                              .pop(_PhoneEditAction.changeAvatar),
+                      child: const Text('更换头像'),
+                    ),
+                    TextButton(
+                      key: ProfilePanel.removeAvatarKey,
+                      onPressed: () =>
+                          Navigator.of(sheetContext)
+                              .pop(_PhoneEditAction.removeAvatar),
+                      child: const Text('移除'),
+                    ),
+                  ],
+                ),
+                const Divider(height: AppSpacing.lg, color: AppColors.border),
+                ListTile(
+                  key: ProfilePanel.editNicknameKey,
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.badge_outlined, size: 20),
+                  title: const Text('昵称'),
+                  subtitle: Text(
+                    nickname,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: const Icon(Icons.edit_outlined, size: 18),
+                  onTap: () =>
+                      Navigator.of(sheetContext).pop(_PhoneEditAction.nickname),
+                ),
+                const Divider(height: AppSpacing.lg, color: AppColors.border),
+                ListTile(
+                  key: ProfilePanel.editSignatureKey,
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.notes_rounded, size: 20),
+                  title: const Text('签名'),
+                  subtitle: Text(
+                    signatureText,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: const Icon(Icons.edit_outlined, size: 18),
+                  onTap: () =>
+                      Navigator.of(sheetContext)
+                          .pop(_PhoneEditAction.signature),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    if (!mounted || action == null) {
+      return;
+    }
+    switch (action) {
+      case _PhoneEditAction.changeAvatar:
+        await _changeAvatar();
+      case _PhoneEditAction.removeAvatar:
+        await _removeAvatar();
+      case _PhoneEditAction.nickname:
+        await _editNickname();
+      case _PhoneEditAction.signature:
+        await _editSignature();
+    }
+  }
+
+  Widget _buildPanel(BuildContext context) {
     final TextTheme text = Theme.of(context).textTheme;
     final Profile? profile = _profile;
     final String nickname = profile?.username ?? widget.user.username;
@@ -915,6 +1437,74 @@ class _ProfilePanelState extends State<ProfilePanel> {
         else
           Expanded(child: scrollable),
       ],
+    );
+  }
+}
+
+enum _PhoneEditAction { changeAvatar, removeAvatar, nickname, signature }
+
+/// A full-width settings row on the phone page.
+class _PhoneEntry extends StatelessWidget {
+  const _PhoneEntry({
+    super.key,
+    required this.icon,
+    required this.label,
+    this.onTap,
+    this.danger = false,
+    this.trailing = true,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
+  final bool danger;
+  final bool trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    final TextTheme text = Theme.of(context).textTheme;
+    final Color ink = danger ? AppColors.danger : AppColors.ink;
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.lg,
+          AppSpacing.md,
+          AppSpacing.lg,
+          AppSpacing.md,
+        ),
+        child: Row(
+          children: <Widget>[
+            Icon(
+              icon,
+              size: 22,
+              color: danger ? AppColors.danger : AppColors.inkMuted,
+            ),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: Text(label, style: text.bodyLarge?.copyWith(color: ink)),
+            ),
+            if (trailing)
+              const Icon(
+                Icons.chevron_right_rounded,
+                size: 22,
+                color: AppColors.inkMuted,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PhoneDivider extends StatelessWidget {
+  const _PhoneDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Padding(
+      padding: EdgeInsets.only(left: 62, right: AppSpacing.lg),
+      child: Divider(height: 1, thickness: 1, color: AppColors.border),
     );
   }
 }

@@ -13,6 +13,7 @@ import 'profile_avatar_pick_test.dart'
     show FakeAvatarImagePicker, FakeAvatarSourceReader;
 import 'support/avatar_fixtures.dart';
 import 'support/fake_profile_gateway.dart';
+import 'support/phone_profile.dart';
 
 /// DEA-482 QA regression (P2): busy state is owned by the operation that
 /// started it. Switching the avatar source invalidates pending results, but a
@@ -109,6 +110,10 @@ void main() {
     );
     await tester.tap(find.text('open-profile'));
     await tester.pumpAndSettle();
+    if (size.width < 600) {
+      // Phone page: avatar actions live behind 编辑资料 since DEA-492.
+      await openProfileEditSheet(tester);
+    }
     await tester.tap(find.text('更换头像').first);
     await tester.pumpAndSettle();
   }

@@ -12,6 +12,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'support/avatar_fixtures.dart';
 import 'support/fake_profile_gateway.dart';
+import 'support/phone_profile.dart';
 
 /// DEA-482: platform avatar picking. The desktop path field is unchanged but
 /// gains a native picker; Android replaces the typed path with the system
@@ -147,6 +148,10 @@ void main() {
     );
     await tester.tap(find.text('open-profile'));
     await tester.pumpAndSettle();
+    if (size.width < 600) {
+      // Phone page: avatar actions live behind 编辑资料 since DEA-492.
+      await openProfileEditSheet(tester);
+    }
     await tester.tap(find.text('更换头像').first);
     await tester.pumpAndSettle();
   }

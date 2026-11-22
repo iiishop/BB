@@ -455,14 +455,30 @@ class _HomeViewState extends State<HomeView> {
                 opacity: showProfileEntry ? 1 : 0,
                 child: IgnorePointer(
                   ignoring: !showProfileEntry,
-                  child: ProfileAvatar(
-                    key: HomeView.avatarEntryKey,
-                    bytes: _avatar,
-                    size: 60,
-                    loading: _loading && _avatar == null,
-                    onTap: _openProfile,
-                    semanticLabel: '打开个人资料',
-                  ),
+                  // Only the phone route flies the avatar; the desktop/folded
+                  // dialog has no Hero partner, so keep a plain avatar there.
+                  child: MediaQuery.sizeOf(context).width < 600
+                      ? Hero(
+                          tag: ProfilePanel.avatarHeroTag,
+                          flightShuttleBuilder:
+                              ProfilePanel.avatarFlightShuttle,
+                          child: ProfileAvatar(
+                            key: HomeView.avatarEntryKey,
+                            bytes: _avatar,
+                            size: 60,
+                            loading: _loading && _avatar == null,
+                            onTap: _openProfile,
+                            semanticLabel: '打开个人资料',
+                          ),
+                        )
+                      : ProfileAvatar(
+                          key: HomeView.avatarEntryKey,
+                          bytes: _avatar,
+                          size: 60,
+                          loading: _loading && _avatar == null,
+                          onTap: _openProfile,
+                          semanticLabel: '打开个人资料',
+                        ),
                 ),
               ),
             ),
