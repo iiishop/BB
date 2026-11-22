@@ -181,6 +181,56 @@ class FakeChatService extends ChatService {
     );
   }
 
+  /// Inbound message ids this double has already shown to the reader.
+  ///
+  /// Widget tests construct this double in `setUp`, outside the fake-async
+  /// zone, so chaining the real ledger's serial queue there would never be
+  /// flushed by `pump`. Modelling the display fact in plain memory keeps the
+  /// widget behaviour under test (badge count and clearing) and leaves ledger
+  /// durability to the service tests.
+  final Set<String> viewedMessageIds = <String>{};
+
+  /// Same rule as the real service: inbound messages minus display facts.
+  @override
+  Future<Map<String, int>> incomingUnreadByPeer({int limit = 100}) async {
+    return <String, int>{
+      for (final MapEntry<String, List<ChatMessage>> entry
+          in conversations.entries)
+        entry.key: entry.value
+            .where(
+              (ChatMessage message) =>
+                  message.targetAccount == self.account &&
+                  !viewedMessageIds.contains(message.id),
+            )
+            .length,
+    };
+  }
+
+  /// Records inbound message ids as viewed, mirroring the service's entry
+  /// rule: an opened conversation clears every seeded inbound message.
+  @override
+  Future<int> markConversationViewed(String peerAccount) {
+    return recordDisplayedIncoming(
+      peerAccount: peerAccount,
+      messages: conversations[peerAccount] ?? const <ChatMessage>[],
+    );
+  }
+
+  @override
+  Future<int> recordDisplayedIncoming({
+    required String peerAccount,
+    required Iterable<ChatMessage> messages,
+  }) async {
+    int recorded = 0;
+    for (final ChatMessage message in messages) {
+      if (message.targetAccount == self.account &&
+          viewedMessageIds.add(message.id)) {
+        recorded += 1;
+      }
+    }
+    return recorded;
+  }
+
   @override
   Future<MessagePage> loadConversation({
     required String peerAccount,

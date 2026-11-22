@@ -109,6 +109,17 @@ String initialsOf(String username) {
 
 String _two(int value) => value.toString().padLeft(2, '0');
 
+/// Unread badge label: nothing at zero, the exact count 1–99, capped at 99+.
+///
+/// The count itself is the server-derived incoming unread; only this display
+/// label is bounded so a wide row never grows.
+String? unreadBadgeLabel(int count) {
+  if (count <= 0) {
+    return null;
+  }
+  return count > 99 ? '99+' : '$count';
+}
+
 /// Shared color hint for attachment icons.
 Color attachmentColor(String mimeType) {
   if (mimeType.startsWith('image/')) {

@@ -22,6 +22,7 @@ class UsersListView extends StatefulWidget {
     required this.onOpenChat,
     this.presence,
     this.onSessionExpired,
+    this.refreshToken = 0,
   });
 
   final ChatService chat;
@@ -33,12 +34,20 @@ class UsersListView extends StatefulWidget {
   final void Function(ChatUser user) onOpenChat;
   final VoidCallback? onSessionExpired;
 
+  /// Bumped by the parent after a conversation closes so the badges reload.
+  ///
+  /// Incoming unread belongs to the account and can only change while a
+  /// conversation is open, so a return-triggered refresh is the cheap signal;
+  /// the periodic list poll keeps its presence-only cost.
+  final int refreshToken;
+
   static const Key listKey = Key('users-list');
   static const Key emptyKey = Key('users-empty');
   static const Key errorKey = Key('users-error');
   static const Key loadMoreKey = Key('users-load-more');
   static const Key refreshKey = Key('users-refresh');
   static Key rowKey(String account) => Key('user-row-$account');
+  static Key unreadKey(String account) => Key('user-unread-$account');
 
   @override
   State<UsersListView> createState() => _UsersListViewState();
@@ -46,6 +55,9 @@ class UsersListView extends StatefulWidget {
 
 class _UsersListViewState extends State<UsersListView> {
   final List<ChatUser> _users = <ChatUser>[];
+
+  /// Server-derived incoming unread per conversation, absent when zero.
+  Map<String, int> _unread = <String, int>{};
   String? _nextCursor;
   bool _loading = true;
   bool _loadingMore = false;
@@ -53,16 +65,33 @@ class _UsersListViewState extends State<UsersListView> {
   Timer? _refreshTimer;
   bool _inFlight = false;
 
+  /// Orders concurrent badge reads so a slow one cannot overwrite a newer
+  /// result with stale facts.
+  int _unreadGeneration = 0;
+
   @override
   void initState() {
     super.initState();
     widget.presence?.addListener(_onPresenceChanged);
     unawaited(_load(reset: true));
+    unawaited(_refreshUnread());
     _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       if (mounted && !_inFlight) {
         unawaited(_load(reset: true, silent: true));
       }
     });
+  }
+
+  @override
+  void didUpdateWidget(covariant UsersListView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.refreshToken != widget.refreshToken) {
+      // The conversation just closed; its view facts are already durable, so
+      // recompute the badges instead of guessing locally. The directory stays
+      // rendered while both reads run.
+      unawaited(_load(reset: true, silent: true));
+      unawaited(_refreshUnread());
+    }
   }
 
   @override
@@ -76,6 +105,26 @@ class _UsersListViewState extends State<UsersListView> {
     if (mounted) {
       setState(() {});
     }
+  }
+
+  /// Recomputes the badges from the shared account-level unread derivation.
+  ///
+  /// Kept separate from the directory request: rows render immediately and
+  /// badges fill in, and the 30s presence poll never pays for a full-history
+  /// scan. A failed badge read keeps the last confirmed badges instead of
+  /// turning the whole list into an error.
+  Future<void> _refreshUnread() async {
+    final int generation = ++_unreadGeneration;
+    Map<String, int> unread;
+    try {
+      unread = await widget.chat.incomingUnreadByPeer();
+    } catch (_) {
+      return;
+    }
+    if (!mounted || generation != _unreadGeneration) {
+      return;
+    }
+    setState(() => _unread = unread);
   }
 
   Future<void> _load({required bool reset, bool silent = false}) async {
@@ -197,7 +246,10 @@ class _UsersListViewState extends State<UsersListView> {
               const SizedBox(height: AppSpacing.md),
               OutlinedButton(
                 key: UsersListView.refreshKey,
-                onPressed: () => _load(reset: true),
+                onPressed: () {
+                  unawaited(_load(reset: true));
+                  unawaited(_refreshUnread());
+                },
                 child: const Text('重新加载'),
               ),
             ],
@@ -225,7 +277,10 @@ class _UsersListViewState extends State<UsersListView> {
               ),
               const SizedBox(height: AppSpacing.sm),
               TextButton(
-                onPressed: () => _load(reset: true),
+                onPressed: () {
+                  unawaited(_load(reset: true));
+                  unawaited(_refreshUnread());
+                },
                 child: const Text('刷新'),
               ),
             ],
@@ -234,7 +289,8 @@ class _UsersListViewState extends State<UsersListView> {
       );
     }
     return RefreshIndicator(
-      onRefresh: () => _load(reset: true),
+      onRefresh: () =>
+          Future.wait(<Future<void>>[_load(reset: true), _refreshUnread()]),
       child: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 760),
@@ -258,6 +314,7 @@ class _UsersListViewState extends State<UsersListView> {
                 user: user,
                 presence:
                     widget.presence?.valueFor(user.account) ?? user.presence,
+                unread: _unread[user.account] ?? 0,
                 profile: widget.profile,
                 selfAccount: widget.chat.selfAccount,
                 onTap: () => widget.onOpenChat(user),
@@ -305,6 +362,7 @@ class _UserRow extends StatelessWidget {
     super.key,
     required this.user,
     required this.presence,
+    required this.unread,
     required this.profile,
     required this.selfAccount,
     required this.onTap,
@@ -312,6 +370,9 @@ class _UserRow extends StatelessWidget {
 
   final ChatUser user;
   final Presence presence;
+
+  /// Server-derived incoming unread for this conversation; zero means no badge.
+  final int unread;
   final ProfileGateway profile;
   final String selfAccount;
   final VoidCallback onTap;
@@ -326,6 +387,7 @@ class _UserRow extends StatelessWidget {
     final String previewText = preview == null
         ? '暂无消息'
         : '$senderName：${preview.previewBody}';
+    final String? unreadLabel = unreadBadgeLabel(unread);
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(AppRadius.card),
@@ -336,7 +398,19 @@ class _UserRow extends StatelessWidget {
         ),
         child: Row(
           children: <Widget>[
-            _UserAvatar(user: user, profile: profile),
+            Badge(
+              isLabelVisible: unreadLabel != null,
+              backgroundColor: AppColors.danger,
+              label: Semantics(
+                label: '$unread 条未读',
+                excludeSemantics: true,
+                child: Text(
+                  unreadLabel ?? '',
+                  key: UsersListView.unreadKey(user.account),
+                ),
+              ),
+              child: _UserAvatar(user: user, profile: profile),
+            ),
             const SizedBox(width: AppSpacing.md),
             Expanded(
               child: Column(

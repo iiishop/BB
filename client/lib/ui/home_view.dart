@@ -87,6 +87,9 @@ class _HomeViewState extends State<HomeView> {
   /// snapshot or its own poll.
   PresenceDirectory? _presence;
 
+  /// Bumped after a conversation closes so [UsersListView] reloads the badges.
+  int _chatRefreshToken = 0;
+
   /// One relationship owner for the signed-in account's feed cards and the
   /// author home page. Recreated when the server/account scope changes.
   SpaceFollowStore? _followStore;
@@ -263,12 +266,25 @@ class _HomeViewState extends State<HomeView> {
     );
   }
 
-  void _openChat(ChatUser user) {
+  /// Opens [user]'s conversation and records the entry as a view fact.
+  ///
+  /// The recording starts before the route is pushed so navigation never waits
+  /// on a long history, but it is awaited when the conversation closes: the
+  /// list refresh then reads confirmed display facts instead of racing them.
+  /// It is display bookkeeping only — not a consumption ACK and not an
+  /// outbound read receipt.
+  Future<void> _openChat(ChatUser user) async {
     final ChatService? chat = widget.chat;
     if (chat == null) {
       return;
     }
-    Navigator.of(context).push(
+    final Future<void> viewed = chat
+        .markConversationViewed(user.account)
+        .then<void>((int _) {})
+        // A failed view record must not block opening or later refreshes; the
+        // next refresh retries the derivation from the same server facts.
+        .catchError((Object _) {});
+    await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (BuildContext context) => ChatPage(
           peer: user,
@@ -278,6 +294,11 @@ class _HomeViewState extends State<HomeView> {
         ),
       ),
     );
+    await viewed;
+    if (!mounted) {
+      return;
+    }
+    setState(() => _chatRefreshToken += 1);
   }
 
   @override
@@ -355,6 +376,7 @@ class _HomeViewState extends State<HomeView> {
                             presence: _presence,
                             onOpenChat: _openChat,
                             onSessionExpired: widget.onSessionExpired,
+                            refreshToken: _chatRefreshToken,
                           ),
                         ),
                       ],
