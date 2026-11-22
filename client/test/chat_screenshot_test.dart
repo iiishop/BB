@@ -229,6 +229,13 @@ void main() {
     await pumpAt(const Size(390, 844));
     await capture('chat-users-phone.png');
 
+    // DEA-491 step 2 evidence: the 只看在线 switch hides offline rows while the
+    // header avatar and the recent-message order stay put.
+    await tester.tap(find.byKey(UsersListView.onlineOnlyKey));
+    await tester.pumpAndSettle();
+    expect(find.byKey(UsersListView.rowKey('10000003')), findsNothing);
+    await capture('chat-users-online-only-phone.png');
+
     await pumpAt(const Size(1440, 900));
     await capture('chat-users-wide.png');
 
@@ -271,6 +278,7 @@ void main() {
 
     for (final String name in <String>[
       'chat-users-phone.png',
+      'chat-users-online-only-phone.png',
       'chat-users-wide.png',
       'chat-users-folded.png',
       'chat-thread-phone.png',

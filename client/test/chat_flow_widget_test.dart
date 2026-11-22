@@ -9,6 +9,7 @@ import 'package:bb_client/ui/chat/chat_composer.dart';
 import 'package:bb_client/ui/chat/chat_page.dart';
 import 'package:bb_client/ui/chat/users_view.dart';
 import 'package:bb_client/ui/home_view.dart';
+import 'package:bb_client/ui/profile/profile_panel.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -156,6 +157,99 @@ void main() {
     expect(find.text('在线'), findsOneWidget);
     expect(find.text('离线'), findsOneWidget);
     expect(find.byKey(HomeView.avatarEntryKey), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'the narrow header avatar replaces BB on the account row, opens Profile, '
+    'and conversation rows still open chat',
+    (WidgetTester tester) async {
+      await pumpAt(tester, const Size(390, 844));
+
+      final Rect avatar = tester.getRect(find.byKey(HomeView.avatarEntryKey));
+      final Rect title = tester.getRect(find.text('消息'));
+      final Rect account = tester.getRect(find.text(_self.account));
+      expect(
+        avatar.top,
+        lessThan(title.top),
+        reason: 'the entry moved above the 消息 title',
+      );
+      expect(
+        (avatar.center.dy - account.center.dy).abs(),
+        lessThan(2),
+        reason: 'the avatar shares the header row with the account',
+      );
+      expect(avatar.left, lessThan(account.left));
+      expect(find.text('BB'), findsNothing, reason: 'the badge is replaced');
+      expect(
+        find.byKey(HomeView.avatarEntryKey),
+        findsOneWidget,
+        reason: 'the old bottom-left floating copy is gone',
+      );
+
+      // Click 1: the migrated entry still opens the same Profile panel.
+      await tester.tap(find.byKey(HomeView.avatarEntryKey));
+      await tester.pumpAndSettle();
+      expect(find.byType(ProfilePanel), findsOneWidget);
+      await tester.tap(find.byKey(ProfilePanel.closeButtonKey));
+      await tester.pumpAndSettle();
+      expect(find.byType(ProfilePanel), findsNothing);
+
+      // Click 2: conversation rows still open chat.
+      await tester.tap(find.byKey(UsersListView.rowKey(_bob.account)));
+      await tester.pumpAndSettle();
+      expect(find.byType(ChatPage), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('the removed bottom-left entry area reaches the conversation '
+      'underneath instead of opening Profile', (WidgetTester tester) async {
+    for (int i = 0; i < 10; i++) {
+      chat.users.add(
+        ChatUser(
+          account: '3000000$i',
+          username: 'member$i',
+          avatarUrl: '/avatars/3000000$i.png',
+          avatarVersion: 'v1',
+          presence: Presence.offline,
+        ),
+      );
+    }
+    await pumpAt(tester, const Size(390, 844));
+
+    // The removed floating entry was a 60x60 tap target at left 24 / bottom 24;
+    // this point sits inside that old rectangle.
+    const Offset oldEntryPoint = Offset(54, 790);
+    expect(
+      tester.getRect(find.byKey(HomeView.avatarEntryKey)).bottom,
+      lessThan(oldEntryPoint.dy),
+      reason: 'the only profile entry is now in the header',
+    );
+
+    String? covered;
+    for (int i = 0; i < 10; i++) {
+      final String account = '3000000$i';
+      final Finder row = find.byKey(UsersListView.rowKey(account));
+      if (row.evaluate().isEmpty) {
+        continue;
+      }
+      if (tester.getRect(row).contains(oldEntryPoint)) {
+        covered = account;
+        break;
+      }
+    }
+    expect(covered, isNotNull, reason: 'a row must sit under the old entry');
+
+    await tester.tapAt(oldEntryPoint);
+    await tester.pumpAndSettle();
+    expect(
+      find.byType(ProfilePanel),
+      findsNothing,
+      reason: 'the old floating tap area is gone',
+    );
+    final ChatPage page = tester.widget<ChatPage>(find.byType(ChatPage));
+    expect(page.peer.account, covered);
     expect(tester.takeException(), isNull);
   });
 

@@ -42,6 +42,8 @@ class UsersListView extends StatefulWidget {
   static const Key emptyKey = Key('users-empty');
   static const Key errorKey = Key('users-error');
   static const Key refreshKey = Key('users-refresh');
+  static const Key onlineOnlyKey = Key('users-online-only');
+  static const Key onlineEmptyKey = Key('users-online-empty');
   static Key rowKey(String account) => Key('user-row-$account');
   static Key unreadKey(String account) => Key('user-unread-$account');
 
@@ -90,6 +92,16 @@ class _UsersListViewState extends State<UsersListView> {
   /// A trigger arrived while a derivation was running: run once more when it
   /// finishes so the counts cover that newer change.
   bool _unreadRetryNow = false;
+
+  /// "Only show online" is a view filter: it never rewrites [_users] or clears
+  /// the server-derived unread counts, so turning it off restores the complete
+  /// list in the same sorted order.
+  bool _onlineOnly = false;
+
+  /// The same last-confirmed presence the row badge renders, so a row cannot
+  /// say 在线 while the filter hides it (or the other way round).
+  Presence _presenceOf(ChatUser user) =>
+      widget.presence?.valueFor(user.account) ?? user.presence;
 
   @override
   void initState() {
@@ -311,6 +323,69 @@ class _UsersListViewState extends State<UsersListView> {
 
   @override
   Widget build(BuildContext context) {
+    // The switch stays outside the list body so it is still operable while the
+    // filtered result is empty (or while the directory is loading/erroring).
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        _filterBar(context),
+        Expanded(
+          child: _content(
+            context,
+            _onlineOnly
+                ? _users
+                      .where(
+                        (ChatUser user) => _presenceOf(user) == Presence.online,
+                      )
+                      .toList(growable: false)
+                : _users,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _filterBar(BuildContext context) {
+    final TextTheme text = Theme.of(context).textTheme;
+    // Match the list's centered 760 max width so the label does not sit at the
+    // window edge while the rows are centered on wide layouts.
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 760),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.lg,
+            AppSpacing.xs,
+            AppSpacing.lg,
+            0,
+          ),
+          child: Row(
+            children: <Widget>[
+              Text(
+                '只看在线',
+                style: text.labelLarge?.copyWith(
+                  color: AppColors.inkMuted,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const Spacer(),
+              Semantics(
+                label: '只看在线',
+                child: Switch(
+                  key: UsersListView.onlineOnlyKey,
+                  value: _onlineOnly,
+                  onChanged: (bool value) =>
+                      setState(() => _onlineOnly = value),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _content(BuildContext context, List<ChatUser> visible) {
     if (_loading && _users.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -369,6 +444,31 @@ class _UsersListViewState extends State<UsersListView> {
         ),
       );
     }
+    if (visible.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              const Icon(
+                Icons.people_outline_rounded,
+                size: 36,
+                color: AppColors.inkMuted,
+              ),
+              const SizedBox(height: AppSpacing.md),
+              Text(
+                '暂无在线联系人',
+                key: UsersListView.onlineEmptyKey,
+                style: const TextStyle(color: AppColors.inkMuted),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              TextButton(onPressed: _refresh, child: const Text('刷新')),
+            ],
+          ),
+        ),
+      );
+    }
     return RefreshIndicator(
       onRefresh: _refresh,
       child: Center(
@@ -383,17 +483,16 @@ class _UsersListViewState extends State<UsersListView> {
               AppSpacing.lg,
               120,
             ),
-            itemCount: _users.length + 1,
+            itemCount: visible.length + 1,
             itemBuilder: (BuildContext context, int index) {
-              if (index == _users.length) {
+              if (index == visible.length) {
                 return _footer();
               }
-              final ChatUser user = _users[index];
+              final ChatUser user = visible[index];
               return _UserRow(
                 key: UsersListView.rowKey(user.account),
                 user: user,
-                presence:
-                    widget.presence?.valueFor(user.account) ?? user.presence,
+                presence: _presenceOf(user),
                 unread: _unread[user.account] ?? 0,
                 profile: widget.profile,
                 selfAccount: widget.chat.selfAccount,
@@ -407,12 +506,12 @@ class _UsersListViewState extends State<UsersListView> {
   }
 
   Widget _footer() {
-    return const Padding(
-      padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
       child: Center(
         child: Text(
-          '以上是当前服务器的全部注册用户',
-          style: TextStyle(fontSize: 12, color: AppColors.inkMuted),
+          _onlineOnly ? '以上是当前在线的联系人' : '以上是当前服务器的全部注册用户',
+          style: const TextStyle(fontSize: 12, color: AppColors.inkMuted),
         ),
       ),
     );

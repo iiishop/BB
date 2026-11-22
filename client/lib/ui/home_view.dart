@@ -32,10 +32,10 @@ import 'widgets/profile_avatar.dart';
 
 /// Signed-in home surface for STEP-2.
 ///
-/// Profile is the only live module in this step. The avatar entry is pinned to
-/// the bottom-left on every form factor and is the single way into Profile; the
-/// heartbeat banner appears after three missed beats without logging the user
-/// out.
+/// Profile is the only live module in this step. The signed-in avatar is the
+/// single way into Profile: narrow message layouts replace the header BB badge
+/// with it, while wide layouts keep the rail entry. The heartbeat banner appears
+/// after three missed beats without logging the user out.
 class HomeView extends StatefulWidget {
   const HomeView({
     super.key,
@@ -298,13 +298,25 @@ class _HomeViewState extends State<HomeView> {
   Widget build(BuildContext context) {
     final SpaceGateway? space = widget.space;
     if (space == null) {
-      // No rail in this shell, so the floating avatar is the only profile entry.
-      return _chatScaffold(context, showProfileEntry: true);
+      // No rail in this shell, so the header avatar is the only profile entry.
+      return _chatScaffold(context, showHeaderAvatar: true);
     }
     return _appScaffold(context, space);
   }
 
-  Widget _chatScaffold(BuildContext context, {required bool showProfileEntry}) {
+  /// The header entry that replaces the BB badge on narrow layouts.
+  Widget _headerAvatar() {
+    return ProfileAvatar(
+      key: HomeView.avatarEntryKey,
+      bytes: _avatar,
+      size: 44,
+      loading: _loading && _avatar == null,
+      onTap: _openProfile,
+      semanticLabel: '打开个人资料',
+    );
+  }
+
+  Widget _chatScaffold(BuildContext context, {required bool showHeaderAvatar}) {
     final TextTheme text = Theme.of(context).textTheme;
     final bool reconnecting =
         widget.heartbeat.phase == HeartbeatPhase.reconnecting;
@@ -313,159 +325,139 @@ class _HomeViewState extends State<HomeView> {
     return Scaffold(
       backgroundColor: AppColors.paper,
       body: SafeArea(
-        child: Stack(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                AnimatedSize(
-                  duration: const Duration(milliseconds: 220),
-                  curve: Curves.easeOutCubic,
-                  child: reconnecting
-                      ? _ReconnectBanner(key: HomeView.reconnectingBannerKey)
-                      : const SizedBox(width: double.infinity),
-                ),
-                if (widget.chat != null)
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: <Widget>[
-                        Center(
-                          child: ConstrainedBox(
-                            constraints: const BoxConstraints(maxWidth: 760),
-                            child: Padding(
-                              padding: const EdgeInsets.fromLTRB(
-                                AppSpacing.lg,
-                                AppSpacing.sm,
-                                AppSpacing.lg,
-                                AppSpacing.xs,
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: <Widget>[
-                                  _BrandRow(account: widget.user.account),
-                                  const SizedBox(height: AppSpacing.md),
-                                  Text(
-                                    '消息',
-                                    style: text.headlineMedium?.copyWith(
-                                      fontSize: 30,
-                                      letterSpacing: -0.6,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    '当前服务器的注册用户都在这里，点一行开始聊天。',
-                                    style: text.bodySmall,
-                                  ),
-                                ],
-                              ),
-                            ),
+            AnimatedSize(
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeOutCubic,
+              child: reconnecting
+                  ? _ReconnectBanner(key: HomeView.reconnectingBannerKey)
+                  : const SizedBox(width: double.infinity),
+            ),
+            if (widget.chat != null)
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 760),
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(
+                            AppSpacing.lg,
+                            AppSpacing.sm,
+                            AppSpacing.lg,
+                            AppSpacing.xs,
                           ),
-                        ),
-                        Expanded(
-                          child: UsersListView(
-                            chat: widget.chat!,
-                            profile: widget.profile,
-                            presence: _presence,
-                            onOpenChat: _openChat,
-                            onSessionExpired: widget.onSessionExpired,
-                          ),
-                        ),
-                      ],
-                    ),
-                  )
-                else
-                  Expanded(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.fromLTRB(
-                        AppSpacing.lg,
-                        AppSpacing.xl,
-                        AppSpacing.lg,
-                        120,
-                      ),
-                      child: Center(
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 720),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: <Widget>[
-                              _BrandRow(account: widget.user.account),
-                              const SizedBox(height: AppSpacing.xl),
+                              _BrandRow(
+                                account: widget.user.account,
+                                avatarEntry: showHeaderAvatar
+                                    ? _headerAvatar()
+                                    : null,
+                              ),
+                              const SizedBox(height: AppSpacing.md),
                               Text(
-                                '你好，$nickname',
-                                key: HomeView.greetingKey,
+                                '消息',
                                 style: text.headlineMedium?.copyWith(
                                   fontSize: 30,
                                   letterSpacing: -0.6,
                                 ),
                               ),
-                              const SizedBox(height: AppSpacing.sm),
+                              const SizedBox(height: 2),
                               Text(
-                                (_profile?.signature?.isNotEmpty ?? false)
-                                    ? _profile!.signature!
-                                    : '还没有签名。点左下角头像，写下第一句自我介绍。',
-                                key: HomeView.signatureKey,
-                                style: text.bodyLarge?.copyWith(
-                                  color:
-                                      (_profile?.signature?.isNotEmpty ?? false)
-                                      ? AppColors.ink
-                                      : AppColors.inkMuted,
-                                  fontStyle:
-                                      (_profile?.signature?.isNotEmpty ?? false)
-                                      ? null
-                                      : FontStyle.italic,
-                                ),
+                                '当前服务器的注册用户都在这里，点一行开始聊天。',
+                                style: text.bodySmall,
                               ),
-                              const SizedBox(height: AppSpacing.xxl),
-                              const _ComingSoonCard(),
-                              if (_error != null) ...<Widget>[
-                                const SizedBox(height: AppSpacing.lg),
-                                Text(
-                                  _error!,
-                                  key: HomeView.errorKey,
-                                  style: text.bodySmall?.copyWith(
-                                    color: AppColors.danger,
-                                  ),
-                                ),
-                                const SizedBox(height: AppSpacing.sm),
-                                TextButton(
-                                  onPressed: _load,
-                                  child: const Text('重新加载资料'),
-                                ),
-                              ],
                             ],
                           ),
                         ),
                       ),
                     ),
+                    Expanded(
+                      child: UsersListView(
+                        chat: widget.chat!,
+                        profile: widget.profile,
+                        presence: _presence,
+                        onOpenChat: _openChat,
+                        onSessionExpired: widget.onSessionExpired,
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            else
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.lg,
+                    AppSpacing.xl,
+                    AppSpacing.lg,
+                    120,
                   ),
-              ],
-            ),
-            // The rail owns the profile entry once it exists; on narrow layouts
-            // this floating avatar is the only way in. Sliding it out to the
-            // left animates the hand-off to the rail instead of popping.
-            AnimatedPositioned(
-              duration: const Duration(milliseconds: 220),
-              curve: Curves.easeOutCubic,
-              left: showProfileEntry ? AppSpacing.lg : -80,
-              bottom: AppSpacing.lg,
-              child: AnimatedOpacity(
-                duration: const Duration(milliseconds: 180),
-                curve: Curves.easeOutCubic,
-                opacity: showProfileEntry ? 1 : 0,
-                child: IgnorePointer(
-                  ignoring: !showProfileEntry,
-                  child: ProfileAvatar(
-                    key: HomeView.avatarEntryKey,
-                    bytes: _avatar,
-                    size: 60,
-                    loading: _loading && _avatar == null,
-                    onTap: _openProfile,
-                    semanticLabel: '打开个人资料',
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 720),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          _BrandRow(
+                            account: widget.user.account,
+                            avatarEntry: showHeaderAvatar
+                                ? _headerAvatar()
+                                : null,
+                          ),
+                          const SizedBox(height: AppSpacing.xl),
+                          Text(
+                            '你好，$nickname',
+                            key: HomeView.greetingKey,
+                            style: text.headlineMedium?.copyWith(
+                              fontSize: 30,
+                              letterSpacing: -0.6,
+                            ),
+                          ),
+                          const SizedBox(height: AppSpacing.sm),
+                          Text(
+                            (_profile?.signature?.isNotEmpty ?? false)
+                                ? _profile!.signature!
+                                : '还没有签名。点左上角头像，写下第一句自我介绍。',
+                            key: HomeView.signatureKey,
+                            style: text.bodyLarge?.copyWith(
+                              color: (_profile?.signature?.isNotEmpty ?? false)
+                                  ? AppColors.ink
+                                  : AppColors.inkMuted,
+                              fontStyle:
+                                  (_profile?.signature?.isNotEmpty ?? false)
+                                  ? null
+                                  : FontStyle.italic,
+                            ),
+                          ),
+                          const SizedBox(height: AppSpacing.xxl),
+                          const _ComingSoonCard(),
+                          if (_error != null) ...<Widget>[
+                            const SizedBox(height: AppSpacing.lg),
+                            Text(
+                              _error!,
+                              key: HomeView.errorKey,
+                              style: text.bodySmall?.copyWith(
+                                color: AppColors.danger,
+                              ),
+                            ),
+                            const SizedBox(height: AppSpacing.sm),
+                            TextButton(
+                              onPressed: _load,
+                              child: const Text('重新加载资料'),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               ),
-            ),
           ],
         ),
       ),
@@ -482,8 +474,8 @@ class _HomeViewState extends State<HomeView> {
           index: _section,
           children: <Widget>[
             // Wide layouts have the rail, which already carries the profile
-            // entry; the floating avatar would duplicate it.
-            _chatScaffold(context, showProfileEntry: compact),
+            // entry; only narrow layouts put the avatar in the message header.
+            _chatScaffold(context, showHeaderAvatar: compact),
             _spacePage(
               context,
               space,
@@ -719,32 +711,37 @@ class _ReconnectBanner extends StatelessWidget {
 }
 
 class _BrandRow extends StatelessWidget {
-  const _BrandRow({required this.account});
+  const _BrandRow({required this.account, this.avatarEntry});
 
   final String account;
+
+  /// When present, the signed-in avatar replaces the BB badge on the same row
+  /// as the account, above the "消息" title.
+  final Widget? avatarEntry;
 
   @override
   Widget build(BuildContext context) {
     final TextTheme text = Theme.of(context).textTheme;
     return Row(
       children: <Widget>[
-        Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.sm + 2,
-            vertical: AppSpacing.xs,
-          ),
-          decoration: BoxDecoration(
-            color: AppColors.accentSoft,
-            borderRadius: BorderRadius.circular(AppRadius.brand),
-          ),
-          child: Text(
-            'BB',
-            style: text.labelLarge?.copyWith(
-              color: AppColors.accentDeep,
-              letterSpacing: 1.6,
+        avatarEntry ??
+            Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.sm + 2,
+                vertical: AppSpacing.xs,
+              ),
+              decoration: BoxDecoration(
+                color: AppColors.accentSoft,
+                borderRadius: BorderRadius.circular(AppRadius.brand),
+              ),
+              child: Text(
+                'BB',
+                style: text.labelLarge?.copyWith(
+                  color: AppColors.accentDeep,
+                  letterSpacing: 1.6,
+                ),
+              ),
             ),
-          ),
-        ),
         const Spacer(),
         Text(account, style: text.bodySmall?.copyWith(letterSpacing: 1)),
       ],

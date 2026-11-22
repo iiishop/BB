@@ -90,19 +90,6 @@ Future<void> pumpHome(
   await tester.pumpAndSettle();
 }
 
-/// Opacity currently applied to the floating profile entry.
-double profileEntryOpacity(WidgetTester tester) {
-  final AnimatedOpacity opacity = tester.widget<AnimatedOpacity>(
-    find
-        .ancestor(
-          of: find.byKey(HomeView.avatarEntryKey),
-          matching: find.byType(AnimatedOpacity),
-        )
-        .first,
-  );
-  return opacity.opacity;
-}
-
 void main() {
   setUp(SpaceLocalStore.resetForTest);
 
@@ -190,26 +177,38 @@ void main() {
     expect(find.byKey(SpacePage.pageKey), findsOneWidget);
   });
 
-  testWidgets('wide shell hides the floating profile entry the rail owns', (
+  testWidgets('wide shell keeps the rail profile entry, not a header avatar', (
     WidgetTester tester,
   ) async {
     final FakeSpaceGateway gateway = shellGateway();
     await pumpHome(tester, gateway: gateway, size: spaceWide);
 
-    // The rail carries the profile entry, so the floating one fades out and
-    // slides toward the rail instead of competing for the same corner.
+    // The rail owns the profile entry on wide layouts, so the message header
+    // keeps its brand badge and does not duplicate the avatar.
     expect(find.byKey(HomeView.railAvatarKey), findsOneWidget);
-    expect(profileEntryOpacity(tester), 0);
+    expect(find.byKey(HomeView.avatarEntryKey), findsNothing);
   });
 
-  testWidgets('phone keeps the floating profile entry and has no rail', (
+  testWidgets('phone puts the profile entry in the message header, no rail', (
     WidgetTester tester,
   ) async {
     final FakeSpaceGateway gateway = shellGateway();
     await pumpHome(tester, gateway: gateway);
 
     expect(find.byKey(HomeView.railAvatarKey), findsNothing);
-    expect(profileEntryOpacity(tester), 1);
+    expect(find.byKey(HomeView.avatarEntryKey), findsOneWidget);
+    // Same header row, left of the account and above the 消息 title, instead of
+    // the removed bottom-left floating entry.
+    final Rect avatar = tester.getRect(find.byKey(HomeView.avatarEntryKey));
+    final Rect title = tester.getRect(find.text('消息'));
+    final Rect account = tester.getRect(find.text(spaceSelfAccount));
+    expect(avatar.top, lessThan(title.top));
+    expect(
+      (avatar.center.dy - account.center.dy).abs(),
+      lessThan(2),
+      reason: 'avatar shares the header row with the account on the right',
+    );
+    expect(avatar.left, lessThan(account.left));
   });
 
   testWidgets('wide space shows master-detail and restores the single feed', (
