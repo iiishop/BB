@@ -16,14 +16,22 @@ from bb_server.app import create_app
 from bb_server.cover_images import DISPLAY_EDGE
 
 
-def numbered_cover(number):
+def numbered_cover(number, *, low_contrast=False):
     asset = Path(__file__).parents[1] / "src/bb_server/profile_cover_default.png"
     with Image.open(asset) as wave:
-        image = wave.convert("RGB").resize((1200, 600))
+        image = wave.convert("RGB")
+    if not low_contrast:
+        image = image.resize((1200, 600))
+    background, foreground = (
+        ("#464646", "#5e5e5e") if low_contrast else ("white", "black")
+    )
     draw = ImageDraw.Draw(image)
-    draw.rectangle((30, 30, 260, 90), fill="white")
+    draw.rectangle((30, 30, 260, 90), fill=background)
     draw.text(
-        (40, 38), f"Room {number}", font=ImageFont.load_default(size=38), fill="black"
+        (40, 38),
+        f"Room {number}",
+        font=ImageFont.load_default(size=38),
+        fill=foreground,
     )
     return image
 
@@ -194,10 +202,69 @@ def test_similar_room_numbers_read_back_per_account(account_pair):
     assert ownership[alice] != ownership[bob]
 
 
-def test_v6_wrong_hash_alias_is_rechecked_after_restart(tmp_path):
+@pytest.mark.parametrize("formats", [("PNG", "PNG"), ("JPEG", "JPEG"), ("PNG", "JPEG")])
+def test_low_contrast_room_numbers_read_back_per_account(account_pair, formats):
+    api, path, (alice, a), (bob, b) = account_pair
+    first, second = [
+        encode(numbered_cover(room, low_contrast=True), fmt, quality=92)
+        for room, fmt in zip((101, 102), formats, strict=True)
+    ]
+    assert first != second
+    assert max(len(first), len(second)) < MAX_DISPLAY_BYTES
+    assert upload(api, a, first).status_code == 200
+    assert upload(api, b, second).status_code == 200
+    assert api.get(f"/covers/{alice}", headers=b).content == first
+    assert api.get(f"/covers/{bob}", headers=a).content == second, (
+        "Bob must see Room 102"
+    )
+    rows, hashes, ownership = cover_rows(path)
+    assert len(rows) == 2 and hashes == 2
+    assert ownership[alice] != ownership[bob]
+
+
+def test_same_low_contrast_cover_reuses_pixels_and_allows_reencoding(account_pair):
+    api, path, (alice, a), (bob, b) = account_pair
+    image = numbered_cover(101, low_contrast=True)
+    original = encode(image)
+    saved = upload(api, a, original)
+    variants = [
+        encode(image, "PNG", compress_level=1),
+        encode(image, "WEBP", lossless=True),
+        encode(image, "JPEG", quality=92),
+    ]
+    for variant in variants:
+        assert variant != original
+        assert (
+            upload(api, b, variant).json()["cover_version"]
+            == saved.json()["cover_version"]
+        )
+        assert api.get(f"/covers/{bob}", headers=a).content == original
+    rows, hashes, ownership = cover_rows(path)
+    assert len(rows) == 1 and hashes == 4
+    assert ownership[alice] == ownership[bob]
+
+
+def test_different_lossless_png_and_webp_keep_native_pixel_change(account_pair):
+    api, path, (alice, a), (bob, b) = account_pair
+    image = numbered_cover(101, low_contrast=True)
+    first = encode(image)
+    image.putpixel((30, 30), (71, 70, 70))
+    second = encode(image, "WEBP", lossless=True)
+    assert upload(api, a, first).status_code == 200
+    assert upload(api, b, second).status_code == 200
+    assert api.get(f"/covers/{alice}", headers=b).content == first
+    assert api.get(f"/covers/{bob}", headers=a).content == second
+    assert len(cover_rows(path)[0]) == 2
+
+
+@pytest.mark.parametrize(("schema_version", "fmt"), [(6, "JPEG"), (7, "PNG")])
+def test_legacy_wrong_hash_alias_is_rechecked_after_restart(
+    tmp_path, schema_version, fmt
+):
     path = tmp_path / "legacy-cover.db"
     first, second = [
-        encode(numbered_cover(room), "JPEG", quality=92) for room in (101, 102)
+        encode(numbered_cover(room, low_contrast=schema_version == 7), fmt, quality=92)
+        for room in (101, 102)
     ]
     with TestClient(create_app(path)) as api:
         alice, a = login(api)
@@ -213,7 +280,7 @@ def test_v6_wrong_hash_alias_is_rechecked_after_restart(tmp_path):
             (hashlib.sha256(second).digest(), cover_id),
         )
         db.execute("INSERT INTO account_covers VALUES (?,?)", (bob, cover_id))
-        db.execute("PRAGMA user_version=6")
+        db.execute(f"PRAGMA user_version={schema_version}")
 
     with TestClient(create_app(path)) as reopened:
         assert cover_rows(path)[1] == 1
