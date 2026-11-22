@@ -1,4 +1,8 @@
+import 'dart:io';
+
 import 'package:bb_client/app.dart';
+import 'package:bb_client/updates/download_lane_preference.dart';
+import 'package:bb_client/updates/release_update_controller.dart';
 import 'package:bb_client/ui/updates/update_link_opener.dart';
 import 'package:bb_client/ui/updates/update_scope.dart';
 import 'package:bb_client/ui/updates/update_settings_host.dart';
@@ -9,6 +13,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/fake_update_controller.dart';
+import 'support/release_test_support.dart';
+
+class _MemoryLanePreference extends ChangeNotifier
+    implements DownloadLanePreference {
+  @override
+  int lanes = 8;
+  @override
+  bool get saving => false;
+  @override
+  Future<void> select(int value) async {
+    lanes = value;
+    notifyListeners();
+  }
+}
 
 class _FakeLinkOpener implements ExternalLinkOpener {
   final List<Uri> opened = <Uri>[];
@@ -71,6 +89,31 @@ void main() {
       installedVersion: installed,
     );
   }
+
+  testWidgets('settings offers all lane caps and applies the selection', (
+    tester,
+  ) async {
+    final preference = _MemoryLanePreference();
+    final updater = ReleaseUpdateController(
+      installer: Installer(),
+      cacheDirectory: Directory.systemTemp,
+      lanePreference: preference,
+    );
+    addTearDown(updater.dispose);
+    await tester.pumpWidget(
+      MaterialApp(home: UpdateSettingsHost(controller: updater)),
+    );
+    final dropdown = find.byType(DropdownButton<int>);
+    expect(tester.widget<DropdownButton<int>>(dropdown).value, 8);
+    await tester.tap(dropdown);
+    await tester.pumpAndSettle();
+    for (final n in [1, 2, 4, 8]) {
+      expect(find.text('$n 路'), findsWidgets);
+    }
+    await tester.tap(find.text('4 路').last);
+    await tester.pumpAndSettle();
+    expect(tester.widget<DropdownButton<int>>(dropdown).value, 4);
+  });
 
   testWidgets('启动检查只在进程根触发一次，重建不重复检查', (WidgetTester tester) async {
     await tester.pumpWidget(

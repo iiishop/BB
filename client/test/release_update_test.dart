@@ -4,7 +4,6 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:bb_client/updates/release_client.dart';
 import 'package:bb_client/updates/release_policy.dart';
 import 'package:bb_client/updates/release_update_controller.dart';
 import 'package:bb_client/updates/update_contract.dart';
@@ -194,8 +193,7 @@ void main() {
         installer: installer,
         cacheDirectory: temp,
         safetyGate: InstallSafetyGate(),
-        clientFactory: () =>
-            ReleaseClient(httpFactory: () => LoopbackClient(port)),
+        httpFactory: () => LoopbackClient(port),
       );
     });
     tearDown(() async {

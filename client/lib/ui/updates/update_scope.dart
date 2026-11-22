@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../updates/android_update_installer.dart';
+import '../../updates/download_lane_preference.dart';
 import '../../updates/release_update_controller.dart';
 import '../../updates/update_contract.dart';
 import '../../updates/windows_update_installer.dart';
@@ -109,16 +110,14 @@ class _UpdateScopeState extends State<UpdateScope> {
           } catch (_) {
             _recovery = null;
           }
-          _controller = ReleaseUpdateController(
-            installer: installer,
-            cacheDirectory: directory,
-          );
-        } else {
-          _controller = ReleaseUpdateController(
-            installer: WindowsUpdateInstaller(),
-            cacheDirectory: directory,
-          );
         }
+        _controller = ReleaseUpdateController(
+          installer: _androidInstaller ?? WindowsUpdateInstaller(),
+          cacheDirectory: directory,
+          lanePreference: await DownloadLanePreference.load(
+            await getApplicationSupportDirectory(),
+          ),
+        );
       } catch (_) {
         // Reading the cache directory failed: no updater rather than a partial
         // one. The settings screen stays informative.

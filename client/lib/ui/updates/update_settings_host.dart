@@ -6,6 +6,7 @@ import 'package:flutter/scheduler.dart';
 
 import '../../updates/android_update_installer.dart';
 import '../../updates/update_contract.dart';
+import '../../updates/download_lane_preference.dart';
 import 'update_link_opener.dart';
 import 'update_settings_page.dart';
 import 'update_ui_mapper.dart';
@@ -233,6 +234,34 @@ class _UpdateSettingsHostState extends State<UpdateSettingsHost> {
     final List<String> blockers = controller.safetyGate.blockers;
     return UpdateSettingsPage(
       state: state,
+      laneSelector: switch (controller.lanePreference) {
+        final preference? => ListenableBuilder(
+          listenable: preference,
+          builder: (context, _) => ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('最大下载路数'),
+            subtitle: const Text('下次下载更新时生效'),
+            trailing: DropdownButton<int>(
+              value: preference.lanes,
+              items: [
+                for (final n in DownloadLanePreference.choices)
+                  DropdownMenuItem(value: n, child: Text('$n 路')),
+              ],
+              onChanged: preference.saving
+                  ? null
+                  : (value) async {
+                      if (value == null) return;
+                      try {
+                        await preference.select(value);
+                      } on FileSystemException {
+                        _snack('下载路数未保存，请重试。');
+                      }
+                    },
+            ),
+          ),
+        ),
+        null => null,
+      },
       onCheck: _check,
       onDownload: _download,
       onInstall: _install,

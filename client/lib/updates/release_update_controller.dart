@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 
+import 'download_lane_preference.dart';
 import 'release_client.dart';
 import 'release_policy.dart';
 import 'update_contract.dart';
@@ -12,14 +13,16 @@ class ReleaseUpdateController extends UpdateController {
     required this.installer,
     required this.cacheDirectory,
     InstallSafetyGate? safetyGate,
-    ReleaseClient Function()? clientFactory,
-  }) : safetyGate = safetyGate ?? InstallSafetyGate.instance,
-       _clientFactory = clientFactory ?? ReleaseClient.new;
+    this.lanePreference,
+    this.httpFactory,
+  }) : safetyGate = safetyGate ?? InstallSafetyGate.instance;
   final UpdateInstaller installer;
   final Directory cacheDirectory;
   @override
   final InstallSafetyGate safetyGate;
-  final ReleaseClient Function() _clientFactory;
+  @override
+  final DownloadLanePreference? lanePreference;
+  final HttpClient Function()? httpFactory;
   @override
   UpdateSnapshot get snapshot => _snapshot;
   UpdateSnapshot _snapshot = const UpdateSnapshot();
@@ -77,7 +80,7 @@ class ReleaseUpdateController extends UpdateController {
         installed: '${info.version}+${info.buildNumber}',
       );
       if (_cancelled || _disposed) return;
-      final client = _client = _clientFactory();
+      final client = _client = ReleaseClient(httpFactory: httpFactory);
       final release = selectRelease(await client.releases(), info);
       if (_cancelled || _disposed) return;
       _emit(
@@ -106,13 +109,17 @@ class ReleaseUpdateController extends UpdateController {
     _working = true;
     _cancelled = false;
     _verified = null;
+    final lanes = lanePreference?.lanes ?? maxDownloadConcurrency;
     _emit(UpdatePhase.downloading, received: 0);
     try {
       await _cleanStage();
       await cacheDirectory.create(recursive: true);
       final staging = _staging = await cacheDirectory.createTemp('update-');
       if (_cancelled || _disposed) return;
-      final client = _client = _clientFactory();
+      final client = _client = ReleaseClient(
+        httpFactory: httpFactory,
+        downloadConcurrency: lanes,
+      );
       final expected = checksumFor(
         await client.checksums(release.checksums),
         release.asset.name,
