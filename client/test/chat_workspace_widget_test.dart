@@ -365,6 +365,48 @@ void main() {
     },
   );
 
+  testWidgets('a flat zero-width fold still exposes the split switch', (
+    WidgetTester tester,
+  ) async {
+    final DisplayFeature fold = DisplayFeature(
+      bounds: const Rect.fromLTWH(512, 0, 0, 768),
+      type: DisplayFeatureType.fold,
+      state: DisplayFeatureState.postureFlat,
+    );
+    await pumpAt(
+      tester,
+      const Size(1024, 768),
+      features: <DisplayFeature>[fold],
+    );
+
+    // QA counterexample: this used to render the panes without any toggle
+    // because only a hinge was recognised.
+    final Finder toggle = find.byKey(ChatWorkspace.toggleKey);
+    expect(toggle, findsOneWidget);
+    final double dualLeft = tester
+        .getRect(find.byKey(ChatWorkspace.chatPaneKey))
+        .left;
+    expect(dualLeft, greaterThan(fold.bounds.right));
+
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    expect(
+      tester.getRect(find.byKey(ChatWorkspace.chatPaneKey)).left,
+      closeTo(0, 0.1),
+    );
+    expect(toggle, findsOneWidget);
+    // The conversation content is still there in the full-screen state.
+    expect(find.text('message 30'), findsWidgets);
+
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    expect(
+      tester.getRect(find.byKey(ChatWorkspace.chatPaneKey)).left,
+      closeTo(dualLeft, 0.1),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('phone layout still uses the pushed conversation route', (
     WidgetTester tester,
   ) async {

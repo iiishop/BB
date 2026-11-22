@@ -42,6 +42,7 @@ class ChatPage extends StatefulWidget {
     this.viewerInlineVideoSupported,
     this.embedded = false,
     this.leading,
+    this.active = true,
   });
 
   /// Snapshot used for name/avatar; presence is read live from [presence] when
@@ -87,6 +88,14 @@ class ChatPage extends StatefulWidget {
   /// over a message.
   final Widget? leading;
 
+  /// Whether this conversation pane is the one the reader can actually see.
+  ///
+  /// The split surface keeps opened conversations mounted so drafts, carets
+  /// and scroll positions survive a switch. A hidden page may still poll for
+  /// data, but it must not report those arrivals as displayed: the account
+  /// unread is only cleared when this conversation becomes active again.
+  final bool active;
+
   static const Key listKey = Key('chat-message-list');
   static const Key errorKey = Key('chat-error');
   static const Key emptyKey = Key('chat-empty');
@@ -126,6 +135,11 @@ class _ChatPageState extends State<ChatPage> {
   /// True while a keyboard opening should keep the newest message pinned even
   /// as the viewport height changes across the inset animation.
   bool _pinBottomOnKeyboard = false;
+
+  /// Display facts staged while this pane was hidden. They are sent only when
+  /// [ChatPage.active] turns true, so a background poll cannot consume the
+  /// other conversation's unread badge.
+  final Map<String, ChatMessage> _pendingDisplayed = <String, ChatMessage>{};
 
   /// Identities that were not on screen at the previous build. Only these get
   /// the entrance animation; history, scroll rebuilds and refresh do not.
@@ -261,6 +275,7 @@ class _ChatPageState extends State<ChatPage> {
       _unresolvedOperations.clear();
       _pendingEntered.clear();
       _animateIdentities.clear();
+      _pendingDisplayed.clear();
       _fetchedThrough = 0;
       _displayedMax = 0;
       _hasOlder = false;
@@ -271,6 +286,10 @@ class _ChatPageState extends State<ChatPage> {
       _error = null;
       _loading = true;
       unawaited(_loadInitial());
+    } else if (!oldWidget.active && widget.active) {
+      // The pane just became visible again: only now do the arrivals that
+      // were staged while it was hidden become display facts.
+      _flushDisplayed();
     }
   }
 
@@ -354,7 +373,7 @@ class _ChatPageState extends State<ChatPage> {
         _animateIdentities.clear();
         _unseenNew = 0;
       });
-      _recordDisplayed(page.items);
+      _stageDisplayed(page.items);
       _forgetCommittedPending();
       widget.onMessagesChanged?.call(List<ChatMessage>.unmodifiable(_messages));
       _retryUnresolvedLookups();
@@ -414,7 +433,7 @@ class _ChatPageState extends State<ChatPage> {
         _hasOlder = page.hasMore;
         _loadingOlder = false;
       });
-      _recordDisplayed(page.items);
+      _stageDisplayed(page.items);
       if (hadClients) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted || !_scrollController.hasClients) {
@@ -498,7 +517,7 @@ class _ChatPageState extends State<ChatPage> {
           _unseenNew += arrivedCount;
         }
       });
-      _recordDisplayed(loaded);
+      _stageDisplayed(loaded);
       _forgetCommittedPending();
       widget.onMessagesChanged?.call(List<ChatMessage>.unmodifiable(_messages));
       _retryUnresolvedLookups();
@@ -666,20 +685,46 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
-  /// Reports messages this page rendered as exact display facts.
+  /// Stages messages this page has rendered as exact display facts.
   ///
-  /// Bookkeeping for account incoming unread only: it reuses confirmed display
-  /// receipts, never the consumption ACK, and never an outbound read receipt.
-  /// A failure stays silent instead of surfacing as a conversation error.
-  void _recordDisplayed(Iterable<ChatMessage> messages) {
+  /// While the pane is hidden the batch is held; a background poll must never
+  /// clear the unread badge of the conversation the reader cannot see. The
+  /// batch is flushed when [ChatPage.active] turns true (or immediately when
+  /// this page is the active one).
+  void _stageDisplayed(Iterable<ChatMessage> messages) {
+    for (final ChatMessage message in messages) {
+      _pendingDisplayed[message.identity] = message;
+    }
+    _flushDisplayed();
+  }
+
+  /// Sends staged display facts. Bookkeeping for account incoming unread only:
+  /// it reuses confirmed display receipts, never the consumption ACK, and
+  /// never an outbound read receipt.
+  void _flushDisplayed() {
+    if (!mounted || !widget.active || _pendingDisplayed.isEmpty) {
+      return;
+    }
+    final List<ChatMessage> batch = List<ChatMessage>.of(
+      _pendingDisplayed.values,
+    );
+    _pendingDisplayed.clear();
     unawaited(
       widget.chat
           .recordDisplayedIncoming(
             peerAccount: widget.peer.account,
-            messages: messages,
+            messages: batch,
           )
           .then<void>((int _) {})
-          .catchError((Object _) {}),
+          .catchError((Object _) {
+            // Keep the facts for the next activation; the service is
+            // idempotent, so retrying cannot double-count.
+            if (mounted) {
+              for (final ChatMessage message in batch) {
+                _pendingDisplayed[message.identity] = message;
+              }
+            }
+          }),
     );
   }
 

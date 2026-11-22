@@ -41,7 +41,7 @@ class ChatWorkspace extends StatefulWidget {
   /// Below this width the phone layout (route-pushed [ChatPage]) is used.
   static const double splitMinWidth = 900;
 
-  /// With a real hinge, the unfolded foldable can split from 720 px up.
+  /// With a real hinge or fold, the unfolded foldable can split from 720 px up.
   static const double foldedSplitMinWidth = 720;
 
   static const Key listPaneKey = Key('chat-workspace-list-pane');
@@ -53,15 +53,31 @@ class ChatWorkspace extends StatefulWidget {
   /// switch lives here instead of on top of a message avatar.
   static const double foldGap = 56;
 
+  /// The vertical hinge or fold that separates two physical panes.
+  ///
+  /// A flat, zero-width `fold` is just as much an unfolded split boundary as a
+  /// 40 px `hinge`; both are handled here. A horizontal feature (laptop-style
+  /// fold) is not a left/right divider and is ignored.
+  static DisplayFeature? splitFeatureOf(BuildContext context) {
+    for (final DisplayFeature feature in MediaQuery.displayFeaturesOf(
+      context,
+    )) {
+      final bool divider =
+          feature.type == DisplayFeatureType.hinge ||
+          feature.type == DisplayFeatureType.fold;
+      if (divider && feature.bounds.width <= feature.bounds.height) {
+        return feature;
+      }
+    }
+    return null;
+  }
+
   /// True when [width] gets the two-pane arrangement.
   static bool usesSplit(BuildContext context, double width) {
     if (width < foldedSplitMinWidth) {
       return false;
     }
-    final bool hinge = MediaQuery.displayFeaturesOf(
-      context,
-    ).any((DisplayFeature feature) => feature.type == DisplayFeatureType.hinge);
-    return hinge || width >= splitMinWidth;
+    return splitFeatureOf(context) != null || width >= splitMinWidth;
   }
 
   @override
@@ -134,35 +150,25 @@ class _ChatWorkspaceState extends State<ChatWorkspace>
     }
   }
 
-  DisplayFeature? _hinge(BuildContext context) {
-    for (final DisplayFeature feature in MediaQuery.displayFeaturesOf(
-      context,
-    )) {
-      if (feature.type == DisplayFeatureType.hinge) {
-        return feature;
-      }
-    }
-    return null;
-  }
-
-  double _listWidth(double total, DisplayFeature? hinge) {
-    if (hinge != null) {
-      // Stop at the hinge, not across it; the right pane starts after it.
-      return hinge.bounds.left.clamp(0.0, math.max(0.0, total - 420));
+  double _listWidth(double total, DisplayFeature? splitFeature) {
+    if (splitFeature != null) {
+      // Stop at the divider, not across it; the right pane starts after it.
+      return splitFeature.bounds.left.clamp(0.0, math.max(0.0, total - 420));
     }
     return (total * 0.34).clamp(300.0, 380.0).clamp(0.0, total - 420);
   }
 
   @override
   Widget build(BuildContext context) {
-    final DisplayFeature? hinge = _hinge(context);
+    final DisplayFeature? splitFeature = ChatWorkspace.splitFeatureOf(context);
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
         final double total = constraints.maxWidth;
         final double height = constraints.maxHeight;
-        final bool canExpand = hinge != null && total >= 720;
-        final double dualLeft = hinge != null
-            ? (hinge.bounds.right + ChatWorkspace.foldGap).clamp(
+        final bool canExpand =
+            splitFeature != null && total >= ChatWorkspace.foldedSplitMinWidth;
+        final double dualLeft = splitFeature != null
+            ? (splitFeature.bounds.right + ChatWorkspace.foldGap).clamp(
                 0.0,
                 total - 320,
               )
@@ -184,8 +190,11 @@ class _ChatWorkspaceState extends State<ChatWorkspace>
           // bounce that never scales the message text or avatars.
           final double chatLeft = dualLeft * (1 - progress);
           final double chatWidth = math.max(0.0, total - chatLeft);
-          final double toggleLeft = hinge != null
-              ? (hinge.bounds.right + 6).clamp(8.0, math.max(8.0, total - 52))
+          final double toggleLeft = splitFeature != null
+              ? (splitFeature.bounds.right + 6).clamp(
+                  8.0,
+                  math.max(8.0, total - 52),
+                )
               : 8.0;
 
           return Stack(
@@ -195,7 +204,7 @@ class _ChatWorkspaceState extends State<ChatWorkspace>
                 left: 0,
                 top: 0,
                 bottom: 0,
-                width: _listWidth(total, hinge),
+                width: _listWidth(total, splitFeature),
                 child: _listPane(),
               ),
               Positioned(
@@ -279,6 +288,9 @@ class _ChatWorkspaceState extends State<ChatWorkspace>
             profile: widget.profile,
             presence: widget.presence,
             embedded: true,
+            // Only the visible conversation may confirm display facts; the
+            // hidden pages keep polling data but stage their receipts.
+            active: account == _selected,
             leading: withToggle
                 ? _FoldToggle(expanded: true, onTap: _toggleExpanded)
                 : null,

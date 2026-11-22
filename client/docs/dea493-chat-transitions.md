@@ -38,13 +38,16 @@
 - **键盘**：`resizeToAvoidBottomInset: false`，把 `viewInsets.bottom` 作为整列底部内边距
   （160ms 过渡），页头坐标不变，消息区与输入框一起抬升；键盘高度动画期间按 metrics 变化
   重新钉住底部，避免只抬输入框或二次跳。历史位置打开键盘不改滚动偏移。
-- **桌面双栏**：≥900px 无铰链时双栏；左栏仍是现有列表，右栏是嵌入的 `ChatPage`。选中按
+- **桌面双栏**：≥900px 无折叠特征时双栏；左栏仍是现有列表，右栏是嵌入的 `ChatPage`。选中按
   account 保存，列表刷新/重排后高亮跟随同一联系人。每个打开过的会话用 `IndexedStack`
   保持 State，因此滚动位置、草稿文本和光标位置按会话独立恢复；A 收到新消息时不在 B 中
-  强制滚底。
-- **折叠屏**：存在 `DisplayFeatureType.hinge` 且 ≥720px 时默认双栏。双栏之间是 56px 的
-  无内容 gutter，切换开关放在 gutter 内，避开铰链；全屏时开关进入聊天页 AppBar 的 leading
-  槽位，仍可操作且不压消息。展开时聊天区右边缘固定、左边缘从 gutter 移到 0，使用
+  强制滚底。隐藏页仍可轮询数据，但只把展示事实暂存；只有该页重新成为可见会话时才提交，
+  避免后台轮询提前清掉 A 的未读。轮询在切走前已发起、返回时已隐藏的竞态同样按返回时的
+  `active` 判定。
+- **折叠屏**：存在竖向的 `DisplayFeatureType.hinge` 或 `DisplayFeatureType.fold`
+  （零宽平折痕也算）且 ≥720px 时默认双栏；横向折痕不当作左右分栏。双栏之间是 56px 的
+  无内容 gutter，切换开关放在 gutter 内，避开铰链/折痕；全屏时开关进入聊天页 AppBar 的
+  leading 槽位，仍可操作且不压消息。展开时聊天区右边缘固定、左边缘从 gutter 移到 0，使用
   `easeOutBack` 产生一次越界回弹（约一帧越过屏幕左缘）后停稳；内容宽度变化但不缩放文字
   或头像。减少动画时直接切换。
 
@@ -65,7 +68,8 @@
 ```bash
 dart format --output=none --set-exit-if-changed .
 flutter analyze
-flutter test test/chat_workspace_widget_test.dart test/chat_motion_input_test.dart
+flutter test test/chat_workspace_widget_test.dart test/chat_hidden_display_test.dart \
+  test/chat_motion_input_test.dart
 flutter test test/chat_send_feedback_test.dart test/chat_flow_widget_test.dart \
   test/chat_online_filter_test.dart test/chat_media_viewer_widget_test.dart
 ```
@@ -73,7 +77,9 @@ flutter test test/chat_send_feedback_test.dart test/chat_flow_widget_test.dart \
 新增/更新的定向用例：
 
 - `chat_workspace_widget_test.dart`：双栏复用、按会话滚动/草稿/光标恢复与高亮跟随、
-  折叠双栏→全屏→双栏的果冻越界和状态恢复、铰链避让、手机仍走路由。
+  折叠双栏→全屏→双栏的果冻越界和状态恢复、铰链避让、零宽 `fold` 仍有开关、手机仍走路由。
+- `chat_hidden_display_test.dart`：隐藏会话收到新消息不清未读、轮询在切走后返回即使请求
+  已发起也不记展示、页面重新可见时提交暂存的展示事实。
 - `chat_motion_input_test.dart`：键盘整体升降与页头固定、底部重钉、历史打开键盘不跳、
   “↓ N 条新消息”计数与点击回底、组首头像、160ms 入场、发送键强调、视频无常驻按钮/
   长按菜单/进入并返回原位、图片原位转场。
@@ -84,6 +90,17 @@ flutter test test/chat_send_feedback_test.dart test/chat_flow_widget_test.dart \
 `dea493-fold-00..13.png`、`dea493-keyboard-closed/00..10/history-open.png`、
 `dea493-new-messages-pill.png`；帧序列由 ffmpeg 合成 GIF/MP4 后随 issue 评论交付。
 这些是 **Flutter widget test 渲染帧**，不是 Android/Windows 运行时录屏。
+
+## QA 返工（QA r1）
+
+两份反例已进入常规测试，均改在原组件上：
+
+1. **隐藏会话提前记展示**：`ChatPage` 增加 `active`，`_recordDisplayed` 拆为
+   `_stageDisplayed`/`_flushDisplayed`；隐藏页只暂存，重新可见时提交。轮询/刷新都在
+   返回时按当时的 `active` 判定，因此“发起轮询后才切走”也不会落账。`ChatWorkspace`
+   只给当前选中会话传 `active: true`。
+2. **零宽折痕没有开关**：`ChatWorkspace` 的拆分特征从只认 `hinge` 扩展到竖向的
+   `hinge` 或 `fold`；零宽 `fold` 走同一套 56px gutter、开关和展开动画。
 
 ## 5. 未测 / 限制
 
