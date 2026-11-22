@@ -9,11 +9,23 @@ from pathlib import Path
 import pytest
 from bb_auth_contract.cover import DEFAULT_HEADER, MAX_COVER_BYTES, MAX_DISPLAY_BYTES
 from fastapi.testclient import TestClient
-from PIL import Image, ImageDraw, ImageOps, PngImagePlugin
+from PIL import Image, ImageDraw, ImageFont, ImageOps, PngImagePlugin
 from test_profile import login
 
 from bb_server.app import create_app
 from bb_server.cover_images import DISPLAY_EDGE
+
+
+def numbered_cover(number):
+    asset = Path(__file__).parents[1] / "src/bb_server/profile_cover_default.png"
+    with Image.open(asset) as wave:
+        image = wave.convert("RGB").resize((1200, 600))
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((30, 30, 260, 90), fill="white")
+    draw.text(
+        (40, 38), f"Room {number}", font=ImageFont.load_default(size=38), fill="black"
+    )
+    return image
 
 
 def encode(image, fmt="PNG", **options):
@@ -157,6 +169,62 @@ def test_a_small_local_edit_is_not_pooled_even_when_the_rest_matches(account_pai
     assert api.get(f"/covers/{alice}", headers=b).content == original
     assert api.get(f"/covers/{bob}", headers=a).content == edited
     assert len(cover_rows(path)[0]) == 2
+
+
+def test_similar_room_numbers_read_back_per_account(account_pair):
+    api, path, (alice, a), (bob, b) = account_pair
+    first, second = [
+        encode(numbered_cover(room), "JPEG", quality=92) for room in (101, 102)
+    ]
+    for headers, raw in ((a, first), (b, second)):
+        assert upload(api, headers, raw).status_code == 200
+    assert first != second
+    assert api.get(f"/covers/{alice}", headers=b).content == first
+    assert api.get(f"/covers/{bob}", headers=a).content == second, (
+        "Bob must see Room 102"
+    )
+
+    # Once both near-neighbors exist, use detail to select the correct source.
+    small = numbered_cover(102).resize((480, 240), Image.Resampling.LANCZOS)
+    updated = upload(api, b, encode(small, "WEBP", quality=90))
+    assert updated.status_code == 200
+    assert api.get(f"/covers/{bob}", headers=a).content == second
+    rows, hashes, ownership = cover_rows(path)
+    assert len(rows) == 2 and hashes == 3
+    assert ownership[alice] != ownership[bob]
+
+
+def test_v6_wrong_hash_alias_is_rechecked_after_restart(tmp_path):
+    path = tmp_path / "legacy-cover.db"
+    first, second = [
+        encode(numbered_cover(room), "JPEG", quality=92) for room in (101, 102)
+    ]
+    with TestClient(create_app(path)) as api:
+        alice, a = login(api)
+        bob, b = login(api, "Other")
+        saved = upload(api, a, first)
+        assert saved.status_code == 200
+    with closing(sqlite3.connect(path)) as db, db:
+        cover_id = db.execute(
+            "SELECT cover_id FROM account_covers WHERE account=?", (alice,)
+        ).fetchone()[0]
+        db.execute(
+            "INSERT INTO profile_cover_hashes VALUES (?,?)",
+            (hashlib.sha256(second).digest(), cover_id),
+        )
+        db.execute("INSERT INTO account_covers VALUES (?,?)", (bob, cover_id))
+        db.execute("PRAGMA user_version=6")
+
+    with TestClient(create_app(path)) as reopened:
+        assert cover_rows(path)[1] == 1
+        assert upload(reopened, a, first).json() == saved.json()
+        assert reopened.get(f"/covers/{bob}", headers=a).content == first
+        assert upload(reopened, b, second).status_code == 200
+        assert reopened.get(f"/covers/{bob}", headers=a).content == second
+        assert reopened.get(f"/covers/{alice}", headers=b).content == first
+        rows, hashes, ownership = cover_rows(path)
+        assert len(rows) == 2 and hashes == 2
+        assert ownership[alice] != ownership[bob]
 
 
 def test_small_cover_metadata_and_orientation_are_handled_without_upscaling(

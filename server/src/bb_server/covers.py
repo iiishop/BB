@@ -12,8 +12,9 @@ from .cover_images import (
     ASPECT_TOLERANCE,
     CoverSource,
     decode_source,
+    detail_agrees,
     display_image,
-    same_image,
+    signatures_agree,
 )
 from .storage import connection, maintain_sessions
 
@@ -79,13 +80,19 @@ def _same_cover(db, source: CoverSource):
     match = None
     for candidate in candidates:
         signature, anchor = candidate["signature"], candidate["anchor"]
-        if same_image(source.signature, signature) and (
-            anchor == signature or same_image(source.signature, anchor)
-        ):
-            # More than one confirmed-looking candidate is ambiguous.
-            if match is not None:
-                return None
-            match = candidate
+        if not signatures_agree(source.signature, signature):
+            continue
+        if anchor != signature and not signatures_agree(source.signature, anchor):
+            continue
+        raw = db.execute(
+            "SELECT source FROM profile_covers WHERE id=?", (candidate["id"],)
+        ).fetchone()["source"]
+        if not detail_agrees(source.pixels, decode_source(raw).pixels):
+            continue
+        # More than one confirmed-looking candidate is ambiguous.
+        if match is not None:
+            return None
+        match = candidate
     return match
 
 

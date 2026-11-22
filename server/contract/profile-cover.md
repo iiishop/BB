@@ -49,8 +49,12 @@ display image as ImageContent and omits `data` from structured/text metadata.
   and alpha samples. Across the image we allow mean absolute channel error up
   to 2.5/255 and up to 3.5% of channels differing by more than 10/255. Each
   16×16 block must also stay within 5/255 and 16% respectively. Both the first
-  comparison signature and the current source have to agree. Flat, ambiguous
-  and multiple-candidate matches are stored separately.
+  comparison signature and the current source have to agree. Then the two
+  decoded images are aligned at their smaller dimensions, capped at a 1,600 px
+  longest edge. After a 0.7 px Gaussian filter to suppress codec noise, the
+  mean absolute error in every 5×5 neighborhood must be at most 24/255 in every
+  channel. This catches small coherent changes such as one digit on a label.
+  Flat, ambiguous and multiple-candidate matches are stored separately.
 - Confirmed variants retain the source with the largest oriented pixel area.
   Equal-area uploads keep the existing source. When a source is upgraded, all
   accounts already referencing that same image see the upgraded derivative on
@@ -66,6 +70,10 @@ display image as ImageContent and omits `data` from structured/text metadata.
   upload is used. The original, the display (if different), aliases and account
   assignments commit atomically in SQLite. Only an unreferenced replaced
   source and its aliases are collected.
+- Upgrading SQLite from schema 6 rebuilds the auxiliary hash index from the
+  retained originals. Other previously pooled files pass through the improved
+  comparison when uploaded again. If a previous false match discarded an
+  original, re-upload that file to restore its intended account cover.
 
 The cover matrix is exercised by `server/tests/test_profile_cover.py`. On an
 integrated tree, run the installed DSH probe with
