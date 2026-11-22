@@ -219,6 +219,70 @@ void main() {
     await expectExactDownload();
   });
 
+  test(
+    'falls back when the endpoint explicitly rejects Range with 501',
+    () async {
+      onProbe = (request, _, _) async {
+        request.response.statusCode = HttpStatus.notImplemented;
+        await request.response.close();
+      };
+      final single = ReleaseClient(
+        downloadConcurrency: 1,
+        httpFactory: () => LoopbackClient(server.port),
+      );
+      addTearDown(single.close);
+      await single.download(_asset, file, progress.add);
+      expect(cdnRequests.map((r) => r.range), [null]);
+      await expectExactDownload();
+
+      progress.clear();
+      cdnRequests.clear();
+      final report = await client.download(_asset, file, progress.add);
+      expect(report.fellBack, isTrue);
+      expect(report.peakRequests, 1);
+      expect(cdnRequests.map((r) => r.range), ['bytes=0-0', null]);
+      await expectExactDownload();
+    },
+  );
+
+  test('a probe with Retry-After stops before a full request', () async {
+    onProbe = (request, _, _) async {
+      request.response.statusCode = HttpStatus.serviceUnavailable;
+      request.response.headers.set(HttpHeaders.retryAfterHeader, '120');
+      await request.response.close();
+    };
+    await expectLater(
+      client.download(_asset, file, progress.add),
+      throwsA(isA<ReleaseRateLimit>()),
+    );
+    expect(cdnRequests.map((r) => r.range), ['bytes=0-0']);
+    expect(await file.exists(), isFalse);
+  });
+
+  test('cancelling a pending probe prevents a full request', () async {
+    final started = Completer<void>();
+    final respond = Completer<void>();
+    onProbe = (request, _, _) async {
+      started.complete();
+      await respond.future;
+      request.response.statusCode = HttpStatus.notImplemented;
+      await request.response.close();
+    };
+    final result = expectLater(
+      client.download(_asset, file, progress.add),
+      throwsException,
+    );
+    try {
+      await started.future.timeout(const Duration(seconds: 5));
+      client.close();
+      await result.timeout(const Duration(seconds: 5));
+    } finally {
+      respond.complete();
+    }
+    expect(cdnRequests.map((r) => r.range), ['bytes=0-0']);
+    expect(await file.exists(), isFalse);
+  });
+
   test('unknown total and weak validators both select a full stream', () async {
     final probes = <_RangeHandler>[
       (request, start, end) =>

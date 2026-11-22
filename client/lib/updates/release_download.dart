@@ -71,10 +71,9 @@ class _PackageDownload {
   }
 
   Future<String> _validateProbe(HttpClientResponse response) async {
-    if (response.statusCode != HttpStatus.partialContent &&
-        response.statusCode != HttpStatus.requestedRangeNotSatisfiable) {
-      await ReleaseClient._requireFullResponse(response);
-    }
+    // The optional probe establishes range support. A final response that
+    // rejects Range can still succeed as a plain GET. _request handles rate
+    // limits and redirect trust before any response reaches this check.
     final etag = _uniqueHeader(response, HttpHeaders.etagHeader);
     if (etag == null ||
         !_strongETag.hasMatch(etag) ||
