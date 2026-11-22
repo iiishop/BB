@@ -495,6 +495,12 @@ class _ProfilePanelState extends State<ProfilePanel> {
   Profile? _profile;
   Uint8List? _avatar;
   CoverImage? _cover;
+
+  /// Monotonic owner of the displayed cover. Every load/replacement bumps it;
+  /// a response may only write [_cover] while it still owns the newest value.
+  /// Without this, a slow first GET (started before an upload) lands after the
+  /// upload and restores the old image over the "cover updated" state.
+  int _coverGeneration = 0;
   bool _loading = false;
   bool _busy = false;
   String? _error;
@@ -570,18 +576,21 @@ class _ProfilePanelState extends State<ProfilePanel> {
   /// On failure the currently displayed bytes (custom or default) stay; the
   /// page never falls back to an invented image.
   Future<void> _loadCover({bool quiet = true}) async {
+    final int generation = ++_coverGeneration;
     try {
       final CoverImage cover = await widget.gateway.loadCover();
-      if (!mounted) {
+      // A later upload/reload owns the display now; this response is stale even
+      // if it just arrived and even though it came from the server.
+      if (!mounted || generation != _coverGeneration) {
         return;
       }
       setState(() => _cover = cover);
     } on AuthFailure catch (failure) {
-      if (!quiet) {
+      if (!quiet && mounted && generation == _coverGeneration) {
         _showSnack(failure.message);
       }
     } catch (_) {
-      if (!quiet) {
+      if (!quiet && mounted && generation == _coverGeneration) {
         _showSnack('封面加载失败，请稍后重试');
       }
     }
@@ -620,9 +629,17 @@ class _ProfilePanelState extends State<ProfilePanel> {
       if (!mounted) {
         return;
       }
+      // The replacement is committed server-side: invalidate any load that was
+      // already in flight so its older snapshot cannot overwrite this upload.
+      final int generation = ++_coverGeneration;
       // Show the server-rendered display image, never the uploaded source.
       final CoverImage cover = await widget.gateway.loadCover();
       if (!mounted) {
+        return;
+      }
+      if (generation != _coverGeneration) {
+        // A newer cover operation owns the display; keep its state untouched.
+        setState(() => _busy = false);
         return;
       }
       setState(() {
