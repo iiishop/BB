@@ -43,6 +43,7 @@ class UsersListView extends StatefulWidget {
   static const Key errorKey = Key('users-error');
   static const Key refreshKey = Key('users-refresh');
   static Key rowKey(String account) => Key('user-row-$account');
+  static Key unreadKey(String account) => Key('user-unread-$account');
 
   @override
   State<UsersListView> createState() => _UsersListViewState();
@@ -50,6 +51,9 @@ class UsersListView extends StatefulWidget {
 
 class _UsersListViewState extends State<UsersListView> {
   final List<ChatUser> _users = <ChatUser>[];
+
+  /// Server-derived incoming unread per conversation, absent when zero.
+  Map<String, int> _unread = <String, int>{};
   bool _loading = true;
   String? _error;
   Timer? _refreshTimer;
@@ -60,6 +64,32 @@ class _UsersListViewState extends State<UsersListView> {
   /// The in-flight snapshot may predate that send, so it is discarded and the
   /// directory is read again before anything is applied.
   bool _reloadQueued = false;
+
+  /// Last-seen directory preview per account (presence = account was seen,
+  /// value = its last message id or null).
+  ///
+  /// The 30s poll already fetches this page, so a preview that differs from
+  /// the last successfully counted snapshot is the lightweight "recount
+  /// needed" signal. It only triggers the shared unread derivation, never a
+  /// locally guessed count and never a full-history scan on every tick.
+  Map<String, String?> _knownPreviews = <String, String?>{};
+
+  /// Previews covered by the last successful unread derivation, captured when
+  /// that derivation started. A row/preview that is not in here may postdate
+  /// the counts on screen — including the first row after an empty directory —
+  /// so it triggers a recount.
+  Map<String, String?> _coveredPreviews = <String, String?>{};
+
+  /// Counts may be stale and the next list trigger must recompute them.
+  ///
+  /// A failed derivation keeps this set, so the next poll retries instead of
+  /// waiting for another preview change; a successful one clears it.
+  bool _unreadDirty = false;
+  bool _unreadRefreshInFlight = false;
+
+  /// A trigger arrived while a derivation was running: run once more when it
+  /// finishes so the counts cover that newer change.
+  bool _unreadRetryNow = false;
 
   @override
   void initState() {
@@ -84,6 +114,60 @@ class _UsersListViewState extends State<UsersListView> {
     if (mounted) {
       setState(() {});
     }
+  }
+
+  /// Recomputes the badges from the shared account-level unread derivation.
+  ///
+  /// Runs are coalesced: a trigger arriving while one is in flight schedules a
+  /// single follow-up. On success the previews seen at the start become the
+  /// covered snapshot, so a message arriving mid-flight is still detected by
+  /// the next directory load, while unchanged previews never trigger a repeat
+  /// scan. A failed attempt keeps the last confirmed badges and stays dirty so
+  /// the next poll retries instead of waiting for another preview change.
+  Future<void> _refreshUnread() async {
+    if (_unreadRefreshInFlight) {
+      _unreadRetryNow = true;
+      return;
+    }
+    _unreadRefreshInFlight = true;
+    _unreadDirty = false;
+    final Map<String, String?> covered = _knownPreviews;
+    try {
+      final Map<String, int> unread = await widget.chat.incomingUnreadByPeer();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _unread = unread;
+        _coveredPreviews = covered;
+      });
+      _unreadRetryNow = _unreadRetryNow || _previewsDifferFromCovered();
+    } catch (_) {
+      // Keep the last confirmed badges; the next list trigger retries.
+      _unreadDirty = true;
+      _unreadRetryNow = false;
+      return;
+    } finally {
+      _unreadRefreshInFlight = false;
+      if (_unreadRetryNow && mounted) {
+        _unreadRetryNow = false;
+        unawaited(_refreshUnread());
+      }
+    }
+  }
+
+  /// Whether the directory shows a preview the counts on screen do not cover.
+  bool _previewsDifferFromCovered() {
+    if (_knownPreviews.length != _coveredPreviews.length) {
+      return true;
+    }
+    for (final MapEntry<String, String?> entry in _knownPreviews.entries) {
+      if (!_coveredPreviews.containsKey(entry.key) ||
+          _coveredPreviews[entry.key] != entry.value) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /// Walks the whole account-keyset directory.
@@ -164,6 +248,12 @@ class _UsersListViewState extends State<UsersListView> {
         // contains; share it so an open conversation cannot keep a stale
         // header. The ticket makes an older read lose.
         presence?.seed(users, observation: observation);
+        _knownPreviews = {
+          for (final user in users) user.account: user.lastMessage?.id,
+        };
+        if (_unreadDirty || _previewsDifferFromCovered()) {
+          unawaited(_refreshUnread());
+        }
         break;
       }
     } on AuthFailure catch (failure) {
@@ -207,10 +297,15 @@ class _UsersListViewState extends State<UsersListView> {
     }
   }
 
+  // Explicit refreshes must recount even if viewing changed no preview id.
+  Future<void> _refresh({bool silent = false}) async {
+    await Future.wait([_load(silent: silent), _refreshUnread()]);
+  }
+
   Future<void> _open(ChatUser user) async {
     await widget.onOpenChat(user);
     if (mounted) {
-      await _load(silent: true);
+      await _refresh(silent: true);
     }
   }
 
@@ -241,7 +336,7 @@ class _UsersListViewState extends State<UsersListView> {
               const SizedBox(height: AppSpacing.md),
               OutlinedButton(
                 key: UsersListView.refreshKey,
-                onPressed: () => _load(),
+                onPressed: _refresh,
                 child: const Text('重新加载'),
               ),
             ],
@@ -268,14 +363,14 @@ class _UsersListViewState extends State<UsersListView> {
                 style: const TextStyle(color: AppColors.inkMuted),
               ),
               const SizedBox(height: AppSpacing.sm),
-              TextButton(onPressed: () => _load(), child: const Text('刷新')),
+              TextButton(onPressed: _refresh, child: const Text('刷新')),
             ],
           ),
         ),
       );
     }
     return RefreshIndicator(
-      onRefresh: () => _load(),
+      onRefresh: _refresh,
       child: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 760),
@@ -299,6 +394,7 @@ class _UsersListViewState extends State<UsersListView> {
                 user: user,
                 presence:
                     widget.presence?.valueFor(user.account) ?? user.presence,
+                unread: _unread[user.account] ?? 0,
                 profile: widget.profile,
                 selfAccount: widget.chat.selfAccount,
                 onTap: () => _open(user),
@@ -328,6 +424,7 @@ class _UserRow extends StatelessWidget {
     super.key,
     required this.user,
     required this.presence,
+    required this.unread,
     required this.profile,
     required this.selfAccount,
     required this.onTap,
@@ -335,6 +432,9 @@ class _UserRow extends StatelessWidget {
 
   final ChatUser user;
   final Presence presence;
+
+  /// Server-derived incoming unread for this conversation; zero means no badge.
+  final int unread;
   final ProfileGateway profile;
   final String selfAccount;
   final VoidCallback onTap;
@@ -349,6 +449,7 @@ class _UserRow extends StatelessWidget {
     final String previewText = preview == null
         ? '暂无消息'
         : '$senderName：${preview.previewBody}';
+    final String? unreadLabel = unreadBadgeLabel(unread);
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(AppRadius.card),
@@ -359,7 +460,19 @@ class _UserRow extends StatelessWidget {
         ),
         child: Row(
           children: <Widget>[
-            _UserAvatar(user: user, profile: profile),
+            Badge(
+              isLabelVisible: unreadLabel != null,
+              backgroundColor: AppColors.danger,
+              label: Semantics(
+                label: '$unread 条未读',
+                excludeSemantics: true,
+                child: Text(
+                  unreadLabel ?? '',
+                  key: UsersListView.unreadKey(user.account),
+                ),
+              ),
+              child: _UserAvatar(user: user, profile: profile),
+            ),
             const SizedBox(width: AppSpacing.md),
             Expanded(
               child: Column(

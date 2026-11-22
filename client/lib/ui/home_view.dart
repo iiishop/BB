@@ -263,11 +263,24 @@ class _HomeViewState extends State<HomeView> {
     );
   }
 
+  /// Opens [user]'s conversation and records the entry as a view fact.
+  ///
+  /// The recording starts before the route is pushed so navigation never waits
+  /// on a long history, but it is awaited when the conversation closes: the
+  /// list refresh then reads confirmed display facts instead of racing them.
+  /// It is display bookkeeping only — not a consumption ACK and not an
+  /// outbound read receipt.
   Future<void> _openChat(ChatUser user) async {
     final ChatService? chat = widget.chat;
     if (chat == null) {
       return;
     }
+    final Future<void> viewed = chat
+        .markConversationViewed(user.account)
+        .then<void>((int _) {})
+        // A failed view record must not block opening or later refreshes; the
+        // next refresh retries the derivation from the same server facts.
+        .catchError((Object _) {});
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (BuildContext context) => ChatPage(
@@ -278,6 +291,7 @@ class _HomeViewState extends State<HomeView> {
         ),
       ),
     );
+    await viewed;
   }
 
   @override

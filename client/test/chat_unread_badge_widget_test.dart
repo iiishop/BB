@@ -1,0 +1,768 @@
+import 'package:bb_client/app.dart';
+import 'package:bb_client/models/auth_models.dart';
+import 'package:bb_client/models/chat_models.dart';
+import 'package:bb_client/services/auth_api_client.dart';
+import 'package:bb_client/services/auth_service.dart';
+import 'package:bb_client/services/auth_session.dart';
+import 'package:bb_client/services/heartbeat_controller.dart';
+import 'package:bb_client/ui/chat/chat_composer.dart';
+import 'package:bb_client/ui/chat/chat_page.dart';
+import 'package:bb_client/ui/chat/users_view.dart';
+import 'package:bb_client/ui/home_view.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+import 'support/fake_auth_gateway.dart';
+import 'support/fake_chat_service.dart';
+import 'support/fake_profile_gateway.dart';
+
+/// DEA-489 acceptance through the real widget surface: per-conversation
+/// incoming unread, nothing at zero, exact 1–99, 99+ from 100, own sends
+/// excluded, entering clears that conversation only, and a later arrival shows
+/// 1 again.
+const AuthUser _self = AuthUser(account: '10000001', username: 'alice');
+final DateTime _now = DateTime.now().toUtc();
+
+ChatUser _user(
+  String account,
+  String username, {
+  UserPreview? lastMessage,
+  DateTime? lastContactAt,
+}) => ChatUser(
+  account: account,
+  username: username,
+  avatarUrl: '/avatars/$account.png',
+  avatarVersion: 'v1',
+  presence: Presence.offline,
+  lastMessage: lastMessage,
+  lastContactAt: lastContactAt,
+);
+
+/// Directory/chat double that can fail exactly one unread derivation, so the
+/// recovery path (keep the dirty state, retry on the next healthy poll) is
+/// exercised through the real widget.
+class _TransientChat extends FakeChatService {
+  _TransientChat({
+    required super.self,
+    required super.users,
+    super.conversations,
+    super.userPageSize,
+  });
+
+  bool failNextUnread = false;
+
+  /// Number of unread derivations the list actually requested.
+  int unreadCalls = 0;
+
+  @override
+  Future<Map<String, int>> incomingUnreadByPeer({int limit = 100}) async {
+    unreadCalls += 1;
+    if (failNextUnread) {
+      failNextUnread = false;
+      throw StateError('temporary unread request failure');
+    }
+    return super.incomingUnreadByPeer(limit: limit);
+  }
+}
+
+ChatMessage _message({
+  required String id,
+  required int position,
+  required String sender,
+  required String target,
+  String text = 'hi',
+}) {
+  return ChatMessage(
+    id: id,
+    position: position,
+    senderAccount: sender,
+    targetAccount: target,
+    createdAt: _now.subtract(Duration(minutes: 200 - position)),
+    kind: ChatMessageKind.body,
+    parts: <MessagePart>[TextPart(text)],
+  );
+}
+
+void main() {
+  late FakeChatService chat;
+  late HeartbeatController heartbeat;
+  late FakeProfileGateway profile;
+  final ChatUser bob = _user('10000002', 'bob');
+  final ChatUser carol = _user('10000003', 'carol');
+  final ChatUser dave = _user('10000004', 'dave');
+
+  setUp(() {
+    profile = FakeProfileGateway();
+    heartbeat = HeartbeatController(
+      auth: AuthService(
+        api: AuthApiClient(baseUri: Uri.parse('http://127.0.0.1:1')),
+        session: AuthSession(),
+      ),
+    );
+    addTearDown(heartbeat.dispose);
+  });
+
+  FakeChatService buildChat(
+    Map<String, List<ChatMessage>> conversations, {
+    int? userPageSize,
+    List<ChatUser>? users,
+  }) {
+    return _TransientChat(
+      self: _self,
+      users: users ?? <ChatUser>[bob, carol, dave],
+      conversations: conversations,
+      userPageSize: userPageSize,
+    );
+  }
+
+  Widget app() {
+    return MaterialApp(
+      theme: buildAppTheme(),
+      home: HomeView(
+        user: _self,
+        profile: profile,
+        auth: FakeAuthGateway(),
+        heartbeat: heartbeat,
+        chat: chat,
+        onSignedOut: (LogoutResult? _) {},
+        onSessionExpired: () {},
+      ),
+    );
+  }
+
+  Future<void> pumpAt(WidgetTester tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(app());
+    await tester.pumpAndSettle();
+  }
+
+  String? badgeOf(WidgetTester tester, String account) {
+    final Finder finder = find.byKey(UsersListView.unreadKey(account));
+    if (finder.evaluate().isEmpty) {
+      return null;
+    }
+    return tester.widget<Text>(finder).data;
+  }
+
+  Future<void> pullToRefresh(WidgetTester tester) async {
+    await tester.fling(
+      find.byKey(UsersListView.listKey),
+      const Offset(0, 320),
+      1000,
+    );
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('badges count peer inbound only, per conversation', (
+    WidgetTester tester,
+  ) async {
+    chat = buildChat(<String, List<ChatMessage>>{
+      bob.account: <ChatMessage>[
+        _message(
+          id: 'b1',
+          position: 1,
+          sender: bob.account,
+          target: _self.account,
+        ),
+        _message(
+          id: 'a2',
+          position: 2,
+          sender: _self.account,
+          target: bob.account,
+        ),
+        _message(
+          id: 'b3',
+          position: 3,
+          sender: bob.account,
+          target: _self.account,
+        ),
+      ],
+      carol.account: <ChatMessage>[
+        _message(
+          id: 'c1',
+          position: 1,
+          sender: carol.account,
+          target: _self.account,
+        ),
+      ],
+    });
+    await pumpAt(tester);
+
+    expect(
+      badgeOf(tester, bob.account),
+      '2',
+      reason: 'own send is not counted',
+    );
+    expect(badgeOf(tester, carol.account), '1');
+    expect(
+      badgeOf(tester, dave.account),
+      isNull,
+      reason: 'no conversation means no badge, not a zero',
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('boundary: 99 stays exact, 100 and above show 99+', (
+    WidgetTester tester,
+  ) async {
+    List<ChatMessage> inbound(String peer, int count) => <ChatMessage>[
+      for (int i = 1; i <= count; i++)
+        _message(
+          id: '$peer-$i',
+          position: i,
+          sender: peer,
+          target: _self.account,
+        ),
+    ];
+    chat = buildChat(<String, List<ChatMessage>>{
+      bob.account: inbound(bob.account, 99),
+      carol.account: inbound(carol.account, 100),
+    });
+    await pumpAt(tester);
+
+    expect(badgeOf(tester, bob.account), '99');
+    expect(badgeOf(tester, carol.account), '99+');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('entering clears only that conversation; own send adds none', (
+    WidgetTester tester,
+  ) async {
+    chat = buildChat(<String, List<ChatMessage>>{
+      bob.account: <ChatMessage>[
+        _message(
+          id: 'b1',
+          position: 1,
+          sender: bob.account,
+          target: _self.account,
+        ),
+        _message(
+          id: 'b3',
+          position: 3,
+          sender: bob.account,
+          target: _self.account,
+        ),
+      ],
+      carol.account: <ChatMessage>[
+        _message(
+          id: 'c1',
+          position: 1,
+          sender: carol.account,
+          target: _self.account,
+        ),
+      ],
+    });
+    await pumpAt(tester);
+    expect(badgeOf(tester, bob.account), '2');
+
+    await tester.tap(find.byKey(UsersListView.rowKey(bob.account)));
+    await tester.pumpAndSettle();
+    expect(find.byType(ChatPage), findsOneWidget);
+
+    await tester.enterText(find.byKey(ChatComposer.inputKey), '我发出的消息');
+    await tester.tap(find.byKey(ChatComposer.sendKey));
+    await tester.pumpAndSettle();
+    expect(chat.sentTexts, contains('我发出的消息'));
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    expect(
+      badgeOf(tester, bob.account),
+      isNull,
+      reason: 'entering clears; the later own send is not unread either',
+    );
+    expect(
+      badgeOf(tester, carol.account),
+      '1',
+      reason: 'another conversation is untouched',
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('leaving then receiving one new message shows 1 again', (
+    WidgetTester tester,
+  ) async {
+    chat = buildChat(<String, List<ChatMessage>>{
+      bob.account: <ChatMessage>[
+        _message(
+          id: 'b1',
+          position: 1,
+          sender: bob.account,
+          target: _self.account,
+        ),
+      ],
+      carol.account: <ChatMessage>[
+        _message(
+          id: 'c1',
+          position: 1,
+          sender: carol.account,
+          target: _self.account,
+        ),
+      ],
+    });
+    await pumpAt(tester);
+    expect(badgeOf(tester, bob.account), '1');
+
+    await tester.tap(find.byKey(UsersListView.rowKey(bob.account)));
+    await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(badgeOf(tester, bob.account), isNull);
+
+    // The other side sends once after the reader left.
+    chat.conversations[bob.account]!.add(
+      _message(
+        id: 'b4',
+        position: 4,
+        sender: bob.account,
+        target: _self.account,
+        text: '离开后的一条',
+      ),
+    );
+    await pullToRefresh(tester);
+
+    expect(badgeOf(tester, bob.account), '1');
+    expect(badgeOf(tester, carol.account), '1');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'a mounted list shows 1 automatically after the return refresh finished',
+    (WidgetTester tester) async {
+      chat = buildChat(<String, List<ChatMessage>>{
+        bob.account: <ChatMessage>[
+          _message(
+            id: 'b1',
+            position: 1,
+            sender: bob.account,
+            target: _self.account,
+          ),
+        ],
+        carol.account: <ChatMessage>[
+          _message(
+            id: 'c1',
+            position: 1,
+            sender: carol.account,
+            target: _self.account,
+          ),
+        ],
+      });
+      await pumpAt(tester);
+      expect(badgeOf(tester, bob.account), '1');
+
+      // Enter and come back: this conversation clears and the refresh the
+      // return triggers has finished before the next step starts.
+      await tester.tap(find.byKey(UsersListView.rowKey(bob.account)));
+      await tester.pumpAndSettle();
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(badgeOf(tester, bob.account), isNull);
+      expect(badgeOf(tester, carol.account), '1');
+
+      // The list stays mounted and the reader does nothing: no tap, no drag,
+      // no pull-to-refresh. The peer sends one message, which the server
+      // directory now reports as that conversation's last message.
+      chat.conversations[bob.account]!.add(
+        _message(
+          id: 'b2',
+          position: 2,
+          sender: bob.account,
+          target: _self.account,
+          text: '自动出现',
+        ),
+      );
+      final int index = chat.users.indexWhere(
+        (ChatUser user) => user.account == bob.account,
+      );
+      chat.users[index] = _user(
+        bob.account,
+        'bob',
+        lastMessage: UserPreview(
+          id: 'b2',
+          senderAccount: bob.account,
+          senderUsername: 'bob',
+          previewBody: '自动出现',
+        ),
+        lastContactAt: DateTime.now().toUtc(),
+      );
+
+      // Only the mounted list's own poll advances; no user operation occurs.
+      await tester.pump(const Duration(seconds: 30));
+      await tester.pumpAndSettle();
+
+      expect(
+        badgeOf(tester, bob.account),
+        '1',
+        reason: 'the new message appears without any user action',
+      );
+      expect(
+        badgeOf(tester, carol.account),
+        '1',
+        reason: 'another conversation count is unchanged',
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'a loaded second page keeps its row and updates automatically after return',
+    (WidgetTester tester) async {
+      // The server page cap puts zoe on the second keyset page.
+      final ChatUser zoe = _user(
+        '10000004',
+        'zoe',
+        lastMessage: UserPreview(
+          id: 'z1',
+          senderAccount: '10000004',
+          senderUsername: 'zoe',
+          previewBody: 'z1',
+        ),
+        lastContactAt: DateTime.now().toUtc(),
+      );
+      chat = buildChat(
+        <String, List<ChatMessage>>{
+          bob.account: <ChatMessage>[
+            _message(
+              id: 'b1',
+              position: 1,
+              sender: bob.account,
+              target: _self.account,
+            ),
+          ],
+          carol.account: <ChatMessage>[
+            _message(
+              id: 'c1',
+              position: 1,
+              sender: carol.account,
+              target: _self.account,
+            ),
+          ],
+          zoe.account: <ChatMessage>[
+            _message(
+              id: 'z1',
+              position: 1,
+              sender: zoe.account,
+              target: _self.account,
+            ),
+          ],
+        },
+        userPageSize: 2,
+        users: <ChatUser>[
+          _user(
+            bob.account,
+            'bob',
+            lastMessage: UserPreview(
+              id: 'b1',
+              senderAccount: bob.account,
+              senderUsername: 'bob',
+              previewBody: 'hi',
+            ),
+            lastContactAt: DateTime.now().toUtc(),
+          ),
+          _user(
+            carol.account,
+            'carol',
+            lastMessage: UserPreview(
+              id: 'c1',
+              senderAccount: carol.account,
+              senderUsername: 'carol',
+              previewBody: 'hi',
+            ),
+            lastContactAt: DateTime.now().toUtc(),
+          ),
+          zoe,
+        ],
+      );
+
+      await pumpAt(tester);
+      expect(
+        chat.listUsersCalls.map((call) => call.afterAccount),
+        contains(carol.account),
+      );
+      expect(badgeOf(tester, bob.account), '1');
+      expect(badgeOf(tester, carol.account), '1');
+
+      expect(find.byKey(UsersListView.rowKey(zoe.account)), findsOneWidget);
+      expect(badgeOf(tester, zoe.account), '1');
+
+      // Enter that second-page conversation and come back; the refresh keeps
+      // the loaded range instead of dropping the row.
+      await tester.tap(find.byKey(UsersListView.rowKey(zoe.account)));
+      await tester.pumpAndSettle();
+      expect(find.byType(ChatPage), findsOneWidget);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(UsersListView.rowKey(zoe.account)),
+        findsOneWidget,
+        reason: 'a finished refresh must not drop an already loaded page',
+      );
+      expect(badgeOf(tester, zoe.account), isNull);
+      expect(badgeOf(tester, carol.account), '1');
+
+      // No manual refresh and no further load: the reader does nothing. The
+      // peer sends once; the list's own poll must see it on the second page.
+      chat.conversations[zoe.account]!.add(
+        _message(
+          id: 'z2',
+          position: 2,
+          sender: zoe.account,
+          target: _self.account,
+          text: '第二页的来信',
+        ),
+      );
+      final int index = chat.users.indexWhere(
+        (ChatUser user) => user.account == zoe.account,
+      );
+      chat.users[index] = _user(
+        zoe.account,
+        'zoe',
+        lastMessage: UserPreview(
+          id: 'z2',
+          senderAccount: zoe.account,
+          senderUsername: 'zoe',
+          previewBody: '第二页的来信',
+        ),
+        lastContactAt: DateTime.now().toUtc(),
+      );
+
+      await tester.pump(const Duration(seconds: 30));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(UsersListView.rowKey(zoe.account)), findsOneWidget);
+      expect(badgeOf(tester, zoe.account), '1');
+      expect(badgeOf(tester, carol.account), '1');
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('a new second-page peer sorts first with its unread badge', (
+    WidgetTester tester,
+  ) async {
+    final ChatUser zoe = _user('10000004', 'zoe');
+    chat = buildChat(
+      <String, List<ChatMessage>>{
+        bob.account: <ChatMessage>[
+          _message(
+            id: 'b1',
+            position: 1,
+            sender: bob.account,
+            target: _self.account,
+          ),
+        ],
+        carol.account: <ChatMessage>[
+          _message(
+            id: 'c1',
+            position: 1,
+            sender: carol.account,
+            target: _self.account,
+          ),
+        ],
+        zoe.account: <ChatMessage>[],
+      },
+      userPageSize: 2,
+      users: <ChatUser>[
+        _user(
+          bob.account,
+          'bob',
+          lastMessage: UserPreview(
+            id: 'b1',
+            senderAccount: bob.account,
+            senderUsername: 'bob',
+            previewBody: 'hi',
+          ),
+          lastContactAt: DateTime.now().toUtc(),
+        ),
+        _user(
+          carol.account,
+          'carol',
+          lastMessage: UserPreview(
+            id: 'c1',
+            senderAccount: carol.account,
+            senderUsername: 'carol',
+            previewBody: 'hi',
+          ),
+          lastContactAt: DateTime.now().toUtc(),
+        ),
+      ],
+    );
+
+    await pumpAt(tester);
+    expect(find.byKey(UsersListView.rowKey(zoe.account)), findsNothing);
+    expect(badgeOf(tester, carol.account), '1');
+
+    // The peer writes before her directory page has ever been loaded.
+    chat.conversations[zoe.account]!.add(
+      _message(
+        id: 'z1',
+        position: 1,
+        sender: zoe.account,
+        target: _self.account,
+        text: '第二页的来信',
+      ),
+    );
+    chat.users.add(
+      _user(
+        zoe.account,
+        'zoe',
+        lastMessage: UserPreview(
+          id: 'z1',
+          senderAccount: zoe.account,
+          senderUsername: 'zoe',
+          previewBody: '第二页的来信',
+        ),
+        lastContactAt: _now.add(const Duration(days: 1)),
+      ),
+    );
+
+    // The next walk discovers the new account on page two.
+    await tester.pump(const Duration(seconds: 30));
+    await tester.pumpAndSettle();
+    expect(find.byKey(UsersListView.rowKey(zoe.account)), findsOneWidget);
+    for (final peer in [bob, carol]) {
+      expect(
+        tester.getTopLeft(find.byKey(UsersListView.rowKey(zoe.account))).dy,
+        lessThan(
+          tester.getTopLeft(find.byKey(UsersListView.rowKey(peer.account))).dy,
+        ),
+      );
+    }
+    expect(
+      badgeOf(tester, zoe.account),
+      '1',
+      reason: 'newly visible peer has one incoming message',
+    );
+    expect(badgeOf(tester, carol.account), '1');
+
+    // Stay on the list without any operation through one poll cycle: the
+    // already correct count must neither disappear nor double.
+    await tester.pump(const Duration(seconds: 30));
+    await tester.pumpAndSettle();
+    expect(find.byKey(UsersListView.rowKey(zoe.account)), findsOneWidget);
+    expect(badgeOf(tester, zoe.account), '1');
+    expect(badgeOf(tester, carol.account), '1');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('the first peer appearing after an empty directory shows 1', (
+    WidgetTester tester,
+  ) async {
+    // The directory started empty: the startup derivation legitimately
+    // covered zero conversations. A registration plus one message later is a
+    // first-seen preview, not "startup", and must still be recounted.
+    chat = buildChat(<String, List<ChatMessage>>{}, users: <ChatUser>[]);
+    await pumpAt(tester);
+    expect(find.byKey(UsersListView.emptyKey), findsOneWidget);
+
+    chat.conversations[bob.account] = <ChatMessage>[
+      _message(
+        id: 'b1',
+        position: 1,
+        sender: bob.account,
+        target: _self.account,
+      ),
+    ];
+    chat.users.add(
+      _user(
+        bob.account,
+        'bob',
+        lastMessage: UserPreview(
+          id: 'b1',
+          senderAccount: bob.account,
+          senderUsername: 'bob',
+          previewBody: 'hi',
+        ),
+        lastContactAt: DateTime.now().toUtc(),
+      ),
+    );
+
+    await tester.pump(const Duration(seconds: 30));
+    await tester.pumpAndSettle();
+    expect(find.byKey(UsersListView.rowKey(bob.account)), findsOneWidget);
+    await tester.pump(const Duration(seconds: 30));
+    await tester.pumpAndSettle();
+    expect(
+      badgeOf(tester, bob.account),
+      '1',
+      reason: 'visible first peer has one unread',
+    );
+
+    // Same previews after a successful derivation must not scan again.
+    final int callsAfterSuccess = (chat as _TransientChat).unreadCalls;
+    await tester.pump(const Duration(seconds: 30));
+    await tester.pumpAndSettle();
+    expect((chat as _TransientChat).unreadCalls, callsAfterSuccess);
+    expect(badgeOf(tester, bob.account), '1');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a failed recount recovers on the next healthy poll', (
+    WidgetTester tester,
+  ) async {
+    final ChatUser zoe = _user('10000004', 'zoe');
+    chat = buildChat(<String, List<ChatMessage>>{
+      carol.account: <ChatMessage>[
+        _message(
+          id: 'c1',
+          position: 1,
+          sender: carol.account,
+          target: _self.account,
+        ),
+      ],
+      zoe.account: <ChatMessage>[],
+    }, userPageSize: 2);
+    await pumpAt(tester);
+    expect(find.byKey(UsersListView.rowKey(zoe.account)), findsOneWidget);
+    expect(badgeOf(tester, carol.account), '1');
+
+    // The second-page peer writes after the first full directory read.
+    chat.conversations[zoe.account]!.add(
+      _message(
+        id: 'z1',
+        position: 1,
+        sender: zoe.account,
+        target: _self.account,
+        text: '第二页的来信',
+      ),
+    );
+    final int index = chat.users.indexWhere(
+      (ChatUser user) => user.account == zoe.account,
+    );
+    chat.users[index] = _user(
+      zoe.account,
+      'zoe',
+      lastMessage: UserPreview(
+        id: 'z1',
+        senderAccount: zoe.account,
+        senderUsername: 'zoe',
+        previewBody: '第二页的来信',
+      ),
+      lastContactAt: DateTime.now().toUtc(),
+    );
+
+    // The recount triggered by the changed preview fails once; the row keeps
+    // no badge, and the next healthy poll must recover the count instead of
+    // waiting for another preview change.
+    (chat as _TransientChat).failNextUnread = true;
+    await tester.pump(const Duration(seconds: 30));
+    await tester.pumpAndSettle();
+    expect(badgeOf(tester, zoe.account), isNull);
+    expect(badgeOf(tester, carol.account), '1');
+    await tester.pump(const Duration(seconds: 30));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(UsersListView.rowKey(zoe.account)), findsOneWidget);
+    expect(badgeOf(tester, carol.account), '1');
+    expect(
+      badgeOf(tester, zoe.account),
+      '1',
+      reason: 'newly visible peer has one incoming message',
+    );
+    expect(tester.takeException(), isNull);
+  });
+}
