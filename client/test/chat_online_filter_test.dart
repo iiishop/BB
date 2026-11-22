@@ -255,4 +255,43 @@ void main() {
     expect(find.byKey(UsersListView.rowKey(_dave)), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('an empty directory shows the filtered hint only while the phone '
+      'switch is enabled', (WidgetTester tester) async {
+    // QA reproduction: only the signed-in account exists.
+    chat.users.clear();
+    await pumpHome(tester);
+    expect(find.text('服务器上还没有其他注册用户'), findsOneWidget);
+    expect(find.byKey(UsersListView.onlineEmptyKey), findsNothing);
+
+    await toggleFilter(tester);
+    expect(
+      tester.widget<Switch>(find.byKey(UsersListView.onlineOnlyKey)).value,
+      isTrue,
+    );
+    expect(find.byKey(UsersListView.onlineEmptyKey), findsOneWidget);
+    expect(find.text('暂无在线联系人'), findsOneWidget);
+
+    await toggleFilter(tester);
+    expect(find.byKey(UsersListView.onlineEmptyKey), findsNothing);
+    expect(find.text('服务器上还没有其他注册用户'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a phone filter is not applied on a wide layout and the full '
+      'list returns', (WidgetTester tester) async {
+    await pumpHome(tester);
+    await toggleFilter(tester);
+    expect(find.byKey(UsersListView.rowKey(_carol)), findsNothing);
+
+    tester.view.physicalSize = const Size(1440, 900);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(UsersListView.onlineOnlyKey), findsNothing);
+    expect(find.text('只看在线'), findsNothing);
+    expect(find.byKey(UsersListView.rowKey(_bob)), findsOneWidget);
+    expect(find.byKey(UsersListView.rowKey(_carol)), findsOneWidget);
+    expect(find.byKey(UsersListView.rowKey(_dave)), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }

@@ -9,6 +9,7 @@ import 'package:bb_client/services/auth_api_client.dart';
 import 'package:bb_client/services/auth_service.dart';
 import 'package:bb_client/services/auth_session.dart';
 import 'package:bb_client/services/heartbeat_controller.dart';
+import 'package:bb_client/ui/chat/users_view.dart';
 import 'package:bb_client/ui/home_view.dart';
 import 'package:bb_client/ui/space/space_detail_view.dart';
 import 'package:bb_client/ui/space/space_local_store.dart';
@@ -39,14 +40,12 @@ Future<void> pumpHome(
   Size size = spacePhone,
   List<DisplayFeature> features = const <DisplayFeature>[],
   bool remount = true,
+  List<ChatUser> users = const <ChatUser>[],
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
-  final FakeChatService chat = FakeChatService(
-    self: _self,
-    users: const <ChatUser>[],
-  );
+  final FakeChatService chat = FakeChatService(self: _self, users: users);
   final FakeProfileGateway profile = FakeProfileGateway(
     profile: const Profile(
       account: spaceSelfAccount,
@@ -210,6 +209,58 @@ void main() {
     );
     expect(avatar.left, lessThan(account.left));
   });
+
+  testWidgets(
+    'wide message page keeps the phone filter out of the desktop list',
+    (WidgetTester tester) async {
+      final FakeSpaceGateway gateway = shellGateway();
+      await pumpHome(tester, gateway: gateway, size: spaceWide);
+      expect(find.byKey(HomeView.railAvatarKey), findsOneWidget);
+      expect(find.byKey(UsersListView.onlineOnlyKey), findsNothing);
+      expect(find.text('只看在线'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'a phone filter turns off on the wide shell and restores the full list',
+    (WidgetTester tester) async {
+      final FakeSpaceGateway gateway = shellGateway();
+      final List<ChatUser> users = <ChatUser>[
+        const ChatUser(
+          account: '10000002',
+          username: 'bob',
+          avatarUrl: '',
+          avatarVersion: 'v1',
+          presence: Presence.online,
+        ),
+        const ChatUser(
+          account: '10000003',
+          username: 'carol',
+          avatarUrl: '',
+          avatarVersion: 'v1',
+          presence: Presence.offline,
+        ),
+      ];
+      await pumpHome(tester, gateway: gateway, users: users);
+      expect(find.byKey(UsersListView.onlineOnlyKey), findsOneWidget);
+      await tester.tap(find.byKey(UsersListView.onlineOnlyKey));
+      await tester.pumpAndSettle();
+      expect(find.byKey(UsersListView.rowKey('10000003')), findsNothing);
+
+      await pumpHome(
+        tester,
+        gateway: gateway,
+        users: users,
+        size: spaceWide,
+        remount: false,
+      );
+      expect(find.byKey(HomeView.railAvatarKey), findsOneWidget);
+      expect(find.byKey(UsersListView.onlineOnlyKey), findsNothing);
+      expect(find.byKey(UsersListView.rowKey('10000002')), findsOneWidget);
+      expect(find.byKey(UsersListView.rowKey('10000003')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('wide space shows master-detail and restores the single feed', (
     WidgetTester tester,

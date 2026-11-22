@@ -323,25 +323,36 @@ class _UsersListViewState extends State<UsersListView> {
 
   @override
   Widget build(BuildContext context) {
-    // The switch stays outside the list body so it is still operable while the
-    // filtered result is empty (or while the directory is loading/erroring).
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        _filterBar(context),
-        Expanded(
-          child: _content(
-            context,
-            _onlineOnly
-                ? _users
-                      .where(
-                        (ChatUser user) => _presenceOf(user) == Presence.online,
-                      )
-                      .toList(growable: false)
-                : _users,
-          ),
-        ),
-      ],
+    // The switch is a phone-only control. Wide layouts (including the shell
+    // with its rail) always show the complete directory, even if the phone
+    // switch was left on before the viewport grew.
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final bool phone = constraints.maxWidth < 720;
+        final bool filtering = phone && _onlineOnly;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            // The switch stays outside the list body so it is still operable
+            // while the filtered result is empty (or loading/erroring).
+            if (phone) _filterBar(context),
+            Expanded(
+              child: _content(
+                context,
+                filtering
+                    ? _users
+                          .where(
+                            (ChatUser user) =>
+                                _presenceOf(user) == Presence.online,
+                          )
+                          .toList(growable: false)
+                    : _users,
+                filtering: filtering,
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -385,7 +396,11 @@ class _UsersListViewState extends State<UsersListView> {
     );
   }
 
-  Widget _content(BuildContext context, List<ChatUser> visible) {
+  Widget _content(
+    BuildContext context,
+    List<ChatUser> visible, {
+    required bool filtering,
+  }) {
     if (_loading && _users.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -419,6 +434,33 @@ class _UsersListViewState extends State<UsersListView> {
         ),
       );
     }
+    // Filter precedence: with the phone switch on, an empty result is the
+    // online-empty state even when the directory itself has no other users.
+    if (filtering && visible.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              const Icon(
+                Icons.people_outline_rounded,
+                size: 36,
+                color: AppColors.inkMuted,
+              ),
+              const SizedBox(height: AppSpacing.md),
+              Text(
+                '暂无在线联系人',
+                key: UsersListView.onlineEmptyKey,
+                style: const TextStyle(color: AppColors.inkMuted),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              TextButton(onPressed: _refresh, child: const Text('刷新')),
+            ],
+          ),
+        ),
+      );
+    }
     if (_users.isEmpty) {
       return Center(
         child: Padding(
@@ -435,31 +477,6 @@ class _UsersListViewState extends State<UsersListView> {
               Text(
                 '服务器上还没有其他注册用户',
                 key: UsersListView.emptyKey,
-                style: const TextStyle(color: AppColors.inkMuted),
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              TextButton(onPressed: _refresh, child: const Text('刷新')),
-            ],
-          ),
-        ),
-      );
-    }
-    if (visible.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.lg),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              const Icon(
-                Icons.people_outline_rounded,
-                size: 36,
-                color: AppColors.inkMuted,
-              ),
-              const SizedBox(height: AppSpacing.md),
-              Text(
-                '暂无在线联系人',
-                key: UsersListView.onlineEmptyKey,
                 style: const TextStyle(color: AppColors.inkMuted),
               ),
               const SizedBox(height: AppSpacing.sm),
@@ -486,7 +503,7 @@ class _UsersListViewState extends State<UsersListView> {
             itemCount: visible.length + 1,
             itemBuilder: (BuildContext context, int index) {
               if (index == visible.length) {
-                return _footer();
+                return _footer(filtering);
               }
               final ChatUser user = visible[index];
               return _UserRow(
@@ -505,12 +522,12 @@ class _UsersListViewState extends State<UsersListView> {
     );
   }
 
-  Widget _footer() {
+  Widget _footer(bool filtering) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
       child: Center(
         child: Text(
-          _onlineOnly ? '以上是当前在线的联系人' : '以上是当前服务器的全部注册用户',
+          filtering ? '以上是当前在线的联系人' : '以上是当前服务器的全部注册用户',
           style: const TextStyle(fontSize: 12, color: AppColors.inkMuted),
         ),
       ),
