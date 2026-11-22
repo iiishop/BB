@@ -9,7 +9,7 @@ from pydantic import ConfigDict, Field, model_validator
 
 from . import chat as v1
 from . import chat_query as query
-from . import profile
+from . import cover, profile
 
 VERSION = "dea467-local-v2"
 Opaque = Annotated[
@@ -77,6 +77,10 @@ class Protected(v1.Wire):
 
 class ProfileView(Protected):
     account: v1.Account | None = None
+
+
+class ProfileCover(Protected, cover.CoverUpload):
+    pass
 
 
 class ProfileNickname(Protected, profile.NicknameUpdate):
@@ -388,6 +392,20 @@ BOOTSTRAP = {
     "consumer_bind": ("/v2/consumers/bind", BindConsumer, Binding, 200, True),
 }
 BUSINESS = {
+    "view_cover": (
+        "/v2/profile/view_cover",
+        ProfileView,
+        Reply[cover.CoverImageResponse],
+        200,
+        True,
+    ),
+    "update_cover": (
+        "/v2/profile/update_cover",
+        ProfileCover,
+        Reply[cover.CoverResponse],
+        200,
+        True,
+    ),
     "view_avatar": (
         "/v2/profile/view_avatar",
         ProfileView,

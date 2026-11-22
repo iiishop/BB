@@ -662,6 +662,270 @@
         }
       }
     },
+    "/v2/profile/view_cover": {
+      "post": {
+        "operationId": "view_cover",
+        "security": [
+          {
+            "consumerOwner": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfileView"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Reply_CoverImageResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v2/profile/update_cover": {
+      "post": {
+        "operationId": "update_cover",
+        "security": [
+          {
+            "consumerOwner": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfileCover"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Reply_CoverResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v2/profile/view_avatar": {
       "post": {
         "operationId": "view_avatar",
@@ -4408,6 +4672,131 @@
           "expected_identity"
         ],
         "title": "ProfileView",
+        "type": "object"
+      },
+      "CoverImageResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "cover_url": {
+            "pattern": "^/covers/[1-9][0-9]{7}$",
+            "title": "Cover Url",
+            "type": "string"
+          },
+          "cover_version": {
+            "pattern": "^sha256-[0-9a-f]{64}$",
+            "title": "Cover Version",
+            "type": "string"
+          },
+          "account": {
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Account",
+            "type": "string"
+          },
+          "mime_type": {
+            "enum": [
+              "image/png",
+              "image/jpeg",
+              "image/webp"
+            ],
+            "title": "Mime Type",
+            "type": "string"
+          },
+          "data": {
+            "maxLength": 699052,
+            "minLength": 1,
+            "title": "Data",
+            "type": "string"
+          },
+          "is_default": {
+            "title": "Is Default",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "cover_url",
+          "cover_version",
+          "account",
+          "mime_type",
+          "data",
+          "is_default"
+        ],
+        "title": "CoverImageResponse",
+        "type": "object"
+      },
+      "Reply_CoverImageResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "identity": {
+            "$ref": "#/components/schemas/ExpectedIdentity"
+          },
+          "result": {
+            "$ref": "#/components/schemas/CoverImageResponse"
+          }
+        },
+        "required": [
+          "identity",
+          "result"
+        ],
+        "title": "Reply[CoverImageResponse]",
+        "type": "object"
+      },
+      "ProfileCover": {
+        "additionalProperties": false,
+        "properties": {
+          "base64": {
+            "description": "Raw padded standard base64 of a PNG, JPEG or WebP. At most 8 MiB decoded.",
+            "maxLength": 11184812,
+            "minLength": 1,
+            "title": "Base64",
+            "type": "string"
+          },
+          "expected_identity": {
+            "$ref": "#/components/schemas/ExpectedIdentity"
+          }
+        },
+        "required": [
+          "base64",
+          "expected_identity"
+        ],
+        "title": "ProfileCover",
+        "type": "object"
+      },
+      "CoverResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "cover_url": {
+            "pattern": "^/covers/[1-9][0-9]{7}$",
+            "title": "Cover Url",
+            "type": "string"
+          },
+          "cover_version": {
+            "pattern": "^sha256-[0-9a-f]{64}$",
+            "title": "Cover Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cover_url",
+          "cover_version"
+        ],
+        "title": "CoverResponse",
+        "type": "object"
+      },
+      "Reply_CoverResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "identity": {
+            "$ref": "#/components/schemas/ExpectedIdentity"
+          },
+          "result": {
+            "$ref": "#/components/schemas/CoverResponse"
+          }
+        },
+        "required": [
+          "identity",
+          "result"
+        ],
+        "title": "Reply[CoverResponse]",
         "type": "object"
       },
       "AvatarImageResponse": {
