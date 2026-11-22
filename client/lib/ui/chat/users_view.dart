@@ -40,7 +40,8 @@ class UsersListView extends StatefulWidget {
   /// changed. The mounted list also refreshes when its own lightweight
   /// directory poll sees a conversation's last message change, so a message
   /// arriving while the reader is already back on the list appears without any
-  /// user action.
+  /// user action. Both refreshes cover the already loaded pages instead of
+  /// collapsing the list back to page one.
   final int refreshToken;
 
   static const Key listKey = Key('users-list');
@@ -158,14 +159,31 @@ class _UsersListViewState extends State<UsersListView> {
     final PresenceDirectory? presence = widget.presence;
     final int? observation = presence?.beginObservation();
     try {
-      final UserPage page = await widget.chat.listUsers(
-        afterAccount: reset ? '' : (_nextCursor ?? ''),
-      );
+      // A reset refresh reloads the range already on screen, not just the
+      // first page: returning from a conversation or the periodic poll must
+      // not drop rows the reader loaded with "加载更多", and those rows need
+      // the same preview/change detection as the first page.
+      final int target = reset ? _users.length : 0;
+      final List<ChatUser> fetched = <ChatUser>[];
+      String after = reset ? '' : (_nextCursor ?? '');
+      String? next;
+      while (true) {
+        final UserPage page = await widget.chat.listUsers(afterAccount: after);
+        fetched.addAll(page.items);
+        next = page.nextCursor;
+        if (!reset || next == null || fetched.length >= target) {
+          break;
+        }
+        if (next.compareTo(after) <= 0) {
+          break;
+        }
+        after = next;
+      }
       final Map<String, String?> previews = Map<String, String?>.of(
         _knownPreviews,
       );
       bool messageChanged = false;
-      for (final ChatUser user in page.items) {
+      for (final ChatUser user in fetched) {
         final String? previewId = user.lastMessage?.id;
         if (previews.containsKey(user.account) &&
             previews[user.account] != previewId) {
@@ -183,12 +201,12 @@ class _UsersListViewState extends State<UsersListView> {
         if (reset) {
           _users
             ..clear()
-            ..addAll(page.items);
+            ..addAll(fetched);
         } else {
           final Set<String> seen = _users
               .map((ChatUser user) => user.account)
               .toSet();
-          for (final ChatUser user in page.items) {
+          for (final ChatUser user in fetched) {
             if (seen.add(user.account)) {
               _users.add(user);
             }
@@ -197,7 +215,7 @@ class _UsersListViewState extends State<UsersListView> {
         _knownPreviews
           ..clear()
           ..addAll(previews);
-        _nextCursor = page.nextCursor;
+        _nextCursor = next;
         _loading = false;
         _loadingMore = false;
         _error = null;
@@ -205,10 +223,11 @@ class _UsersListViewState extends State<UsersListView> {
       if (messageChanged) {
         unawaited(_refreshUnread());
       }
-      // One fresh server page is authoritative for the accounts it contains;
-      // share it so an open conversation cannot keep a stale header. The
-      // ticket makes a page that started before a newer targeted read lose.
-      presence?.seed(page.items, observation: observation);
+      // One fresh server response is authoritative for the accounts it
+      // contains; share it so an open conversation cannot keep a stale header.
+      // The ticket makes a request that started before a newer targeted read
+      // lose.
+      presence?.seed(fetched, observation: observation);
     } on AuthFailure catch (failure) {
       if (!mounted) {
         return;

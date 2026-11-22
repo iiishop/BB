@@ -75,11 +75,16 @@ void main() {
     addTearDown(heartbeat.dispose);
   });
 
-  FakeChatService buildChat(Map<String, List<ChatMessage>> conversations) {
+  FakeChatService buildChat(
+    Map<String, List<ChatMessage>> conversations, {
+    int? userPageSize,
+    List<ChatUser>? users,
+  }) {
     return FakeChatService(
       self: _self,
-      users: <ChatUser>[bob, carol, dave],
+      users: users ?? <ChatUser>[bob, carol, dave],
       conversations: conversations,
+      userPageSize: userPageSize,
     );
   }
 
@@ -372,6 +377,140 @@ void main() {
         '1',
         reason: 'another conversation count is unchanged',
       );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'a loaded second page keeps its row and updates automatically after return',
+    (WidgetTester tester) async {
+      // Directory page cap of two puts zoe on the page the list only gets
+      // after "加载更多用户".
+      final ChatUser zoe = _user(
+        '10000004',
+        'zoe',
+        lastMessage: UserPreview(
+          id: 'z1',
+          senderAccount: '10000004',
+          senderUsername: 'zoe',
+          previewBody: 'z1',
+        ),
+        lastContactAt: DateTime.now().toUtc(),
+      );
+      chat = buildChat(
+        <String, List<ChatMessage>>{
+          bob.account: <ChatMessage>[
+            _message(
+              id: 'b1',
+              position: 1,
+              sender: bob.account,
+              target: _self.account,
+            ),
+          ],
+          carol.account: <ChatMessage>[
+            _message(
+              id: 'c1',
+              position: 1,
+              sender: carol.account,
+              target: _self.account,
+            ),
+          ],
+          zoe.account: <ChatMessage>[
+            _message(
+              id: 'z1',
+              position: 1,
+              sender: zoe.account,
+              target: _self.account,
+            ),
+          ],
+        },
+        userPageSize: 2,
+        users: <ChatUser>[
+          _user(
+            bob.account,
+            'bob',
+            lastMessage: UserPreview(
+              id: 'b1',
+              senderAccount: bob.account,
+              senderUsername: 'bob',
+              previewBody: 'hi',
+            ),
+            lastContactAt: DateTime.now().toUtc(),
+          ),
+          _user(
+            carol.account,
+            'carol',
+            lastMessage: UserPreview(
+              id: 'c1',
+              senderAccount: carol.account,
+              senderUsername: 'carol',
+              previewBody: 'hi',
+            ),
+            lastContactAt: DateTime.now().toUtc(),
+          ),
+          zoe,
+        ],
+      );
+
+      await pumpAt(tester);
+      expect(find.byKey(UsersListView.rowKey(zoe.account)), findsNothing);
+      expect(badgeOf(tester, bob.account), '1');
+      expect(badgeOf(tester, carol.account), '1');
+
+      // Actually reach the second page through the list's own pagination.
+      await tester.tap(find.byKey(UsersListView.loadMoreKey));
+      await tester.pumpAndSettle();
+      expect(find.byKey(UsersListView.rowKey(zoe.account)), findsOneWidget);
+      expect(badgeOf(tester, zoe.account), '1');
+
+      // Enter that second-page conversation and come back; the refresh keeps
+      // the loaded range instead of dropping the row.
+      await tester.tap(find.byKey(UsersListView.rowKey(zoe.account)));
+      await tester.pumpAndSettle();
+      expect(find.byType(ChatPage), findsOneWidget);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(UsersListView.rowKey(zoe.account)),
+        findsOneWidget,
+        reason: 'a finished refresh must not drop an already loaded page',
+      );
+      expect(badgeOf(tester, zoe.account), isNull);
+      expect(badgeOf(tester, carol.account), '1');
+
+      // No manual refresh and no further load: the reader does nothing. The
+      // peer sends once; the list's own poll must see it on the second page.
+      chat.conversations[zoe.account]!.add(
+        _message(
+          id: 'z2',
+          position: 2,
+          sender: zoe.account,
+          target: _self.account,
+          text: '第二页的来信',
+        ),
+      );
+      final int index = chat.users.indexWhere(
+        (ChatUser user) => user.account == zoe.account,
+      );
+      chat.users[index] = _user(
+        zoe.account,
+        'zoe',
+        lastMessage: UserPreview(
+          id: 'z2',
+          senderAccount: zoe.account,
+          senderUsername: 'zoe',
+          previewBody: '第二页的来信',
+        ),
+        lastContactAt: DateTime.now().toUtc(),
+      );
+
+      await tester.pump(const Duration(seconds: 30));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(UsersListView.rowKey(zoe.account)), findsOneWidget);
+      expect(badgeOf(tester, zoe.account), '1');
+      expect(badgeOf(tester, carol.account), '1');
       expect(tester.takeException(), isNull);
     },
   );

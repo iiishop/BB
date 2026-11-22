@@ -26,6 +26,7 @@ class FakeChatService extends ChatService {
     Map<String, List<ChatMessage>>? conversations,
     Uint8List? png,
     this.pageSize,
+    this.userPageSize,
     this.gateAtPosition,
     this.gate,
   }) : users = List<ChatUser>.from(users),
@@ -127,6 +128,9 @@ class FakeChatService extends ChatService {
   final List<OutgoingPart> lastSentBody = <OutgoingPart>[];
   final List<OutgoingAttachment> lastSentAttachments = <OutgoingAttachment>[];
   final int? pageSize;
+
+  /// Test-only directory page cap so two-page list paths stay cheap.
+  final int? userPageSize;
   final int? gateAtPosition;
   final Completer<void>? gate;
   int _seq = 100;
@@ -173,7 +177,10 @@ class FakeChatService extends ChatService {
             )
             .toList()
           ..sort((ChatUser a, ChatUser b) => a.account.compareTo(b.account));
-    final int take = limit.clamp(1, 100);
+    final int cap = userPageSize != null && userPageSize! < limit
+        ? userPageSize!
+        : limit;
+    final int take = cap.clamp(1, 100);
     final List<ChatUser> page = accounts.take(take).toList();
     return UserPage(
       items: page,
