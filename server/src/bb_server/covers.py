@@ -87,7 +87,7 @@ def _same_cover(db, source: CoverSource):
         raw = db.execute(
             "SELECT source FROM profile_covers WHERE id=?", (candidate["id"],)
         ).fetchone()["source"]
-        if not detail_agrees(source.pixels, decode_source(raw).pixels):
+        if not detail_agrees(source, decode_source(raw)):
             continue
         # More than one confirmed-looking candidate is ambiguous.
         if match is not None:

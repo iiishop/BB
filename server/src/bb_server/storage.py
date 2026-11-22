@@ -72,7 +72,7 @@ def migrate(path: Path):
     path.parent.mkdir(parents=True, exist_ok=True)
     with connection(path, write=True) as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 7:
+        if version > 8:
             raise RuntimeError("Database schema is newer than this server")
         for number, filename in [
             (1, "001_auth.sql"),
@@ -81,13 +81,14 @@ def migrate(path: Path):
             (4, "004_space.sql"),
             (5, "005_follows.sql"),
             (6, "006_covers.sql"),
-            (7, "007_cover_hashes.sql"),
+            # Version 8 supersedes the identical index rebuild in version 7.
+            (8, "007_cover_hashes.sql"),
         ]:
             if version >= number:
                 continue
-            if number == 7:
+            if number == 8:
                 # Rebuild the auxiliary alias index from the surviving source
-                # bytes. The v6 comparison did not verify fine detail.
+                # bytes so prior comparison rules cannot be bypassed on retry.
                 db.create_function(
                     "cover_source_sha256",
                     1,

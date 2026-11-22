@@ -22,13 +22,27 @@ class CoverSource:
     tone: int
     safe_original: bool
     mime_type: str
+    lossless: bool
+    high_bit_depth: bool
 
     @property
     def aspect(self):
         return self.pixels.width / self.pixels.height
 
 
-def _safe_container(data: bytes, image: Image.Image) -> bool:
+def _webp_chunks(data: bytes) -> set[bytes]:
+    if int.from_bytes(data[4:8], "little") + 8 != len(data):
+        return set()
+    offset = 12
+    chunks = set()
+    while offset + 8 <= len(data):
+        chunks.add(data[offset : offset + 4])
+        size = int.from_bytes(data[offset + 4 : offset + 8], "little")
+        offset += size + (size % 2) + 8
+    return chunks if offset == len(data) else set()
+
+
+def _safe_container(data: bytes, image: Image.Image, webp_chunks: set[bytes]) -> bool:
     """Keep clean, static inputs byte-for-byte. Strip private metadata otherwise."""
     if image.format == "JPEG":
         return (
@@ -66,16 +80,7 @@ def _safe_container(data: bytes, image: Image.Image) -> bool:
             if chunk == b"IEND":
                 return offset == len(data)
         return False
-    if int.from_bytes(data[4:8], "little") + 8 != len(data):
-        return False
-    offset = 12
-    while offset + 8 <= len(data):
-        chunk = data[offset : offset + 4]
-        if chunk not in {b"VP8 ", b"VP8L", b"VP8X", b"ALPH"}:
-            return False
-        size = int.from_bytes(data[offset + 4 : offset + 8], "little")
-        offset += size + (size % 2) + 8
-    return offset == len(data)
+    return bool(webp_chunks) and webp_chunks <= {b"VP8 ", b"VP8L", b"VP8X", b"ALPH"}
 
 
 def _color_pixels(image: Image.Image) -> Image.Image:
@@ -118,18 +123,25 @@ def decode_source(data: bytes) -> CoverSource:
                     raise ValueError("pixel limit")
                 image.verify()
             with Image.open(io.BytesIO(data), formats=tuple(FORMATS)) as image:
+                webp_chunks = _webp_chunks(data) if image.format == "WEBP" else set()
+                lossless = image.format == "PNG" or (
+                    b"VP8L" in webp_chunks and not webp_chunks & {b"VP8 ", b"ANIM"}
+                )
+                high_bit_depth = image.format == "PNG" and data[24] == 16
                 safe = (
                     len(data) <= MAX_DISPLAY_BYTES
                     and max(image.size) <= DISPLAY_EDGE
                     and getattr(image, "n_frames", 1) == 1
-                    and _safe_container(data, image)
+                    and _safe_container(data, image, webp_chunks)
                 )
                 image.load()
                 mime = FORMATS[image.format]
                 pixels = _color_pixels(image)
         normalized = _normalized_pixels(pixels, (SIGNATURE_EDGE, SIGNATURE_EDGE))
         tone = round(ImageStat.Stat(normalized.convert("L")).mean[0])
-        return CoverSource(pixels, normalized.tobytes(), tone, safe, mime)
+        return CoverSource(
+            pixels, normalized.tobytes(), tone, safe, mime, lossless, high_bit_depth
+        )
     except (
         ValueError,
         OSError,
@@ -173,8 +185,18 @@ def signatures_agree(left: bytes, right: bytes) -> bool:
     return True
 
 
-def detail_agrees(left: Image.Image, right: Image.Image) -> bool:
+def detail_agrees(first: CoverSource, second: CoverSource) -> bool:
     """Reject differences confined to a small region such as one printed digit."""
+    left, right = first.pixels, second.pixels
+    if first.lossless and second.lossless and left.size == right.size:
+        # Normalization to 8 bits can erase differences in a 16-bit PNG.
+        # Only the original-file hash proves equality for those pairs.
+        return (
+            not (first.high_bit_depth or second.high_bit_depth)
+            and left.mode == right.mode
+            and ImageChops.difference(left, right).getbbox(alpha_only=False) is None
+        )
+
     width = min(left.width, right.width)
     height = min(left.height, right.height)
     scale = min(1, DISPLAY_EDGE / max(width, height))
@@ -183,10 +205,15 @@ def detail_agrees(left: Image.Image, right: Image.Image) -> bool:
     left_detail = _normalized_pixels(left, size).filter(noise_filter)
     right_detail = _normalized_pixels(right, size).filter(noise_filter)
     difference = ImageChops.difference(left_detail, right_detail)
-    # A 5×5 local mean suppresses isolated codec noise. Use the worst patch
-    # and channel so a localized edit cannot be averaged into the whole image.
     local = difference.filter(ImageFilter.BoxBlur(2))
-    return max(peak for _, peak in local.getextrema()) <= 24
+    if max(peak for _, peak in local.getextrema()) > 24:
+        return False
+    # A discrete change in a quiet region can be meaningful even below the
+    # absolute cap. Compare each 5×5 patch to the surrounding 25×25 residual.
+    allowance = difference.filter(ImageFilter.BoxBlur(12)).point(
+        lambda value: min(255, value * 3 + 6)
+    )
+    return ImageChops.subtract(local, allowance).getbbox(alpha_only=False) is None
 
 
 def display_image(source: CoverSource, *, prefer_lossless: bool) -> tuple[bytes, str]:
