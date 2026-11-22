@@ -305,6 +305,10 @@ void main() {
         '40218765',
       );
 
+      // Phone layout: nickname/signature and avatar actions live in the
+      // 编辑资料 sheet, so the real user path opens it first.
+      await tester.tap(find.byKey(ProfilePanel.editProfileKey));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(ProfilePanel.editNicknameKey));
       await tester.pumpAndSettle();
       await tester.enterText(
@@ -316,6 +320,8 @@ void main() {
       expect(backend.username, '桌面昵称');
       expect(find.text('桌面昵称'), findsWidgets);
 
+      await tester.tap(find.byKey(ProfilePanel.editProfileKey));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('更换头像').first);
       await tester.pumpAndSettle();
       await tester.tap(find.text('Base64'));
@@ -386,6 +392,10 @@ void main() {
         closeTo(390, 0.1),
       );
 
+      // After the reflow to phone the panel keeps the same state, but edits
+      // are reached through the 编辑资料 sheet like a real phone user.
+      await tester.tap(find.byKey(ProfilePanel.editProfileKey));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(ProfilePanel.editSignatureKey));
       await tester.pumpAndSettle();
       await tester.enterText(
@@ -397,6 +407,8 @@ void main() {
       expect(backend.signature, '集成签名');
       expect(find.text('集成签名'), findsWidgets);
 
+      await tester.tap(find.byKey(ProfilePanel.editProfileKey));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(ProfilePanel.editNicknameKey));
       await tester.pumpAndSettle();
       await tester.enterText(
@@ -414,6 +426,8 @@ void main() {
           'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
         ),
       );
+      await tester.tap(find.byKey(ProfilePanel.editProfileKey));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('更换头像').first);
       await tester.pumpAndSettle();
       await tester.enterText(

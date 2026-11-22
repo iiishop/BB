@@ -313,8 +313,12 @@ class _ResponsiveProfileFrame extends StatelessWidget {
       // The phone page draws under the status bar so the sea cover reaches the
       // top edge; ProfilePanel insets only its own controls. The Scaffold is
       // the page's own: an opaque route would otherwise show its snackbars on
-      // the hidden messages page underneath.
-      return Scaffold(backgroundColor: AppColors.paper, body: panel);
+      // the hidden messages page underneath. The page also owns its messenger,
+      // so feedback is never mirrored onto the host Scaffold when this frame is
+      // shown as a dialog after a desktop-to-phone reflow.
+      return ScaffoldMessenger(
+        child: Scaffold(backgroundColor: AppColors.paper, body: panel),
+      );
     }
     if (mode == ProfilePanelMode.folded) {
       return _FoldedFrame(width: foldedPanelWidth(context), child: panel);
