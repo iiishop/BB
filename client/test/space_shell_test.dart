@@ -262,6 +262,49 @@ void main() {
     },
   );
 
+  // The rail appears as soon as the shell decides the window is wide. The list
+  // is 92px narrower then, so its own width must not keep the phone filter on.
+  for (final double width in <double>[720, 811, 812]) {
+    testWidgets(
+      'resizing to the rail layout at ${width.toInt()}px restores offline peers '
+      'and hides the phone switch',
+      (WidgetTester tester) async {
+        final FakeSpaceGateway gateway = shellGateway();
+        const ChatUser offline = ChatUser(
+          account: '10000003',
+          username: 'carol',
+          avatarUrl: '',
+          avatarVersion: 'v1',
+          presence: Presence.offline,
+        );
+        await pumpHome(
+          tester,
+          gateway: gateway,
+          size: const Size(719, 900),
+          users: <ChatUser>[offline],
+        );
+        final Finder toggle = find.byKey(UsersListView.onlineOnlyKey);
+        final Finder peer = find.byKey(UsersListView.rowKey(offline.account));
+        expect(peer, findsOneWidget);
+        await tester.tap(toggle);
+        await tester.pumpAndSettle();
+        expect(peer, findsNothing);
+
+        tester.view.physicalSize = Size(width, 900);
+        await tester.pumpAndSettle();
+        expect(find.byKey(HomeView.railAvatarKey), findsOneWidget);
+        expect(toggle, findsNothing);
+        expect(peer, findsOneWidget);
+        expect(
+          find.text('只看在线'),
+          findsNothing,
+          reason: 'the phone switch must leave with the rail breakpoint',
+        );
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
   testWidgets('wide space shows master-detail and restores the single feed', (
     WidgetTester tester,
   ) async {

@@ -299,7 +299,18 @@ class _HomeViewState extends State<HomeView> {
     final SpaceGateway? space = widget.space;
     if (space == null) {
       // No rail in this shell, so the header avatar is the only profile entry.
-      return _chatScaffold(context, showHeaderAvatar: true);
+      // The phone/wide decision still comes from the same window-width rule the
+      // rail shell uses, so the message filter never disagrees with it.
+      return LayoutBuilder(
+        builder: (BuildContext context, BoxConstraints constraints) {
+          final bool compact = constraints.maxWidth < 720;
+          return _chatScaffold(
+            context,
+            showHeaderAvatar: true,
+            phoneLayout: compact,
+          );
+        },
+      );
     }
     return _appScaffold(context, space);
   }
@@ -316,7 +327,11 @@ class _HomeViewState extends State<HomeView> {
     );
   }
 
-  Widget _chatScaffold(BuildContext context, {required bool showHeaderAvatar}) {
+  Widget _chatScaffold(
+    BuildContext context, {
+    required bool showHeaderAvatar,
+    required bool phoneLayout,
+  }) {
     final TextTheme text = Theme.of(context).textTheme;
     final bool reconnecting =
         widget.heartbeat.phase == HeartbeatPhase.reconnecting;
@@ -384,6 +399,7 @@ class _HomeViewState extends State<HomeView> {
                         presence: _presence,
                         onOpenChat: _openChat,
                         onSessionExpired: widget.onSessionExpired,
+                        phoneLayout: phoneLayout,
                       ),
                     ),
                   ],
@@ -475,7 +491,11 @@ class _HomeViewState extends State<HomeView> {
           children: <Widget>[
             // Wide layouts have the rail, which already carries the profile
             // entry; only narrow layouts put the avatar in the message header.
-            _chatScaffold(context, showHeaderAvatar: compact),
+            _chatScaffold(
+              context,
+              showHeaderAvatar: compact,
+              phoneLayout: compact,
+            ),
             _spacePage(
               context,
               space,

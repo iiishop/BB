@@ -23,6 +23,7 @@ class UsersListView extends StatefulWidget {
     required this.onOpenChat,
     this.presence,
     this.onSessionExpired,
+    this.phoneLayout,
   });
 
   final ChatService chat;
@@ -31,6 +32,12 @@ class UsersListView extends StatefulWidget {
   /// Last-confirmed presence shared with the open conversation; when absent
   /// the page falls back to the presence each list page carried.
   final PresenceDirectory? presence;
+
+  /// The shell's phone/wide decision (the same one that adds or removes the
+  /// rail). The filter switch, row filtering and footer all use this instead of
+  /// guessing from the list's own width, which is narrower than the window when
+  /// the rail is present. Null falls back to the viewport for simple hosts.
+  final bool? phoneLayout;
 
   /// Opens the conversation. The returned future completes when the chat page
   /// pops, so the list can re-read the server's new last-message time instead
@@ -325,34 +332,41 @@ class _UsersListViewState extends State<UsersListView> {
   Widget build(BuildContext context) {
     // The switch is a phone-only control. Wide layouts (including the shell
     // with its rail) always show the complete directory, even if the phone
-    // switch was left on before the viewport grew.
+    // switch was left on before the viewport grew. The shell owns this
+    // decision so the rail and the filter can never disagree at the boundary;
+    // a directly-hosted list (tests, simple hosts) falls back to its own width.
+    final bool? layout = widget.phoneLayout;
+    if (layout != null) {
+      return _body(context, phone: layout);
+    }
     return LayoutBuilder(
-      builder: (BuildContext context, BoxConstraints constraints) {
-        final bool phone = constraints.maxWidth < 720;
-        final bool filtering = phone && _onlineOnly;
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            // The switch stays outside the list body so it is still operable
-            // while the filtered result is empty (or loading/erroring).
-            if (phone) _filterBar(context),
-            Expanded(
-              child: _content(
-                context,
-                filtering
-                    ? _users
-                          .where(
-                            (ChatUser user) =>
-                                _presenceOf(user) == Presence.online,
-                          )
-                          .toList(growable: false)
-                    : _users,
-                filtering: filtering,
-              ),
-            ),
-          ],
-        );
-      },
+      builder: (BuildContext context, BoxConstraints constraints) =>
+          _body(context, phone: constraints.maxWidth < 720),
+    );
+  }
+
+  Widget _body(BuildContext context, {required bool phone}) {
+    final bool filtering = phone && _onlineOnly;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        // The switch stays outside the list body so it is still operable
+        // while the filtered result is empty (or loading/erroring).
+        if (phone) _filterBar(context),
+        Expanded(
+          child: _content(
+            context,
+            filtering
+                ? _users
+                      .where(
+                        (ChatUser user) => _presenceOf(user) == Presence.online,
+                      )
+                      .toList(growable: false)
+                : _users,
+            filtering: filtering,
+          ),
+        ),
+      ],
     );
   }
 
