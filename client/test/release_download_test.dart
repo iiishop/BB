@@ -66,6 +66,7 @@ void main() {
   late ReleaseClient client;
   late Directory temp;
   late File file;
+  late String redirect;
   late _RangeHandler onProbe;
   late _RangeHandler onRange;
   late List<int> progress;
@@ -78,6 +79,7 @@ void main() {
   setUp(() async {
     onProbe = _partial;
     onRange = _partial;
+    redirect = _cdn;
     progress = [];
     cdnRequests = [];
     apiDownloads = 0;
@@ -98,7 +100,7 @@ void main() {
             apiDownloads++;
             final response = request.response;
             response.statusCode = 302;
-            response.headers.set(HttpHeaders.locationHeader, _cdn);
+            response.headers.set(HttpHeaders.locationHeader, redirect);
           case '/fixture':
             final range = request.headers.value(HttpHeaders.rangeHeader);
             final ifRange = request.headers.value(HttpHeaders.ifRangeHeader);
@@ -258,6 +260,92 @@ void main() {
     expect(cdnRequests.map((r) => r.range), ['bytes=0-0']);
     expect(await file.exists(), isFalse);
   });
+
+  test(
+    'a probe socket-open failure retries once from the trusted API',
+    () async {
+      var failConnect = true;
+      client.close();
+      client = ReleaseClient(
+        downloadConcurrency: 3,
+        httpFactory: () {
+          final loopback = LoopbackClient(server.port);
+          if (failConnect) {
+            failConnect = false;
+            loopback.inner.connectionFactory = (_, _, _) async {
+              throw const SocketException('fixture: connection failed to open');
+            };
+          }
+          return loopback;
+        },
+      );
+      final report = await client.download(_asset, file, progress.add);
+      expect(report.fellBack, isTrue);
+      expect(apiDownloads, 1);
+      expect(cdnRequests.map((r) => r.range), [null]);
+      await expectExactDownload();
+    },
+  );
+
+  for (final status in [null, HttpStatus.partialContent, HttpStatus.ok]) {
+    test(
+      'a broken CDN probe ($status) retries at the validated endpoint',
+      () async {
+        final partialWritten = Completer<void>();
+        onProbe = (request, _, _) async {
+          final socket = await request.response.detachSocket(
+            writeHeaders: false,
+          );
+          if (status == null) {
+            socket.destroy();
+            return;
+          }
+          if (status == HttpStatus.partialContent) {
+            socket.write(
+              'HTTP/1.1 206 Partial Content\r\n'
+              'Content-Range: bytes 0-0/$_size\r\n'
+              'ETag: $_etag\r\nContent-Length: 1\r\n\r\n',
+            );
+          } else {
+            socket.write('HTTP/1.1 200 OK\r\nContent-Length: $_size\r\n\r\n');
+            socket.add([255]);
+          }
+          await socket.flush();
+          if (status == HttpStatus.ok) {
+            await partialWritten.future.timeout(const Duration(seconds: 5));
+          }
+          await socket.close();
+          socket.destroy();
+        };
+        final report = await client.download(_asset, file, (received) {
+          progress.add(received);
+          if (received == 1 && !partialWritten.isCompleted) {
+            partialWritten.complete();
+          }
+        });
+        expect(report.fellBack, isTrue);
+        expect(report.peakRequests, 1);
+        expect(apiDownloads, 1);
+        expect(cdnRequests.map((r) => r.range), ['bytes=0-0', null]);
+        if (status == HttpStatus.ok) expect(progress.take(2), [1, 0]);
+        await expectExactDownload();
+      },
+    );
+  }
+
+  test(
+    'a probe refuses untrusted redirects without issuing a full GET',
+    () async {
+      redirect = 'https://untrusted.example/fixture';
+      await expectLater(
+        client.download(_asset, file, progress.add),
+        throwsStateError,
+      );
+      expect(apiDownloads, 1);
+      expect(cdnRequests, isEmpty);
+      expect(await file.exists(), isFalse);
+    },
+  );
 
   test('cancelling a pending probe prevents a full request', () async {
     final started = Completer<void>();

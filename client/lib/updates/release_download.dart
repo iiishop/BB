@@ -41,23 +41,25 @@ class _PackageDownload {
       return const DownloadReport(peakRequests: 1, fellBack: false);
     }
 
-    final (probe, endpoint) = await client._request(
-      initial,
-      asset: true,
-      range: (start: 0, end: 0),
-    );
-    if (probe.statusCode == HttpStatus.ok) {
-      await _single(probe);
-      return const DownloadReport(peakRequests: 1, fellBack: true);
-    }
-
+    var endpoint = initial;
     try {
+      final (probe, finalUri) = await client._request(
+        initial,
+        asset: true,
+        range: (start: 0, end: 0),
+        isRangeProbe: true,
+      );
+      endpoint = finalUri;
+      if (probe.statusCode == HttpStatus.ok) {
+        await _useFullProbe(probe);
+        return const DownloadReport(peakRequests: 1, fellBack: true);
+      }
       final etag = await _validateProbe(probe);
       // Reuse the validated endpoint so each piece does not request a new
       // GitHub API redirect or bind to a different signed URL.
       await _parallel(endpoint, etag, lanes);
       return DownloadReport(peakRequests: _peak, fellBack: false);
-    } on _UnreliableRange {
+    } on _UnreliableRange catch (error) {
       client._ensureOpen();
       client._http.close(force: true);
       client._http = client._openHttp();
@@ -65,8 +67,21 @@ class _PackageDownload {
         _received = 0;
         progress(0);
       }
-      await _single(await client._get(endpoint, asset: true));
+      await _single(await client._get(error.endpoint ?? endpoint, asset: true));
       return DownloadReport(peakRequests: _peak, fellBack: true);
+    }
+  }
+
+  Future<void> _useFullProbe(HttpClientResponse response) async {
+    // A 200 can carry the full package. If this response to Range is unusable,
+    // allow the same plain-GET fallback as for a failed 206 probe.
+    try {
+      await _single(response);
+    } on _InvalidPackageBody {
+      throw const _UnreliableRange();
+    } on Exception catch (error) {
+      if (!ReleaseClient._isTransportFailure(error)) rethrow;
+      throw const _UnreliableRange();
     }
   }
 
@@ -74,25 +89,25 @@ class _PackageDownload {
     // The optional probe establishes range support. A final response that
     // rejects Range can still succeed as a plain GET. _request handles rate
     // limits and redirect trust before any response reaches this check.
-    final etag = _uniqueHeader(response, HttpHeaders.etagHeader);
-    if (etag == null ||
-        !_strongETag.hasMatch(etag) ||
-        !_matches(response, 0, 0)) {
-      await ReleaseClient._discard(response);
-      throw const _UnreliableRange();
-    }
-    var bytes = 0;
     try {
+      final etag = _uniqueHeader(response, HttpHeaders.etagHeader);
+      if (etag == null ||
+          !_strongETag.hasMatch(etag) ||
+          !_matches(response, 0, 0)) {
+        await ReleaseClient._discard(response);
+        throw const _UnreliableRange();
+      }
+      var bytes = 0;
       await for (final chunk in _body(response)) {
         bytes += chunk.length;
         if (bytes > 1) throw const _UnreliableRange();
       }
+      if (bytes != 1) throw const _UnreliableRange();
+      return etag;
     } on Exception catch (error) {
-      if (!_isTransient(error)) rethrow;
+      if (!ReleaseClient._isTransportFailure(error)) rethrow;
       throw const _UnreliableRange();
     }
-    if (bytes != 1) throw const _UnreliableRange();
-    return etag;
   }
 
   Future<void> _parallel(Uri endpoint, String etag, int lanes) async {
@@ -200,7 +215,10 @@ class _PackageDownload {
         if (offset != end + 1) throw const _RetryRange();
         return;
       } on Exception catch (error) {
-        if (!_isTransient(error)) rethrow;
+        if (error is! _RetryRange &&
+            !ReleaseClient._isTransportFailure(error)) {
+          rethrow;
+        }
         ensureActive();
         if (attempt > 0 || offset > end) throw const _UnreliableRange();
         // Resume at the first unwritten byte; If-Range binds the retry to the
@@ -215,21 +233,23 @@ class _PackageDownload {
     if (!_identity(response) ||
         (response.contentLength >= 0 && response.contentLength != asset.size)) {
       await ReleaseClient._discard(response);
-      throw StateError('安装包长度或编码与 Release 不一致。');
+      throw _InvalidPackageBody('安装包长度或编码与 Release 不一致。');
     }
     final out = await file.open(mode: FileMode.writeOnly);
     try {
       await for (final chunk in _body(response)) {
         client._ensureOpen();
         if (_received + chunk.length > asset.size) {
-          throw StateError('安装包超过预期长度。');
+          throw _InvalidPackageBody('安装包超过预期长度。');
         }
         await out.writeFrom(chunk);
         client._ensureOpen();
         _received += chunk.length;
         progress(_received);
       }
-      if (_received != asset.size) throw StateError('安装包下载中断或不完整，请重试。');
+      if (_received != asset.size) {
+        throw _InvalidPackageBody('安装包下载中断或不完整，请重试。');
+      }
       await out.flush();
     } finally {
       await out.close();
@@ -251,12 +271,6 @@ class _PackageDownload {
             response.contentLength == end - start + 1);
   }
 
-  static bool _isTransient(Exception error) =>
-      error is _RetryRange ||
-      error is SocketException ||
-      error is HttpException ||
-      error is TimeoutException;
-
   static Stream<List<int>> _body(HttpClientResponse response) =>
       response.timeout(const Duration(seconds: 30));
 
@@ -273,9 +287,15 @@ class _PackageDownload {
 }
 
 class _UnreliableRange implements Exception {
-  const _UnreliableRange();
+  const _UnreliableRange({this.endpoint});
+
+  final Uri? endpoint;
 }
 
 class _RetryRange implements Exception {
   const _RetryRange();
+}
+
+class _InvalidPackageBody extends StateError {
+  _InvalidPackageBody(super.message);
 }

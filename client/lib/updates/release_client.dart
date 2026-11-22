@@ -73,6 +73,7 @@ class ReleaseClient {
     required bool asset,
     ({int start, int end})? range,
     String? etag,
+    bool isRangeProbe = false,
   }) async {
     var uri = initial;
     for (var hop = 0; hop < 5; hop++) {
@@ -90,38 +91,14 @@ class ReleaseClient {
               : uri.host == 'api.github.com' &&
                     uri.path == '/repos/iiishop/BB/releases');
       if (!allowed) throw StateError('更新下载重定向到了不受信任的位置。');
-      final request = await _http.getUrl(uri);
-      request.followRedirects = false;
-      request.headers.set(HttpHeaders.userAgentHeader, 'BB-client-updater');
-      request.headers.set(HttpHeaders.acceptEncodingHeader, 'identity');
-      if (asset) {
-        request.headers.set(
-          HttpHeaders.acceptHeader,
-          'application/octet-stream',
-        );
-        if (range != null) {
-          request.headers.set(
-            HttpHeaders.rangeHeader,
-            'bytes=${range.start}-${range.end}',
-          );
-          if (etag != null) {
-            request.headers.set(HttpHeaders.ifRangeHeader, etag);
-          }
-        }
-      } else {
-        request.headers.set(
-          HttpHeaders.acceptHeader,
-          'application/vnd.github+json',
-        );
+      final HttpClientResponse response;
+      try {
+        response = await _send(uri, asset: asset, range: range, etag: etag);
+      } on Exception catch (error) {
+        if (!isRangeProbe || !_isTransportFailure(error)) rethrow;
+        // Preserve the last validated hop even if it never sent headers.
+        throw _UnreliableRange(endpoint: uri);
       }
-      final response = await request.close().timeout(
-        const Duration(seconds: 25),
-        onTimeout: () {
-          final error = TimeoutException('等待更新服务器响应超时。');
-          request.abort(error);
-          throw error;
-        },
-      );
       if ([301, 302, 303, 307, 308].contains(response.statusCode)) {
         final location = response.headers.value(HttpHeaders.locationHeader);
         await _discard(response);
@@ -145,6 +122,42 @@ class ReleaseClient {
     }
     throw StateError('更新下载重定向次数过多。');
   }
+
+  Future<HttpClientResponse> _send(
+    Uri uri, {
+    required bool asset,
+    required ({int start, int end})? range,
+    required String? etag,
+  }) async {
+    final request = await _http.getUrl(uri);
+    request.followRedirects = false;
+    request.headers.set(HttpHeaders.userAgentHeader, 'BB-client-updater');
+    request.headers.set(HttpHeaders.acceptEncodingHeader, 'identity');
+    request.headers.set(
+      HttpHeaders.acceptHeader,
+      asset ? 'application/octet-stream' : 'application/vnd.github+json',
+    );
+    if (range != null) {
+      request.headers.set(
+        HttpHeaders.rangeHeader,
+        'bytes=${range.start}-${range.end}',
+      );
+      if (etag != null) request.headers.set(HttpHeaders.ifRangeHeader, etag);
+    }
+    return request.close().timeout(
+      const Duration(seconds: 25),
+      onTimeout: () {
+        final error = TimeoutException('等待更新服务器响应超时。');
+        request.abort(error);
+        throw error;
+      },
+    );
+  }
+
+  static bool _isTransportFailure(Exception error) =>
+      error is SocketException ||
+      error is HttpException ||
+      error is TimeoutException;
 
   static DateTime? _retryAt(HttpHeaders headers, String? retryAfter) {
     final now = DateTime.now();
