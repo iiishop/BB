@@ -500,10 +500,7 @@ class ChatLedger {
     return _mutate(() async {
       if (stillCurrent != null && !stillCurrent()) throw staleIdentity;
       if (expectedIdentity != null) {
-        final ConsumerBinding? binding = _bindingLocked(consumerSession);
-        if (binding == null || binding.account != account || !expectedIdentity.matches(binding.identity)) {
-          throw staleBinding('消费者绑定版本已变化');
-        }
+        _requireEventBindingLocked(account, consumerSession, expectedIdentity);
       }
       final Map<String, dynamic> subscriptions =
           _account(account)['subscriptions'] as Map<String, dynamic>;
@@ -552,7 +549,14 @@ class ChatLedger {
     return ((subscriptions[consumer] as Map<String, dynamic>)['peers'] as Map<String, dynamic>)[peer] as Map<String, dynamic>;
   }
 
-  Future<void> setSubscriptionCursor(String account, String consumer, String peer, int cursor) => _mutate(() async {
+  Future<void> setSubscriptionCursor(
+    String account,
+    String consumer,
+    String peer,
+    int cursor, {
+    void Function()? beforeMutation,
+  }) => _mutate(() async {
+    beforeMutation?.call();
     final Map<String, dynamic> subscription = _subscriptionLocked(account, consumer, peer);
     if (cursor > (subscription['server_cursor'] as int)) {
       subscription['server_cursor'] = cursor;
@@ -1842,12 +1846,27 @@ class ChatLedger {
 
   // ------------------------------------------------------------ local events --
 
+  void _requireEventBindingLocked(
+    String account,
+    String consumerSession,
+    ExpectedIdentity expectedIdentity,
+  ) {
+    final ConsumerBinding? binding = _bindingLocked(consumerSession);
+    if (binding == null ||
+        binding.account != account ||
+        !expectedIdentity.matches(binding.identity)) {
+      throw staleBinding('消费者绑定版本已变化');
+    }
+  }
+
   Future<LocalEventEntry?> appendLocalEvent({
     required String account,
     required String consumerSession,
     required LocalEvent event,
+    void Function()? beforeMutation,
   }) {
     return _mutate(() async {
+      beforeMutation?.call();
       final Map<String, dynamic> events =
           _account(account)['events'] as Map<String, dynamic>;
       final Map<String, dynamic> feed = events.putIfAbsent(
@@ -1883,8 +1902,14 @@ class ChatLedger {
     required String consumerSession,
     required int afterCursor,
     int limit = 50,
+    ExpectedIdentity? expectedIdentity,
+    bool Function()? stillCurrent,
   }) {
     return _locked(() async {
+      if (stillCurrent != null && !stillCurrent()) throw staleIdentity;
+      if (expectedIdentity != null) {
+        _requireEventBindingLocked(account, consumerSession, expectedIdentity);
+      }
       final Map<String, dynamic> events =
           _account(account)['events'] as Map<String, dynamic>;
       final Map<String, dynamic>? feed =

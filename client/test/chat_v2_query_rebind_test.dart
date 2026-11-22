@@ -111,9 +111,10 @@ void main() {
 
   Future<Map<String, dynamic>> post(
     String path,
-    Map<String, dynamic> body,
-  ) async {
-    return _postV2(address, path, body, owner: owner);
+    Map<String, dynamic> body, {
+    String? ownerKey,
+  }) async {
+    return _postV2(address, path, body, owner: ownerKey ?? owner);
   }
 
   Future<Map<String, dynamic>> auth() async {
@@ -140,7 +141,10 @@ void main() {
     chat = ChatService(
       api: _GatedApi(baseUri: backend.baseUri, gate: gate),
       session: session,
-      ledger: ChatLedger.atPath('${root.path}/ledger.json'),
+      ledger: ChatLedger.atPath(
+        '${root.path}/ledger.json',
+        beforeReplace: () => gate.pause('event-delivery'),
+      ),
       cacheRoot: Directory('${root.path}/cache'),
       webSocketHints: false,
     );
@@ -215,6 +219,106 @@ void main() {
       receipts,
       isEmpty,
       reason: 'a stale query must not leave consumable presentation evidence',
+    );
+  }
+
+  // Waiting at terminal-event delivery proves the request has passed the
+  // route's owner and identity checks and entered the actual event query.
+  Future<void> stageTerminalEvent() async {
+    final String consumerId = identity['consumer_id'] as String;
+    final task = DownloadTask(
+      taskId: 'test-task',
+      operationId: 'test-operation',
+      consumerSession: consumerId,
+      status: DownloadStatus.failed,
+      plannedPath: '${root.path}/unwritten',
+      errorCode: 'download_failed',
+      originIdentity: identity,
+    );
+    await chat.ledger.finishDownload(
+      account: _account,
+      task: task,
+      event: LocalEvent(
+        eventId: 'download-test-task',
+        account: _account,
+        consumerSession: consumerId,
+        type: LocalEventType.downloadFailed,
+        taskId: task.taskId,
+        operationId: task.operationId,
+        errorCode: task.errorCode,
+        originIdentity: identity,
+      ),
+    );
+    gate.arm('event-delivery');
+  }
+
+  for (final method in ['read', 'wait']) {
+    test(
+      'v2 events/$method refuses a binding replaced during the read',
+      () async {
+        final old = identity;
+        await stageTerminalEvent();
+        final pending = post('/v2/events/$method', withIdentity({}));
+        await gate.entered.future.timeout(const Duration(seconds: 3));
+
+        // Queue the owner CAS while the current delivery owns the file ledger
+        // lock. The lease changes before the pending request can read its page.
+        final replacement = chat.bindConsumerOwner(
+          ownerKeyHash: ownerKeyHash(owner),
+          consumerId: old['consumer_id'] as String,
+          expectedBindingRevision: old['binding_revision'] as int,
+          sessionId: 'replacement',
+        );
+        gate.open();
+        identity = (await replacement).identity.toJson();
+
+        final response = await pending.timeout(const Duration(seconds: 3));
+        expect(response['status'], 409);
+        expect(response['body']['error']['code'], 'stale_binding');
+        expect(response['body'], isNot(contains('result')));
+
+        final current = await post('/v2/events/$method', withIdentity({}));
+        expect(current['status'], 200);
+        expect(current['body']['identity'], identity);
+        final result = current['body']['result'] as Map<String, dynamic>;
+        if (method == 'wait') expect(result['reason'], 'events');
+        expect(result['next_cursor'], 1);
+        final entry = (result['items'] as List<dynamic>).single;
+        expect(entry['event']['origin_identity'], old);
+        expect(entry['event']['type'], 'download.failed');
+      },
+    );
+
+    test(
+      'v2 events/$method reports stale identity after an account switch',
+      () async {
+        await stageTerminalEvent();
+        final pending = post('/v2/events/$method', withIdentity({}));
+        await gate.entered.future.timeout(const Duration(seconds: 3));
+        session.establish(token: backend.tokenFor(_other), user: user(_other));
+        gate.open();
+
+        final response = await pending.timeout(const Duration(seconds: 3));
+        expect(response['status'], 409);
+        expect(response['body']['error']['code'], 'stale_identity');
+        expect(response['body'], isNot(contains('result')));
+
+        final otherOwner = newOwnerKey();
+        final enrolled = await post('/v2/consumers/create', {
+          'expected_auth': await auth(),
+          'session_id': 'switched-account',
+        }, ownerKey: otherOwner);
+        expect(enrolled['status'], 200);
+        identity = enrolled['body']['identity'] as Map<String, dynamic>;
+        final current = await post(
+          '/v2/events/read',
+          withIdentity({}),
+          ownerKey: otherOwner,
+        );
+        expect(current['status'], 200);
+        expect(current['body']['identity'], identity);
+        expect(current['body']['result']['items'], isEmpty);
+      },
     );
   }
 
