@@ -3,15 +3,11 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../tasks/task_scheduler.dart';
+import 'download_lane_preference.dart';
 import 'release_policy.dart';
 import 'update_contract.dart';
 
 part 'release_download.dart';
-
-const _defaultDownloadConcurrency = int.fromEnvironment(
-  'BB_UPDATE_DOWNLOAD_CONCURRENCY',
-  defaultValue: 1,
-);
 
 class ReleaseRateLimit implements Exception {
   const ReleaseRateLimit(this.retryAt);
@@ -28,9 +24,13 @@ class ReleaseRateLimit implements Exception {
 class ReleaseClient {
   ReleaseClient({
     HttpClient Function()? httpFactory,
-    this.downloadConcurrency = _defaultDownloadConcurrency,
+    this.downloadConcurrency = maxDownloadConcurrency,
   }) : _httpFactory = httpFactory ?? HttpClient.new {
-    RangeError.checkValueInInterval(downloadConcurrency, 1, 8);
+    RangeError.checkValueInInterval(
+      downloadConcurrency,
+      1,
+      maxDownloadConcurrency,
+    );
     _http = _openHttp();
   }
   final HttpClient Function() _httpFactory;

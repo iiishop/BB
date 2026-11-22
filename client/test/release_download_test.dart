@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:bb_client/updates/download_lane_preference.dart';
 import 'package:bb_client/updates/release_client.dart';
 import 'package:bb_client/updates/release_update_controller.dart';
 import 'package:bb_client/updates/update_contract.dart';
@@ -144,6 +145,12 @@ void main() {
     client.close();
     await server.close(force: true);
     await temp.delete(recursive: true);
+  });
+
+  test('default download cap is eight lanes', () {
+    final defaults = ReleaseClient();
+    addTearDown(defaults.close);
+    expect(defaults.downloadConcurrency, 8);
   });
 
   Future<void> expectExactDownload() async {
@@ -526,6 +533,39 @@ void main() {
     },
   );
 
+  test('restored cap is pinned until the next real download', () async {
+    final saved = await DownloadLanePreference.load(temp);
+    expect(saved.lanes, 8);
+    await saved.select(2);
+    final restored = await DownloadLanePreference.load(temp);
+    final controller = ReleaseUpdateController(
+      installer: Installer(),
+      cacheDirectory: temp,
+      lanePreference: restored,
+      safetyGate: InstallSafetyGate(),
+      httpFactory: () => LoopbackClient(server.port),
+    );
+    addTearDown(controller.dispose);
+    await controller.checkOnce();
+    final first = controller.download();
+    await restored.select(1);
+    await first;
+    expect(controller.snapshot.phase, UpdatePhase.ready);
+    expect(
+      cdnRequests.map((r) => r.range),
+      unorderedEquals([
+        'bytes=0-0',
+        'bytes=0-${_size ~/ 2 - 1}',
+        'bytes=${_size ~/ 2}-${_size - 1}',
+      ]),
+    );
+    cdnRequests.clear();
+    await controller.download();
+    expect(controller.snapshot.phase, UpdatePhase.ready);
+    expect(cdnRequests.map((r) => r.range), [null]);
+    expect((await DownloadLanePreference.load(temp)).lanes, 1);
+  });
+
   test(
     'a segmented package must pass the manifest before native handoff',
     () async {
@@ -534,10 +574,7 @@ void main() {
         installer: installer,
         cacheDirectory: temp,
         safetyGate: InstallSafetyGate(),
-        clientFactory: () => ReleaseClient(
-          downloadConcurrency: 3,
-          httpFactory: () => LoopbackClient(server.port),
-        ),
+        httpFactory: () => LoopbackClient(server.port),
       );
       addTearDown(controller.dispose);
       await controller.checkOnce();

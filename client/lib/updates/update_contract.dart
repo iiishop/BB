@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'download_lane_preference.dart';
+
 import 'package:flutter/foundation.dart';
 
 import '../services/install_safety_gate.dart';
@@ -116,6 +118,7 @@ class UpdateSnapshot {
 }
 
 abstract class UpdateController extends ChangeNotifier {
+  DownloadLanePreference? get lanePreference => null;
   UpdateSnapshot get snapshot;
   InstallSafetyGate get safetyGate;
 

@@ -15,6 +15,7 @@ class UpdateSettingsPage extends StatelessWidget {
   const UpdateSettingsPage({
     super.key,
     required this.state,
+    this.laneSelector,
     this.onCheck,
     this.onDownload,
     this.onInstall,
@@ -27,6 +28,7 @@ class UpdateSettingsPage extends StatelessWidget {
   });
 
   final UpdateUiState state;
+  final Widget? laneSelector;
 
   /// Start/retry a manual check. Also used by the idle and up-to-date phases.
   final VoidCallback? onCheck;
@@ -109,6 +111,7 @@ class UpdateSettingsPage extends StatelessWidget {
                 Text('当前版本 ${state.currentVersion}', style: text.bodySmall),
                 const SizedBox(height: AppSpacing.md),
                 _body(context),
+                ?laneSelector,
               ],
             ),
           ),
