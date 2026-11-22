@@ -179,7 +179,10 @@ try {
   await settings({clientUrl: client.origin, targetSession: "space-product", pollMs: 250});
   await until(async () => (await tool("bb_bridge_status")).state === "bound");
   const schemas = ctx.tools.schemas(handle.agent).filter(t=>t.name.startsWith("mcp__bb__space_"));
-  assert.equal(schemas.length, 24);
+  assert.equal(schemas.length, 28);
+  for (const action of ["list_profile_posts", "list_profile_months", "get_follow", "set_follow"]) {
+    assert.ok(schemas.some(t => t.name === "mcp__bb__space_" + action), action);
+  }
   assert.ok(!schemas.find(t=>t.name.endsWith("create_draft")).parameters.required.includes("operation_id"));
   const call = (name,args={}) => tool("mcp__bb__space_"+name,args);
   const first = await call("overview");
@@ -200,6 +203,13 @@ try {
   const postId = publication.resource_id;
   const post = await call("get_post",{post_id:postId,visit_id:"active-visit"});
   assert.deepEqual(post.images.map(i=>i.image_id),ordered);
+  const profile = await call("list_profile_posts", {
+    target_account: client.account,
+    timezone_offset_minutes: 0,
+  });
+  assert.equal(profile.items.length, 1);
+  assert.equal(profile.items[0].post_id, postId);
+  assert.deepEqual(profile.items[0].images, ordered.map(image_id => ({image_id})));
   assert.equal(post.view_count,1);
   assert.equal((await call("get_post",{post_id:postId,visit_id:"active-visit"})).view_count,1);
   assert.equal(post.read,false);
@@ -252,7 +262,7 @@ try {
   assert.equal(countTool(),0);
   assert.ok(ctx.tools.schemas().every(t=>!t.name.startsWith("mcp__bb__")));
   await close();
-  const result={installed_space:"PASS", tools:24, ten_images_ordered:true, image_bytes_at_provider:true,
+  const result={installed_space:"PASS", tools:schemas.length, profile_tool:"mcp__bb__space_list_profile_posts", ten_images_ordered:true, image_bytes_at_provider:true,
     model:"deterministic double; no semantic claim", explicit_read:true, visits_deduplicated:true,
     restart_no_republish:true, disabled_tools_removed:true, uninstall_restart:true};
   await writeFile(resolve(root,"space-installed.json"),JSON.stringify(result,null,2)+"\n");

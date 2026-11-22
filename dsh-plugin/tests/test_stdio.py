@@ -69,19 +69,24 @@ async def test_stdio_eight_tools_and_stateless_http(tmp_path):
                 "view_signature",
                 "update_signature",
             }
-            assert len([tool for tool in tools.tools if tool.name.startswith("space_")]) == 24
-            for action in (
-                "get_follow", "set_follow", "list_profile_posts", "list_profile_months", "read_events",
-            ):
-                rejected = await session.call_tool("space_" + action, {})
-                assert rejected.isError and rejected.structuredContent["status"] == 404
-                assert rejected.structuredContent["error"]["code"] == "unknown_tool"
-            assert not calls
-            denied = await session.call_tool("view_nickname", {})
-            assert (
-                denied.isError
-                and denied.structuredContent["error"]["code"] == "stale_binding"
-            )
+            assert len([tool for tool in tools.tools if tool.name.startswith("space_")]) == 28
+            rejected = await session.call_tool("space_read_events", {})
+            assert rejected.isError and rejected.structuredContent["status"] == 404
+            assert rejected.structuredContent["error"]["code"] == "unknown_tool"
+            target = {"target_account": "12345678"}
+            timeline = {**target, "timezone_offset_minutes": 0}
+            for name, payload in {
+                "view_nickname": {},
+                "space_get_follow": target,
+                "space_set_follow": {**target, "following": True},
+                "space_list_profile_posts": timeline,
+                "space_list_profile_months": timeline,
+            }.items():
+                denied = await session.call_tool(name, payload)
+                assert (
+                    denied.isError
+                    and denied.structuredContent["error"]["code"] == "stale_binding"
+                )
             assert not calls
             for name, payload in [
                 ("register_account", {"username": "Alice", "password": "Abc123"}),
