@@ -117,7 +117,7 @@ void main() {
     expect(find.byKey(HomeView.reconnectingBannerKey), findsNothing);
   });
 
-  testWidgets('the bottom-left avatar opens Profile in the phone layout', (
+  testWidgets('the header avatar opens Profile in the phone layout', (
     WidgetTester tester,
   ) async {
     tester.view.physicalSize = const Size(390, 844);

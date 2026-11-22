@@ -7,7 +7,12 @@
 
 ## 1. 交付范围
 
-- 默认主页改为“当前服务器注册用户列表”（含未联系用户），保留左下角本人 Profile 入口。
+- 默认主页改为“当前服务器注册用户列表”（含未联系用户）；窄屏页头左上角本人头像（与右侧
+  账号同一行、位于「消息」标题上方）打开 Profile，宽屏保留左侧栏底部入口。
+- 消息页列表上方提供「只看在线」开关，手机、折叠屏和宽屏均可用：默认关闭显示全部会话，
+  打开后按 `PresenceDirectory` 的最后确认状态只显示在线对端，刷新后按最新状态筛选；调整
+  窗口宽度保留当前筛选状态，手动关闭才恢复完整列表。无人在线（包括目录里只有当前账号）时
+  提示「暂无在线联系人」且开关仍可操作。切换筛选不改变最近消息排序，也不清除未读数。
 - 一对一聊天：有序 text/image 正文；视频/音频/PDF 等独立附件；媒体选择、粘贴、视频封面、
   播放、另存为。
 - 幂等发送：正文与每个独立附件各自使用稳定 `operation_id`；重试复用同一个 ID；已成功项
@@ -32,7 +37,7 @@ client/lib/services/download_manager.dart  预留路径、唯一命名、后台�
 client/lib/services/event_feed.dart        服务端事件补取到持久本地事件日志
 client/lib/services/media_stream_proxy.dart 点击播放的 loopback Range 流代理
 client/lib/services/local_auth_server.dart 九工具 + R3 内部路由（保留 auth/profile）
-client/lib/ui/chat/users_view.dart         注册用户列表、预览、在线状态、分页/刷新
+client/lib/ui/chat/users_view.dart         注册用户列表、预览、在线状态、「只看在线」筛选、分页/刷新
 client/lib/ui/chat/chat_page.dart          消息时间分组、附件卡、下载/播放/另存为
 client/lib/ui/chat/chat_composer.dart      有序草稿、图片/文件、Enter/Ctrl+Enter、Ctrl+V、失败重试
 client/lib/ui/chat/message_bubble.dart     正文按序 text/image、附件卡、上下文菜单
@@ -206,9 +211,13 @@ ETag/304、415/503 错误）。客户端只消费契约，不改 `server/contrac
 
 - 仍使用 STEP-2 的暖纸/墨色/单一 teal 设计 tokens：`AppColors`、`AppSpacing`、
   `AppRadius`；没有新增平行主题。
-- 主页：`BB` 品牌行 + 账号 + “消息”标题 + 全部注册用户逐行列表；行内头像、username、
-  在线点、最后联系时间、“谁：预览”（本人显示“我”），无历史显示“尚未联系 / 暂无消息”。
-  列表按 account 升序 keyset 分页（limit 1–100），30s 静默刷新，支持下拉刷新和“加载更多”。
+- 主页：窄屏页头为本人头像 + 账号 + “消息”标题（宽屏保留 `BB` 品牌行，Profile 入口在
+  左侧栏底部）+ 全部注册用户逐行列表；行内头像、username、在线点、最后联系时间、
+  “谁：预览”（本人显示“我”），无历史显示“尚未联系 / 暂无消息”。
+  消息页列表上方「只看在线」开关在所有布局可用，默认关闭，只按共享 presence 的最后确认值
+  过滤展示，不改排序/未读；零联系人且开关开启时同样进入「暂无在线联系人」空态。调整窗口
+  宽度保留筛选状态，手动关闭才恢复完整列表。列表按 account 升序 keyset 分页（limit 1–100），
+  30s 静默刷新，支持下拉刷新和“加载更多”。
 - 聊天页：日期分组 + 5 分钟时间分隔；正文 text/image 严格按序；附件卡显示类型/文件名/
   大小/视频封面；右键/长按菜单“下载/播放/另存为”；空态、加载、错误、断线横幅沿用既有组件。
 - 输入区：图片/附件入口 + 1–5 行输入框 + 发送；Enter 发送、Ctrl+Enter 换行、输入框聚焦时
