@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { mkdir, writeFile, readFile } from "node:fs/promises";
+import { probeProfileCovers } from "./profile-cover.mjs";
 
 const [packageRoot, evidenceRoot, bundlePath, clientConfig] =
   process.argv.slice(2);
@@ -102,7 +103,7 @@ const plannedQueries = [];
 let lastBridgeError;
 let callNumber = 0,
   lastTool;
-async function tool(name, args = {}, agent = handle?.agent) {
+async function executeTool(name, args = {}, agent = handle?.agent) {
   const r = await ctx.tools.execute({
     name,
     arguments: args,
@@ -111,6 +112,10 @@ async function tool(name, args = {}, agent = handle?.agent) {
     signal: new AbortController().signal,
   });
   lastTool = r;
+  return r;
+}
+async function tool(name, args = {}, agent = handle?.agent) {
+  const r = await executeTool(name, args, agent);
   assert.equal(r.isError, false, JSON.stringify(r.content));
   assert.ok(!r.value?.isError, JSON.stringify(r.content));
   return r.value?.structuredContent ?? r.value;
@@ -176,6 +181,35 @@ try {
     sessionId: "installed-product",
     agentOptions: { provider: "product-double", model: "fixed" },
   });
+  if (process.env.BB_PRODUCT_CASES === "profile-cover") {
+    const result = await probeProfileCovers({
+      client, ctx, executeTool, tool, settings, until,
+      async switchSession() {
+        await settings({ enabled: false });
+        await until(async () =>
+          ctx.tools.schemas().every((entry) => !entry.name.startsWith("mcp__bb__")),
+        );
+        await handle.dispose();
+        const sessionId = "profile-cover-second-account";
+        handle = await ctx.agents.create({
+          sessionId,
+          agentOptions: { provider: "product-double", model: "fixed" },
+        });
+        await settings({ enabled: true, targetSession: sessionId });
+      },
+    });
+    await writeFile(resolve(root, "profile-cover.json"), JSON.stringify(result, null, 2) + "\n");
+    console.log(JSON.stringify(result));
+  } else {
+    await testInstalledChat();
+  }
+} finally {
+  if (handle) await handle.dispose();
+  if (unregister) unregister();
+  if (ctx) await ctx.fiber.dispose();
+}
+
+async function testInstalledChat() {
   // Exercise the installed index.js live configuration getter, not a copied
   // filter or a settings-service substitute for rendered UI evidence.
   const scopePeer = await fetch(client.api + "/auth/register", {
@@ -466,8 +500,4 @@ try {
     JSON.stringify(result, null, 2) + "\n",
   );
   console.log(JSON.stringify(result));
-} finally {
-  if (handle) await handle.dispose();
-  if (unregister) unregister();
-  if (ctx) await ctx.fiber.dispose();
 }

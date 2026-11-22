@@ -21,6 +21,14 @@ from bb_auth_contract import (
     structural_error,
     validate_rules,
 )
+from bb_auth_contract.cover import (
+    DEFAULT_HEADER,
+    MAX_COVER_BYTES,
+    MIME_TYPES,
+    READ_PATH,
+    UPLOAD_PATH,
+    CoverResponse,
+)
 from bb_auth_contract.profile import (
     MAX_AVATAR_BYTES,
     AvatarResponse,
@@ -30,7 +38,8 @@ from bb_auth_contract.profile import (
     invalid,
     profile_changes,
 )
-from fastapi import Depends, FastAPI, File, Request, Response, UploadFile
+from fastapi import Depends, FastAPI, File, Header, Request, Response, UploadFile
+from fastapi import Path as ApiPath
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -44,6 +53,7 @@ from bb_server.avatars import (
     read_avatar,
     replace_avatar,
 )
+from bb_server.covers import read_cover, replace_cover
 from bb_server.public_challenge import directory_for, install_challenge_route
 from bb_server.storage import (
     cleanup_sessions,
@@ -335,6 +345,63 @@ def create_app(
         if etag_matches(request.headers.get("if-none-match"), etag):
             return Response(status_code=304, headers=headers)
         return Response(data, media_type=media_type, headers=headers)
+
+    @app.post(
+        UPLOAD_PATH,
+        response_model=CoverResponse,
+        responses={
+            **protected_errors,
+            413: {"model": ErrorResponse},
+            415: {"model": ErrorResponse},
+        },
+        dependencies=mutations,
+    )
+    async def upload_cover(
+        request: Request, identity: Identity, file: Annotated[UploadFile, File()]
+    ):
+        form = await request.form()
+        if len(form.multi_items()) != 1 or list(form) != ["file"]:
+            invalid("body", "extra", "只允许一个 file 字段")
+        raw = await file.read(MAX_COVER_BYTES + 1)
+        return await run_in_threadpool(replace_cover, path, identity["digest"], raw, clock)
+
+    cover_headers = {
+        "ETag": {"schema": {"type": "string"}},
+        DEFAULT_HEADER: {"schema": {"type": "string", "enum": ["true", "false"]}},
+    }
+
+    @app.get(
+        READ_PATH,
+        response_class=Response,
+        responses={
+            **protected_errors,
+            200: {
+                "headers": cover_headers,
+                "content": {
+                    mime: {"schema": {"type": "string", "format": "binary"}}
+                    for mime in MIME_TYPES
+                },
+            },
+            304: {"description": "ETag matched", "headers": cover_headers},
+        },
+    )
+    def cover(
+        account: Annotated[str, ApiPath(pattern=r"^[1-9][0-9]{7}$")],
+        identity: Identity,
+        if_none_match: Annotated[str | None, Header()] = None,
+    ):
+        display = read_cover(path, account)
+        etag = '"' + display.version + '"'
+        headers = {
+            "ETag": etag,
+            DEFAULT_HEADER: "true" if display.is_default else "false",
+            "Cache-Control": "private, no-cache",
+            "Vary": "Authorization",
+            "X-Content-Type-Options": "nosniff",
+        }
+        if etag_matches(if_none_match, etag):
+            return Response(status_code=304, headers=headers)
+        return Response(display.data, media_type=display.mime_type, headers=headers)
 
     from .chat import install
 

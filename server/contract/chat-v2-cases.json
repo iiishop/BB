@@ -169,6 +169,24 @@
     "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
   },
   "inputs": {
+    "view_cover": {
+      "expected_identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      },
+      "account": null
+    },
+    "update_cover": {
+      "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC",
+      "expected_identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      }
+    },
     "view_avatar": {
       "expected_identity": {
         "account": "10000001",
@@ -491,6 +509,34 @@
     }
   },
   "outputs": {
+    "view_cover": {
+      "identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      },
+      "result": {
+        "cover_url": "/covers/10000001",
+        "cover_version": "sha256-b1ff9c8ea3a780bad09b346c423d2d0e46815926879b18e841d928376a946640",
+        "account": "10000001",
+        "mime_type": "image/png",
+        "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC",
+        "is_default": false
+      }
+    },
+    "update_cover": {
+      "identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      },
+      "result": {
+        "cover_url": "/covers/10000001",
+        "cover_version": "sha256-b1ff9c8ea3a780bad09b346c423d2d0e46815926879b18e841d928376a946640"
+      }
+    },
     "get_notifications": {
       "identity": {
         "account": "10000001",
@@ -1146,6 +1192,18 @@
     }
   },
   "invalid_inputs": [
+    {
+      "id": "view_cover-missing-identity",
+      "operation": "view_cover",
+      "input": {}
+    },
+    {
+      "id": "update_cover-missing-identity",
+      "operation": "update_cover",
+      "input": {
+        "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC"
+      }
+    },
     {
       "id": "view_avatar-missing-identity",
       "operation": "view_avatar",

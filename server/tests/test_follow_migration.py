@@ -57,7 +57,7 @@ def test_v4_upgrade_rollback_retains_posts_chat_and_accounts(tmp_path, monkeypat
     migrate(path)
     with sqlite3.connect(path) as db:
         db.execute("PRAGMA foreign_keys=ON")
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 5
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 6
         assert {
             t: db.execute(f"SELECT * FROM {t}").fetchall() for t in before
         } == before
