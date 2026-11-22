@@ -642,6 +642,180 @@ class ChatService {
     return null;
   }
 
+  // ------------------------------------------------------- unread / viewed --
+
+  /// Account incoming unread per existing conversation for the human UI.
+  ///
+  /// The single derivation stays [ChatQueryService.listConversations]'
+  /// `incomingUnread`: server inbound message ids minus confirmed display
+  /// receipts. This method only names the client-owned human consumer and
+  /// pages that existing query; it never reads or writes the consumption
+  /// watermark (`consumed_through`) and never creates an outbound read
+  /// receipt. Peers without a conversation are absent (unread zero).
+  Future<Map<String, int>> incomingUnreadByPeer({int limit = 100}) async {
+    if (limit < 1 || limit > 100) {
+      throw _validation('limit 必须在 1–100 之间');
+    }
+    final AuthIdentity? current = session.identity;
+    if (current == null) {
+      throw unauthenticated;
+    }
+    final ({AuthIdentity identity, ConsumerBinding binding}) context =
+        await _captureLocalBinding(current.account);
+    final Map<String, int> unread = <String, int>{};
+    String after = '';
+    do {
+      final ConversationPage page = await query.listConversations(
+        consumerId: context.binding.consumerId,
+        afterAccount: after,
+        limit: limit,
+      );
+      for (final ConversationSummary summary in page.items) {
+        unread[summary.peerAccount] = summary.incomingUnread;
+      }
+      after = page.nextCursor ?? '';
+    } while (after.isNotEmpty);
+    if (!session.isCurrent(current)) {
+      throw unauthenticated;
+    }
+    return Map<String, int>.unmodifiable(unread);
+  }
+
+  /// Records the human UI entering [peerAccount]'s conversation as viewed.
+  ///
+  /// Entering is the view action: every inbound message up to the current
+  /// latest position gets a confirmed display receipt, which is the only fact
+  /// account incoming unread is derived from. Outgoing messages get none, and
+  /// consumption progress (`consumed_through`) is left untouched — this is not
+  /// an ACK and not an outbound read receipt. Returns the number of newly
+  /// confirmed display facts.
+  Future<int> markConversationViewed(String peerAccount) async {
+    if (!_accountPattern.hasMatch(peerAccount)) {
+      throw _validation('peer_account 必须是 8 位账号');
+    }
+    final AuthIdentity? current = session.identity;
+    if (current == null) {
+      throw unauthenticated;
+    }
+    final ({AuthIdentity identity, ConsumerBinding binding}) context =
+        await _captureLocalBinding(current.account);
+    final Set<String> displayed = await ledger.displayedMessageIds(
+      current.account,
+    );
+    final List<ChatMessage> inbound = <ChatMessage>[];
+    int position = 0;
+    while (true) {
+      final MessagePage page = await api.conversation(
+        token: current.token,
+        account: peerAccount,
+        afterPosition: position,
+        limit: 100,
+      );
+      if (!session.isCurrent(current)) {
+        throw unauthenticated;
+      }
+      for (final ChatMessage message in page.items) {
+        if (message.targetAccount == current.account &&
+            !displayed.contains(message.id)) {
+          inbound.add(message);
+        }
+      }
+      if (page.items.isEmpty || !page.hasMore) {
+        break;
+      }
+      if (page.nextPosition <= position) {
+        throw const FormatException('history cursor did not advance');
+      }
+      position = page.nextPosition;
+    }
+    final int confirmed = await _confirmInboundDisplay(
+      captured: current,
+      consumerId: context.binding.consumerId,
+      peerAccount: peerAccount,
+      messages: inbound,
+    );
+    if (!session.isCurrent(current)) {
+      throw unauthenticated;
+    }
+    return confirmed;
+  }
+
+  /// Records inbound [messages] the human UI actually rendered.
+  ///
+  /// Used for arrivals while the conversation stays open; same display-fact
+  /// basis as [markConversationViewed]. Bookkeeping only: no ACK, no
+  /// consumption watermark, no outbound read receipt.
+  Future<int> recordDisplayedIncoming({
+    required String peerAccount,
+    required Iterable<ChatMessage> messages,
+  }) async {
+    if (!_accountPattern.hasMatch(peerAccount)) {
+      throw _validation('peer_account 必须是 8 位账号');
+    }
+    final AuthIdentity? current = session.identity;
+    if (current == null) {
+      throw unauthenticated;
+    }
+    final List<ChatMessage> inbound = <ChatMessage>[
+      for (final ChatMessage message in messages)
+        if (message.targetAccount == current.account) message,
+    ];
+    if (inbound.isEmpty) {
+      return 0;
+    }
+    final ({AuthIdentity identity, ConsumerBinding binding}) context =
+        await _captureLocalBinding(current.account);
+    final Set<String> displayed = await ledger.displayedMessageIds(
+      current.account,
+    );
+    final int confirmed = await _confirmInboundDisplay(
+      captured: current,
+      consumerId: context.binding.consumerId,
+      peerAccount: peerAccount,
+      messages: <ChatMessage>[
+        for (final ChatMessage message in inbound)
+          if (!displayed.contains(message.id)) message,
+      ],
+    );
+    if (!session.isCurrent(current)) {
+      throw unauthenticated;
+    }
+    return confirmed;
+  }
+
+  /// Prepares and confirms display receipts for inbound messages.
+  ///
+  /// Reuses the ledger's existing exact-display entries: `prepareReceipt`
+  /// followed by the internal UI `confirmReceipts`. It deliberately skips the
+  /// contiguous consumer ACK so the recovery watermark keeps its own meaning.
+  Future<int> _confirmInboundDisplay({
+    required AuthIdentity captured,
+    required String consumerId,
+    required String peerAccount,
+    required Iterable<ChatMessage> messages,
+  }) async {
+    final List<String> receiptIds = <String>[];
+    for (final ChatMessage message in messages) {
+      final PresentationReceipt receipt = await ledger.prepareReceipt(
+        account: captured.account,
+        consumerId: consumerId,
+        consumerSession: _humanSession(captured.account),
+        peerAccount: peerAccount,
+        messageId: message.id,
+        position: message.position,
+        contentDigest: _messageDigest(message),
+      );
+      receiptIds.add(receipt.receiptId);
+    }
+    if (receiptIds.isEmpty) {
+      return 0;
+    }
+    return (await ledger.confirmReceipts(
+      account: captured.account,
+      receiptIds: receiptIds,
+    )).length;
+  }
+
   Future<MessagePage> loadConversation({
     required String peerAccount,
     int? afterPosition,
@@ -2507,6 +2681,8 @@ class ChatService {
       message: record.errorMessage ?? '该操作已失败，请用新的 operation_id 重试',
     );
   }
+
+  static final RegExp _accountPattern = RegExp(r'^[1-9][0-9]{7}$');
 
   static final RegExp _operationIdPattern = RegExp(r'^[A-Za-z0-9_-]{1,128}$');
 

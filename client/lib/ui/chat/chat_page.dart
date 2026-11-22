@@ -317,6 +317,7 @@ class _ChatPageState extends State<ChatPage> {
         _loading = false;
         _animateIdentities.clear();
       });
+      _recordDisplayed(page.items);
       _forgetCommittedPending();
       widget.onMessagesChanged?.call(List<ChatMessage>.unmodifiable(_messages));
       _retryUnresolvedLookups();
@@ -376,6 +377,7 @@ class _ChatPageState extends State<ChatPage> {
         _hasOlder = page.hasMore;
         _loadingOlder = false;
       });
+      _recordDisplayed(page.items);
       if (hadClients) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted || !_scrollController.hasClients) {
@@ -445,6 +447,7 @@ class _ChatPageState extends State<ChatPage> {
         _fetchedThrough = cursor;
         _animateIdentities.addAll(arrived);
       });
+      _recordDisplayed(loaded);
       _forgetCommittedPending();
       widget.onMessagesChanged?.call(List<ChatMessage>.unmodifiable(_messages));
       _retryUnresolvedLookups();
@@ -610,6 +613,23 @@ class _ChatPageState extends State<ChatPage> {
         _lookupInFlight.remove(operationId);
       }
     }
+  }
+
+  /// Reports messages this page rendered as exact display facts.
+  ///
+  /// Bookkeeping for account incoming unread only: it reuses confirmed display
+  /// receipts, never the consumption ACK, and never an outbound read receipt.
+  /// A failure stays silent instead of surfacing as a conversation error.
+  void _recordDisplayed(Iterable<ChatMessage> messages) {
+    unawaited(
+      widget.chat
+          .recordDisplayedIncoming(
+            peerAccount: widget.peer.account,
+            messages: messages,
+          )
+          .then<void>((int _) {})
+          .catchError((Object _) {}),
+    );
   }
 
   /// Merge by stable message identity and keep the displayed order. Existing

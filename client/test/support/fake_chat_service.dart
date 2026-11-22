@@ -26,6 +26,7 @@ class FakeChatService extends ChatService {
     Map<String, List<ChatMessage>>? conversations,
     Uint8List? png,
     this.pageSize,
+    this.userPageSize,
     this.gateAtPosition,
     this.gate,
   }) : users = List<ChatUser>.from(users),
@@ -127,6 +128,9 @@ class FakeChatService extends ChatService {
   final List<OutgoingPart> lastSentBody = <OutgoingPart>[];
   final List<OutgoingAttachment> lastSentAttachments = <OutgoingAttachment>[];
   final int? pageSize;
+
+  /// Test-only directory page cap so two-page list paths stay cheap.
+  final int? userPageSize;
   final int? gateAtPosition;
   final Completer<void>? gate;
   int _seq = 100;
@@ -173,12 +177,65 @@ class FakeChatService extends ChatService {
             )
             .toList()
           ..sort((ChatUser a, ChatUser b) => a.account.compareTo(b.account));
-    final int take = limit.clamp(1, 100);
+    final int cap = userPageSize != null && userPageSize! < limit
+        ? userPageSize!
+        : limit;
+    final int take = cap.clamp(1, 100);
     final List<ChatUser> page = accounts.take(take).toList();
     return UserPage(
       items: page,
       nextCursor: accounts.length > page.length ? page.last.account : null,
     );
+  }
+
+  /// Inbound message ids this double has already shown to the reader.
+  ///
+  /// Widget tests construct this double in `setUp`, outside the fake-async
+  /// zone, so chaining the real ledger's serial queue there would never be
+  /// flushed by `pump`. Modelling the display fact in plain memory keeps the
+  /// widget behaviour under test (badge count and clearing) and leaves ledger
+  /// durability to the service tests.
+  final Set<String> viewedMessageIds = <String>{};
+
+  /// Same rule as the real service: inbound messages minus display facts.
+  @override
+  Future<Map<String, int>> incomingUnreadByPeer({int limit = 100}) async {
+    return <String, int>{
+      for (final MapEntry<String, List<ChatMessage>> entry
+          in conversations.entries)
+        entry.key: entry.value
+            .where(
+              (ChatMessage message) =>
+                  message.targetAccount == self.account &&
+                  !viewedMessageIds.contains(message.id),
+            )
+            .length,
+    };
+  }
+
+  /// Records inbound message ids as viewed, mirroring the service's entry
+  /// rule: an opened conversation clears every seeded inbound message.
+  @override
+  Future<int> markConversationViewed(String peerAccount) {
+    return recordDisplayedIncoming(
+      peerAccount: peerAccount,
+      messages: conversations[peerAccount] ?? const <ChatMessage>[],
+    );
+  }
+
+  @override
+  Future<int> recordDisplayedIncoming({
+    required String peerAccount,
+    required Iterable<ChatMessage> messages,
+  }) async {
+    int recorded = 0;
+    for (final ChatMessage message in messages) {
+      if (message.targetAccount == self.account &&
+          viewedMessageIds.add(message.id)) {
+        recorded += 1;
+      }
+    }
+    return recorded;
   }
 
   @override
@@ -201,9 +258,7 @@ class FakeChatService extends ChatService {
     final bool backward = beforePosition != null;
     final List<ChatMessage> candidates = backward
         ? all
-              .where(
-                (ChatMessage message) => message.position < beforePosition,
-              )
+              .where((ChatMessage message) => message.position < beforePosition)
               .toList()
         : all
               .where(
@@ -372,7 +427,50 @@ class FakeChatService extends ChatService {
       operationId: operationId,
     );
     list.add(message);
+    // Mirror the server fact `GET /users` derives its directory row from: a
+    // committed message moves the pair's last contact time and preview. The
+    // home list can then be asserted against the same DTO the real route
+    // returns, without tests hand-editing their own sort input.
+    final int index = users.indexWhere(
+      (ChatUser user) => user.account == target,
+    );
+    if (index >= 0) {
+      final ChatUser previous = users[index];
+      users[index] = ChatUser(
+        account: previous.account,
+        username: previous.username,
+        avatarUrl: previous.avatarUrl,
+        avatarVersion: previous.avatarVersion,
+        presence: previous.presence,
+        lastContactAt: message.createdAt,
+        lastMessage: UserPreview(
+          id: message.id,
+          senderAccount: self.account,
+          senderUsername: self.username,
+          previewBody: _previewBody(kind, parts, attachment),
+        ),
+      );
+    }
     return message;
+  }
+
+  String _previewBody(
+    ChatMessageKind kind,
+    List<MessagePart> parts,
+    Attachment? attachment,
+  ) {
+    if (kind == ChatMessageKind.body) {
+      final String text = parts
+          .map(
+            (MessagePart part) => switch (part) {
+              TextPart(:final String text) => text,
+              ImagePart() => '[图片]',
+            },
+          )
+          .join();
+      return text.isEmpty ? '[消息]' : text;
+    }
+    return attachment == null ? '[附件]' : '[文件]${attachment.filename}';
   }
 
   @override

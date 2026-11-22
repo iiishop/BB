@@ -11,6 +11,7 @@ import '../../services/chat_service.dart';
 import '../../services/presence_directory.dart';
 import '../../services/profile_service.dart';
 import 'chat_format.dart';
+import 'conversation_order.dart';
 
 /// Default signed-in home: every registered user on the connected server,
 /// including people this account has never chatted with.
@@ -30,15 +31,19 @@ class UsersListView extends StatefulWidget {
   /// Last-confirmed presence shared with the open conversation; when absent
   /// the page falls back to the presence each list page carried.
   final PresenceDirectory? presence;
-  final void Function(ChatUser user) onOpenChat;
+
+  /// Opens the conversation. The returned future completes when the chat page
+  /// pops, so the list can re-read the server's new last-message time instead
+  /// of showing the old order until the next 30s tick.
+  final Future<void> Function(ChatUser user) onOpenChat;
   final VoidCallback? onSessionExpired;
 
   static const Key listKey = Key('users-list');
   static const Key emptyKey = Key('users-empty');
   static const Key errorKey = Key('users-error');
-  static const Key loadMoreKey = Key('users-load-more');
   static const Key refreshKey = Key('users-refresh');
   static Key rowKey(String account) => Key('user-row-$account');
+  static Key unreadKey(String account) => Key('user-unread-$account');
 
   @override
   State<UsersListView> createState() => _UsersListViewState();
@@ -46,21 +51,54 @@ class UsersListView extends StatefulWidget {
 
 class _UsersListViewState extends State<UsersListView> {
   final List<ChatUser> _users = <ChatUser>[];
-  String? _nextCursor;
+
+  /// Server-derived incoming unread per conversation, absent when zero.
+  Map<String, int> _unread = <String, int>{};
   bool _loading = true;
-  bool _loadingMore = false;
   String? _error;
   Timer? _refreshTimer;
   bool _inFlight = false;
+
+  /// Set when a refresh is requested while a directory read is still running
+  /// (for example, returning from a chat whose send committed meanwhile).
+  /// The in-flight snapshot may predate that send, so it is discarded and the
+  /// directory is read again before anything is applied.
+  bool _reloadQueued = false;
+
+  /// Last-seen directory preview per account (presence = account was seen,
+  /// value = its last message id or null).
+  ///
+  /// The 30s poll already fetches this page, so a preview that differs from
+  /// the last successfully counted snapshot is the lightweight "recount
+  /// needed" signal. It only triggers the shared unread derivation, never a
+  /// locally guessed count and never a full-history scan on every tick.
+  Map<String, String?> _knownPreviews = <String, String?>{};
+
+  /// Previews covered by the last successful unread derivation, captured when
+  /// that derivation started. A row/preview that is not in here may postdate
+  /// the counts on screen — including the first row after an empty directory —
+  /// so it triggers a recount.
+  Map<String, String?> _coveredPreviews = <String, String?>{};
+
+  /// Counts may be stale and the next list trigger must recompute them.
+  ///
+  /// A failed derivation keeps this set, so the next poll retries instead of
+  /// waiting for another preview change; a successful one clears it.
+  bool _unreadDirty = false;
+  bool _unreadRefreshInFlight = false;
+
+  /// A trigger arrived while a derivation was running: run once more when it
+  /// finishes so the counts cover that newer change.
+  bool _unreadRetryNow = false;
 
   @override
   void initState() {
     super.initState();
     widget.presence?.addListener(_onPresenceChanged);
-    unawaited(_load(reset: true));
+    unawaited(_load());
     _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       if (mounted && !_inFlight) {
-        unawaited(_load(reset: true, silent: true));
+        unawaited(_load(silent: true));
       }
     });
   }
@@ -78,70 +116,160 @@ class _UsersListViewState extends State<UsersListView> {
     }
   }
 
-  Future<void> _load({required bool reset, bool silent = false}) async {
+  /// Recomputes the badges from the shared account-level unread derivation.
+  ///
+  /// Runs are coalesced: a trigger arriving while one is in flight schedules a
+  /// single follow-up. On success the previews seen at the start become the
+  /// covered snapshot, so a message arriving mid-flight is still detected by
+  /// the next directory load, while unchanged previews never trigger a repeat
+  /// scan. A failed attempt keeps the last confirmed badges and stays dirty so
+  /// the next poll retries instead of waiting for another preview change.
+  Future<void> _refreshUnread() async {
+    if (_unreadRefreshInFlight) {
+      _unreadRetryNow = true;
+      return;
+    }
+    _unreadRefreshInFlight = true;
+    _unreadDirty = false;
+    final Map<String, String?> covered = _knownPreviews;
+    try {
+      final Map<String, int> unread = await widget.chat.incomingUnreadByPeer();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _unread = unread;
+        _coveredPreviews = covered;
+      });
+      _unreadRetryNow = _unreadRetryNow || _previewsDifferFromCovered();
+    } catch (_) {
+      // Keep the last confirmed badges; the next list trigger retries.
+      _unreadDirty = true;
+      _unreadRetryNow = false;
+      return;
+    } finally {
+      _unreadRefreshInFlight = false;
+      if (_unreadRetryNow && mounted) {
+        _unreadRetryNow = false;
+        unawaited(_refreshUnread());
+      }
+    }
+  }
+
+  /// Whether the directory shows a preview the counts on screen do not cover.
+  bool _previewsDifferFromCovered() {
+    if (_knownPreviews.length != _coveredPreviews.length) {
+      return true;
+    }
+    for (final MapEntry<String, String?> entry in _knownPreviews.entries) {
+      if (!_coveredPreviews.containsKey(entry.key) ||
+          _coveredPreviews[entry.key] != entry.value) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// Walks the whole account-keyset directory.
+  ///
+  /// `GET /users` paginates by account, so one page cannot be globally ordered
+  /// by message time: a later account may hold the newest conversation. The
+  /// list therefore reads every page before ordering, exactly as the live
+  /// chat test does, and refuses a cursor that does not advance instead of
+  /// looping forever.
+  Future<List<ChatUser>> _loadDirectory() async {
+    final List<ChatUser> users = <ChatUser>[];
+    final Set<String> seen = <String>{};
+    String after = '';
+    while (true) {
+      final UserPage page = await widget.chat.listUsers(
+        afterAccount: after,
+        limit: 100,
+      );
+      for (final ChatUser user in page.items) {
+        if (seen.add(user.account)) {
+          users.add(user);
+        }
+      }
+      final String? next = page.nextCursor;
+      if (next == null) {
+        return users;
+      }
+      if (next.compareTo(after) <= 0) {
+        throw const FormatException('user cursor did not advance');
+      }
+      after = next;
+    }
+  }
+
+  Future<void> _load({bool silent = false}) async {
     if (_inFlight) {
+      // A caller that needs the current directory (notably the refresh after
+      // returning from a conversation) must not be dropped just because a
+      // periodic read started earlier. Queue one more read; the in-flight
+      // snapshot is discarded when it arrives.
+      _reloadQueued = true;
       return;
     }
     _inFlight = true;
     if (!silent && mounted) {
       setState(() {
-        if (reset) {
-          _loading = true;
-          _error = null;
-        }
-      });
-    }
-    // Reserve the presence ordering ticket before the request starts: a page
-    // that started earlier must not overwrite a targeted read that started
-    // later and already confirmed a value.
-    final PresenceDirectory? presence = widget.presence;
-    final int? observation = presence?.beginObservation();
-    try {
-      final UserPage page = await widget.chat.listUsers(
-        afterAccount: reset ? '' : (_nextCursor ?? ''),
-      );
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        if (reset) {
-          _users
-            ..clear()
-            ..addAll(page.items);
-        } else {
-          final Set<String> seen = _users
-              .map((ChatUser user) => user.account)
-              .toSet();
-          for (final ChatUser user in page.items) {
-            if (seen.add(user.account)) {
-              _users.add(user);
-            }
-          }
-        }
-        _nextCursor = page.nextCursor;
-        _loading = false;
-        _loadingMore = false;
+        _loading = true;
         _error = null;
       });
-      // One fresh server page is authoritative for the accounts it contains;
-      // share it so an open conversation cannot keep a stale header. The
-      // ticket makes a page that started before a newer targeted read lose.
-      presence?.seed(page.items, observation: observation);
+    }
+    final PresenceDirectory? presence = widget.presence;
+    try {
+      while (true) {
+        _reloadQueued = false;
+        // Reserve the presence ordering ticket for this read: a snapshot that
+        // started earlier must not overwrite a targeted read that started
+        // later and already confirmed a value.
+        final int? observation = presence?.beginObservation();
+        final List<ChatUser> users = sortChatUsersByLastMessage(
+          await _loadDirectory(),
+        );
+        if (!mounted) {
+          return;
+        }
+        if (_reloadQueued) {
+          // A newer read was requested while this one was in flight; its
+          // snapshot may be older than the send that triggered the request.
+          continue;
+        }
+        setState(() {
+          _users
+            ..clear()
+            ..addAll(users);
+          _loading = false;
+          _error = null;
+        });
+        // A fresh directory read is authoritative for the accounts it
+        // contains; share it so an open conversation cannot keep a stale
+        // header. The ticket makes an older read lose.
+        presence?.seed(users, observation: observation);
+        _knownPreviews = {
+          for (final user in users) user.account: user.lastMessage?.id,
+        };
+        if (_unreadDirty || _previewsDifferFromCovered()) {
+          unawaited(_refreshUnread());
+        }
+        break;
+      }
     } on AuthFailure catch (failure) {
       if (!mounted) {
         return;
       }
       if (failure.status == 401) {
+        _reloadQueued = false;
         setState(() {
           _loading = false;
-          _loadingMore = false;
         });
         widget.onSessionExpired?.call();
         return;
       }
       setState(() {
         _loading = false;
-        _loadingMore = false;
         if (_users.isEmpty) {
           _error = failure.message;
         }
@@ -152,22 +280,33 @@ class _UsersListViewState extends State<UsersListView> {
       }
       setState(() {
         _loading = false;
-        _loadingMore = false;
         if (_users.isEmpty) {
           _error = '用户列表加载失败，请检查网络后重试';
         }
       });
     } finally {
       _inFlight = false;
+      if (_reloadQueued) {
+        // A request arrived after the loop's last check and could not be
+        // joined, so start a fresh read instead of leaving its caller stale.
+        _reloadQueued = false;
+        if (mounted) {
+          unawaited(_load(silent: true));
+        }
+      }
     }
   }
 
-  Future<void> _loadMore() async {
-    if (_nextCursor == null || _loadingMore) {
-      return;
+  // Explicit refreshes must recount even if viewing changed no preview id.
+  Future<void> _refresh({bool silent = false}) async {
+    await Future.wait([_load(silent: silent), _refreshUnread()]);
+  }
+
+  Future<void> _open(ChatUser user) async {
+    await widget.onOpenChat(user);
+    if (mounted) {
+      await _refresh(silent: true);
     }
-    setState(() => _loadingMore = true);
-    await _load(reset: false);
   }
 
   @override
@@ -197,7 +336,7 @@ class _UsersListViewState extends State<UsersListView> {
               const SizedBox(height: AppSpacing.md),
               OutlinedButton(
                 key: UsersListView.refreshKey,
-                onPressed: () => _load(reset: true),
+                onPressed: _refresh,
                 child: const Text('重新加载'),
               ),
             ],
@@ -224,17 +363,14 @@ class _UsersListViewState extends State<UsersListView> {
                 style: const TextStyle(color: AppColors.inkMuted),
               ),
               const SizedBox(height: AppSpacing.sm),
-              TextButton(
-                onPressed: () => _load(reset: true),
-                child: const Text('刷新'),
-              ),
+              TextButton(onPressed: _refresh, child: const Text('刷新')),
             ],
           ),
         ),
       );
     }
     return RefreshIndicator(
-      onRefresh: () => _load(reset: true),
+      onRefresh: _refresh,
       child: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 760),
@@ -258,9 +394,10 @@ class _UsersListViewState extends State<UsersListView> {
                 user: user,
                 presence:
                     widget.presence?.valueFor(user.account) ?? user.presence,
+                unread: _unread[user.account] ?? 0,
                 profile: widget.profile,
                 selfAccount: widget.chat.selfAccount,
-                onTap: () => widget.onOpenChat(user),
+                onTap: () => _open(user),
               );
             },
           ),
@@ -270,24 +407,6 @@ class _UsersListViewState extends State<UsersListView> {
   }
 
   Widget _footer() {
-    if (_nextCursor != null) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
-        child: Center(
-          child: _loadingMore
-              ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : TextButton(
-                  key: UsersListView.loadMoreKey,
-                  onPressed: _loadMore,
-                  child: const Text('加载更多用户'),
-                ),
-        ),
-      );
-    }
     return const Padding(
       padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
       child: Center(
@@ -305,6 +424,7 @@ class _UserRow extends StatelessWidget {
     super.key,
     required this.user,
     required this.presence,
+    required this.unread,
     required this.profile,
     required this.selfAccount,
     required this.onTap,
@@ -312,6 +432,9 @@ class _UserRow extends StatelessWidget {
 
   final ChatUser user;
   final Presence presence;
+
+  /// Server-derived incoming unread for this conversation; zero means no badge.
+  final int unread;
   final ProfileGateway profile;
   final String selfAccount;
   final VoidCallback onTap;
@@ -326,6 +449,7 @@ class _UserRow extends StatelessWidget {
     final String previewText = preview == null
         ? '暂无消息'
         : '$senderName：${preview.previewBody}';
+    final String? unreadLabel = unreadBadgeLabel(unread);
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(AppRadius.card),
@@ -336,7 +460,19 @@ class _UserRow extends StatelessWidget {
         ),
         child: Row(
           children: <Widget>[
-            _UserAvatar(user: user, profile: profile),
+            Badge(
+              isLabelVisible: unreadLabel != null,
+              backgroundColor: AppColors.danger,
+              label: Semantics(
+                label: '$unread 条未读',
+                excludeSemantics: true,
+                child: Text(
+                  unreadLabel ?? '',
+                  key: UsersListView.unreadKey(user.account),
+                ),
+              ),
+              child: _UserAvatar(user: user, profile: profile),
+            ),
             const SizedBox(width: AppSpacing.md),
             Expanded(
               child: Column(
