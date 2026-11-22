@@ -36,9 +36,11 @@ class UsersListView extends StatefulWidget {
 
   /// Bumped by the parent after a conversation closes so the badges reload.
   ///
-  /// Incoming unread belongs to the account and can only change while a
-  /// conversation is open, so a return-triggered refresh is the cheap signal;
-  /// the periodic list poll keeps its presence-only cost.
+  /// Returning from a conversation is the direct signal that its view facts
+  /// changed. The mounted list also refreshes when its own lightweight
+  /// directory poll sees a conversation's last message change, so a message
+  /// arriving while the reader is already back on the list appears without any
+  /// user action.
   final int refreshToken;
 
   static const Key listKey = Key('users-list');
@@ -68,6 +70,15 @@ class _UsersListViewState extends State<UsersListView> {
   /// Orders concurrent badge reads so a slow one cannot overwrite a newer
   /// result with stale facts.
   int _unreadGeneration = 0;
+
+  /// Last-seen directory preview per account (presence = account was seen,
+  /// value = its last message id or null).
+  ///
+  /// The 30s poll already fetches this page, so a changed preview is the
+  /// lightweight "a message arrived" signal: it only triggers the shared
+  /// unread derivation, never a locally guessed count and never a
+  /// full-history scan on every tick.
+  final Map<String, String?> _knownPreviews = <String, String?>{};
 
   @override
   void initState() {
@@ -109,9 +120,10 @@ class _UsersListViewState extends State<UsersListView> {
 
   /// Recomputes the badges from the shared account-level unread derivation.
   ///
-  /// Kept separate from the directory request: rows render immediately and
-  /// badges fill in, and the 30s presence poll never pays for a full-history
-  /// scan. A failed badge read keeps the last confirmed badges instead of
+  /// Kept separate from the directory request so rows render immediately and
+  /// badges fill in. The periodic poll only pays for this full-history scan
+  /// when the directory reports an actual last-message change, not on every
+  /// tick. A failed badge read keeps the last confirmed badges instead of
   /// turning the whole list into an error.
   Future<void> _refreshUnread() async {
     final int generation = ++_unreadGeneration;
@@ -149,6 +161,21 @@ class _UsersListViewState extends State<UsersListView> {
       final UserPage page = await widget.chat.listUsers(
         afterAccount: reset ? '' : (_nextCursor ?? ''),
       );
+      final Map<String, String?> previews = Map<String, String?>.of(
+        _knownPreviews,
+      );
+      bool messageChanged = false;
+      for (final ChatUser user in page.items) {
+        final String? previewId = user.lastMessage?.id;
+        if (previews.containsKey(user.account) &&
+            previews[user.account] != previewId) {
+          // The directory moved this conversation's last message: a new
+          // message arrived (or the previous one was replaced). The shared
+          // derivation decides whether it is inbound and unread.
+          messageChanged = true;
+        }
+        previews[user.account] = previewId;
+      }
       if (!mounted) {
         return;
       }
@@ -167,11 +194,17 @@ class _UsersListViewState extends State<UsersListView> {
             }
           }
         }
+        _knownPreviews
+          ..clear()
+          ..addAll(previews);
         _nextCursor = page.nextCursor;
         _loading = false;
         _loadingMore = false;
         _error = null;
       });
+      if (messageChanged) {
+        unawaited(_refreshUnread());
+      }
       // One fresh server page is authoritative for the accounts it contains;
       // share it so an open conversation cannot keep a stale header. The
       // ticket makes a page that started before a newer targeted read lose.

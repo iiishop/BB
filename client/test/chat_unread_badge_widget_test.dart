@@ -23,12 +23,19 @@ import 'support/fake_profile_gateway.dart';
 const AuthUser _self = AuthUser(account: '10000001', username: 'alice');
 final DateTime _now = DateTime.now().toUtc();
 
-ChatUser _user(String account, String username) => ChatUser(
+ChatUser _user(
+  String account,
+  String username, {
+  UserPreview? lastMessage,
+  DateTime? lastContactAt,
+}) => ChatUser(
   account: account,
   username: username,
   avatarUrl: '/avatars/$account.png',
   avatarVersion: 'v1',
   presence: Presence.offline,
+  lastMessage: lastMessage,
+  lastContactAt: lastContactAt,
 );
 
 ChatMessage _message({
@@ -290,4 +297,82 @@ void main() {
     expect(badgeOf(tester, carol.account), '1');
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'a mounted list shows 1 automatically after the return refresh finished',
+    (WidgetTester tester) async {
+      chat = buildChat(<String, List<ChatMessage>>{
+        bob.account: <ChatMessage>[
+          _message(
+            id: 'b1',
+            position: 1,
+            sender: bob.account,
+            target: _self.account,
+          ),
+        ],
+        carol.account: <ChatMessage>[
+          _message(
+            id: 'c1',
+            position: 1,
+            sender: carol.account,
+            target: _self.account,
+          ),
+        ],
+      });
+      await pumpAt(tester);
+      expect(badgeOf(tester, bob.account), '1');
+
+      // Enter and come back: this conversation clears and the refresh the
+      // return triggers has finished before the next step starts.
+      await tester.tap(find.byKey(UsersListView.rowKey(bob.account)));
+      await tester.pumpAndSettle();
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(badgeOf(tester, bob.account), isNull);
+      expect(badgeOf(tester, carol.account), '1');
+
+      // The list stays mounted and the reader does nothing: no tap, no drag,
+      // no pull-to-refresh. The peer sends one message, which the server
+      // directory now reports as that conversation's last message.
+      chat.conversations[bob.account]!.add(
+        _message(
+          id: 'b2',
+          position: 2,
+          sender: bob.account,
+          target: _self.account,
+          text: '自动出现',
+        ),
+      );
+      final int index = chat.users.indexWhere(
+        (ChatUser user) => user.account == bob.account,
+      );
+      chat.users[index] = _user(
+        bob.account,
+        'bob',
+        lastMessage: UserPreview(
+          id: 'b2',
+          senderAccount: bob.account,
+          senderUsername: 'bob',
+          previewBody: '自动出现',
+        ),
+        lastContactAt: DateTime.now().toUtc(),
+      );
+
+      // Only the mounted list's own poll advances; no user operation occurs.
+      await tester.pump(const Duration(seconds: 30));
+      await tester.pumpAndSettle();
+
+      expect(
+        badgeOf(tester, bob.account),
+        '1',
+        reason: 'the new message appears without any user action',
+      );
+      expect(
+        badgeOf(tester, carol.account),
+        '1',
+        reason: 'another conversation count is unchanged',
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
 }
