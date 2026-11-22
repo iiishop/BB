@@ -53,6 +53,10 @@ def test_auth_cache_failure_and_reopen(account_pair):
     url = f"/covers/{alice}"
     before = api.get(url, headers=b)
     assert before.status_code == 200 and before.headers[DEFAULT_HEADER] == "true"
+    assert before.headers["content-type"] == "image/png"
+    with Image.open(io.BytesIO(before.content)) as default:
+        assert default.size == (604, 326)
+        assert default.format == "PNG"
     assert before.content == api.get(f"/covers/{bob}", headers=a).content
     assert len(before.content) <= MAX_DISPLAY_BYTES
     assert (
@@ -112,7 +116,7 @@ def test_reencoded_resize_reuses_highest_source_in_either_order(
     account_pair, large_first
 ):
     api, path, (alice, a), (bob, b) = account_pair
-    asset = Path(__file__).parents[1] / "src/bb_server/profile_cover_default.webp"
+    asset = Path(__file__).parents[1] / "src/bb_server/profile_cover_default.png"
     with Image.open(asset) as wave:
         full = wave.convert("RGB").resize((1200, 600), Image.Resampling.LANCZOS)
     large = encode(full, "JPEG", quality=92)
@@ -142,7 +146,7 @@ def test_reencoded_resize_reuses_highest_source_in_either_order(
 
 def test_a_small_local_edit_is_not_pooled_even_when_the_rest_matches(account_pair):
     api, path, (alice, a), (bob, b) = account_pair
-    asset = Path(__file__).parents[1] / "src/bb_server/profile_cover_default.webp"
+    asset = Path(__file__).parents[1] / "src/bb_server/profile_cover_default.png"
     with Image.open(asset) as wave:
         full = wave.convert("RGB").resize((1200, 600), Image.Resampling.LANCZOS)
     original = encode(full, "JPEG", quality=92)

@@ -46,9 +46,8 @@ export async function probeProfileCovers({
   assert.equal(defaultA.meta.is_default, true);
   assert.equal(defaultPeer.meta.is_default, true);
   assert.deepEqual(defaultA.bytes, defaultPeer.bytes);
-  if (client.coverAsset) {
-    assert.deepEqual(defaultA.bytes, await readFile(client.coverAsset));
-  }
+  assert.ok(client.coverAsset, "Set BB_PROFILE_COVER_CLIENT_ASSET to the bundled client PNG");
+  assert.deepEqual(defaultA.bytes, await readFile(client.coverAsset));
   const deniedA = await executeTool(suffix("update_cover"), {
     account: second,
     base64: client.images[0],
@@ -113,7 +112,7 @@ export async function probeProfileCovers({
     own_and_other_reads: true,
     default_sha256: defaultA.meta.cover_version,
     default_bytes: defaultA.bytes.length,
-    default_matches_client_asset: Boolean(client.coverAsset),
+    default_matches_client_asset: true,
     upload_image_block_matches_http: true,
     invalid_upload_retains_prior: true,
     cross_account_tool_and_http_rejected: true,

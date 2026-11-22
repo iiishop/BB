@@ -32,8 +32,8 @@ def _version(data: bytes) -> str:
 
 @cache
 def default_cover() -> Display:
-    data = Path(__file__).with_name("profile_cover_default.webp").read_bytes()
-    return Display(data, "image/webp", _version(data), is_default=True)
+    data = Path(__file__).with_name("profile_cover_default.png").read_bytes()
+    return Display(data, "image/png", _version(data), is_default=True)
 
 
 def read_cover(path: Path, account: str) -> Display:

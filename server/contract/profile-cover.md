@@ -70,19 +70,24 @@ display image as ImageContent and omits `data` from structured/text metadata.
 The cover matrix is exercised by `server/tests/test_profile_cover.py`. On an
 integrated tree, run the installed DSH probe with
 `BB_PRODUCT_CASES=profile-cover` and
-`BB_PROFILE_COVER_CLIENT_ASSET=client/<asset-path>` using
+`BB_PROFILE_COVER_CLIENT_ASSET=client/assets/profile/default-cover.png` using
 `dsh-plugin/probes/journal/live.py --product`. The probe checks two isolated
 accounts against real DSH tools, the standalone Dart client and FastAPI.
+
+The shipped default is the same PNG as `client/assets/profile/default-cover.png`
+from `eeddc0b0f3258a366b05f9c5691fa70c89ffae73`. It is served byte-for-byte
+at 604×326 px (422,141 B), with ETag
+`"sha256-85e4f78178c812b90f453be0c9033ea49b4fd1223a84c91f70719d673edc6ba9"`.
 
 The real FastAPI process was exercised with Pillow 12.3.0. Sample dimensions
 and byte counts came from the uploaded and retrieved files.
 
 | Sample | Upload | Retrieved |
 | --- | --- | --- |
-| Sea crop, resized and encoded as WebP | 480×240, 45,926 B | 480×240 before upgrade, then the 1,200×600 JPEG below |
-| Same sea picture, highest resolution | JPEG 1,200×600, 235,557 B | Same bytes, including after a later low-resolution upload |
-| Same picture and resolution, different codec | WebP 1,200×600, 218,480 B | Existing JPEG, equal pixel area |
-| Same-size mirror and local edit | JPEG 1,200×600, 235,622 B / 234,868 B | Separate covers, each byte-identical to its upload |
+| Sea crop, resized and encoded as WebP | 480×240, 50,756 B | 480×240 before upgrade, then the 1,200×600 JPEG below |
+| Same sea picture, highest resolution | JPEG 1,200×600, 221,259 B | Same bytes, including after a later low-resolution upload |
+| Same picture and resolution, different codec | WebP 1,200×600, 202,820 B | Existing JPEG, equal pixel area |
+| Same-size mirror and local edit | JPEG 1,200×600, 221,364 B / 220,622 B | Separate covers, each byte-identical to its upload |
 | Small clean PNG | 220×160, 510 B | Same bytes |
 | High-frequency size stress | JPEG 2,400×1,200, 3,672,141 B | WebP 1,280×640, 473,726 B |
 

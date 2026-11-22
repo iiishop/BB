@@ -168,7 +168,7 @@ def record_sources():
             repo / "server/src/bb_server" / name
             for name in (
                 "app.py", "cover_images.py", "covers.py", "storage.py",
-                "migrations/006_covers.sql", "profile_cover_default.webp",
+                "migrations/006_covers.sql", "profile_cover_default.png",
             )
         ]
         asset = os.environ.get("BB_PROFILE_COVER_CLIENT_ASSET")
