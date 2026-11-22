@@ -27,6 +27,14 @@ Future<void> parkedTask(SendPort started) async {
 Future<void> Function() parkOn(SendPort started) =>
     () => parkedTask(started);
 
+int Function() unsendableTask(ReceivePort port) =>
+    () => port.hashCode;
+
+Future<void> uncaughtTask() async {
+  scheduleMicrotask(() => throw StateError('worker callback failed'));
+  await Completer<void>().future;
+}
+
 void main() {
   test(
     'synchronous offline tasks overlap on independent worker isolates',
@@ -99,6 +107,23 @@ void main() {
     expect(await started.first, isTrue);
     running.cancel();
     await cancelled;
+    expect(await next.result, 42);
+  });
+
+  test('spawn and uncaught worker errors both free their slot', () async {
+    final port = ReceivePort();
+    addTearDown(port.close);
+    final scheduler = TaskScheduler(maxConcurrent: 1);
+    final spawn = expectLater(
+      scheduler.submit(unsendableTask(port)).result,
+      throwsArgumentError,
+    );
+    final uncaught = expectLater(
+      scheduler.submit(uncaughtTask).result,
+      throwsA(isA<RemoteError>()),
+    );
+    final next = scheduler.submit(answerTask);
+    await Future.wait([spawn, uncaught]);
     expect(await next.result, 42);
   });
 

@@ -29,6 +29,7 @@ class ReleaseUpdateController extends UpdateController {
   bool _disposed = false;
   bool _cancelled = false;
   ReleaseClient? _client;
+  DateTime? _retryAt;
   VerifiedUpdate? _verified;
   Directory? _staging;
 
@@ -61,6 +62,7 @@ class ReleaseUpdateController extends UpdateController {
   @override
   Future<void> check() async {
     if (_working || safetyGate.installing || snapshot.busy || _disposed) return;
+    if (_waitingForRetry()) return;
     _working = true;
     _cancelled = false;
     _verified = null;
@@ -100,6 +102,7 @@ class ReleaseUpdateController extends UpdateController {
         _disposed) {
       return;
     }
+    if (_waitingForRetry()) return;
     _working = true;
     _cancelled = false;
     _verified = null;
@@ -224,11 +227,19 @@ class ReleaseUpdateController extends UpdateController {
   }
 
   void _failure(Object error) {
+    if (error is ReleaseRateLimit) _retryAt = error.retryAt;
     if (_cancelled) return;
     final message = error is SocketException || error is TimeoutException
         ? '无法连接更新服务器，请检查网络后重试。'
         : error.toString().replaceFirst('Bad state: ', '');
     _emit(UpdatePhase.failed, message: message);
+  }
+
+  bool _waitingForRetry() {
+    final retryAt = _retryAt;
+    if (retryAt == null || !retryAt.isAfter(DateTime.now())) return false;
+    _emit(UpdatePhase.failed, message: ReleaseRateLimit(retryAt).toString());
+    return true;
   }
 
   void _finishClient() {

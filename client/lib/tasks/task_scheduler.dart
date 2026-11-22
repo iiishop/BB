@@ -95,8 +95,6 @@ class TaskHandle<T> {
 
   Future<T> _runWorker(FutureOr<T> Function() task) async {
     final port = ReceivePort();
-    // Attach the receiver before the worker can return or fail to start.
-    final reply = port.first;
     try {
       final worker = _worker = await Isolate.spawn(
         _execute<T>,
@@ -105,16 +103,22 @@ class TaskHandle<T> {
         onExit: port.sendPort,
       );
       if (_cancelled) worker.kill(priority: Isolate.immediate);
-      return switch (await reply) {
-        (true, final value) => value as T,
-        (false, final Object error, final StackTrace stack) =>
-          Error.throwWithStackTrace(error, stack),
-        [final String error, final String stack] => throw RemoteError(
-          error,
-          stack,
-        ),
-        _ => throw StateError('Task worker exited without a result.'),
-      };
+      // ReceivePort buffers replies from workers that finish during spawn.
+      RemoteError? fatalError;
+      await for (final reply in port) {
+        switch (reply) {
+          case (true, final value):
+            return value as T;
+          case (false, final Object error, final StackTrace stack):
+            Error.throwWithStackTrace(error, stack);
+          case [final String error, final String stack]:
+            fatalError = RemoteError(error, stack);
+          case null:
+            throw fatalError ??
+                StateError('Task worker exited without a result.');
+        }
+      }
+      throw StateError('Task worker response port closed.');
     } finally {
       _worker = null;
       port.close();

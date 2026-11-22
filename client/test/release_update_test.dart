@@ -9,77 +9,7 @@ import 'package:bb_client/updates/release_policy.dart';
 import 'package:bb_client/updates/release_update_controller.dart';
 import 'package:bb_client/updates/update_contract.dart';
 
-const info = UpdatePlatformInfo(
-  os: 'windows',
-  architecture: 'x64',
-  version: '1.9.0',
-  buildNumber: 2,
-);
-final payload = utf8.encode('isolated package bytes');
-String sums({bool wrong = false}) =>
-    '${wrong ? '0' * 64 : sha256.convert(payload)}  bb-1.10.0-windows-x64.zip\n';
-Map<String, dynamic> release({
-  String version = '1.10.0',
-  bool draft = false,
-  bool pre = false,
-}) {
-  Map<String, dynamic> asset(String name, int size, int id) => {
-    'id': id,
-    'name': name,
-    'size': size,
-    'state': 'uploaded',
-    'browser_download_url':
-        'https://github.com/iiishop/BB/releases/download/v$version/$name',
-  };
-  return {
-    'id': 123,
-    'tag_name': 'v$version',
-    'draft': draft,
-    'prerelease': pre,
-    'body': '# Original\n<script>never execute</script>\n[link](https://example.org)',
-    'html_url': 'https://github.com/iiishop/BB/releases/tag/v$version',
-    'assets': [
-      asset('bb-$version-windows-x64.zip', payload.length, 7),
-      asset('SHA256SUMS', sums().length, 8),
-    ],
-  };
-}
-
-class Installer implements UpdateInstaller {
-  int installs = 0;
-  @override
-  Future<UpdatePlatformInfo> platformInfo() async => info;
-  @override
-  Future<UpdateInstallResult> install(VerifiedUpdate update) async {
-    installs++;
-    return UpdateInstallResult.installerOpened;
-  }
-}
-
-// Only reroutes sockets to a real loopback HTTP server. Production URL and
-// redirect validation still execute unchanged before every request.
-class LoopbackClient implements HttpClient {
-  LoopbackClient(this.port);
-  final int port;
-  final HttpClient inner = HttpClient();
-  @override
-  set autoUncompress(bool value) {
-    inner.autoUncompress = value;
-  }
-
-  @override
-  set connectionTimeout(Duration? value) {
-    inner.connectionTimeout = value;
-  }
-
-  @override
-  Future<HttpClientRequest> getUrl(Uri uri) =>
-      inner.getUrl(uri.replace(scheme: 'http', host: '127.0.0.1', port: port));
-  @override
-  void close({bool force = false}) => inner.close(force: force);
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
-}
+import 'support/release_test_support.dart';
 
 void main() {
   test('SemVer numeric, pre-release, build metadata and invalid forms', () {
@@ -206,6 +136,7 @@ void main() {
     late Installer installer;
     int checks = 0;
     int status = 200;
+    String? retryAfter;
     bool wrongHash = false;
     bool truncated = false;
     bool foreignRedirect = false;
@@ -215,6 +146,7 @@ void main() {
     setUp(() async {
       checks = 0;
       status = 200;
+      retryAfter = null;
       wrongHash = false;
       truncated = false;
       foreignRedirect = false;
@@ -228,6 +160,12 @@ void main() {
           if (request.uri.path == '/repos/iiishop/BB/releases') {
             checks++;
             request.response.statusCode = status;
+            if (retryAfter != null) {
+              request.response.headers.set(
+                HttpHeaders.retryAfterHeader,
+                retryAfter!,
+              );
+            }
             request.response.write(jsonEncode([release()]));
           } else if (request.uri.path.endsWith('/assets/8')) {
             request.response.write(sums(wrong: wrongHash));
@@ -256,7 +194,8 @@ void main() {
         installer: installer,
         cacheDirectory: temp,
         safetyGate: InstallSafetyGate(),
-        clientFactory: () => ReleaseClient(http: LoopbackClient(port)),
+        clientFactory: () =>
+            ReleaseClient(httpFactory: () => LoopbackClient(port)),
       );
     });
     tearDown(() async {
@@ -280,6 +219,18 @@ void main() {
         expect(await temp.list().isEmpty, isTrue); // Check never downloads.
       },
     );
+    test('manual retries wait until the advertised HTTP date', () async {
+      status = 429;
+      retryAfter = HttpDate.format(
+        DateTime.now().add(const Duration(minutes: 2)),
+      );
+      await controller.checkOnce();
+      expect(controller.snapshot.phase, UpdatePhase.failed);
+      expect(controller.snapshot.message, contains('请求受限'));
+      status = 200;
+      await controller.check();
+      expect(checks, 1);
+    });
     test('download verifies, draft blocks install, explicit retry invokes installer', () async {
       await controller.check();
       await controller.download();
