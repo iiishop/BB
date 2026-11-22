@@ -39,7 +39,7 @@ class DeferredAvatarSourceReader implements AvatarSourceReader {
   int readCalls = 0;
 
   @override
-  Future<Uint8List> readPath(String path) {
+  Future<Uint8List> readPath(String path, {int maxBytes = maxAvatarBytes}) {
     readCalls += 1;
     if (readCalls == 1) {
       return firstRead.future;
@@ -63,11 +63,16 @@ class DeferredAvatarSourceReader implements AvatarSourceReader {
   }
 
   @override
-  Future<Uint8List> readBase64(String payload) async =>
-      throw UnimplementedError();
+  Future<Uint8List> readBase64(
+    String payload, {
+    int maxBytes = maxAvatarBytes,
+  }) async => throw UnimplementedError();
 
   @override
-  Future<Uint8List> readUrl(String url) async => throw UnimplementedError();
+  Future<Uint8List> readUrl(
+    String url, {
+    int maxBytes = maxAvatarBytes,
+  }) async => throw UnimplementedError();
 }
 
 void main() {

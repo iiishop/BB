@@ -30,3 +30,7 @@ executables:
 
 flutter:
   uses-material-design: true
+  assets:
+    # Shared default cover crop (DEA-492): the server serves the same PNG for
+    # accounts without an upload; the bundle copy bridges the first frames.
+    - assets/profile/default-cover.png

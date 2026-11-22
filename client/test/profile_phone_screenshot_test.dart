@@ -32,6 +32,7 @@ void main() {
   final String? fontPath = Platform.environment['QA_CJK_FONT'];
   final String? iconFontPath = Platform.environment['QA_ICON_FONT'];
   final String? avatarPath = Platform.environment['QA_AVATAR_PNG'];
+  final String? customCoverPath = Platform.environment['QA_COVER_PNG'];
   final String? skipReason = outputDir == null
       ? 'QA_SCREENSHOT_DIR 未设置：本次未生成截图'
       : null;
@@ -46,6 +47,10 @@ void main() {
     if (avatarPath != null && File(avatarPath).existsSync()) {
       gateway.avatar = File(avatarPath).readAsBytesSync();
     }
+    final Uint8List? customCover =
+        customCoverPath != null && File(customCoverPath).existsSync()
+        ? File(customCoverPath).readAsBytesSync()
+        : null;
     final GlobalKey boundary = GlobalKey();
     final HeartbeatController heartbeat = HeartbeatController(
       auth: AuthService(
@@ -113,6 +118,20 @@ void main() {
     // 1. Requested profile, own photo, signature present.
     await pumpPhone();
     await capture('01-profile-phone-default.png');
+
+    // 1b. A user-uploaded cover replaces the default wave.
+    if (customCover != null) {
+      gateway.cover = CoverImage(
+        account: '40218765',
+        bytes: customCover,
+        version: 'sha256-${'b' * 64}',
+        mimeType: 'image/png',
+        isDefault: false,
+      );
+      await pumpPhone();
+      await capture('10-profile-phone-custom-cover.png');
+      gateway.cover = null;
+    }
 
     // 2. No signature yet (explicit empty state, not invented text).
     await pumpPhone(
@@ -190,6 +209,7 @@ void main() {
       '07-profile-phone-ring-rest.png',
       '08-profile-phone-avatar-flight.png',
       '09-profile-phone-landed.png',
+      if (customCover != null) '10-profile-phone-custom-cover.png',
     ]) {
       expect(
         File('$outputDir${Platform.pathSeparator}$name').existsSync(),

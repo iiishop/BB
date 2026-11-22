@@ -455,6 +455,7 @@ class ProfilePanel extends StatefulWidget {
   /// messages-page entry.
   static const Key editProfileKey = Key('profile-edit');
   static const Key editSheetKey = Key('profile-edit-sheet');
+  static const Key changeCoverKey = Key('profile-change-cover');
 
   /// The avatar in flight; present only while the entry/cover Hero runs.
   static const Key avatarFlightKey = Key('profile-avatar-flight');
@@ -493,6 +494,7 @@ class ProfilePanel extends StatefulWidget {
 class _ProfilePanelState extends State<ProfilePanel> {
   Profile? _profile;
   Uint8List? _avatar;
+  CoverImage? _cover;
   bool _loading = false;
   bool _busy = false;
   String? _error;
@@ -526,6 +528,9 @@ class _ProfilePanelState extends State<ProfilePanel> {
         _avatar = image.bytes;
         _loading = false;
       });
+      // The cover is independent: a cover failure must never turn the profile
+      // into an error page, and the packaged default keeps the header filled.
+      unawaited(_loadCover());
     } on AuthFailure catch (failure) {
       if (!mounted) {
         return;
@@ -557,6 +562,88 @@ class _ProfilePanelState extends State<ProfilePanel> {
       });
     } on AuthFailure catch (failure) {
       _showSnack(failure.message);
+    }
+  }
+
+  /// Revalidates the displayed cover with the server.
+  ///
+  /// On failure the currently displayed bytes (custom or default) stay; the
+  /// page never falls back to an invented image.
+  Future<void> _loadCover({bool quiet = true}) async {
+    try {
+      final CoverImage cover = await widget.gateway.loadCover();
+      if (!mounted) {
+        return;
+      }
+      setState(() => _cover = cover);
+    } on AuthFailure catch (failure) {
+      if (!quiet) {
+        _showSnack(failure.message);
+      }
+    } catch (_) {
+      if (!quiet) {
+        _showSnack('封面加载失败，请稍后重试');
+      }
+    }
+  }
+
+  Future<void> _changeCover() async {
+    final bool galleryMode =
+        Theme.of(context).platform == TargetPlatform.android;
+    final _AvatarChoice? choice = await showDialog<_AvatarChoice>(
+      context: context,
+      builder: (BuildContext context) => _AvatarSourceDialog(
+        picker: widget.avatarPicker ?? const FileSelectorAvatarImagePicker(),
+        decodeCheck: widget.avatarDecodeCheck ?? isDecodableAvatarImage,
+        reader: widget.avatarSourceReader ?? DefaultAvatarSourceReader(),
+        galleryMode: galleryMode,
+        subject: '封面',
+        maxMegabytes: 8,
+      ),
+    );
+    if (choice == null) {
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      final CoverInfo info;
+      switch (choice.source) {
+        case 'path':
+          info = await widget.gateway.updateCoverFromPath(choice.value);
+        case 'url':
+          info = await widget.gateway.updateCoverFromUrl(choice.value);
+        case 'bytes':
+          info = await widget.gateway.updateCoverFromBytes(choice.bytes!);
+        default:
+          info = await widget.gateway.updateCoverFromBase64(choice.value);
+      }
+      if (!mounted) {
+        return;
+      }
+      // Show the server-rendered display image, never the uploaded source.
+      final CoverImage cover = await widget.gateway.loadCover();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _busy = false;
+        _cover = cover;
+      });
+      _showSnack('封面已更新（${info.coverVersion.substring(0, 12)}…）');
+    } on AuthFailure catch (failure) {
+      if (!mounted) {
+        return;
+      }
+      // Keep the previously displayed cover: a failed replacement is not a
+      // reason to blank the header.
+      setState(() => _busy = false);
+      _showSnack(_failureMessage(failure));
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _busy = false);
+      _showSnack('封面更新失败，请稍后重试');
     }
   }
 
@@ -894,6 +981,8 @@ class _ProfilePanelState extends State<ProfilePanel> {
                   children: <Widget>[
                     ProfileSeaCover(
                       height: coverHeight,
+                      imageBytes: _cover?.bytes,
+                      imageMimeType: _cover?.mimeType,
                       backBar: Padding(
                         padding: EdgeInsets.only(
                           top: insets.top + AppSpacing.sm,
@@ -1193,6 +1282,21 @@ class _ProfilePanelState extends State<ProfilePanel> {
                 ),
                 const Divider(height: AppSpacing.lg, color: AppColors.border),
                 ListTile(
+                  key: ProfilePanel.changeCoverKey,
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.landscape_outlined, size: 20),
+                  title: const Text('封面'),
+                  subtitle: Text(
+                    _cover?.isDefault ?? true
+                        ? '当前为默认海浪，点按上传替换'
+                        : '已使用自己的封面，点按替换',
+                  ),
+                  trailing: const Icon(Icons.edit_outlined, size: 18),
+                  onTap: () =>
+                      Navigator.of(sheetContext).pop(_PhoneEditAction.cover),
+                ),
+                const Divider(height: AppSpacing.lg, color: AppColors.border),
+                ListTile(
                   key: ProfilePanel.editNicknameKey,
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.badge_outlined, size: 20),
@@ -1236,6 +1340,8 @@ class _ProfilePanelState extends State<ProfilePanel> {
         await _changeAvatar();
       case _PhoneEditAction.removeAvatar:
         await _removeAvatar();
+      case _PhoneEditAction.cover:
+        await _changeCover();
       case _PhoneEditAction.nickname:
         await _editNickname();
       case _PhoneEditAction.signature:
@@ -1441,7 +1547,7 @@ class _ProfilePanelState extends State<ProfilePanel> {
   }
 }
 
-enum _PhoneEditAction { changeAvatar, removeAvatar, nickname, signature }
+enum _PhoneEditAction { changeAvatar, removeAvatar, cover, nickname, signature }
 
 /// A full-width settings row on the phone page.
 class _PhoneEntry extends StatelessWidget {
@@ -1687,6 +1793,8 @@ class _AvatarSourceDialog extends StatefulWidget {
     required this.decodeCheck,
     required this.reader,
     required this.galleryMode,
+    this.subject = '头像',
+    this.maxMegabytes = 5,
   });
 
   final AvatarImagePicker picker;
@@ -1695,6 +1803,12 @@ class _AvatarSourceDialog extends StatefulWidget {
 
   /// Android has no typeable path: the local entry is the system gallery.
   final bool galleryMode;
+
+  /// What is being replaced; the picker wording and limits change with it.
+  final String subject;
+
+  /// Server source limit for the subject: 5 MB avatar, 8 MB cover.
+  final int maxMegabytes;
 
   static const Key fieldKey = Key('avatar-source-field');
   static const Key applyKey = Key('avatar-source-apply');
@@ -1752,14 +1866,18 @@ class _AvatarSourceDialogState extends State<_AvatarSourceDialog> {
 
   String get _pathLabel => widget.galleryMode ? '本机图片' : '本机路径';
 
+  int get _maxBytes => widget.maxMegabytes * 1024 * 1024;
+
   String get _hint {
+    final String subject = widget.subject;
+    final int limit = widget.maxMegabytes;
     switch (_kind) {
       case _AvatarSourceKind.path:
         return widget.galleryMode
-            ? '从系统相册选择 PNG/JPEG/WebP 图片（≤ 5 MB）；选择后点「应用」才会更新头像。'
-            : '输入绝对路径或点「选择图片」；预览无误后点「应用」才会更新头像。';
+            ? '从系统相册选择 PNG/JPEG/WebP 图片（≤ $limit MB）；选择后点「应用」才会更新$subject。'
+            : '输入绝对路径或点「选择图片」；预览无误后点「应用」才会更新$subject。';
       case _AvatarSourceKind.url:
-        return 'https://…（客户端下载，只接受 PNG/JPEG/WebP，≤5MB）';
+        return 'https://…（客户端下载，只接受 PNG/JPEG/WebP，≤$limit MB）';
       case _AvatarSourceKind.base64:
         return '原始 base64 或 data:image/png;base64,…';
     }
@@ -1846,7 +1964,10 @@ class _AvatarSourceDialogState extends State<_AvatarSourceDialog> {
   /// Reads and validates a typed/selected path through the same reader the
   /// upload uses, then proves the bytes actually decode.
   Future<Uint8List> _validatePathBytes(String path) async {
-    final Uint8List bytes = await widget.reader.readPath(path);
+    final Uint8List bytes = await widget.reader.readPath(
+      path,
+      maxBytes: _maxBytes,
+    );
     if (!await widget.decodeCheck(bytes)) {
       throw const AvatarPickFailure('这个文件无法解码为图片，请换一张');
     }
@@ -1899,8 +2020,17 @@ class _AvatarSourceDialogState extends State<_AvatarSourceDialog> {
       // The platform picked this file, but its bytes still go through the same
       // size/magic/decode checks as a typed path.
       final Uint8List bytes =
-          selected.bytes ?? await widget.reader.readPath(selected.path ?? '');
-      validateAvatarBytes(bytes, sourceField: 'path');
+          selected.bytes ??
+          await widget.reader.readPath(
+            selected.path ?? '',
+            maxBytes: _maxBytes,
+          );
+      validateAvatarBytes(
+        bytes,
+        sourceField: 'path',
+        maxBytes: _maxBytes,
+        subject: widget.subject,
+      );
       if (!await widget.decodeCheck(bytes)) {
         throw const AvatarPickFailure('这个文件无法解码为图片，请换一张');
       }
@@ -2033,7 +2163,7 @@ class _AvatarSourceDialogState extends State<_AvatarSourceDialog> {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(AppRadius.card),
       ),
-      title: Text('更换头像', style: text.titleMedium),
+      title: Text('更换${widget.subject}', style: text.titleMedium),
       // A long path must not stretch the dialog: keep it a stable width and let
       // the text field scroll/wrap inside instead (verified in the real Linux
       // entry with a ~90-character Chinese path).

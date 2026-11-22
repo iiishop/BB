@@ -21,6 +21,9 @@ import 'support/fake_auth_backend.dart';
 final Uint8List _png = base64Decode(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
 );
+final Uint8List _png2 = base64Decode(
+  'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR4nGP8z8Dwn4GBgYGJAQoAHxcCAk+Uzr4AAAAASUVORK5CYII=',
+);
 
 void main() {
   late FakeAuthBackend backend;
@@ -218,4 +221,91 @@ void main() {
       expect(retired['status'], 404, reason: path);
     }
   });
+  test('view_cover returns the displayed image with default metadata', () async {
+    final Map<String, dynamic> viewed = await call(
+      '/v2/profile/view_cover',
+      <String, dynamic>{},
+    );
+    expect(viewed['account'], backend.validAccount);
+    expect(viewed['cover_url'], '/covers/${backend.validAccount}');
+    expect(viewed['cover_version'], backend.coverVersion);
+    expect(viewed['mime_type'], 'image/png');
+    expect(viewed['is_default'], isTrue);
+    expect(base64Decode(viewed['data'] as String), backend.coverBytes);
+
+    final Map<String, dynamic> other = await call(
+      '/v2/profile/view_cover',
+      <String, dynamic>{'account': backend.validAccount},
+    );
+    expect(other['account'], backend.validAccount);
+  });
+
+  test('update_cover accepts base64 and view_cover sees the new image', () async {
+    final Map<String, dynamic> updated = await call(
+      '/v2/profile/update_cover',
+      <String, dynamic>{'base64': base64Encode(_png2)},
+    );
+    expect(updated['cover_url'], '/covers/${backend.validAccount}');
+    expect(updated['cover_version'], backend.coverVersion);
+    expect(backend.coverUploadSizes, hasLength(1));
+
+    final Map<String, dynamic> viewed = await call(
+      '/v2/profile/view_cover',
+      <String, dynamic>{},
+    );
+    expect(viewed['is_default'], isFalse);
+    expect(base64Decode(viewed['data'] as String), _png2);
+    expect(viewed['cover_version'], updated['cover_version']);
+  });
+
+  test('view_cover honours the account filters', () async {
+    final Map<String, dynamic> invalid = await post(
+      '/v2/profile/view_cover',
+      withIdentity(<String, dynamic>{'account': '1234'}),
+      owner: owner,
+    );
+    expect(invalid['status'], 422);
+
+    final Map<String, dynamic> unknown = await post(
+      '/v2/profile/view_cover',
+      withIdentity(<String, dynamic>{'account': '10000002'}),
+      owner: owner,
+    );
+    expect(unknown['status'], 404);
+  });
+
+  test('update_cover rejects bad base64, extra fields and missing identity', () async {
+    final List<Map<String, dynamic>> cases = <Map<String, dynamic>>[
+      <String, dynamic>{'base64': 'not base64!!'},
+      <String, dynamic>{'base64': 'AAAA', 'account': backend.validAccount},
+      <String, dynamic>{},
+    ];
+    for (final Map<String, dynamic> body in cases) {
+      final Map<String, dynamic> response = await post(
+        '/v2/profile/update_cover',
+        withIdentity(body),
+        owner: owner,
+      );
+      expect(response['status'], 422, reason: '$body');
+    }
+    final Map<String, dynamic> noIdentity = await post(
+      '/v2/profile/update_cover',
+      <String, dynamic>{'base64': base64Encode(_png2)},
+      owner: owner,
+    );
+    expect(noIdentity['status'], 422);
+    expect(backend.coverUploadSizes, isEmpty);
+  });
+
+  test('an update_cover body above 8 MiB decoded is 413', () async {
+    final String tooLarge = base64Encode(Uint8List(8 * 1024 * 1024 + 1));
+    final Map<String, dynamic> response = await post(
+      '/v2/profile/update_cover',
+      withIdentity(<String, dynamic>{'base64': tooLarge}),
+      owner: owner,
+    );
+    expect(response['status'], 413);
+    expect(backend.coverUploadSizes, isEmpty);
+  });
+
 }

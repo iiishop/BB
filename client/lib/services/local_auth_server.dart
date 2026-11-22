@@ -64,6 +64,11 @@ class LocalAuthServer {
   /// overhead), so this bound is intentionally larger than the avatar bound.
   static const int maxChatRequestBytes = 48 * 1024 * 1024;
 
+  /// Contract: the guarded cover upload accepts a JSON body up to 12 MiB
+  /// (8 MiB decoded base64 plus envelope overhead) and rejects larger bodies
+  /// before parsing.
+  static const int maxCoverRequestBytes = 12 * 1024 * 1024;
+
   /// Field names the shared contract knows; an unknown extra key must not be
   /// echoed verbatim (it may contain a secret).
   static const Set<String> _knownFields = <String>{
@@ -212,7 +217,12 @@ class LocalAuthServer {
     }
     Map<String, dynamic> body;
     try {
-      body = await _readJsonObject(request, maxBytes: maxChatRequestBytes);
+      body = await _readJsonObject(
+        request,
+        maxBytes: path == '/v2/profile/update_cover'
+            ? maxCoverRequestBytes
+            : maxChatRequestBytes,
+      );
     } on AuthFailure catch (failure) {
       final bool tooLarge = failure.status == 413;
       await _writeEnvelope(request, tooLarge ? 413 : 422, <String, dynamic>{

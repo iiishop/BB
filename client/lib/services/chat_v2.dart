@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import '../models/auth_models.dart';
 import '../models/chat_models.dart';
@@ -46,7 +47,9 @@ class ChatV2Router {
       'url',
       'base64',
     },
+    '/v2/profile/view_cover': <String>{'expected_identity', 'account'},
     '/v2/profile/view_nickname': <String>{'expected_identity', 'account'},
+    '/v2/profile/update_cover': <String>{'expected_identity', 'base64'},
     '/v2/profile/update_nickname': <String>{'expected_identity', 'value'},
     '/v2/profile/view_signature': <String>{'expected_identity', 'account'},
     '/v2/profile/update_signature': <String>{'expected_identity', 'value'},
@@ -346,6 +349,35 @@ class ChatV2Router {
               captured: context.identity,
             ),
           };
+          return info.toJson();
+        });
+      case '/v2/profile/view_cover':
+        return _queryReply(expected, service, context.identity, context.binding, (
+          Set<String> created,
+        ) async {
+          final CoverImage image = await _profileGateway().loadCover(
+            account: args.values['account'] as String?,
+            captured: context.identity,
+          );
+          return <String, dynamic>{
+            'account': image.account,
+            'cover_url': image.coverUrl,
+            'cover_version': image.version,
+            'mime_type': image.mimeType,
+            'data': base64Encode(image.bytes),
+            'is_default': image.isDefault,
+          };
+        });
+      case '/v2/profile/update_cover':
+        return _queryReply(expected, service, context.identity, context.binding, (
+          Set<String> created,
+        ) async {
+          // Uploads always target the logged-in owner: the route has no
+          // `account` field, so a caller cannot write someone else's cover.
+          final CoverInfo info = await _profileGateway().updateCoverFromBytes(
+            args.values['cover_bytes'] as Uint8List,
+            captured: context.identity,
+          );
           return info.toJson();
         });
       case '/v2/profile/view_nickname':
@@ -655,6 +687,38 @@ class ChatV2Router {
     throw _V2Error(404, 'not_found', _messageByCode['not_found']!);
   }
 
+  /// Raw padded standard base64, decoded at most 8 MiB.
+  ///
+  /// The canonical round-trip rejects URL-safe alphabets, whitespace, missing
+  /// padding and data: prefixes instead of silently normalizing them, because
+  /// the shared contract says "raw padded standard base64".
+  Uint8List _coverBase64(_Request request) {
+    const int limit = 8 * 1024 * 1024;
+    final String value = request.string('base64', maxLength: 11184812)!;
+    if (value.length % 4 != 0 ||
+        !RegExp(r'^[A-Za-z0-9+/]*={0,2}$').hasMatch(value)) {
+      throw _validation('base64');
+    }
+    final Uint8List bytes;
+    try {
+      bytes = base64Decode(value);
+    } on FormatException {
+      throw _validation('base64');
+    }
+    if (base64Encode(bytes) != value) {
+      throw _validation('base64');
+    }
+    if (bytes.length > limit) {
+      throw _V2Error(
+        413,
+        'payload_too_large',
+        _messageByCode['payload_too_large']!,
+        <String>['base64'],
+      );
+    }
+    return bytes;
+  }
+
   _Args _parse(String path, _Request request) {
     final _Args args = _Args();
     if (path.startsWith('/v2/consumers/')) {
@@ -678,6 +742,7 @@ class ChatV2Router {
     args.expectedIdentity = _expectedIdentity(request);
     switch (path) {
       case '/v2/profile/view_avatar':
+      case '/v2/profile/view_cover':
       case '/v2/profile/view_nickname':
       case '/v2/profile/view_signature':
         args.values['account'] = request.optionalPattern(
@@ -696,6 +761,8 @@ class ChatV2Router {
           }
         }
         args.values['avatar_source'] = resolveAvatarSource(source);
+      case '/v2/profile/update_cover':
+        args.values['cover_bytes'] = _coverBase64(request);
       case '/v2/profile/update_nickname':
         args.values['value'] = normalizeUsername(request.string('value'));
       case '/v2/profile/update_signature':

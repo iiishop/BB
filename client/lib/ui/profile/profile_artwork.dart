@@ -15,17 +15,27 @@ import '../widgets/profile_avatar.dart';
 double profileCoverHeight(Size viewport) =>
     (viewport.height * 0.25).clamp(168.0, 260.0);
 
-/// The night-sea header drawn by the client itself.
+/// Shared packaged default cover (the sea-wave crop from the approved mockup).
 ///
-/// The reference layout uses a woodblock seascape; the repo owns no licensed
-/// artwork for it, so this is an original painted cover in the BB palette
-/// rather than a copied image. The cover is a header band, not a page
-/// wallpaper, and the back affordance stays legible over the sky scrim.
+/// The server owns the displayed cover and returns this same crop for accounts
+/// without an upload; the bundle copy only bridges the first frames while the
+/// fetch is in flight.
+const String defaultCoverAsset = 'assets/profile/default-cover.png';
+
+/// The sea-wave header band.
+///
+/// The displayed image comes from the server (`GET /covers/{account}`). While
+/// loading, or when the fetch has not produced bytes yet, the identical
+/// packaged crop is shown; the painted fallback only covers a missing asset, so
+/// the header never flashes an empty rectangle. The cover is a header band, not
+/// a page wallpaper, and the back affordance stays legible over the scrim.
 class ProfileSeaCover extends StatelessWidget {
   const ProfileSeaCover({
     super.key,
     required this.height,
     required this.backBar,
+    this.imageBytes,
+    this.imageMimeType,
   });
 
   final double height;
@@ -33,10 +43,36 @@ class ProfileSeaCover extends StatelessWidget {
   /// Back button + title row, laid over the sky.
   final Widget backBar;
 
+  /// Server display bytes (custom cover or the default image).
+  final Uint8List? imageBytes;
+  final String? imageMimeType;
+
   static const Key coverKey = Key('profile-cover');
+  static const Key defaultCoverKey = Key('profile-cover-default');
 
   @override
   Widget build(BuildContext context) {
+    final Uint8List? bytes = imageBytes;
+    final Widget image;
+    if (bytes != null && bytes.isNotEmpty) {
+      image = Image.memory(
+        bytes,
+        fit: BoxFit.cover,
+        gaplessPlayback: true,
+        alignment: Alignment.center,
+        errorBuilder: (BuildContext context, Object error, StackTrace? stack) =>
+            _paintedFallback(),
+      );
+    } else {
+      image = Image.asset(
+        defaultCoverAsset,
+        key: defaultCoverKey,
+        fit: BoxFit.cover,
+        alignment: Alignment.center,
+        errorBuilder: (BuildContext context, Object error, StackTrace? stack) =>
+            _paintedFallback(),
+      );
+    }
     return SizedBox(
       key: coverKey,
       height: height,
@@ -44,8 +80,63 @@ class ProfileSeaCover extends StatelessWidget {
       child: Stack(
         fit: StackFit.expand,
         children: <Widget>[
-          const CustomPaint(painter: _SeaPainter()),
+          image,
+          const _CoverScrims(),
           Positioned(left: 4, right: AppSpacing.lg, top: 0, child: backBar),
+        ],
+      ),
+    );
+  }
+
+  Widget _paintedFallback() => const CustomPaint(painter: _SeaPainter());
+}
+
+/// Top and bottom scrims shared by the image and the painted fallback.
+class _CoverScrims extends StatelessWidget {
+  const _CoverScrims();
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: Stack(
+        fit: StackFit.expand,
+        children: <Widget>[
+          Align(
+            alignment: Alignment.topCenter,
+            child: FractionallySizedBox(
+              heightFactor: 0.5,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: <Color>[
+                      const Color(0xFF0B1020).withValues(alpha: 0.45),
+                      const Color(0xFF0B1020).withValues(alpha: 0),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: FractionallySizedBox(
+              heightFactor: 0.3,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: <Color>[
+                      const Color(0xFF101A2A).withValues(alpha: 0),
+                      const Color(0xFF101A2A).withValues(alpha: 0.28),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -221,41 +312,6 @@ class _SeaPainter extends CustomPainter {
         canvas.drawLine(Offset(x, y), Offset(x + length, y), glitter);
       }
     }
-
-    // Dark scrims: the top one keeps the back bar readable, the bottom one
-    // lets the cover meet the paper body without a hard seam.
-    canvas.drawRect(
-      Rect.fromLTWH(0, 0, size.width, size.height * 0.38),
-      Paint()
-        ..shader = LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: <Color>[
-            const Color(0xFF0B1020).withValues(alpha: 0.42),
-            const Color(0xFF0B1020).withValues(alpha: 0),
-          ],
-        ).createShader(Rect.fromLTWH(0, 0, size.width, size.height * 0.38)),
-    );
-    canvas.drawRect(
-      Rect.fromLTWH(0, size.height * 0.74, size.width, size.height * 0.26),
-      Paint()
-        ..shader =
-            LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: <Color>[
-                const Color(0xFF101A2A).withValues(alpha: 0),
-                const Color(0xFF101A2A).withValues(alpha: 0.3),
-              ],
-            ).createShader(
-              Rect.fromLTWH(
-                0,
-                size.height * 0.74,
-                size.width,
-                size.height * 0.26,
-              ),
-            ),
-    );
   }
 
   @override

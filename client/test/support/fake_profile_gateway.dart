@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:bb_client/models/auth_models.dart';
 import 'package:bb_client/models/profile_models.dart';
 import 'package:bb_client/services/auth_session.dart';
+import 'package:bb_client/services/avatar_source.dart';
 import 'package:bb_client/services/profile_service.dart';
 
 /// In-memory ProfileGateway used by widget tests.
@@ -34,6 +35,17 @@ class FakeProfileGateway implements ProfileGateway {
   AuthFailure? avatarUpdateFailure;
   Duration avatarDelay = Duration.zero;
   AuthFailure? saveFailure;
+
+  /// Display cover returned by [loadCover]. Null keeps the contract's packaged
+  /// default (the page then renders its bundled asset), which widget tests do
+  /// not need to decode from the server.
+  CoverImage? cover;
+  AuthFailure? coverFailure;
+  AuthFailure? coverUpdateFailure;
+  Duration coverDelay = Duration.zero;
+  int loadCoverCalls = 0;
+  final List<String> coverSources = <String>[];
+  final List<String?> coverViewAccounts = <String?>[];
 
   int loadProfileCalls = 0;
   int loadAvatarCalls = 0;
@@ -79,7 +91,10 @@ class FakeProfileGateway implements ProfileGateway {
   }
 
   @override
-  Future<AvatarInfo> updateAvatarFromPath(String path, {AuthIdentity? captured}) async {
+  Future<AvatarInfo> updateAvatarFromPath(
+    String path, {
+    AuthIdentity? captured,
+  }) async {
     avatarSources.add('path:$path');
     return _avatarUpdate();
   }
@@ -94,13 +109,19 @@ class FakeProfileGateway implements ProfileGateway {
   }
 
   @override
-  Future<AvatarInfo> updateAvatarFromUrl(String url, {AuthIdentity? captured}) async {
+  Future<AvatarInfo> updateAvatarFromUrl(
+    String url, {
+    AuthIdentity? captured,
+  }) async {
     avatarSources.add('url:$url');
     return _avatarUpdate();
   }
 
   @override
-  Future<AvatarInfo> updateAvatarFromBase64(String payload, {AuthIdentity? captured}) async {
+  Future<AvatarInfo> updateAvatarFromBase64(
+    String payload, {
+    AuthIdentity? captured,
+  }) async {
     avatarSources.add('base64:${payload.length}');
     return _avatarUpdate();
   }
@@ -142,7 +163,10 @@ class FakeProfileGateway implements ProfileGateway {
   }
 
   @override
-  Future<Profile> saveProfile(ProfilePatch patch, {AuthIdentity? captured}) async {
+  Future<Profile> saveProfile(
+    ProfilePatch patch, {
+    AuthIdentity? captured,
+  }) async {
     patches.add(patch);
     final AuthFailure? error = saveFailure;
     if (error != null) {
@@ -165,12 +189,16 @@ class FakeProfileGateway implements ProfileGateway {
   }
 
   @override
-  Future<String> viewNickname({String? account, AuthIdentity? captured}) async =>
-      (await loadProfile(account: account)).username;
+  Future<String> viewNickname({
+    String? account,
+    AuthIdentity? captured,
+  }) async => (await loadProfile(account: account)).username;
 
   @override
-  Future<String?> viewSignature({String? account, AuthIdentity? captured}) async =>
-      (await loadProfile(account: account)).signature;
+  Future<String?> viewSignature({
+    String? account,
+    AuthIdentity? captured,
+  }) async => (await loadProfile(account: account)).signature;
 
   @override
   Future<String> updateNickname(String value, {AuthIdentity? captured}) async =>
@@ -178,9 +206,109 @@ class FakeProfileGateway implements ProfileGateway {
           .username;
 
   @override
-  Future<String?> updateSignature(String? value, {AuthIdentity? captured}) async =>
+  Future<String?> updateSignature(
+    String? value, {
+    AuthIdentity? captured,
+  }) async =>
       (await saveProfile(ProfilePatch(setSignature: true, signature: value)))
           .signature;
+
+  @override
+  Future<CoverImage> loadCover({
+    String? account,
+    AuthIdentity? captured,
+  }) async {
+    loadCoverCalls += 1;
+    coverViewAccounts.add(account);
+    if (coverDelay > Duration.zero) {
+      await Future<void>.delayed(coverDelay);
+    }
+    final AuthFailure? error = coverFailure;
+    if (error != null) {
+      throw error;
+    }
+    final String target = account ?? profile.account;
+    final CoverImage? current = cover;
+    if (current == null) {
+      // Packaged default: empty bytes tell the page to draw its bundled crop.
+      return CoverImage(
+        account: target,
+        bytes: Uint8List(0),
+        version: 'sha256-${'0' * 64}',
+        mimeType: 'image/png',
+        isDefault: true,
+      );
+    }
+    return CoverImage(
+      account: target,
+      bytes: current.bytes,
+      version: current.version,
+      mimeType: current.mimeType,
+      isDefault: current.isDefault,
+    );
+  }
+
+  CoverInfo _coverUpdate(Uint8List bytes) {
+    final AuthFailure? error = coverUpdateFailure;
+    if (error != null) {
+      throw error;
+    }
+    final String version =
+        'sha256-${bytes.length.toRadixString(16).padLeft(64, '0')}';
+    cover = CoverImage(
+      account: profile.account,
+      bytes: bytes,
+      version: version,
+      mimeType: detectImageMime(bytes) ?? 'image/png',
+      isDefault: false,
+    );
+    return CoverInfo(
+      coverUrl: '/covers/${profile.account}',
+      coverVersion: version,
+    );
+  }
+
+  @override
+  Future<CoverInfo> updateCoverFromPath(
+    String path, {
+    AuthIdentity? captured,
+  }) async {
+    coverSources.add('path:$path');
+    final AuthFailure? error = coverUpdateFailure;
+    if (error != null) {
+      throw error;
+    }
+    return _coverUpdate(avatar);
+  }
+
+  @override
+  Future<CoverInfo> updateCoverFromBytes(
+    Uint8List bytes, {
+    AuthIdentity? captured,
+  }) async {
+    coverSources.add('bytes:${bytes.length}');
+    return _coverUpdate(bytes);
+  }
+
+  @override
+  Future<CoverInfo> updateCoverFromUrl(
+    String url, {
+    AuthIdentity? captured,
+  }) async {
+    coverSources.add('url:$url');
+    return _coverUpdate(avatar);
+  }
+
+  @override
+  Future<CoverInfo> updateCoverFromBase64(
+    String payload, {
+    AuthIdentity? captured,
+  }) async {
+    coverSources.add('base64:${payload.length}');
+    final int comma = payload.indexOf(',');
+    final String raw = comma >= 0 ? payload.substring(comma + 1) : payload;
+    return _coverUpdate(base64Decode(raw));
+  }
 
   @override
   Future<void> logout() async {

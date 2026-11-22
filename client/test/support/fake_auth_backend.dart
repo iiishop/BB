@@ -42,6 +42,26 @@ class FakeAuthBackend {
   final Map<String, String> avatarVersionsByAccount = <String, String>{};
   int _avatarRevision = 0;
 
+  /// Cover state. Empty [coverBytes] models the packaged default: the fake
+  /// serves the tiny PNG but flags it with `X-BB-Cover-Default: true`.
+  Uint8List coverBytes = _onePixelPng;
+  String coverVersion = 'sha256-${'a' * 64}';
+  bool coverIsDefault = true;
+  int _coverRevision = 0;
+
+  final List<String?> coverIfNoneMatch = <String?>[];
+  final List<int> coverUploadSizes = <int>[];
+  int coverUploadStatus = 200;
+
+  /// Replaces the display cover and returns its version.
+  String replaceCover(Uint8List bytes, {bool isDefault = false}) {
+    coverBytes = bytes;
+    coverIsDefault = isDefault;
+    coverVersion =
+        'sha256-${(++_coverRevision).toRadixString(16).padLeft(64, '0')}';
+    return coverVersion;
+  }
+
   /// Every request body received, in order (multipart as `{file: length}`).
   final List<Map<String, dynamic>> requests = <Map<String, dynamic>>[];
 
@@ -129,6 +149,12 @@ class FakeAuthBackend {
         await _handleAvatar(request, avatarMatch.group(1)!);
         return;
       }
+      final RegExpMatch? coverMatch = RegExp(r'^/covers/([0-9]{8})$')
+          .firstMatch(path);
+      if (coverMatch != null) {
+        await _handleCover(request, coverMatch.group(1)!);
+        return;
+      }
       await _write(request, 404, _error('not_found', '未知接口'));
       return;
     }
@@ -137,6 +163,11 @@ class FakeAuthBackend {
       if (request.method == 'POST' && path == '/me/avatar') {
         requests.add(<String, dynamic>{'file': raw.length});
         await _handleAvatarUpload(request, raw);
+        return;
+      }
+      if (request.method == 'POST' && path == '/me/cover') {
+        requests.add(<String, dynamic>{'cover_file': raw.length});
+        await _handleCoverUpload(request, raw);
         return;
       }
       await _write(request, 404, _error('not_found', '未知接口'));
@@ -320,6 +351,77 @@ class FakeAuthBackend {
     await response.close();
   }
 
+  Future<void> _handleCover(HttpRequest request, String account) async {
+    if (!_authorized(request)) {
+      await _write(request, 401, _error('unauthenticated', '请重新登录'));
+      return;
+    }
+    if (!knownAccounts.contains(account)) {
+      await _write(request, 404, _error('not_found', '用户不存在'));
+      return;
+    }
+    final String? ifNoneMatch = request.headers.value(
+      HttpHeaders.ifNoneMatchHeader,
+    );
+    coverIfNoneMatch.add(ifNoneMatch);
+    final String etag = '"$coverVersion"';
+    if (ifNoneMatch == etag) {
+      request.response.statusCode = 304;
+      request.response.headers.set(HttpHeaders.etagHeader, etag);
+      request.response.headers.set(
+        'X-BB-Cover-Default',
+        coverIsDefault ? 'true' : 'false',
+      );
+      await request.response.close();
+      return;
+    }
+    final HttpResponse response = request.response;
+    response.statusCode = 200;
+    response.headers.set(HttpHeaders.etagHeader, etag);
+    response.headers.set(
+      'X-BB-Cover-Default',
+      coverIsDefault ? 'true' : 'false',
+    );
+    response.headers.contentType = ContentType('image', 'png');
+    response.add(coverBytes);
+    await response.close();
+  }
+
+  Future<void> _handleCoverUpload(HttpRequest request, Uint8List raw) async {
+    if (!_authorized(request)) {
+      await _write(request, 401, _error('unauthenticated', '请重新登录'));
+      return;
+    }
+    if (coverUploadStatus != 200) {
+      await _write(
+        request,
+        coverUploadStatus,
+        _error('payload_too_large', '封面过大'),
+      );
+      return;
+    }
+    coverUploadSizes.add(raw.length);
+    // Echo the uploaded part as the stored display image: the real server
+    // re-encodes it, but the bytes must still round-trip through this route.
+    final int headerEnd = _indexOfBytes(raw, const <int>[13, 10, 13, 10]);
+    final int boundaryStart = _lastIndexOfBytes(raw, const <int>[
+      13,
+      10,
+      45,
+      45,
+    ]);
+    coverBytes = (headerEnd >= 0 && boundaryStart > headerEnd)
+        ? Uint8List.fromList(raw.sublist(headerEnd + 4, boundaryStart))
+        : raw;
+    coverIsDefault = false;
+    coverVersion =
+        'sha256-${(++_coverRevision).toRadixString(16).padLeft(64, '0')}';
+    await _write(request, 200, <String, dynamic>{
+      'cover_url': '/covers/$validAccount',
+      'cover_version': coverVersion,
+    });
+  }
+
   Future<void> _handleLogout(HttpRequest request) async {
     if (!_authorized(request)) {
       await _write(request, 401, _error('unauthenticated', '请重新登录'));
@@ -484,6 +586,38 @@ class FakeAuthBackend {
     response.write(jsonEncode(body));
     await response.close();
   }
+}
+
+int _indexOfBytes(Uint8List haystack, List<int> needle) {
+  for (int i = 0; i <= haystack.length - needle.length; i++) {
+    bool match = true;
+    for (int j = 0; j < needle.length; j++) {
+      if (haystack[i + j] != needle[j]) {
+        match = false;
+        break;
+      }
+    }
+    if (match) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+int _lastIndexOfBytes(Uint8List haystack, List<int> needle) {
+  for (int i = haystack.length - needle.length; i >= 0; i--) {
+    bool match = true;
+    for (int j = 0; j < needle.length; j++) {
+      if (haystack[i + j] != needle[j]) {
+        match = false;
+        break;
+      }
+    }
+    if (match) {
+      return i;
+    }
+  }
+  return -1;
 }
 
 /// 1×1 transparent PNG, valid for `Image.memory` in widget tests.

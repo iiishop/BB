@@ -17,11 +17,13 @@ import 'http_transport.dart';
 ///   session/server Authorization header;
 /// * [readBase64] decodes raw base64 or a `data:image/...;base64,` payload.
 abstract class AvatarSourceReader {
-  Future<Uint8List> readPath(String path);
+  /// [maxBytes] is the caller's ceiling: avatars use the shared 5 MiB default,
+  /// the profile cover passes the server's 8 MiB source limit.
+  Future<Uint8List> readPath(String path, {int maxBytes = maxAvatarBytes});
 
-  Future<Uint8List> readUrl(String url);
+  Future<Uint8List> readUrl(String url, {int maxBytes = maxAvatarBytes});
 
-  Future<Uint8List> readBase64(String payload);
+  Future<Uint8List> readBase64(String payload, {int maxBytes = maxAvatarBytes});
 }
 
 /// Shared limit: 5 MiB, matching the server's `MAX_AVATAR_BYTES`.
@@ -84,12 +86,21 @@ String? detectImageMime(Uint8List bytes) {
 }
 
 /// Rejects empty bytes, oversized data and non-image magic bytes.
-void validateAvatarBytes(Uint8List bytes, {required String sourceField}) {
+void validateAvatarBytes(
+  Uint8List bytes, {
+  required String sourceField,
+  int maxBytes = maxAvatarBytes,
+  String subject = '头像',
+}) {
   if (bytes.isEmpty) {
-    throw _sourceError(sourceField, 'required', '头像内容为空');
+    throw _sourceError(sourceField, 'required', '$subject内容为空');
   }
-  if (bytes.length > maxAvatarBytes) {
-    throw _failure(413, 'payload_too_large', '头像超过 5 MB 上限');
+  if (bytes.length > maxBytes) {
+    throw _failure(
+      413,
+      'payload_too_large',
+      '$subject超过 ${maxBytes ~/ (1024 * 1024)} MB 上限',
+    );
   }
   if (detectImageMime(bytes) == null) {
     throw _failure(
@@ -124,18 +135,25 @@ class DefaultAvatarSourceReader implements AvatarSourceReader {
   );
 
   @override
-  Future<Uint8List> readPath(String path) async {
+  Future<Uint8List> readPath(
+    String path, {
+    int maxBytes = maxAvatarBytes,
+  }) async {
     if (!isAbsoluteAvatarPath(path)) {
       throw _sourceError('path', 'format', '必须为本机绝对路径');
     }
     final File file = File(path);
     try {
       final int length = await file.length();
-      if (length > maxAvatarBytes) {
-        throw _failure(413, 'payload_too_large', '头像超过 5 MB 上限');
+      if (length > maxBytes) {
+        throw _failure(
+          413,
+          'payload_too_large',
+          '图片超过 ${maxBytes ~/ (1024 * 1024)} MB 上限',
+        );
       }
       final Uint8List bytes = await file.readAsBytes();
-      validateAvatarBytes(bytes, sourceField: 'path');
+      validateAvatarBytes(bytes, sourceField: 'path', maxBytes: maxBytes);
       return bytes;
     } on AuthFailure {
       rethrow;
@@ -145,7 +163,7 @@ class DefaultAvatarSourceReader implements AvatarSourceReader {
   }
 
   @override
-  Future<Uint8List> readUrl(String url) async {
+  Future<Uint8List> readUrl(String url, {int maxBytes = maxAvatarBytes}) async {
     if (!isSupportedAvatarUrl(url)) {
       throw _sourceError('url', 'format', '必须为有效 http/https URL');
     }
@@ -181,8 +199,8 @@ class DefaultAvatarSourceReader implements AvatarSourceReader {
           await response.drain<void>().catchError((_) {});
           throw _failure(502, 'upstream_unavailable', '图片下载失败（HTTP $status）');
         }
-        final Uint8List bytes = await _readBounded(response);
-        validateAvatarBytes(bytes, sourceField: 'url');
+        final Uint8List bytes = await _readBounded(response, maxBytes);
+        validateAvatarBytes(bytes, sourceField: 'url', maxBytes: maxBytes);
         return bytes;
       }
       throw _sourceError('url', 'format', '重定向次数过多');
@@ -200,7 +218,10 @@ class DefaultAvatarSourceReader implements AvatarSourceReader {
   }
 
   @override
-  Future<Uint8List> readBase64(String payload) async {
+  Future<Uint8List> readBase64(
+    String payload, {
+    int maxBytes = maxAvatarBytes,
+  }) async {
     String encoded = payload;
     final RegExp dataPrefix = RegExp(
       r'^data:image/[A-Za-z0-9.+-]+;base64,',
@@ -227,16 +248,23 @@ class DefaultAvatarSourceReader implements AvatarSourceReader {
     } on FormatException {
       throw _sourceError('base64', 'format', 'base64 内容无效');
     }
-    validateAvatarBytes(bytes, sourceField: 'base64');
+    validateAvatarBytes(bytes, sourceField: 'base64', maxBytes: maxBytes);
     return bytes;
   }
 
-  Future<Uint8List> _readBounded(HttpClientResponse response) async {
+  Future<Uint8List> _readBounded(
+    HttpClientResponse response,
+    int maxBytes,
+  ) async {
     final BytesBuilder builder = BytesBuilder(copy: false);
     await for (final List<int> chunk in response.timeout(timeout)) {
       builder.add(chunk);
-      if (builder.length > maxAvatarBytes) {
-        throw _failure(413, 'payload_too_large', '头像超过 5 MB 上限');
+      if (builder.length > maxBytes) {
+        throw _failure(
+          413,
+          'payload_too_large',
+          '图片超过 ${maxBytes ~/ (1024 * 1024)} MB 上限',
+        );
       }
     }
     return builder.takeBytes();

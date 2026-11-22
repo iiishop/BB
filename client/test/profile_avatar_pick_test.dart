@@ -80,7 +80,10 @@ class FakeAvatarSourceReader implements AvatarSourceReader {
   void fail(String path, AuthFailure failure) => _paths[path] = failure;
 
   @override
-  Future<Uint8List> readPath(String path) async {
+  Future<Uint8List> readPath(
+    String path, {
+    int maxBytes = maxAvatarBytes,
+  }) async {
     final Object? result = _paths[path];
     if (result == null) {
       throw _sourceFailure('unreadable', '无法读取该本机路径');
@@ -92,11 +95,16 @@ class FakeAvatarSourceReader implements AvatarSourceReader {
   }
 
   @override
-  Future<Uint8List> readBase64(String payload) async =>
-      throw UnimplementedError();
+  Future<Uint8List> readBase64(
+    String payload, {
+    int maxBytes = maxAvatarBytes,
+  }) async => throw UnimplementedError();
 
   @override
-  Future<Uint8List> readUrl(String url) async => throw UnimplementedError();
+  Future<Uint8List> readUrl(
+    String url, {
+    int maxBytes = maxAvatarBytes,
+  }) async => throw UnimplementedError();
 }
 
 void main() {
