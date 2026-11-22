@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from bb_auth_contract import ContractError
 from bb_auth_contract.cover import MAX_COVER_BYTES, MAX_DISPLAY_BYTES
-from PIL import Image, ImageChops, ImageCms, ImageOps, ImageStat
+from PIL import Image, ImageChops, ImageCms, ImageFilter, ImageOps, ImageStat
 
 MAX_PIXELS = 24_000_000
 DISPLAY_EDGE = 1600
@@ -100,6 +100,13 @@ def _color_pixels(image: Image.Image) -> Image.Image:
     return pixels
 
 
+def _normalized_pixels(pixels: Image.Image, size: tuple[int, int]) -> Image.Image:
+    preview = pixels.resize(size, Image.Resampling.LANCZOS).convert("RGBA")
+    normalized = Image.alpha_composite(Image.new("RGBA", size, "white"), preview)
+    normalized.putalpha(preview.getchannel("A"))
+    return normalized
+
+
 def decode_source(data: bytes) -> CoverSource:
     if len(data) > MAX_COVER_BYTES:
         raise ContractError(413, "payload_too_large", "封面不能超过 8 MiB")
@@ -120,12 +127,7 @@ def decode_source(data: bytes) -> CoverSource:
                 image.load()
                 mime = FORMATS[image.format]
                 pixels = _color_pixels(image)
-        preview = pixels.resize(
-            (SIGNATURE_EDGE, SIGNATURE_EDGE), Image.Resampling.LANCZOS
-        ).convert("RGBA")
-        white = Image.new("RGBA", preview.size, "white")
-        normalized = Image.alpha_composite(white, preview)
-        normalized.putalpha(preview.getchannel("A"))
+        normalized = _normalized_pixels(pixels, (SIGNATURE_EDGE, SIGNATURE_EDGE))
         tone = round(ImageStat.Stat(normalized.convert("L")).mean[0])
         return CoverSource(pixels, normalized.tobytes(), tone, safe, mime)
     except (
@@ -151,8 +153,8 @@ def _difference_stats(image: Image.Image) -> tuple[float, float]:
     return average, above_ten / count
 
 
-def same_image(left: bytes, right: bytes) -> bool:
-    """Test registered color/alpha and local detail, not a perceptual-hash distance."""
+def signatures_agree(left: bytes, right: bytes) -> bool:
+    """Screen candidates with registered color and alpha signatures."""
     size = (SIGNATURE_EDGE, SIGNATURE_EDGE)
     first = Image.frombytes("RGBA", size, left)
     second = Image.frombytes("RGBA", size, right)
@@ -169,6 +171,22 @@ def same_image(left: bytes, right: bytes) -> bool:
             if mean > 5.0 or share > 0.16:
                 return False
     return True
+
+
+def detail_agrees(left: Image.Image, right: Image.Image) -> bool:
+    """Reject differences confined to a small region such as one printed digit."""
+    width = min(left.width, right.width)
+    height = min(left.height, right.height)
+    scale = min(1, DISPLAY_EDGE / max(width, height))
+    size = (max(1, round(width * scale)), max(1, round(height * scale)))
+    noise_filter = ImageFilter.GaussianBlur(0.7)
+    left_detail = _normalized_pixels(left, size).filter(noise_filter)
+    right_detail = _normalized_pixels(right, size).filter(noise_filter)
+    difference = ImageChops.difference(left_detail, right_detail)
+    # A 5×5 local mean suppresses isolated codec noise. Use the worst patch
+    # and channel so a localized edit cannot be averaged into the whole image.
+    local = difference.filter(ImageFilter.BoxBlur(2))
+    return max(peak for _, peak in local.getextrema()) <= 24
 
 
 def display_image(source: CoverSource, *, prefer_lossless: bool) -> tuple[bytes, str]:

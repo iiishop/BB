@@ -7,7 +7,7 @@ uv sync --project server --locked
 BB_DATABASE_PATH=./local-data/auth.db BB_AVATAR_DIRECTORY=./local-data/avatars BB_MEDIA_DIRECTORY=./local-data/media BB_HOST=127.0.0.1 BB_PORT=8000 uv run --project server --locked bb-server
 ```
 
-Windows Git Bash 同样使用上述命令。以上五个环境变量均必填，不自动加载 `.env`。服务启动时事务性应用 `src/bb_server/migrations/` 中的迁移，以 SQLite `user_version=6` 记录当前版本。已有数据不重建，遇到更高版本拒绝启动。
+Windows Git Bash 同样使用上述命令。以上五个环境变量均必填，不自动加载 `.env`。服务启动时事务性应用 `src/bb_server/migrations/` 中的迁移，以 SQLite `user_version=7` 记录当前版本。遇到更高版本拒绝启动。
 
 | 接口 | 成功响应 | 失败 |
 | --- | --- | --- |
