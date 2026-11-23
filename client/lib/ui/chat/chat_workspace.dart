@@ -27,6 +27,8 @@ class ChatWorkspace extends StatefulWidget {
     this.presence,
     this.onlineFilter,
     this.onSessionExpired,
+    this.visible = true,
+    this.foldController,
   });
 
   final ChatService chat;
@@ -37,6 +39,22 @@ class ChatWorkspace extends StatefulWidget {
   final PresenceDirectory? presence;
   final ValueNotifier<bool>? onlineFilter;
   final VoidCallback? onSessionExpired;
+
+  /// Whether the host section that owns this workspace is the one on screen.
+  ///
+  /// A host that keeps this workspace mounted behind another section (the
+  /// signed-in shell swaps chat and Space with an [IndexedStack]) still polls,
+  /// but the reader cannot see the arrivals, so they must not become display
+  /// facts. Selection alone answers "which conversation", not "is it shown".
+  final bool visible;
+
+  /// Host-owned animation for the full-screen fold transition.
+  ///
+  /// The host needs the same progress to slide its navigation rail out of the
+  /// way while the chat grows over it: at 1024 px the chat has to reach screen
+  /// x = 0, not the workspace's own local 0. Null keeps an internal controller
+  /// for surfaces without a rail.
+  final AnimationController? foldController;
 
   /// Below this width the phone layout (route-pushed [ChatPage]) is used.
   static const double splitMinWidth = 900;
@@ -52,6 +70,8 @@ class ChatWorkspace extends StatefulWidget {
   /// Real, content-free gutter between the panes on a folded device. The
   /// switch lives here instead of on top of a message avatar.
   static const double foldGap = 56;
+
+  static const Duration foldDuration = Duration(milliseconds: 360);
 
   /// The vertical hinge or fold that separates two physical panes.
   ///
@@ -90,16 +110,24 @@ class _ChatWorkspaceState extends State<ChatWorkspace>
   final List<String> _opened = <String>[];
   final Map<String, ChatUser> _peers = <String, ChatUser>{};
   bool _autoSelected = false;
-  bool _expanded = false;
+  bool _resetScheduled = false;
 
-  late final AnimationController _foldController = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 360),
-  );
+  late bool _expanded = _fold.value > 0;
+
+  AnimationController? _ownedFoldController;
+
+  /// The host controller when one is shared, so the rail and the pane travel
+  /// on the same ticker instead of two animations that drift apart.
+  AnimationController get _fold =>
+      widget.foldController ??
+      (_ownedFoldController ??= AnimationController(
+        vsync: this,
+        duration: ChatWorkspace.foldDuration,
+      ));
 
   @override
   void dispose() {
-    _foldController.dispose();
+    _ownedFoldController?.dispose();
     super.dispose();
   }
 
@@ -140,14 +168,27 @@ class _ChatWorkspaceState extends State<ChatWorkspace>
         MediaQuery.maybeDisableAnimationsOf(context) ?? false;
     setState(() => _expanded = !_expanded);
     if (reducedMotion) {
-      _foldController.value = _expanded ? 1 : 0;
+      _fold.value = _expanded ? 1 : 0;
       return;
     }
     if (_expanded) {
-      _foldController.forward();
+      _fold.forward();
     } else {
-      _foldController.reverse();
+      _fold.reverse();
     }
+  }
+
+  void _scheduleFoldReset() {
+    if (_resetScheduled) {
+      return;
+    }
+    _resetScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _resetScheduled = false;
+      if (mounted && _fold.value != 0) {
+        _fold.value = 0;
+      }
+    });
   }
 
   double _listWidth(double total, DisplayFeature? splitFeature) {
@@ -167,6 +208,13 @@ class _ChatWorkspaceState extends State<ChatWorkspace>
         final double height = constraints.maxHeight;
         final bool canExpand =
             splitFeature != null && total >= ChatWorkspace.foldedSplitMinWidth;
+        if (!canExpand && (_expanded || _fold.value != 0)) {
+          // The fold disappeared (window resize / device rotation) while the
+          // chat was full screen. Give the rail back on the next frame instead
+          // of leaving the host covering it with progress 1.
+          _expanded = false;
+          _scheduleFoldReset();
+        }
         final double dualLeft = splitFeature != null
             ? (splitFeature.bounds.right + ChatWorkspace.foldGap).clamp(
                 0.0,
@@ -183,7 +231,7 @@ class _ChatWorkspaceState extends State<ChatWorkspace>
           final double progress = canExpand
               ? (reducedMotion
                     ? (_expanded ? 1.0 : 0.0)
-                    : curve.transform(_foldController.value))
+                    : curve.transform(_fold.value))
               : 0.0;
           // easeOutBack overshoots past 1: the chat's left edge travels a few
           // pixels beyond the screen edge, then settles back — a short jelly
@@ -227,7 +275,7 @@ class _ChatWorkspaceState extends State<ChatWorkspace>
           );
         }
 
-        return AnimatedBuilder(animation: _foldController, builder: buildPanes);
+        return AnimatedBuilder(animation: _fold, builder: buildPanes);
       },
     );
   }
@@ -289,8 +337,9 @@ class _ChatWorkspaceState extends State<ChatWorkspace>
             presence: widget.presence,
             embedded: true,
             // Only the visible conversation may confirm display facts; the
-            // hidden pages keep polling data but stage their receipts.
-            active: account == _selected,
+            // hidden pages keep polling data but stage their receipts. A pane
+            // that the host section has covered counts as hidden too.
+            active: widget.visible && account == _selected,
             leading: withToggle
                 ? _FoldToggle(expanded: true, onTap: _toggleExpanded)
                 : null,

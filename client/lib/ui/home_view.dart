@@ -76,12 +76,22 @@ class HomeView extends StatefulWidget {
   State<HomeView> createState() => _HomeViewState();
 }
 
-class _HomeViewState extends State<HomeView> {
+class _HomeViewState extends State<HomeView>
+    with SingleTickerProviderStateMixin {
   int _section = 0;
   Profile? _profile;
   Uint8List? _avatar;
   bool _loading = true;
   String? _error;
+  bool _foldResetScheduled = false;
+
+  /// One fold transition for the shell: the chat pane grows over the rail and
+  /// the rail slides out from under it on the same progress, so the chat's left
+  /// edge reaches physical screen x = 0 without a second animation to drift.
+  late final AnimationController _foldController = AnimationController(
+    vsync: this,
+    duration: ChatWorkspace.foldDuration,
+  );
 
   /// Shared by the user list and every conversation opened from it, so both
   /// surfaces read the same last-confirmed presence instead of each keeping a
@@ -125,6 +135,7 @@ class _HomeViewState extends State<HomeView> {
     _presence?.dispose();
     _followStore?.dispose();
     _onlineFilter.dispose();
+    _foldController.dispose();
     super.dispose();
   }
 
@@ -322,7 +333,11 @@ class _HomeViewState extends State<HomeView> {
     );
   }
 
-  Widget _chatScaffold(BuildContext context, {required bool showHeaderAvatar}) {
+  Widget _chatScaffold(
+    BuildContext context, {
+    required bool showHeaderAvatar,
+    bool visible = true,
+  }) {
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
         final ChatService? chat = widget.chat;
@@ -332,6 +347,7 @@ class _HomeViewState extends State<HomeView> {
             context,
             chat,
             showHeaderAvatar: showHeaderAvatar,
+            visible: visible,
           );
         }
         return _singleChatScaffold(context, showHeaderAvatar: showHeaderAvatar);
@@ -345,6 +361,7 @@ class _HomeViewState extends State<HomeView> {
     BuildContext context,
     ChatService chat, {
     required bool showHeaderAvatar,
+    bool visible = true,
   }) {
     final bool reconnecting =
         widget.heartbeat.phase == HeartbeatPhase.reconnecting;
@@ -368,6 +385,11 @@ class _HomeViewState extends State<HomeView> {
                 presence: _presence,
                 onlineFilter: _onlineFilter,
                 onSessionExpired: widget.onSessionExpired,
+                // The shell can cover this whole surface with Space; then the
+                // reader cannot see arrivals and the panes must not confirm
+                // display facts.
+                visible: visible,
+                foldController: _foldController,
                 listHeader: _chatHeader(
                   context,
                   showHeaderAvatar: showHeaderAvatar,
@@ -535,102 +557,150 @@ class _HomeViewState extends State<HomeView> {
 
   /// Signed-in shell when Space is available. Chat keeps its existing surface;
   /// Space is a sibling tab, so switching never rebuilds either state tree.
+  ///
+  /// The rail is painted beneath the page stack and the stack sits at the
+  /// rail's right edge. A full-screen chat has to reach physical screen x = 0,
+  /// so the fold transition slides the rail out from under the pages instead
+  /// of leaving 92 px reserved; both share one controller so they never drift.
   Widget _appScaffold(BuildContext context, SpaceGateway space) {
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
         final bool compact = constraints.maxWidth < 720;
-        final Widget pages = IndexedStack(
-          index: _section,
-          children: <Widget>[
-            // Wide layouts have the rail, which already carries the profile
-            // entry; only narrow layouts put the avatar in the message header.
-            _chatScaffold(context, showHeaderAvatar: compact),
-            _spacePage(
-              context,
-              space,
-              railWidth: compact ? 0 : HomeView.railWidth,
-              active: _section == 1,
-            ),
-          ],
-        );
-        return Scaffold(
-          backgroundColor: AppColors.paper,
-          body: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[
-              SizedBox(
-                width: compact ? 0 : HomeView.railWidth,
-                child: compact ? null : _rail(context),
+        final bool foldCapable =
+            !compact &&
+            ChatWorkspace.splitFeatureOf(context) != null &&
+            constraints.maxWidth - HomeView.railWidth >=
+                ChatWorkspace.foldedSplitMinWidth;
+        return AnimatedBuilder(
+          animation: _foldController,
+          builder: (BuildContext context, Widget? child) {
+            if (!foldCapable && _foldController.value != 0) {
+              // The divider went away (resize/rotation): never leave the rail
+              // hidden by a transition that can no longer be reversed.
+              _scheduleFoldReset();
+            }
+            final double cover = compact || _section != 0 || !foldCapable
+                ? 0.0
+                : _foldController.value.clamp(0.0, 1.0);
+            final double rail = compact
+                ? 0.0
+                : HomeView.railWidth * (1 - cover);
+            final MediaQueryData media = MediaQuery.of(context);
+            final Widget pages = MediaQuery(
+              // The panes, the Space hinge maths and the chat split all work in
+              // the frame to the right of the rail; translate the physical
+              // display feature instead of letting the split drift by 92 px.
+              data: media.copyWith(
+                size: Size(
+                  math.max(media.size.width - rail, 0),
+                  media.size.height,
+                ),
+                displayFeatures: <DisplayFeature>[
+                  for (final DisplayFeature feature in media.displayFeatures)
+                    DisplayFeature(
+                      bounds: feature.bounds.translate(-rail, 0),
+                      type: feature.type,
+                      state: feature.state,
+                    ),
+                ],
               ),
-              Expanded(child: pages),
-            ],
-          ),
-          bottomNavigationBar: compact
-              ? NavigationBar(
-                  selectedIndex: _section,
-                  onDestinationSelected: (int index) =>
-                      setState(() => _section = index),
-                  destinations: const <NavigationDestination>[
-                    NavigationDestination(
-                      key: HomeView.navChatKey,
-                      icon: Icon(Icons.chat_bubble_outline_rounded),
-                      selectedIcon: Icon(Icons.chat_bubble_rounded),
-                      label: '聊天',
+              child: Builder(
+                builder: (BuildContext context) => IndexedStack(
+                  index: _section,
+                  children: <Widget>[
+                    // Wide layouts have the rail, which already carries the
+                    // profile entry; only narrow layouts put the avatar in the
+                    // message header.
+                    _chatScaffold(
+                      context,
+                      showHeaderAvatar: compact,
+                      visible: _section == 0,
                     ),
-                    NavigationDestination(
-                      key: HomeView.navSpaceKey,
-                      icon: Icon(Icons.public_outlined),
-                      selectedIcon: Icon(Icons.public_rounded),
-                      label: 'BB空间',
-                    ),
+                    _spacePage(context, space, active: _section == 1),
                   ],
-                )
-              : null,
+                ),
+              ),
+            );
+            return Scaffold(
+              backgroundColor: AppColors.paper,
+              body: Stack(
+                children: <Widget>[
+                  // The slot stays at index 0 even when the phone layout has
+                  // no rail: dropping it would shift the page stack's
+                  // position in the children list and rebuild the Space state
+                  // tree on a resize.
+                  Positioned(
+                    left: 0,
+                    top: 0,
+                    bottom: 0,
+                    width: compact ? 0 : HomeView.railWidth,
+                    child: compact ? const SizedBox.shrink() : _rail(context),
+                  ),
+                  Positioned(
+                    left: rail,
+                    top: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: pages,
+                  ),
+                ],
+              ),
+              bottomNavigationBar: compact
+                  ? NavigationBar(
+                      selectedIndex: _section,
+                      onDestinationSelected: (int index) =>
+                          setState(() => _section = index),
+                      destinations: const <NavigationDestination>[
+                        NavigationDestination(
+                          key: HomeView.navChatKey,
+                          icon: Icon(Icons.chat_bubble_outline_rounded),
+                          selectedIcon: Icon(Icons.chat_bubble_rounded),
+                          label: '聊天',
+                        ),
+                        NavigationDestination(
+                          key: HomeView.navSpaceKey,
+                          icon: Icon(Icons.public_outlined),
+                          selectedIcon: Icon(Icons.public_rounded),
+                          label: 'BB空间',
+                        ),
+                      ],
+                    )
+                  : null,
+            );
+          },
         );
       },
     );
   }
 
-  /// The rail consumes [railWidth] screen pixels. Shift the Space media
-  /// rectangle so a hinge stays a real pane boundary instead of drifting by
-  /// the navigation width.
+  void _scheduleFoldReset() {
+    if (_foldResetScheduled) {
+      return;
+    }
+    _foldResetScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _foldResetScheduled = false;
+      if (mounted && _foldController.value != 0) {
+        _foldController.value = 0;
+      }
+    });
+  }
+
   Widget _spacePage(
     BuildContext context,
     SpaceGateway space, {
-    required double railWidth,
     required bool active,
   }) {
-    return Builder(
-      builder: (BuildContext context) {
-        final MediaQueryData media = MediaQuery.of(context);
-        final Size size = media.size;
-        return MediaQuery(
-          data: media.copyWith(
-            size: Size(math.max(size.width - railWidth, 0), size.height),
-            displayFeatures: <DisplayFeature>[
-              for (final DisplayFeature feature in media.displayFeatures)
-                DisplayFeature(
-                  bounds: feature.bounds.translate(-railWidth, 0),
-                  type: feature.type,
-                  state: feature.state,
-                ),
-            ],
-          ),
-          child: SafeArea(
-            child: SpacePage(
-              key: ValueKey<String>('space-${space.scopeKey}'),
-              gateway: space,
-              store: _spaceStore ??= SpaceLocalStore.shared(
-                scopeKey: space.scopeKey,
-              ),
-              followStore: _followStore!,
-              active: active,
-              profile: widget.profile,
-              onSessionExpired: widget.onSessionExpired,
-            ),
-          ),
-        );
-      },
+    return SafeArea(
+      child: SpacePage(
+        key: ValueKey<String>('space-${space.scopeKey}'),
+        gateway: space,
+        store: _spaceStore ??= SpaceLocalStore.shared(scopeKey: space.scopeKey),
+        followStore: _followStore!,
+        active: active,
+        profile: widget.profile,
+        onSessionExpired: widget.onSessionExpired,
+      ),
     );
   }
 

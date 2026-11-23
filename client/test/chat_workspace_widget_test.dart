@@ -19,6 +19,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'support/fake_auth_gateway.dart';
 import 'support/fake_chat_service.dart';
 import 'support/fake_profile_gateway.dart';
+import 'support/fake_space_gateway.dart';
 
 const AuthUser _self = AuthUser(account: '10000001', username: 'alice');
 
@@ -105,7 +106,10 @@ void main() {
     addTearDown(heartbeat.dispose);
   });
 
-  Widget app({List<DisplayFeature> features = const <DisplayFeature>[]}) {
+  Widget app({
+    List<DisplayFeature> features = const <DisplayFeature>[],
+    bool withSpace = false,
+  }) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: buildAppTheme(),
@@ -119,6 +123,7 @@ void main() {
         auth: FakeAuthGateway(),
         heartbeat: heartbeat,
         chat: chat,
+        space: withSpace ? FakeSpaceGateway() : null,
         onSignedOut: (LogoutResult? _) {},
         onSessionExpired: () {},
       ),
@@ -129,12 +134,13 @@ void main() {
     WidgetTester tester,
     Size size, {
     List<DisplayFeature> features = const <DisplayFeature>[],
+    bool withSpace = false,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    await tester.pumpWidget(app(features: features));
+    await tester.pumpWidget(app(features: features, withSpace: withSpace));
     await tester.pumpAndSettle();
   }
 
@@ -502,4 +508,70 @@ void main() {
     expect(find.byKey(UsersListView.listKey), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'the signed-in shell expands the chat to physical screen left, over the '
+    'navigation rail',
+    (WidgetTester tester) async {
+      // QA counterexample: mounting only the workspace hid the 92 px rail the
+      // real signed-in shell reserves, so the expanded chat settled at x=92.
+      const Rect hingeBounds = Rect.fromLTWH(492, 0, 40, 768);
+      final DisplayFeature hinge = DisplayFeature(
+        bounds: hingeBounds,
+        type: DisplayFeatureType.hinge,
+        state: DisplayFeatureState.postureFlat,
+      );
+      await pumpAt(
+        tester,
+        const Size(1024, 768),
+        features: <DisplayFeature>[hinge],
+        withSpace: true,
+      );
+
+      // The rail is real in this shell and owns the left 92 px.
+      expect(find.byKey(HomeView.navSpaceKey).hitTestable(), findsOneWidget);
+      final Rect dualChat = tester.getRect(
+        find.byKey(ChatWorkspace.chatPaneKey),
+      );
+      expect(
+        dualChat.left,
+        closeTo(hingeBounds.right + ChatWorkspace.foldGap, 0.5),
+        reason: 'the dual panes must sit on the physical divider',
+      );
+
+      // A reading scene to prove the transition keeps it.
+      final Finder list = find.byKey(ChatPage.listKey);
+      await tester.drag(list, const Offset(0, 340));
+      await tester.pumpAndSettle();
+      final double readingOffset = offsetOf(tester, bob.account);
+      await tester.enterText(composerOf(bob.account), '全屏草稿');
+      await tester.pump();
+
+      await tester.tap(find.byKey(ChatWorkspace.toggleKey));
+      await tester.pumpAndSettle();
+      final Rect full = tester.getRect(find.byKey(ChatWorkspace.chatPaneKey));
+      expect(full.left, closeTo(0, 0.5), reason: 'screen x = 0, not x = 92');
+      expect(full.right, closeTo(1024, 0.5), reason: 'right edge stays fixed');
+      // The rail is painted beneath the pages, so at full screen the chat
+      // covers it instead of leaving a strip of it on screen.
+      expect(find.byKey(HomeView.navSpaceKey).hitTestable(), findsNothing);
+      expect(find.byKey(ChatWorkspace.toggleKey), findsOneWidget);
+      expect(offsetOf(tester, bob.account), closeTo(readingOffset, 0.5));
+      expect(
+        tester.widget<TextField>(composerOf(bob.account)).controller!.text,
+        '全屏草稿',
+      );
+
+      // Back to two panes: the rail returns and the same scene is restored.
+      await tester.tap(find.byKey(ChatWorkspace.toggleKey));
+      await tester.pumpAndSettle();
+      expect(
+        tester.getRect(find.byKey(ChatWorkspace.chatPaneKey)).left,
+        closeTo(dualChat.left, 0.5),
+      );
+      expect(find.byKey(HomeView.navSpaceKey).hitTestable(), findsOneWidget);
+      expect(offsetOf(tester, bob.account), closeTo(readingOffset, 0.5));
+      expect(tester.takeException(), isNull);
+    },
+  );
 }

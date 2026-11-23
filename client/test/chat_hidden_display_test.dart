@@ -16,6 +16,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'support/fake_auth_gateway.dart';
 import 'support/fake_chat_service.dart';
 import 'support/fake_profile_gateway.dart';
+import 'support/fake_space_gateway.dart';
 
 const AuthUser _self = AuthUser(account: '10000001', username: 'alice');
 
@@ -83,7 +84,7 @@ void main() {
     addTearDown(heartbeat.dispose);
   });
 
-  Widget app() {
+  Widget app({bool withSpace = false}) {
     return MaterialApp(
       theme: buildAppTheme(),
       home: HomeView(
@@ -92,18 +93,22 @@ void main() {
         auth: FakeAuthGateway(),
         heartbeat: heartbeat,
         chat: chat,
+        space: withSpace ? FakeSpaceGateway() : null,
         onSignedOut: (LogoutResult? _) {},
         onSessionExpired: () {},
       ),
     );
   }
 
-  Future<void> pumpWorkspace(WidgetTester tester) async {
+  Future<void> pumpWorkspace(
+    WidgetTester tester, {
+    bool withSpace = false,
+  }) async {
     tester.view.physicalSize = const Size(1280, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    await tester.pumpWidget(app());
+    await tester.pumpWidget(app(withSpace: withSpace));
     await tester.pumpAndSettle();
   }
 
@@ -162,6 +167,41 @@ void main() {
         isNot(contains('m31')),
         reason: 'completion is judged by the pane state at return time',
       );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'the Space section covering the shell cannot confirm chat display facts',
+    (WidgetTester tester) async {
+      // QA counterexample: in the real signed-in shell the chat surface keeps
+      // running behind Space, so pane selection alone is not visibility.
+      await pumpWorkspace(tester, withSpace: true);
+      chat.viewedMessageIds.clear();
+      expect(
+        find.byKey(UsersListView.selectedKey(bob.account)),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.byKey(HomeView.navSpaceKey));
+      await tester.pumpAndSettle();
+      expect(find.byType(ChatPage), findsNothing);
+
+      chat.conversations[bob.account]!.add(
+        _inbound(31, bob.account, text: 'arrived behind Space'),
+      );
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pumpAndSettle();
+      expect(
+        chat.viewedMessageIds,
+        isNot(contains('m31')),
+        reason: 'the section is on screen, the chat pane is not',
+      );
+
+      // Coming back to the chat section is when the staged batch is released.
+      await tester.tap(find.byKey(HomeView.navChatKey));
+      await tester.pumpAndSettle();
+      expect(chat.viewedMessageIds, contains('m31'));
       expect(tester.takeException(), isNull);
     },
   );

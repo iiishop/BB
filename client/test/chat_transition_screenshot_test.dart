@@ -20,6 +20,7 @@ import 'support/avatar_fixtures.dart';
 import 'support/fake_auth_gateway.dart';
 import 'support/fake_chat_service.dart';
 import 'support/fake_profile_gateway.dart';
+import 'support/fake_space_gateway.dart';
 
 const AuthUser _self = AuthUser(account: '10000001', username: 'alice');
 
@@ -399,6 +400,81 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(ChatPage.newMessagesKey), findsOneWidget);
     await capture(tester, 'dea493-new-messages-pill.png');
+    expect(tester.takeException(), isNull);
+  }, skip: skipReason != null);
+
+  testWidgets('capture the signed-in shell fold over the navigation rail', (
+    WidgetTester tester,
+  ) async {
+    if (outputDir == null) {
+      return;
+    }
+    await loadFonts(tester);
+
+    final DisplayFeature hinge = DisplayFeature(
+      bounds: const Rect.fromLTWH(492, 0, 40, 768),
+      type: DisplayFeatureType.hinge,
+      state: DisplayFeatureState.postureFlat,
+    );
+    tester.view.physicalSize = const Size(1024, 768);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      RepaintBoundary(
+        key: boundary,
+        child: MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: _theme(),
+          builder: (BuildContext context, Widget? child) => MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(displayFeatures: <DisplayFeature>[hinge]),
+            child: child!,
+          ),
+          // The real signed-in shell, so the 92 px rail is in frame: this is
+          // the surface QA measured, not the workspace alone.
+          home: HomeView(
+            user: _self,
+            profile: profile,
+            auth: FakeAuthGateway(),
+            heartbeat: heartbeat,
+            chat: chat,
+            space: FakeSpaceGateway(),
+            onSignedOut: (LogoutResult? _) {},
+            onSessionExpired: () {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    });
+    await tester.pump();
+    await capture(tester, 'dea493-shell-dual.png');
+
+    await tester.tap(find.byKey(ChatWorkspace.toggleKey));
+    for (int frame = 0; frame <= 13; frame += 1) {
+      await tester.pump(const Duration(milliseconds: 30));
+      await capture(
+        tester,
+        'dea493-shell-fold-${frame.toString().padLeft(2, '0')}.png',
+      );
+    }
+    await tester.pumpAndSettle();
+    expect(
+      tester.getRect(find.byKey(ChatWorkspace.chatPaneKey)).left,
+      closeTo(0, 0.1),
+    );
+    await capture(tester, 'dea493-shell-full.png');
+
+    await tester.tap(find.byKey(ChatWorkspace.toggleKey));
+    await tester.pumpAndSettle();
+    await capture(tester, 'dea493-shell-restored.png');
+    expect(
+      tester.getRect(find.byKey(ChatWorkspace.chatPaneKey)).left,
+      closeTo(hinge.bounds.right + ChatWorkspace.foldGap, 0.5),
+    );
     expect(tester.takeException(), isNull);
   }, skip: skipReason != null);
 }

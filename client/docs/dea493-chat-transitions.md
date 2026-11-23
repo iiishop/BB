@@ -107,6 +107,31 @@ flutter test test/chat_send_feedback_test.dart test/chat_flow_widget_test.dart \
    现在草稿条只对应已暂存的图文 part / 附件，纯文字只影响发送键强调，输入区高度保持
    稳定；历史锚点在双栏→全屏→双栏后仍可见。
 
+## QA 返工（QA r2）
+
+两份反例都在**真实登录首页**（`main.dart` 传入 Space 服务 → 外层 92px 导航栏 +
+`IndexedStack` 页面栈）里复现，修复同样落在原组件：
+
+1. **Space 遮挡聊天时仍记展示**：选中会话只回答“哪一个会话”，不回答“是否可见”。
+   `HomeView` 把当前分区可见性传给 `ChatWorkspace.visible`，`ChatPage.active` 改为
+   `visible && account == _selected`。频道被 Space 盖住时轮询/初载/刷新只暂存，切回聊天
+   分区重新变可见时才 `_flushDisplayed` 提交。
+2. **带导航栏时全屏停在 x=92**：`HomeView` 的页面栈改为画在导航栏之上的
+   `Positioned(left: rail)`，导航栏在下层；分栏坐标统一使用“导航栏右侧”的本地帧
+   （`MediaQuery.displayFeatures` 按当前 rail 宽度平移），因此双栏分界落在真实铰链上。
+   展开时两者共用 `HomeView` 的 `_foldController`：页面栈左移、rail 被盖住，聊天左缘
+   从 gutter 走到屏幕 x=0，右缘固定；`easeOutBack` 的越界回弹仍由聊天自身完成
+   （rail 侧按 clamp 处理，不会出现负宽度）。折叠特征消失（改窗口/旋转）时下一帧把
+   controller 归零，避免导航栏被永久藏起。
+   轨道槽位固定为 `Stack` 第 0 个子节点（窄屏用 0 宽占位），避免手机/桌面切换时错位
+   重建 Space 状态树。
+
+回归：`test/chat_hidden_display_test.dart`“Space 分区覆盖外壳时不能提交聊天展示事实”、
+`test/chat_workspace_widget_test.dart`“登录外壳把聊天展开到屏幕最左并盖住导航栏”
+（含全局坐标、右缘固定、导航栏不可命中、阅读位置/草稿恢复、双向切换）。
+两例在修复前的 `d5a7571` 上均失败：未读被写成已展示（`Set:['m31']`），全屏后聊天左缘为
+`680`（即屏幕 92 偏移下的 588）。
+
 ## 5. 未测 / 限制
 
 - 无 Android 真机或模拟器（`adb devices` 为空）；未在 Android 实机验证 IME 动画、返回手势、
