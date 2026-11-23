@@ -830,4 +830,50 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+
+  testWidgets(
+    "the split list keeps main's conversation note and the split selection in "
+    'sync',
+    (WidgetTester tester) async {
+      // Integration contract after merging DEA-494 into this branch: the
+      // conversation note (main) and the split pane selection (this branch)
+      // are one fact, keyed by account, in the two-pane left column.
+      await pumpAt(tester, const Size(1280, 900));
+
+      expect(
+        find.byKey(UsersListView.noteKey(bob.account)),
+        findsOneWidget,
+        reason: 'the auto-selected conversation sits in the note',
+      );
+      expect(
+        find.byKey(UsersListView.selectedKey(bob.account)),
+        findsOneWidget,
+      );
+      expect(find.byKey(UsersListView.noteKey(carol.account)), findsNothing);
+
+      await tester.tap(find.byKey(UsersListView.rowKey(carol.account)));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(UsersListView.noteKey(carol.account)),
+        findsOneWidget,
+        reason: 'the note follows the conversation shown on the right',
+      );
+      expect(
+        find.byKey(UsersListView.selectedKey(carol.account)),
+        findsOneWidget,
+      );
+      expect(find.byKey(UsersListView.noteKey(bob.account)), findsNothing);
+      expect(find.byKey(UsersListView.selectedKey(bob.account)), findsNothing);
+      // The right pane really switched; the note is the list's half of that.
+      expect(
+        find.byKey(
+          ValueKey<String>('chat-workspace-page-${carol.account}'),
+          skipOffstage: false,
+        ),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
 }
