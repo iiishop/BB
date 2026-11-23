@@ -107,7 +107,7 @@ main()
 | `PhotoViewerKeys` | `client/lib/ui/media/photo_pager.dart:19` | 每个 viewer 的 key 前缀，避免两个 viewer 同时挂载时冲突 | `MediaViewer.keys`（`ui/chat/media_viewer.dart:69`）、`SpaceImageViewer.keys`（`ui/space/space_image_viewer.dart:287`） | 新 viewer 用不同前缀 |
 | `formatBytes` | `client/lib/ui/media/photo_format.dart:10` | 字节数 → `KB/MB` 文案 | 两个 viewer；`ui/chat/chat_format.dart:5` 重新导出 | 不要在聊天里再写一份 |
 | `MediaDiskCache` | `client/lib/services/media_disk_cache.dart:18` | 进程级原图磁盘缓存，默认 256 MiB，按 `<variant>\|<id>` 或 `chat-original\|<mediaId>` 存 | `MediaViewer`（`ui/chat/media_viewer.dart:99`）、`SpaceImageLoader`（`ui/space/space_controller.dart:82`）、`HomeView`（`ui/home_view.dart:266`） | 全进程用 `sharedMediaDiskCache()`（`services/media_disk_cache.dart:190`）；不要 new 第二个实例，否则各自计数/淘汰 |
-| `PhotoPreview` / `mediaNeedsExplicitOriginal` | `client/lib/config/media_policy.dart:12`、`:15` | 已知大小 > 100 KiB 时先给有界预览，等人点「原图」；≤100 KiB 直接原图 | `PhotoPageController.start`（`ui/media/photo_page.dart:112`）、`ChatPhotoSource.loadPreview`（`ui/chat/chat_photo_source.dart:70`）、`SpacePhotoSource.loadPreview`（`ui/space/space_image_viewer.dart:246`） | 唯一阈值在 `media_policy.dart:12`；不要新增第二个 100 KiB |
+| `PhotoPreview` / `mediaNeedsExplicitOriginal` | 类型：`client/lib/ui/media/photo_source.dart:15`；阈值/谓词：`client/lib/config/media_policy.dart:12`、`:15` | 已知大小 > 100 KiB 时先给有界预览，等人点「原图」；≤100 KiB 直接原图 | `PhotoPageController.start`（`ui/media/photo_page.dart:112`）、`ChatPhotoSource.loadPreview`（`ui/chat/chat_photo_source.dart:70`）、`SpacePhotoSource.loadPreview`（`ui/space/space_image_viewer.dart:246`） | 唯一阈值在 `media_policy.dart:12`；不要新增第二个 100 KiB |
 
 使用规则：
 
@@ -131,7 +131,7 @@ main()
 
 | 组件 | 位置 | 契约 | 调用方 | 生效条件 / 需保留差异 |
 | --- | --- | --- | --- | --- |
-| `AuthShell` | `client/lib/ui/auth_shell.dart:13` | 响应式认证外壳：窄屏品牌头 + 单列卡片；宽屏深青品牌面板 + 固定宽表单列 | 登录 `ui/login_page.dart:225`、注册 `ui/register_page.dart:175`、`:189`、已登录占位 `ui/signed_in_view.dart:31`、服务器设置 `ui/server_setup_page.dart:172` | 宽屏判据 `<960`（`auth_shell.dart:45`）只服务认证页；不要拿它做聊天/空间断点 |
+| `AuthShell` | `client/lib/ui/auth_shell.dart:13` | 响应式认证外壳：窄屏品牌头 + 单列卡片；宽屏深青品牌面板 + 固定宽表单列 | 登录 `ui/login_page.dart:225`、注册 `ui/register_page.dart:175`、`:189`、已登录占位 `ui/signed_in_view.dart:31`、服务器设置 `ui/server_setup_page.dart:172` | 宽屏判据 `>= 960`（`auth_shell.dart:45`，宽度恰为 960 进 `_WideLayout`、959 进窄版）只服务认证页；不要拿它做聊天/空间断点 |
 | `AuthCard` | `client/lib/ui/widgets/auth_widgets.dart:68` | 白色内容卡片 | `AuthShell` 两种布局（`auth_shell.dart:110`、`:167`） | 认证页统一卡面 |
 | `AuthErrorBanner` | `client/lib/ui/widgets/auth_widgets.dart:95` | 可读、可朗读的表单级错误横幅 | 登录、注册、服务器设置 | 与服务端 `fields[].message` 对齐 |
 | `AuthNotice` | `client/lib/ui/widgets/auth_widgets.dart:147` | 信息/警告 + 可选重试动作 | 登录（恢复结果）、服务器设置 | 恢复失败分“过期/存储不可用/网络”三态（`ui/auth_flow.dart:62`、`:63`） |
@@ -340,7 +340,7 @@ client/lib/main.dart:31  main()
 | `client/lib/ui/profile/profile_panel.dart:33-41` + `:44-48` | 2 个判据（mode + `_isFlatFold`） | `_isFlatFold`：`type ∈ {fold,hinge}` 且 `state == postureFlat`，**不看方向**；因此水平 flat 折叠也会进 folded，随后 `foldedPanelWidth` 找不到竖向特征，退到 `width/2` |
 | `client/lib/ui/profile/profile_panel.dart:52-64` | 1 个 | `foldedPanelWidth` 又单独要求 `bounds.height >= bounds.width && bounds.left > 0`；和 mode 判据不是同一个谓词 |
 | `client/lib/ui/chat/chat_workspace.dart:134-147` | 1 个 | `splitFeatureOf`：`fold/hinge` 且 `bounds.width <= bounds.height`；**不看 state**。竖着半开的 hinge 也会分栏；水平特征被忽略 |
-| `client/lib/ui/space/space_layout.dart:93-120` | 1 个 | 完全不看 `type/state`，只看 bounds：0 宽或 0 高判竖向/横向，双向都有时按长短轴；cutout 也走同一条遮挡逻辑 |
+| `client/lib/ui/space/space_layout.dart:93-120` | 1 个 | 完全不看 `type/state`，只看 bounds，按三个分支（`space_layout.dart:100-111`）：宽≤1 且高>1 → 竖向；高≤1 且宽>1 → 横向；宽>1 且高>1 → 高≥宽归横向、宽>高归竖向；1×1 忽略。cutout/折叠面板同走遮挡逻辑 |
 
 **目标实现**：新增 `client/lib/ui/layout/display_features.dart`（新文件），只放三个语义不同的函数，避免一个布尔值硬套三种策略：
 
@@ -412,7 +412,7 @@ client/lib/main.dart:31  main()
 | `client/lib/ui/media/*` | 1 套（已正确复用） | `PhotoSource` + `PhotoPage` + `PhotoPager` 同时服务聊天和 Space | 不要再写第三个查看器；新来源实现 `PhotoSource` |
 | `client/lib/ui/chat/message_bubble.dart:845`（`_MediaImage`）与 `:1082`（`_BodyPhoto`） | 2 个缩略图 widget | 都：一次请求/媒体、失败占位、本地字节优先；但 `_BodyPhoto` 还做 4:3/真实比例、`AnimatedSize`，`_MediaImage` 固定 220×120。两者都直接调 `chat.loadListPreview`（`:880`、`:1137`） | 抽一个 `ChatThumbnail`（输入 `chat/mediaId/localBytes/mode`），保留 `bodyPhoto` 的比例/动画模式和 `pictureMessage` 的固定 tile 模式 |
 | `client/lib/ui/chat/chat_photo_source.dart:24-113` 与 `client/lib/ui/space/space_image_viewer.dart:217-260` | 2 个 `PhotoSource` | Chat：heldOriginal 快路径、原图写 `chat-original\|id`、大小探测（`:100-113`）；Space：委托 `SpaceImageLoader`，带 epoch/generation 失效和 thumb/original 变体 | 抽 `CachedOriginalPhotoSource` 基类/helper 统一磁盘 key 读写；保留 Chat 的 heldOriginal、Space 的失效与授权重校验 |
-| `client/lib/ui/chat/chat_photo_source.dart:70-78` 与 `client/lib/services/chat_service.dart:2345-2352` | 2 条预览决策路径 | 前者先 `loadMediaMetadata` 再 `loadMediaPreview(thumbnail:)`；后者 `loadListPreview` 也 probe metadata + `mediaNeedsExplicitOriginal` | 在 `ChatService` 暴露一个 `MediaPreviewPlan`（是否 derivative、字节大小），两处都读它；列表仍只要 thumb，viewer 仍要 derivative 标志 |
+| `client/lib/ui/chat/chat_photo_source.dart:70-78` 与 `client/lib/services/chat_service.dart:2345-2352` | 2 条预览决策路径 | 前者先 `loadMediaMetadata` 再 `loadMediaPreview(thumbnail:)`；后者 `loadListPreview` 也 probe metadata + `mediaNeedsExplicitOriginal` | 在 `ChatService` 暴露一个 `MediaPreviewPlan`（是否 derivative、字节大小），两处都读它；列表必须保留边界：≤102400 字节走 `mediaBytes` 原图，>102400（从 102401 起）才 `loadThumbnail`，viewer 仍要 derivative 标志 |
 | `client/lib/ui/chat/viewer_video.dart:48`、`:87`（`ViewerVideoSession`/`StreamingViewerVideoSession`）与 `client/lib/ui/chat/chat_page.dart:1879`（`_VideoDialog`） | 2 套播放器 | 都用回环 URI；viewer 有独立进度/`requestBytes` vs `mediaBytes`/重试；`_VideoDialog` 只做 Android 内嵌 dialog，初始化/重试/释放自成一套 | 抽共享播放组件/控制器（打开、初始化、错误、重试、释放）；保留“全屏 viewer”和“Android 内嵌 dialog”两种 chrome，以及进度 labeling |
 | `client/lib/services/media_disk_cache.dart:18` / `:190` | 1 个（正确） | 全进程 256 MiB，聊天原图和 Space 原图共用 | 新代码用 `sharedMediaDiskCache()`；测试可注入不同实例 |
 | `client/lib/ui/chat/media_viewer.dart:99`、`ui/home_view.dart:266`、`ui/space/space_controller.dart:82` | 3 个注入点 | 都指向同一个 `sharedMediaDiskCache()` | 保持一个进程一个缓存；不要按页面 new |
@@ -421,7 +421,7 @@ client/lib/main.dart:31  main()
 
 - Chat 原图一旦发送，客户端持有 `heldOriginal`，打开 viewer 不应再走网络；Space 没有“刚发送的本地副本”，必须重新读授权图源。
 - Space 图片可能因帖子删除/重连整体失效，`changes`/`invalidated` 必须继续生效；Chat 的 media id 不可变，不需要失效监听。
-- 列表缩略图绝不能因为“统一预览逻辑”而拉原图；DEA-471 的 100 KiB 规则和 `loadListPreview` 是硬边界。
+- 列表不是无条件用缩略图：`loadListPreview` 先 probe 大小，≤102400 字节走 `mediaBytes` 原图，>102400（从 102401 起）才 `loadThumbnail`（`services/chat_service.dart:2345-2352`、`config/media_policy.dart:15`）。统一预览逻辑时不能把这个边界改成 `<`、也不能让列表一律拉缩略图或一律拉原图。
 
 ### 4.6 权限判断
 
