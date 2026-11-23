@@ -606,17 +606,19 @@ void main() {
       final Rect dualChat = tester.getRect(chatPane);
       expect(
         dualChat.left,
-        closeTo(foldX + ChatWorkspace.foldGap, 0.5),
-        reason: 'the right pane starts after the fold and its gutter',
+        closeTo(foldX + ChatWorkspace.foldGap / 2, 0.5),
+        reason: 'the right pane starts past the fold and its half band',
       );
 
       final Finder toggle = find.byKey(ChatWorkspace.toggleKey);
       expect(toggle, findsOneWidget);
+      final Rect foldGrip = tester.getRect(toggle);
       expect(
-        tester.getRect(toggle).left,
-        greaterThanOrEqualTo(foldX),
-        reason: 'the switch must not sit on the fold',
+        foldGrip.left,
+        lessThan(foldX),
+        reason: 'the grip straddles a zero-width crease',
       );
+      expect(foldGrip.right, greaterThan(foldX));
 
       await tester.tap(toggle);
       await tester.pumpAndSettle();
@@ -664,8 +666,9 @@ void main() {
       expect(grip.width, lessThanOrEqualTo(ChatWorkspace.foldGap));
       expect(grip.height, closeTo(ChatWorkspace.foldHandleHeight, 0.1));
       expect(ChatWorkspace.foldHandleHeight, closeTo(56, 0.1));
-      // The band is the whole extra width both panes give up.
-      expect(list.right, closeTo(512, 0.5));
+      // The band straddles the crease: the whole extra width both panes give
+      // up is exactly 20 lp, 10 on each side of the fold.
+      expect(list.right, closeTo(512 - ChatWorkspace.foldGap / 2, 0.5));
       expect(chat.left - list.right, closeTo(ChatWorkspace.foldGap, 0.5));
       expect(chat.left - list.right, lessThanOrEqualTo(20));
       // Grip inside the band: it never reaches into a row or a bubble.

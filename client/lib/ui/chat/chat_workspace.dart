@@ -93,6 +93,24 @@ class ChatWorkspace extends StatefulWidget {
 
   static const Duration foldDuration = Duration(milliseconds: 360);
 
+  /// True when the device gives a physical, non-touchable strip (a real hinge)
+  /// rather than a zero-width fold crease.
+  static bool hasHardHinge(DisplayFeature feature) => feature.bounds.width >= 8;
+
+  /// Left edge of the 20 px grip band.
+  ///
+  /// A real hinge is not touchable, so the grip sits just past its right edge.
+  /// A zero-width fold has no strip to avoid, so the band straddles the crease:
+  /// the grip is mounted on the divider instead of floating beside it.
+  static double bandLeftFor(DisplayFeature feature) => hasHardHinge(feature)
+      ? feature.bounds.right
+      : feature.bounds.center.dx - foldGap / 2;
+
+  /// Where the conversation list has to stop: before a physical hinge, or at
+  /// the left half of the straddling band on a zero-width fold.
+  static double listStopFor(DisplayFeature feature) =>
+      hasHardHinge(feature) ? feature.bounds.left : bandLeftFor(feature);
+
   /// The vertical hinge or fold that separates two physical panes.
   ///
   /// A flat, zero-width `fold` is just as much an unfolded split boundary as a
@@ -222,8 +240,12 @@ class _ChatWorkspaceState extends State<ChatWorkspace>
 
   double _listWidth(double total, DisplayFeature? splitFeature) {
     if (splitFeature != null) {
-      // Stop at the divider, not across it; the right pane starts after it.
-      return splitFeature.bounds.left.clamp(0.0, math.max(0.0, total - 420));
+      // Stop where the band starts. The 420 px chat floor must not apply here:
+      // the divider is fixed by the device, so a floor would only open dead
+      // space between the list edge and the fold (measured as a 40 px band at
+      // 800 px).
+      return ChatWorkspace.listStopFor(splitFeature)
+          .clamp(0.0, math.max(0.0, total - ChatWorkspace.foldGap - 120));
     }
     return (total * 0.34).clamp(300.0, 380.0).clamp(0.0, total - 420);
   }
@@ -245,11 +267,12 @@ class _ChatWorkspaceState extends State<ChatWorkspace>
           _expanded = false;
           _scheduleFoldReset();
         }
+        // The chat starts one band past the grip band. No extra floor: on a
+        // narrow unfolded screen that floor would pull the chat across the
+        // divider and let the grip drift off the fold.
         final double dualLeft = splitFeature != null
-            ? (splitFeature.bounds.right + ChatWorkspace.foldGap).clamp(
-                0.0,
-                total - 320,
-              )
+            ? (ChatWorkspace.bandLeftFor(splitFeature) + ChatWorkspace.foldGap)
+                  .clamp(0.0, total)
             : _listWidth(total, null);
         final Curve curve = _expanded
             ? Curves.easeOutBack
@@ -292,7 +315,7 @@ class _ChatWorkspaceState extends State<ChatWorkspace>
                 top: 0,
                 bottom: 0,
                 width: _listWidth(total, splitFeature),
-                child: _listPane(),
+                child: _listPane(divider: splitFeature == null),
               ),
               // Hairline through the middle of the band, interrupted by the
               // handle: a divider with a grip, not a blank gutter.
@@ -350,12 +373,16 @@ class _ChatWorkspaceState extends State<ChatWorkspace>
     );
   }
 
-  Widget _listPane() {
+  Widget _listPane({bool divider = true}) {
     return Container(
       key: ChatWorkspace.listPaneKey,
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: AppColors.paper,
-        border: Border(right: BorderSide(color: AppColors.border)),
+        // The band's own hairline is the divider in a folded layout, so the
+        // list edge does not add a second line next to it.
+        border: divider
+            ? const Border(right: BorderSide(color: AppColors.border))
+            : null,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
