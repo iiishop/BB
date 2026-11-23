@@ -1006,7 +1006,10 @@ class _ChatPageState extends State<ChatPage> {
           });
       return;
     }
-    if (attempt >= 3) {
+    // A body photo reserves 4:3 until its real ratio arrives and then settles
+    // over ~160ms; a short attempt budget would stop short of the bottom and
+    // leave the newest message a few pixels below the fold.
+    if (attempt >= 12) {
       return;
     }
     _scrollController.jumpTo(target);
