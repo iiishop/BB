@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/fake_profile_gateway.dart';
+import 'support/phone_profile.dart';
 
 const AuthUser _user = AuthUser(account: '40218765', username: 'muse.tester');
 
@@ -150,6 +151,7 @@ void main() {
     WidgetTester tester,
   ) async {
     await pumpHost(tester, size: const Size(390, 844));
+    await openProfileEditSheet(tester);
     await tester.tap(find.byKey(ProfilePanel.editNicknameKey));
     await tester.pumpAndSettle();
 
@@ -169,6 +171,7 @@ void main() {
     WidgetTester tester,
   ) async {
     await pumpHost(tester, size: const Size(390, 844));
+    await openProfileEditSheet(tester);
     await tester.tap(find.byKey(ProfilePanel.editSignatureKey));
     await tester.pumpAndSettle();
 
@@ -185,6 +188,7 @@ void main() {
     WidgetTester tester,
   ) async {
     await pumpHost(tester, size: const Size(390, 844));
+    await openProfileEditSheet(tester);
     await tester.tap(find.text('更换头像').first);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Base64'));

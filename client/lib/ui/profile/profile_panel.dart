@@ -13,6 +13,7 @@ import '../../services/profile_service.dart';
 import '../../validation/profile_rules.dart';
 import '../widgets/profile_avatar.dart';
 import 'avatar_picker.dart';
+import 'profile_artwork.dart';
 
 /// Which of the three Profile presentations applies.
 enum ProfilePanelMode {
@@ -86,6 +87,10 @@ class ProfilePanelResult {
 }
 
 /// Opens the Profile panel in the right presentation for this viewport.
+///
+/// A phone gets a full-screen [PageRoute] rather than a dialog because the
+/// avatar has to travel from the messages-page entry to the cover, and Hero
+/// flights only run between [PageRoute]s. Folded and desktop keep the dialog.
 Future<ProfilePanelResult?> openProfilePanel(
   BuildContext context, {
   required ProfileGateway gateway,
@@ -97,6 +102,24 @@ Future<ProfilePanelResult?> openProfilePanel(
   AvatarDecodeCheck? avatarDecodeCheck,
   AvatarSourceReader? avatarSourceReader,
 }) {
+  Widget frame() => _ResponsiveProfileFrame(
+    gateway: gateway,
+    user: user,
+    initialProfile: initialProfile,
+    initialAvatar: initialAvatar,
+    onLogout: onLogout,
+    avatarPicker: avatarPicker,
+    avatarDecodeCheck: avatarDecodeCheck,
+    avatarSourceReader: avatarSourceReader,
+  );
+
+  // Resolved once, at open time: the route type cannot change later without
+  // dropping the panel, and a resize to desktop while open keeps this page
+  // (the frame still reflows to the desktop card).
+  if (resolveProfilePanelMode(context) == ProfilePanelMode.mobile) {
+    return Navigator.of(context)
+        .push<ProfilePanelResult>(_PhoneProfileRoute(builder: (_) => frame()));
+  }
   return showGeneralDialog<ProfilePanelResult>(
     context: context,
     barrierDismissible: true,
@@ -112,16 +135,7 @@ Future<ProfilePanelResult?> openProfilePanel(
           // Recompute the presentation on every MediaQuery/metrics change while
           // the dialog stays open; mode and fold width are never frozen at open
           // time (QA-465-03).
-          return _ResponsiveProfileFrame(
-            gateway: gateway,
-            user: user,
-            initialProfile: initialProfile,
-            initialAvatar: initialAvatar,
-            onLogout: onLogout,
-            avatarPicker: avatarPicker,
-            avatarDecodeCheck: avatarDecodeCheck,
-            avatarSourceReader: avatarSourceReader,
-          );
+          return frame();
         },
     transitionBuilder:
         (
@@ -136,6 +150,44 @@ Future<ProfilePanelResult?> openProfilePanel(
           );
         },
   );
+}
+
+/// Key for the phone page's route fade; the exit is a cross-fade while the
+/// avatar Hero returns, never the old left slide.
+const Key profilePhoneFadeKey = Key('profile-phone-fade');
+
+/// Full-screen phone route for the Profile page.
+///
+/// The page fades in while the avatar Hero flies; both use the same 360 ms
+/// clock so the photo has landed before the scalloped rim starts settling.
+class _PhoneProfileRoute extends PageRouteBuilder<ProfilePanelResult> {
+  _PhoneProfileRoute({required WidgetBuilder builder})
+    : super(
+        opaque: true,
+        barrierDismissible: false,
+        transitionDuration: const Duration(milliseconds: 360),
+        reverseTransitionDuration: const Duration(milliseconds: 300),
+        pageBuilder: (
+          BuildContext context,
+          Animation<double> a,
+          Animation<double> b,
+        ) => builder(context),
+        transitionsBuilder:
+            (
+              BuildContext context,
+              Animation<double> animation,
+              Animation<double> secondary,
+              Widget child,
+            ) => FadeTransition(
+              key: profilePhoneFadeKey,
+              opacity: CurvedAnimation(
+                parent: animation,
+                curve: Curves.easeOutCubic,
+                reverseCurve: Curves.easeInCubic,
+              ),
+              child: child,
+            ),
+      );
 }
 
 /// Rebuilds the Profile presentation from the live MediaQuery.
@@ -258,9 +310,14 @@ class _ResponsiveProfileFrame extends StatelessWidget {
       avatarSourceReader: avatarSourceReader,
     );
     if (mode == ProfilePanelMode.mobile) {
-      return Material(
-        color: AppColors.paper,
-        child: SafeArea(child: panel),
+      // The phone page draws under the status bar so the sea cover reaches the
+      // top edge; ProfilePanel insets only its own controls. The Scaffold is
+      // the page's own: an opaque route would otherwise show its snackbars on
+      // the hidden messages page underneath. The page also owns its messenger,
+      // so feedback is never mirrored onto the host Scaffold when this frame is
+      // shown as a dialog after a desktop-to-phone reflow.
+      return ScaffoldMessenger(
+        child: Scaffold(backgroundColor: AppColors.paper, body: panel),
       );
     }
     if (mode == ProfilePanelMode.folded) {
@@ -398,6 +455,42 @@ class ProfilePanel extends StatefulWidget {
   static const Key homeButtonKey = Key('profile-home');
   static const Key errorKey = Key('profile-error');
 
+  /// Phone-only entries: the edit sheet and the avatar Hero shared with the
+  /// messages-page entry.
+  static const Key editProfileKey = Key('profile-edit');
+  static const Key editSheetKey = Key('profile-edit-sheet');
+  static const Key changeCoverKey = Key('profile-change-cover');
+
+  /// The avatar in flight; present only while the entry/cover Hero runs.
+  static const Key avatarFlightKey = Key('profile-avatar-flight');
+  static const String avatarHeroTag = 'profile-avatar-hero';
+
+  /// Shuttle for the entry -> cover avatar flight.
+  ///
+  /// It always carries the avatar that is already decoded (the messages-page
+  /// thumbnail on the way in, the cover photo on the way back) and is scaled by
+  /// the Hero rect, so the flight never flashes an empty placeholder even when
+  /// the full-size fetch is still in flight.
+  static Widget avatarFlightShuttle(
+    BuildContext flightContext,
+    Animation<double> animation,
+    HeroFlightDirection direction,
+    BuildContext fromHeroContext,
+    BuildContext toHeroContext,
+  ) {
+    final BuildContext source = direction == HeroFlightDirection.push
+        ? fromHeroContext
+        : toHeroContext;
+    final Hero hero = source.widget as Hero;
+    // The flight lives in the overlay, outside the page Material; without this
+    // the avatar's tap layer asserts on the missing ancestor mid-flight.
+    return Material(
+      key: avatarFlightKey,
+      type: MaterialType.transparency,
+      child: FittedBox(fit: BoxFit.contain, child: hero.child),
+    );
+  }
+
   @override
   State<ProfilePanel> createState() => _ProfilePanelState();
 }
@@ -405,6 +498,13 @@ class ProfilePanel extends StatefulWidget {
 class _ProfilePanelState extends State<ProfilePanel> {
   Profile? _profile;
   Uint8List? _avatar;
+  CoverImage? _cover;
+
+  /// Monotonic owner of the displayed cover. Every load/replacement bumps it;
+  /// a response may only write [_cover] while it still owns the newest value.
+  /// Without this, a slow first GET (started before an upload) lands after the
+  /// upload and restores the old image over the "cover updated" state.
+  int _coverGeneration = 0;
   bool _loading = false;
   bool _busy = false;
   String? _error;
@@ -438,6 +538,9 @@ class _ProfilePanelState extends State<ProfilePanel> {
         _avatar = image.bytes;
         _loading = false;
       });
+      // The cover is independent: a cover failure must never turn the profile
+      // into an error page, and the packaged default keeps the header filled.
+      unawaited(_loadCover());
     } on AuthFailure catch (failure) {
       if (!mounted) {
         return;
@@ -469,6 +572,99 @@ class _ProfilePanelState extends State<ProfilePanel> {
       });
     } on AuthFailure catch (failure) {
       _showSnack(failure.message);
+    }
+  }
+
+  /// Revalidates the displayed cover with the server.
+  ///
+  /// On failure the currently displayed bytes (custom or default) stay; the
+  /// page never falls back to an invented image.
+  Future<void> _loadCover({bool quiet = true}) async {
+    final int generation = ++_coverGeneration;
+    try {
+      final CoverImage cover = await widget.gateway.loadCover();
+      // A later upload/reload owns the display now; this response is stale even
+      // if it just arrived and even though it came from the server.
+      if (!mounted || generation != _coverGeneration) {
+        return;
+      }
+      setState(() => _cover = cover);
+    } on AuthFailure catch (failure) {
+      if (!quiet && mounted && generation == _coverGeneration) {
+        _showSnack(failure.message);
+      }
+    } catch (_) {
+      if (!quiet && mounted && generation == _coverGeneration) {
+        _showSnack('封面加载失败，请稍后重试');
+      }
+    }
+  }
+
+  Future<void> _changeCover() async {
+    final bool galleryMode =
+        Theme.of(context).platform == TargetPlatform.android;
+    final _AvatarChoice? choice = await showDialog<_AvatarChoice>(
+      context: context,
+      builder: (BuildContext context) => _AvatarSourceDialog(
+        picker: widget.avatarPicker ?? const FileSelectorAvatarImagePicker(),
+        decodeCheck: widget.avatarDecodeCheck ?? isDecodableAvatarImage,
+        reader: widget.avatarSourceReader ?? DefaultAvatarSourceReader(),
+        galleryMode: galleryMode,
+        subject: '封面',
+        maxMegabytes: 8,
+      ),
+    );
+    if (choice == null) {
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      final CoverInfo info;
+      switch (choice.source) {
+        case 'path':
+          info = await widget.gateway.updateCoverFromPath(choice.value);
+        case 'url':
+          info = await widget.gateway.updateCoverFromUrl(choice.value);
+        case 'bytes':
+          info = await widget.gateway.updateCoverFromBytes(choice.bytes!);
+        default:
+          info = await widget.gateway.updateCoverFromBase64(choice.value);
+      }
+      if (!mounted) {
+        return;
+      }
+      // The replacement is committed server-side: invalidate any load that was
+      // already in flight so its older snapshot cannot overwrite this upload.
+      final int generation = ++_coverGeneration;
+      // Show the server-rendered display image, never the uploaded source.
+      final CoverImage cover = await widget.gateway.loadCover();
+      if (!mounted) {
+        return;
+      }
+      if (generation != _coverGeneration) {
+        // A newer cover operation owns the display; keep its state untouched.
+        setState(() => _busy = false);
+        return;
+      }
+      setState(() {
+        _busy = false;
+        _cover = cover;
+      });
+      _showSnack('封面已更新（${info.coverVersion.substring(0, 12)}…）');
+    } on AuthFailure catch (failure) {
+      if (!mounted) {
+        return;
+      }
+      // Keep the previously displayed cover: a failed replacement is not a
+      // reason to blank the header.
+      setState(() => _busy = false);
+      _showSnack(_failureMessage(failure));
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _busy = false);
+      _showSnack('封面更新失败，请稍后重试');
     }
   }
 
@@ -722,6 +918,459 @@ class _ProfilePanelState extends State<ProfilePanel> {
 
   @override
   Widget build(BuildContext context) {
+    // The phone is a cover-led page; folded and desktop keep the list card.
+    if (widget.mode == ProfilePanelMode.mobile) {
+      return _buildPhone(context);
+    }
+    return _buildPanel(context);
+  }
+
+  /// Phone layout: sea cover, avatar straddling the seam, plain body actions.
+  Widget _buildPhone(BuildContext context) {
+    final TextTheme text = Theme.of(context).textTheme;
+    final Profile? profile = _profile;
+    final String nickname = profile?.username ?? widget.user.username;
+    final String account = profile?.account ?? widget.user.account;
+    final String? signature = profile?.signature;
+    final bool hasSignature = signature != null && signature.isNotEmpty;
+    final Size viewport = MediaQuery.sizeOf(context);
+    final EdgeInsets insets = MediaQuery.paddingOf(context);
+    final double coverHeight = profileCoverHeight(viewport);
+    final double avatarSize = viewport.width < 360 ? 92 : 104;
+    final double avatarLeft = AppSpacing.lg;
+    final double avatarOverhang = avatarSize * 0.55;
+    // Enlarged text cannot share the seam row with the photo: the name moves
+    // below the avatar and the two actions stack, so nothing is squeezed or
+    // clipped at 200 %.
+    final bool largeText = MediaQuery.textScalerOf(context).scale(1) > 1.35;
+    final bool stackActions = largeText || viewport.width < 340;
+
+    final Widget nameBlock = Padding(
+      padding: EdgeInsets.only(
+        right: AppSpacing.lg,
+        left: largeText ? AppSpacing.lg : 0,
+        top: largeText ? avatarOverhang + AppSpacing.sm : 10,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            nickname,
+            key: ProfilePanel.nicknameValueKey,
+            style: text.headlineSmall?.copyWith(
+              fontSize: 24,
+              fontWeight: FontWeight.w700,
+              height: 1.18,
+              letterSpacing: -0.3,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: <Widget>[
+              Text(
+                '账号  ',
+                style: text.bodySmall?.copyWith(color: AppColors.inkMuted),
+              ),
+              Flexible(
+                child: Text(
+                  account,
+                  key: ProfilePanel.accountValueKey,
+                  style: text.bodyMedium?.copyWith(
+                    color: AppColors.inkMuted,
+                    letterSpacing: 1.1,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+
+    return Column(
+      key: ProfilePanel.panelKey,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Expanded(
+          child: SingleChildScrollView(
+            padding: EdgeInsets.only(bottom: AppSpacing.xl + insets.bottom),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: <Widget>[
+                    ProfileSeaCover(
+                      height: coverHeight,
+                      imageBytes: _cover?.bytes,
+                      imageMimeType: _cover?.mimeType,
+                      backBar: Padding(
+                        padding: EdgeInsets.only(
+                          top: insets.top + AppSpacing.sm,
+                          bottom: AppSpacing.sm,
+                        ),
+                        child: _phoneBackBar(context),
+                      ),
+                    ),
+                    Positioned(
+                      left: avatarLeft,
+                      top: coverHeight - avatarOverhang,
+                      child: Hero(
+                        tag: ProfilePanel.avatarHeroTag,
+                        flightShuttleBuilder: ProfilePanel.avatarFlightShuttle,
+                        child: ScallopedAvatar(
+                          bytes: _avatar,
+                          size: avatarSize,
+                          loading: _loading && _avatar == null,
+                          onTap: _busy ? null : _changeAvatar,
+                          semanticLabel: '更换头像',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                if (largeText)
+                  nameBlock
+                else
+                  // The name column starts beside the overhanging avatar; the
+                  // minimum height keeps the signature below the avatar even
+                  // when the nickname is a single short line.
+                  ConstrainedBox(
+                    constraints: BoxConstraints(minHeight: avatarOverhang),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        SizedBox(
+                          width: avatarLeft + avatarSize + AppSpacing.md,
+                        ),
+                        Expanded(child: nameBlock),
+                      ],
+                    ),
+                  ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.lg,
+                    AppSpacing.md,
+                    AppSpacing.lg,
+                    0,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        '签名',
+                        style: text.labelMedium?.copyWith(
+                          color: AppColors.inkMuted,
+                          letterSpacing: 1.2,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        hasSignature ? signature : '还没有签名',
+                        key: ProfilePanel.signatureValueKey,
+                        style: text.bodyLarge?.copyWith(
+                          height: 1.5,
+                          color: hasSignature
+                              ? AppColors.ink
+                              : AppColors.inkMuted,
+                          fontStyle: hasSignature ? null : FontStyle.italic,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (_error != null)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.lg,
+                      AppSpacing.md,
+                      AppSpacing.lg,
+                      0,
+                    ),
+                    child: Text(
+                      _error!,
+                      key: ProfilePanel.errorKey,
+                      style: text.bodySmall?.copyWith(color: AppColors.danger),
+                    ),
+                  ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.lg,
+                    AppSpacing.xl,
+                    AppSpacing.lg,
+                    0,
+                  ),
+                  child: stackActions
+                      ? Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: <Widget>[
+                            _phoneEditButton(),
+                            const SizedBox(height: AppSpacing.sm),
+                            _phoneHomeButton(),
+                          ],
+                        )
+                      : Row(
+                          children: <Widget>[
+                            Expanded(child: _phoneEditButton()),
+                            const SizedBox(width: AppSpacing.md),
+                            Expanded(child: _phoneHomeButton()),
+                          ],
+                        ),
+                ),
+                const SizedBox(height: AppSpacing.lg),
+                _PhoneEntry(
+                  key: ProfilePanel.otherProfileKey,
+                  icon: Icons.people_outline_rounded,
+                  label: '查看其他账号资料',
+                  onTap: _busy ? null : _viewOtherAccount,
+                ),
+                const _PhoneDivider(),
+                _PhoneEntry(
+                  key: ProfilePanel.settingsButtonKey,
+                  icon: Icons.settings_outlined,
+                  label: '设置',
+                  onTap: _busy
+                      ? null
+                      : () => Navigator.of(context)
+                            .pop(const ProfilePanelResult(openSettings: true)),
+                ),
+                const _PhoneDivider(),
+                _PhoneEntry(
+                  key: ProfilePanel.logoutButtonKey,
+                  icon: Icons.logout_rounded,
+                  label: '退出登录',
+                  danger: true,
+                  trailing: false,
+                  onTap: _busy ? null : _logout,
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.lg,
+                    AppSpacing.xs,
+                    AppSpacing.lg,
+                    AppSpacing.lg,
+                  ),
+                  child: Text('退出登录会删除服务端该会话，并清除本机凭据。', style: text.bodySmall),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _phoneBackBar(BuildContext context) {
+    final TextTheme text = Theme.of(context).textTheme;
+    return Row(
+      children: <Widget>[
+        DecoratedBox(
+          decoration: const BoxDecoration(
+            color: Color(0x3D0B1020),
+            shape: BoxShape.circle,
+          ),
+          child: IconButton(
+            key: ProfilePanel.closeButtonKey,
+            onPressed: _close,
+            tooltip: '返回',
+            color: AppColors.surface,
+            icon: const Icon(Icons.arrow_back_rounded),
+          ),
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(
+          child: Text(
+            '个人资料',
+            style: text.titleLarge?.copyWith(
+              color: AppColors.surface,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.2,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        if (_busy || _loading)
+          const Padding(
+            padding: EdgeInsets.only(right: AppSpacing.md),
+            child: SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: AppColors.surface,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _phoneEditButton() {
+    return FilledButton.icon(
+      key: ProfilePanel.editProfileKey,
+      onPressed: _busy ? null : _openEditSheet,
+      style: FilledButton.styleFrom(
+        minimumSize: const Size(0, 48),
+        backgroundColor: AppColors.accentDeep,
+        foregroundColor: AppColors.surface,
+        shape: const StadiumBorder(),
+      ),
+      icon: const Icon(Icons.edit_outlined, size: 18),
+      label: const Text('编辑资料', maxLines: 1, overflow: TextOverflow.ellipsis),
+    );
+  }
+
+  Widget _phoneHomeButton() {
+    return FilledButton.icon(
+      key: ProfilePanel.homeButtonKey,
+      onPressed: _busy ? null : _openHome,
+      style: FilledButton.styleFrom(
+        minimumSize: const Size(0, 48),
+        backgroundColor: AppColors.accentSoft,
+        foregroundColor: AppColors.accentDeep,
+        shape: const StadiumBorder(),
+      ),
+      icon: const Icon(Icons.person_outline_rounded, size: 18),
+      label: const Text('个人主页', maxLines: 1, overflow: TextOverflow.ellipsis),
+    );
+  }
+
+  /// One sheet for everything the reference page no longer shows inline.
+  ///
+  /// Every action closes the sheet and runs the existing handler, so the photo
+  /// picker and text editors stay exactly the surfaces they were; nothing is
+  /// duplicated and a saved value rebuilds the page behind the sheet.
+  Future<void> _openEditSheet() async {
+    final Profile? profile = _profile;
+    final String nickname = profile?.username ?? widget.user.username;
+    final String? signature = profile?.signature;
+    final String signatureText = (signature == null || signature.isEmpty)
+        ? '还没有签名'
+        : signature;
+    final _PhoneEditAction?
+    action = await showModalBottomSheet<_PhoneEditAction>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: AppColors.paper,
+      isScrollControlled: true,
+      builder: (BuildContext sheetContext) {
+        final TextTheme text = Theme.of(sheetContext).textTheme;
+        return SafeArea(
+          child: Padding(
+            key: ProfilePanel.editSheetKey,
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.lg,
+              0,
+              AppSpacing.lg,
+              AppSpacing.lg,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                Text(
+                  '编辑资料',
+                  style: text.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                Row(
+                  children: <Widget>[
+                    ProfileAvatar(bytes: _avatar, size: 48, showBorder: false),
+                    const SizedBox(width: AppSpacing.md),
+                    Expanded(
+                      child: Text(
+                        '头像',
+                        style: text.bodyLarge?.copyWith(color: AppColors.ink),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () =>
+                          Navigator.of(sheetContext)
+                              .pop(_PhoneEditAction.changeAvatar),
+                      child: const Text('更换头像'),
+                    ),
+                    TextButton(
+                      key: ProfilePanel.removeAvatarKey,
+                      onPressed: () =>
+                          Navigator.of(sheetContext)
+                              .pop(_PhoneEditAction.removeAvatar),
+                      child: const Text('移除'),
+                    ),
+                  ],
+                ),
+                const Divider(height: AppSpacing.lg, color: AppColors.border),
+                ListTile(
+                  key: ProfilePanel.changeCoverKey,
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.landscape_outlined, size: 20),
+                  title: const Text('封面'),
+                  subtitle: Text(
+                    _cover?.isDefault ?? true
+                        ? '当前为默认海浪，点按上传替换'
+                        : '已使用自己的封面，点按替换',
+                  ),
+                  trailing: const Icon(Icons.edit_outlined, size: 18),
+                  onTap: () =>
+                      Navigator.of(sheetContext).pop(_PhoneEditAction.cover),
+                ),
+                const Divider(height: AppSpacing.lg, color: AppColors.border),
+                ListTile(
+                  key: ProfilePanel.editNicknameKey,
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.badge_outlined, size: 20),
+                  title: const Text('昵称'),
+                  subtitle: Text(
+                    nickname,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: const Icon(Icons.edit_outlined, size: 18),
+                  onTap: () =>
+                      Navigator.of(sheetContext).pop(_PhoneEditAction.nickname),
+                ),
+                const Divider(height: AppSpacing.lg, color: AppColors.border),
+                ListTile(
+                  key: ProfilePanel.editSignatureKey,
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.notes_rounded, size: 20),
+                  title: const Text('签名'),
+                  subtitle: Text(
+                    signatureText,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: const Icon(Icons.edit_outlined, size: 18),
+                  onTap: () =>
+                      Navigator.of(sheetContext)
+                          .pop(_PhoneEditAction.signature),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    if (!mounted || action == null) {
+      return;
+    }
+    switch (action) {
+      case _PhoneEditAction.changeAvatar:
+        await _changeAvatar();
+      case _PhoneEditAction.removeAvatar:
+        await _removeAvatar();
+      case _PhoneEditAction.cover:
+        await _changeCover();
+      case _PhoneEditAction.nickname:
+        await _editNickname();
+      case _PhoneEditAction.signature:
+        await _editSignature();
+    }
+  }
+
+  Widget _buildPanel(BuildContext context) {
     final TextTheme text = Theme.of(context).textTheme;
     final Profile? profile = _profile;
     final String nickname = profile?.username ?? widget.user.username;
@@ -919,6 +1568,74 @@ class _ProfilePanelState extends State<ProfilePanel> {
   }
 }
 
+enum _PhoneEditAction { changeAvatar, removeAvatar, cover, nickname, signature }
+
+/// A full-width settings row on the phone page.
+class _PhoneEntry extends StatelessWidget {
+  const _PhoneEntry({
+    super.key,
+    required this.icon,
+    required this.label,
+    this.onTap,
+    this.danger = false,
+    this.trailing = true,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
+  final bool danger;
+  final bool trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    final TextTheme text = Theme.of(context).textTheme;
+    final Color ink = danger ? AppColors.danger : AppColors.ink;
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.lg,
+          AppSpacing.md,
+          AppSpacing.lg,
+          AppSpacing.md,
+        ),
+        child: Row(
+          children: <Widget>[
+            Icon(
+              icon,
+              size: 22,
+              color: danger ? AppColors.danger : AppColors.inkMuted,
+            ),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: Text(label, style: text.bodyLarge?.copyWith(color: ink)),
+            ),
+            if (trailing)
+              const Icon(
+                Icons.chevron_right_rounded,
+                size: 22,
+                color: AppColors.inkMuted,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PhoneDivider extends StatelessWidget {
+  const _PhoneDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Padding(
+      padding: EdgeInsets.only(left: 62, right: AppSpacing.lg),
+      child: Divider(height: 1, thickness: 1, color: AppColors.border),
+    );
+  }
+}
+
 class _InfoRow extends StatelessWidget {
   const _InfoRow({
     required this.label,
@@ -1097,6 +1814,8 @@ class _AvatarSourceDialog extends StatefulWidget {
     required this.decodeCheck,
     required this.reader,
     required this.galleryMode,
+    this.subject = '头像',
+    this.maxMegabytes = 5,
   });
 
   final AvatarImagePicker picker;
@@ -1105,6 +1824,12 @@ class _AvatarSourceDialog extends StatefulWidget {
 
   /// Android has no typeable path: the local entry is the system gallery.
   final bool galleryMode;
+
+  /// What is being replaced; the picker wording and limits change with it.
+  final String subject;
+
+  /// Server source limit for the subject: 5 MB avatar, 8 MB cover.
+  final int maxMegabytes;
 
   static const Key fieldKey = Key('avatar-source-field');
   static const Key applyKey = Key('avatar-source-apply');
@@ -1162,14 +1887,18 @@ class _AvatarSourceDialogState extends State<_AvatarSourceDialog> {
 
   String get _pathLabel => widget.galleryMode ? '本机图片' : '本机路径';
 
+  int get _maxBytes => widget.maxMegabytes * 1024 * 1024;
+
   String get _hint {
+    final String subject = widget.subject;
+    final int limit = widget.maxMegabytes;
     switch (_kind) {
       case _AvatarSourceKind.path:
         return widget.galleryMode
-            ? '从系统相册选择 PNG/JPEG/WebP 图片（≤ 5 MB）；选择后点「应用」才会更新头像。'
-            : '输入绝对路径或点「选择图片」；预览无误后点「应用」才会更新头像。';
+            ? '从系统相册选择 PNG/JPEG/WebP 图片（≤ $limit MB）；选择后点「应用」才会更新$subject。'
+            : '输入绝对路径或点「选择图片」；预览无误后点「应用」才会更新$subject。';
       case _AvatarSourceKind.url:
-        return 'https://…（客户端下载，只接受 PNG/JPEG/WebP，≤5MB）';
+        return 'https://…（客户端下载，只接受 PNG/JPEG/WebP，≤$limit MB）';
       case _AvatarSourceKind.base64:
         return '原始 base64 或 data:image/png;base64,…';
     }
@@ -1256,7 +1985,10 @@ class _AvatarSourceDialogState extends State<_AvatarSourceDialog> {
   /// Reads and validates a typed/selected path through the same reader the
   /// upload uses, then proves the bytes actually decode.
   Future<Uint8List> _validatePathBytes(String path) async {
-    final Uint8List bytes = await widget.reader.readPath(path);
+    final Uint8List bytes = await widget.reader.readPath(
+      path,
+      maxBytes: _maxBytes,
+    );
     if (!await widget.decodeCheck(bytes)) {
       throw const AvatarPickFailure('这个文件无法解码为图片，请换一张');
     }
@@ -1309,8 +2041,17 @@ class _AvatarSourceDialogState extends State<_AvatarSourceDialog> {
       // The platform picked this file, but its bytes still go through the same
       // size/magic/decode checks as a typed path.
       final Uint8List bytes =
-          selected.bytes ?? await widget.reader.readPath(selected.path ?? '');
-      validateAvatarBytes(bytes, sourceField: 'path');
+          selected.bytes ??
+          await widget.reader.readPath(
+            selected.path ?? '',
+            maxBytes: _maxBytes,
+          );
+      validateAvatarBytes(
+        bytes,
+        sourceField: 'path',
+        maxBytes: _maxBytes,
+        subject: widget.subject,
+      );
       if (!await widget.decodeCheck(bytes)) {
         throw const AvatarPickFailure('这个文件无法解码为图片，请换一张');
       }
@@ -1443,7 +2184,7 @@ class _AvatarSourceDialogState extends State<_AvatarSourceDialog> {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(AppRadius.card),
       ),
-      title: Text('更换头像', style: text.titleMedium),
+      title: Text('更换${widget.subject}', style: text.titleMedium),
       // A long path must not stretch the dialog: keep it a stable width and let
       // the text field scroll/wrap inside instead (verified in the real Linux
       // entry with a ~90-character Chinese path).

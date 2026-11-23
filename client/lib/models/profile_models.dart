@@ -130,3 +130,69 @@ class ProfilePatch {
     return body;
   }
 }
+
+/// Decoded profile-cover bytes plus the opaque server version they belong to.
+///
+/// The server is the authority for the displayed cover (custom or the shared
+/// default sea wave); `version` is the unquoted ETag `sha256-<display bytes>`.
+class CoverImage {
+  const CoverImage({
+    required this.account,
+    required this.bytes,
+    required this.version,
+    required this.mimeType,
+    required this.isDefault,
+  });
+
+  final String account;
+  final Uint8List bytes;
+  final String version;
+  final String mimeType;
+
+  /// True when the server served the packaged default instead of an upload.
+  final bool isDefault;
+
+  String get coverUrl => '/covers/$account';
+}
+
+/// Result of a conditional cover fetch.
+class CoverFetch {
+  const CoverFetch({
+    required this.notModified,
+    required this.bytes,
+    required this.version,
+    required this.mimeType,
+    required this.isDefault,
+  });
+
+  final bool notModified;
+  final Uint8List bytes;
+  final String version;
+  final String mimeType;
+  final bool isDefault;
+}
+
+/// `{cover_url, cover_version}` returned by `POST /me/cover`.
+class CoverInfo {
+  const CoverInfo({required this.coverUrl, required this.coverVersion});
+
+  final String coverUrl;
+  final String coverVersion;
+
+  factory CoverInfo.fromJson(Object? json) {
+    if (json is! Map<String, dynamic>) {
+      throw const FormatException('cover must be an object');
+    }
+    final Object? url = json['cover_url'];
+    final Object? version = json['cover_version'];
+    if (url is! String || version is! String || version.isEmpty) {
+      throw const FormatException('cover is missing fields');
+    }
+    return CoverInfo(coverUrl: url, coverVersion: version);
+  }
+
+  Map<String, dynamic> toJson() => <String, dynamic>{
+    'cover_url': coverUrl,
+    'cover_version': coverVersion,
+  };
+}

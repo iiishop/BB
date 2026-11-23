@@ -160,6 +160,8 @@ async def test_guarded_tool_inventory_keeps_auth_profile_and_hides_internal_comm
         "login_account",
         "view_avatar",
         "update_avatar",
+        "view_cover",
+        "update_cover",
         "view_nickname",
         "update_nickname",
         "view_signature",
@@ -180,6 +182,9 @@ async def test_guarded_tool_inventory_keeps_auth_profile_and_hides_internal_comm
     assert all(
         "expected_identity" not in t.inputSchema.get("properties", {}) for t in tools
     )
+    assert set(next(t for t in tools if t.name == "update_cover").inputSchema["properties"]) == {
+        "base64",
+    }
 
 
 @pytest.mark.asyncio

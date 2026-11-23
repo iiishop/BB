@@ -43,6 +43,12 @@ class ProfileApiClient {
   static const int maxJsonResponseBytes = 64 * 1024;
   static const int maxAvatarResponseBytes = 5 * 1024 * 1024;
 
+  /// Contract: a display cover response is at most 512 KiB.
+  static const int maxCoverResponseBytes = 512 * 1024;
+
+  /// Contract: an uploaded source file is at most 8 MiB before encoding.
+  static const int maxCoverUploadBytes = 8 * 1024 * 1024;
+
   Future<Profile> fetchProfile({
     required String token,
     required String account,
@@ -94,6 +100,107 @@ class ProfileApiClient {
       contentType: 'multipart/form-data; boundary=$boundary',
     );
     return _decodeAvatar(response);
+  }
+
+  /// `POST /me/cover`: exactly one multipart `file` part, owner from Bearer.
+  ///
+  /// The server commits the normalized cover before answering, so a failure
+  /// leaves the previous cover in place.
+  Future<CoverInfo> uploadCover({
+    required String token,
+    required Uint8List bytes,
+    String filename = 'cover.png',
+  }) async {
+    final String boundary =
+        'bb-cover-${DateTime.now().microsecondsSinceEpoch.toRadixString(16)}';
+    final List<int> body = <int>[
+      ...utf8.encode(
+        '--$boundary\r\n'
+        'Content-Disposition: form-data; name="file"; filename="$filename"\r\n'
+        'Content-Type: application/octet-stream\r\n\r\n',
+      ),
+      ...bytes,
+      ...utf8.encode('\r\n--$boundary--\r\n'),
+    ];
+    final _Response response = await _send(
+      'POST',
+      '/me/cover',
+      token: token,
+      body: body,
+      contentType: 'multipart/form-data; boundary=$boundary',
+    );
+    if (response.status != HttpStatus.ok) {
+      throw _decodeFailure(response);
+    }
+    try {
+      return CoverInfo.fromJson(_decodeJson(response.bytes));
+    } on FormatException {
+      throw upstreamMalformed;
+    }
+  }
+
+  /// `GET /covers/{account}` with optional `If-None-Match`.
+  ///
+  /// Any authenticated account may read any existing account's display cover,
+  /// including the packaged default (`X-BB-Cover-Default: true`).
+  Future<CoverFetch> fetchCover({
+    required String token,
+    required String account,
+    String? ifNoneMatch,
+  }) async {
+    final Map<String, String> extra = <String, String>{
+      HttpHeaders.acceptHeader: 'image/png, image/jpeg, image/webp',
+    };
+    if (ifNoneMatch != null && ifNoneMatch.isNotEmpty) {
+      extra[HttpHeaders.ifNoneMatchHeader] = '"$ifNoneMatch"';
+    }
+    final _Response response = await _send(
+      'GET',
+      '/covers/$account',
+      token: token,
+      extraHeaders: extra,
+      maxBytes: maxCoverResponseBytes,
+    );
+    final bool isDefault =
+        response.headers['x-bb-cover-default']?.toLowerCase() == 'true';
+    if (response.status == HttpStatus.notModified) {
+      return CoverFetch(
+        notModified: true,
+        bytes: Uint8List(0),
+        version: _stripQuotes(response.headers['etag']) ?? ifNoneMatch ?? '',
+        mimeType: '',
+        isDefault: isDefault,
+      );
+    }
+    if (response.status != HttpStatus.ok) {
+      throw _decodeFailure(response);
+    }
+    if (response.bytes.isEmpty) {
+      throw upstreamMalformed;
+    }
+    final String? version = _stripQuotes(response.headers['etag']);
+    if (version == null || version.isEmpty) {
+      throw upstreamMalformed;
+    }
+    final String mimeType = (response.headers['content-type'] ?? '')
+        .split(';')
+        .first
+        .trim()
+        .toLowerCase();
+    if (!const <String>{
+      'image/png',
+      'image/jpeg',
+      'image/webp',
+    }.contains(mimeType)) {
+      throw upstreamMalformed;
+    }
+    return CoverFetch(
+      notModified: false,
+      bytes: response.bytes,
+      version: version,
+      mimeType: mimeType,
+      isDefault: isDefault,
+    );
   }
 
   Future<AvatarInfo> deleteAvatar({required String token}) async {

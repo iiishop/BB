@@ -134,6 +134,7 @@ def run(
                 "account": account,
                 "peer": peer,
                 "images": [png((255, 0, 0)), png((0, 0, 255))],
+                "coverAsset": os.environ.get("BB_PROFILE_COVER_CLIENT_ASSET"),
             }
         )
     )
@@ -152,7 +153,7 @@ def run(
         "operation-result",
         "download-result",
     ]
-    if os.environ.get("BB_PRODUCT_CASES") == "installed":
+    if os.environ.get("BB_PRODUCT_CASES") in {"installed", "profile-cover"}:
         cuts = []
     if os.environ.get("BB_PRODUCT_CASES") == "cover":
         import secrets
@@ -254,9 +255,14 @@ def run(
         pipe=True,
     )
     stdout, stderr = child.communicate(timeout=90)
+    name = (
+        "installed-profile-cover"
+        if os.environ.get("BB_PRODUCT_CASES") == "profile-cover"
+        else "installed-product"
+    )
     if child.returncode:
-        record("installed-product", status="FAIL", detail=stderr[-3000:])
+        record(name, status="FAIL", detail=stderr[-3000:])
         failures.append("installed")
     else:
-        record("installed-product", status="PASS", **json.loads(stdout))
+        record(name, status="PASS", **json.loads(stdout))
     assert not failures, failures

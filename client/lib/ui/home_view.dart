@@ -316,14 +316,25 @@ class _HomeViewState extends State<HomeView> {
   }
 
   /// The header entry that replaces the BB badge on narrow layouts.
+  ///
+  /// A phone opens Profile as a full-screen route, so the avatar is a Hero that
+  /// flies to the cover edge; desktop/folded keep the dialog and stay plain.
   Widget _headerAvatar() {
-    return ProfileAvatar(
+    final Widget avatar = ProfileAvatar(
       key: HomeView.avatarEntryKey,
       bytes: _avatar,
       size: 44,
       loading: _loading && _avatar == null,
       onTap: _openProfile,
       semanticLabel: '打开个人资料',
+    );
+    if (MediaQuery.sizeOf(context).width >= 600) {
+      return avatar;
+    }
+    return Hero(
+      tag: ProfilePanel.avatarHeroTag,
+      flightShuttleBuilder: ProfilePanel.avatarFlightShuttle,
+      child: avatar,
     );
   }
 

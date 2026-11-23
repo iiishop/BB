@@ -13,6 +13,7 @@ import 'profile_avatar_pick_test.dart'
     show FakeAvatarImagePicker, FakeAvatarSourceReader;
 import 'support/avatar_fixtures.dart';
 import 'support/fake_profile_gateway.dart';
+import 'support/phone_profile.dart';
 
 /// DEA-482 QA regression (P2): busy state is owned by the operation that
 /// started it. Switching the avatar source invalidates pending results, but a
@@ -38,7 +39,7 @@ class DeferredAvatarSourceReader implements AvatarSourceReader {
   int readCalls = 0;
 
   @override
-  Future<Uint8List> readPath(String path) {
+  Future<Uint8List> readPath(String path, {int maxBytes = maxAvatarBytes}) {
     readCalls += 1;
     if (readCalls == 1) {
       return firstRead.future;
@@ -62,11 +63,16 @@ class DeferredAvatarSourceReader implements AvatarSourceReader {
   }
 
   @override
-  Future<Uint8List> readBase64(String payload) async =>
-      throw UnimplementedError();
+  Future<Uint8List> readBase64(
+    String payload, {
+    int maxBytes = maxAvatarBytes,
+  }) async => throw UnimplementedError();
 
   @override
-  Future<Uint8List> readUrl(String url) async => throw UnimplementedError();
+  Future<Uint8List> readUrl(
+    String url, {
+    int maxBytes = maxAvatarBytes,
+  }) async => throw UnimplementedError();
 }
 
 void main() {
@@ -109,6 +115,10 @@ void main() {
     );
     await tester.tap(find.text('open-profile'));
     await tester.pumpAndSettle();
+    if (size.width < 600) {
+      // Phone page: avatar actions live behind 编辑资料 since DEA-492.
+      await openProfileEditSheet(tester);
+    }
     await tester.tap(find.text('更换头像').first);
     await tester.pumpAndSettle();
   }

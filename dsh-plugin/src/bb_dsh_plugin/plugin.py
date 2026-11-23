@@ -127,6 +127,8 @@ def create_server(client: LocalClient, guarded=None) -> Server:
             Tool(
                 name=name,
                 description={
+                    "view_cover": "View a BB profile's current display cover, including the default. Omit account to view your own cover.",
+                    "update_cover": "Replace the signed-in BB account's profile cover with a PNG, JPEG or WebP supplied as raw base64 (8 MiB decoded maximum).",
                     "get_notifications": "Query this account’s persistent notification setting. Does not mark messages read.",
                     "set_notifications": "Enable/disable account notifications. Off leaves queries, waits and sends available. Manually enabling skips notifications from the disabled interval.",
                     "list_conversations": "List authorized chats; incoming_unread counts received unread messages. Use unread_only/order=recent with the returned snapshot cursor, or list all for proactive chat.",
