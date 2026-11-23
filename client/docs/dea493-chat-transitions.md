@@ -146,7 +146,7 @@ flutter test test/chat_send_feedback_test.dart test/chat_flow_widget_test.dart \
    只剩 708 → 判成单栏。`ChatWorkspace.usesSplit` 与 `canExpand` 增加 `displayWidth`：
    有竖向折痕时用设备宽度判断 720，没有折痕时仍按工作区宽度判断 900（桌面阈值语义不变）。
    `HomeView` 传外层 `constraints.maxWidth`，`foldCapable`（rail 收起动画）同口径。
-   800×840、x=400 零宽折痕：双栏、右栏起于 400+20、把手不压折痕，展开到屏幕 x=0 后
+   800×840、x=400 零宽折痕：双栏、右栏起于 400+20（当时 56 的分隔带；现为 400+10）、展开到屏幕 x=0 后
    能恢复同一双栏。
    顺带修正：`usesSplit` 有折痕时不再要求工作区自身 ≥720，否则宽展开设备同样会被截断。
 
@@ -160,7 +160,9 @@ flutter test test/chat_send_feedback_test.dart test/chat_flow_widget_test.dart \
 
 - `ChatWorkspace.foldGap` 从 56 收到 20：分隔带 = 把手 16 + 左右各 2；`foldHandleWidth=16`、
   `foldHandleHeight=56`。分隔带就是两栏各自让出的全部宽度，横向点击区不超出它，所以旁边
-  的列表行和消息气泡照常可点、可滚。
+  的列表行和消息气泡照常可点、可滚。分带位置按设备分界算：零宽折痕让 20 跨在折痕两侧各
+  10（把手压在折痕上）；实体铰链让列表止于铰链左缘、把手带落在铰链右侧可触区，40 的铰链
+  本身不计入这 20。折痕布局去掉列表右边框，只保留分隔带中间那一条线。
 - 把手是分隔线中段的一个白色圆角胶囊 + 12px 方向箭头，沿用 `AppColors.border` /
   `AppColors.surface` / `AppColors.accentDeep`；只有按下（InkWell highlight）或键盘聚焦时
   边框才变成 `accentDeep`。
