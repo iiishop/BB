@@ -39,6 +39,14 @@ abstract final class AppColors {
   static const Color accentDeep = Color(0xFF0A4F4A);
   static const Color accentNight = Color(0xFF073B37);
   static const Color accentSoft = Color(0xFFE6F0EE);
+
+  /// Chat transcript surface and bubbles (DEA-493 visual reference): warm
+  /// milk paper, a beige peer bubble, a very pale sage-teal own bubble and a
+  /// warmer grey for the centred group time.
+  static const Color chatPaper = Color(0xFFFCF8F0);
+  static const Color bubblePeer = Color(0xFFF7F0E2);
+  static const Color bubbleMine = Color(0xFFDFE5D8);
+  static const Color chatTime = Color(0xFF8B8577);
   static const Color success = Color(0xFF1F7A4D);
   static const Color successSurface = Color(0xFFE9F4ED);
   static const Color successBorder = Color(0xFFB9DCC7);

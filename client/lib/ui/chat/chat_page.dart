@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -101,6 +102,7 @@ class ChatPage extends StatefulWidget {
   static const Key emptyKey = Key('chat-empty');
   static const Key refreshKey = Key('chat-refresh');
   static const Key newMessagesKey = Key('chat-new-messages');
+  static const Key groupTimeKey = Key('chat-group-time');
   static const Key keyboardBodyKey = Key('chat-keyboard-body');
   static const Key mediaTransitionKey = Key('chat-media-transition');
 
@@ -1409,7 +1411,7 @@ class _ChatPageState extends State<ChatPage> {
       }
     }
     return Scaffold(
-      backgroundColor: AppColors.paper,
+      backgroundColor: AppColors.chatPaper,
       // The inset is applied to the whole chat column below, not by resizing
       // only the composer: the transcript and the input rise together while
       // the AppBar stays where it is.
@@ -1586,172 +1588,185 @@ class _ChatPageState extends State<ChatPage> {
       );
     }
 
-    final List<Widget> timeline = <Widget>[
-      // Older pages land above the first bubble; without a row here the list
-      // looks frozen at the top while the request is in flight.
-      if (_loadingOlder)
-        const Padding(
-          padding: EdgeInsets.symmetric(vertical: 16),
-          child: Center(
-            child: SizedBox(
-              width: 20,
-              height: 20,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
-          ),
-        ),
-    ];
-    DateTime? previous;
-    for (int index = 0; index < entries.length; index += 1) {
-      final _TimelineEntry entry = entries[index];
-      final ChatMessage message = entry.message;
-      final bool committed = entry.pending == null;
-      if (committed) {
-        final DateTime local = message.createdAt.toLocal();
-        if (shouldShowDaySeparator(previous, message.createdAt)) {
-          timeline.add(
-            _readingColumn(
-              key: ValueKey<String>(
-                'chat-column-day-${local.year}-${local.month}-${local.day}',
-              ),
-              child: _DaySeparator(
-                key: ValueKey<String>(
-                  'chat-day-${local.year}-${local.month}-${local.day}',
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        // The photo block is two thirds of the message area. The page measures
+        // the area, so a dual pane never asks for a phone-wide picture.
+        final double messageArea =
+            math.min(
+              constraints.maxWidth,
+              _readingColumnMaxWidth + AppSpacing.md * 2,
+            ) -
+            AppSpacing.md * 2;
+        final double mediaMaxWidth = math.max(
+          120,
+          math.min(messageArea * 0.66, 420),
+        );
+        final List<Widget> timeline = <Widget>[
+          // Older pages land above the first bubble; without a row here the
+          // list looks frozen at the top while the request is in flight.
+          if (_loadingOlder)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 16),
+              child: Center(
+                child: SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
                 ),
-                label: formatDaySeparator(message.createdAt),
               ),
             ),
-          );
-        } else if (shouldShowGapLabel(previous, message.createdAt)) {
-          timeline.add(
-            _readingColumn(
-              key: ValueKey<String>('chat-column-gap-${message.identity}'),
-              child: KeyedSubtree(
-                key: ValueKey<String>('chat-gap-${message.identity}'),
-                child: Center(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      vertical: AppSpacing.sm,
-                    ),
-                    child: Text(
-                      formatClockTime(message.createdAt),
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: AppColors.inkMuted,
+        ];
+        DateTime? previous;
+        for (int index = 0; index < entries.length; index += 1) {
+          final _TimelineEntry entry = entries[index];
+          final ChatMessage message = entry.message;
+          final bool committed = entry.pending == null;
+          final bool runStart = index == 0 || !sameRun(index - 1, index);
+          final bool runEnd =
+              index == entries.length - 1 || !sameRun(index, index + 1);
+          if (committed) {
+            // One centred timestamp per group, never per bubble. The first group of
+            // a day also names the day, which replaces the old separator pill.
+            if (runStart) {
+              final bool firstOfDay = shouldShowDaySeparator(
+                previous,
+                message.createdAt,
+              );
+              final String label = firstOfDay
+                  ? '${formatDaySeparator(message.createdAt)} '
+                        '${formatClockTime(message.createdAt)}'
+                  : formatClockTime(message.createdAt);
+              timeline.add(
+                _readingColumn(
+                  key: ValueKey<String>('chat-time-column-${message.identity}'),
+                  child: Center(
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 12, bottom: 4),
+                      child: Text(
+                        label,
+                        // One constant key: a test can point at "the group
+                        // time" without knowing the message identity.
+                        key: ChatPage.groupTimeKey,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: AppColors.chatTime,
+                        ),
                       ),
                     ),
                   ),
                 ),
+              );
+            }
+            previous = message.createdAt;
+          }
+          final Attachment? attachment = message.attachment;
+          final String bubbleKey = entry.operationId ?? message.identity;
+          final bool pendingFirstFrame =
+              entry.pending != null &&
+              !_pendingEntered.contains(entry.operationId);
+          final SendFeedbackState? displayedSendState = entry.pending?.state;
+          final bool statusUnconfirmed =
+              entry.pending?.state == SendFeedbackState.failed &&
+              !_confirmedFailedOperations.contains(entry.operationId);
+          final Widget bubble = MessageBubble(
+            key: ValueKey<String>('chat-bubble-$bubbleKey'),
+            message: message,
+            selfAccount: widget.chat.selfAccount,
+            peerUsername: widget.peer.username,
+            chat: widget.chat,
+            avatars: _avatars,
+            busy:
+                committed &&
+                attachment != null &&
+                _busyMedia.contains(attachment.mediaId),
+            sendState: displayedSendState,
+            statusUnconfirmed: statusUnconfirmed,
+            onRetry: entry.pending?.state == SendFeedbackState.failed
+                ? () => _composerController.retryFailed(entry.operationId!)
+                : null,
+            showAvatar: runStart,
+            isRunEnd: runEnd,
+            originKeyFor: (ChatMessage message, int? partIndex) =>
+                _mediaOriginKey(_mediaOriginToken(message, partIndex)),
+            onSaveAs: committed && attachment != null
+                ? () => _saveAs(attachment)
+                : null,
+            onDownload: committed && attachment != null
+                ? () => _download(attachment)
+                : null,
+            onPlay:
+                committed &&
+                    attachment != null &&
+                    attachment.kind != AttachmentKind.other
+                ? () => _play(attachment)
+                : null,
+            onOpenMedia: committed ? _openMedia : null,
+            localMediaPreview: _previewFor,
+            mediaMaxWidth: mediaMaxWidth,
+          );
+          timeline.add(
+            _readingColumn(
+              // The keyed wrapper (not the inner row) is the ListView child, so a
+              // day separator inserted above must not recreate the message element
+              // and reset its entrance/feedback state.
+              key: ValueKey<String>('chat-column-$bubbleKey'),
+              child: Padding(
+                key: ValueKey<String>('chat-row-$bubbleKey'),
+                padding: EdgeInsets.only(top: runStart ? 10 : 2),
+                child: MessageEntrance(
+                  key: ValueKey<String>('chat-entrance-$bubbleKey'),
+                  animate: entry.pending != null
+                      ? pendingFirstFrame
+                      : _animateIdentities.contains(message.identity),
+                  child: bubble,
+                ),
               ),
             ),
           );
         }
-        previous = message.createdAt;
-      }
-      final bool runStart = index == 0 || !sameRun(index - 1, index);
-      final bool runEnd =
-          index == entries.length - 1 || !sameRun(index, index + 1);
-      final Attachment? attachment = message.attachment;
-      final String bubbleKey = entry.operationId ?? message.identity;
-      final bool pendingFirstFrame =
-          entry.pending != null && !_pendingEntered.contains(entry.operationId);
-      final SendFeedbackState? displayedSendState = entry.pending?.state;
-      final bool statusUnconfirmed =
-          entry.pending?.state == SendFeedbackState.failed &&
-          !_confirmedFailedOperations.contains(entry.operationId);
-      final Widget bubble = MessageBubble(
-        key: ValueKey<String>('chat-bubble-$bubbleKey'),
-        message: message,
-        selfAccount: widget.chat.selfAccount,
-        peerUsername: widget.peer.username,
-        chat: widget.chat,
-        avatars: _avatars,
-        busy:
-            committed &&
-            attachment != null &&
-            _busyMedia.contains(attachment.mediaId),
-        sendState: displayedSendState,
-        statusUnconfirmed: statusUnconfirmed,
-        onRetry: entry.pending?.state == SendFeedbackState.failed
-            ? () => _composerController.retryFailed(entry.operationId!)
-            : null,
-        showAvatar: runStart,
-        isRunEnd: runEnd,
-        originKeyFor: (ChatMessage message, int? partIndex) =>
-            _mediaOriginKey(_mediaOriginToken(message, partIndex)),
-        onSaveAs: committed && attachment != null
-            ? () => _saveAs(attachment)
-            : null,
-        onDownload: committed && attachment != null
-            ? () => _download(attachment)
-            : null,
-        onPlay:
-            committed &&
-                attachment != null &&
-                attachment.kind != AttachmentKind.other
-            ? () => _play(attachment)
-            : null,
-        onOpenMedia: committed ? _openMedia : null,
-        localMediaPreview: _previewFor,
-      );
-      timeline.add(
-        _readingColumn(
-          // The keyed wrapper (not the inner row) is the ListView child, so a
-          // day separator inserted above must not recreate the message element
-          // and reset its entrance/feedback state.
-          key: ValueKey<String>('chat-column-$bubbleKey'),
-          child: Padding(
-            key: ValueKey<String>('chat-row-$bubbleKey'),
-            padding: EdgeInsets.only(top: runStart ? 10 : 2),
-            child: MessageEntrance(
-              key: ValueKey<String>('chat-entrance-$bubbleKey'),
-              animate: entry.pending != null
-                  ? pendingFirstFrame
-                  : _animateIdentities.contains(message.identity),
-              child: bubble,
+        final Set<String> consumedIdentities = Set<String>.of(
+          _animateIdentities,
+        );
+        final Set<String> consumedPending = <String>{
+          for (final _TimelineEntry entry in entries)
+            if (entry.pending != null &&
+                !_pendingEntered.contains(entry.operationId))
+              entry.operationId!,
+        };
+        if (consumedIdentities.isNotEmpty || consumedPending.isNotEmpty) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _animateIdentities.removeAll(consumedIdentities);
+            _pendingEntered.addAll(consumedPending);
+          });
+        }
+        // The transcript scrolls as the full-width chat pane. Constraining the
+        // ListView itself to the reading column made the desktop scrollbar sit at
+        // the column edge and dropped wheel input over the side gutters (DEA-478);
+        // the column cap now applies to each row instead.
+        return NotificationListener<ScrollMetricsNotification>(
+          onNotification: (ScrollMetricsNotification notification) {
+            if (_pinBottomOnKeyboard) {
+              _scrollToBottom(animate: false, force: true);
+            }
+            return false;
+          },
+          child: NotificationListener<ScrollNotification>(
+            onNotification: _onScrollNotification,
+            child: ListView(
+              key: ChatPage.listKey,
+              controller: _scrollController,
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.md,
+                AppSpacing.md,
+                AppSpacing.md,
+                AppSpacing.lg,
+              ),
+              children: timeline,
             ),
           ),
-        ),
-      );
-    }
-    final Set<String> consumedIdentities = Set<String>.of(_animateIdentities);
-    final Set<String> consumedPending = <String>{
-      for (final _TimelineEntry entry in entries)
-        if (entry.pending != null &&
-            !_pendingEntered.contains(entry.operationId))
-          entry.operationId!,
-    };
-    if (consumedIdentities.isNotEmpty || consumedPending.isNotEmpty) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _animateIdentities.removeAll(consumedIdentities);
-        _pendingEntered.addAll(consumedPending);
-      });
-    }
-    // The transcript scrolls as the full-width chat pane. Constraining the
-    // ListView itself to the reading column made the desktop scrollbar sit at
-    // the column edge and dropped wheel input over the side gutters (DEA-478);
-    // the column cap now applies to each row instead.
-    return NotificationListener<ScrollMetricsNotification>(
-      onNotification: (ScrollMetricsNotification notification) {
-        if (_pinBottomOnKeyboard) {
-          _scrollToBottom(animate: false, force: true);
-        }
-        return false;
+        );
       },
-      child: NotificationListener<ScrollNotification>(
-        onNotification: _onScrollNotification,
-        child: ListView(
-          key: ChatPage.listKey,
-          controller: _scrollController,
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.md,
-            AppSpacing.md,
-            AppSpacing.md,
-            AppSpacing.lg,
-          ),
-          children: timeline,
-        ),
-      ),
     );
   }
 
@@ -1820,32 +1835,6 @@ class _TimelineEntry {
   final ChatMessage message;
   final String? operationId;
   final PendingSend? pending;
-}
-
-class _DaySeparator extends StatelessWidget {
-  const _DaySeparator({super.key, required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-          decoration: BoxDecoration(
-            color: AppColors.border.withValues(alpha: 0.5),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Text(
-            label,
-            style: const TextStyle(fontSize: 11, color: AppColors.inkMuted),
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 class _VideoDialog extends StatefulWidget {

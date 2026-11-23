@@ -139,7 +139,10 @@ void main() {
 
     expect(find.byTooltip('粘贴图片或视频'), findsNothing);
     expect(find.byIcon(Icons.content_paste_rounded), findsNothing);
-    // The normal image/file pickers stay available.
+    // The image/file entries live behind the round "+" now.
+    expect(find.byKey(ChatComposer.attachMenuKey), findsOneWidget);
+    await tester.tap(find.byKey(ChatComposer.attachMenuKey));
+    await tester.pumpAndSettle();
     expect(find.byKey(ChatComposer.imageKey), findsOneWidget);
     expect(find.byKey(ChatComposer.fileKey), findsOneWidget);
   });

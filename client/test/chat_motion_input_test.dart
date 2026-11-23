@@ -287,20 +287,18 @@ void main() {
     WidgetTester tester,
   ) async {
     await pumpChat(tester);
-    FilledButton button = tester.widget<FilledButton>(
-      find.byKey(ChatComposer.sendKey),
-    );
-    expect(
-      button.style!.backgroundColor!.resolve(<WidgetState>{}),
-      AppColors.border,
-    );
+    Color sendColor() => tester
+        .widget<Material>(
+          find.descendant(
+            of: find.byKey(ChatComposer.sendKey),
+            matching: find.byType(Material),
+          ),
+        )
+        .color!;
+    expect(sendColor(), AppColors.surface);
     await tester.enterText(find.byKey(ChatComposer.inputKey), '可发送');
     await tester.pump();
-    button = tester.widget<FilledButton>(find.byKey(ChatComposer.sendKey));
-    expect(
-      button.style!.backgroundColor!.resolve(<WidgetState>{}),
-      AppColors.accentDeep,
-    );
+    expect(sendColor(), AppColors.accentDeep);
     expect(tester.takeException(), isNull);
   });
 
