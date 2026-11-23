@@ -97,6 +97,22 @@ void main() {
     return decoration.color;
   }
 
+  testWidgets('the peer bubble separates from the transcript paper', (
+    WidgetTester tester,
+  ) async {
+    // Owner feedback: the first beige was too close to the warm paper.
+    expect(
+      (AppColors.chatPaper.computeLuminance() -
+              AppColors.bubblePeer.computeLuminance())
+          .abs(),
+      greaterThan(0.06),
+    );
+    await pumpChat(tester);
+    expect(fillOf(tester, '刚从海边回来。'), AppColors.bubblePeer);
+    expect(AppColors.bubblePeer, isNot(AppColors.chatPaper));
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'short bubbles hug their text and the group head carries a tail',
     (WidgetTester tester) async {
@@ -258,6 +274,34 @@ void main() {
     await tester.enterText(find.byKey(ChatComposer.inputKey), '好啊，等一个晴天。');
     await tester.pump();
     expect(sendColor(), AppColors.accentDeep);
+
+    // The pill is exactly as tall as the round buttons and centred with them.
+    final Rect pill = tester.getRect(
+      find
+          .ancestor(
+            of: find.byKey(ChatComposer.inputKey),
+            matching: find.byType(Container),
+          )
+          .first,
+    );
+    final Rect send = tester.getRect(find.byKey(ChatComposer.sendKey));
+    final Rect plus = tester.getRect(find.byKey(ChatComposer.attachMenuKey));
+    expect(pill.height, closeTo(send.height, 0.5));
+    expect(pill.height, closeTo(44, 0.5));
+    expect(pill.center.dy, closeTo(send.center.dy, 0.5));
+    expect(pill.center.dy, closeTo(plus.center.dy, 0.5));
+    // The "+" is a soft teal chip, not a nearly invisible outline.
+    expect(
+      tester
+          .widget<Material>(
+            find.descendant(
+              of: find.byKey(ChatComposer.attachMenuKey),
+              matching: find.byType(Material),
+            ),
+          )
+          .color,
+      AppColors.accentSoft,
+    );
     expect(tester.takeException(), isNull);
   });
 }

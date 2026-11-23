@@ -392,7 +392,8 @@ void main() {
     final double dualLeft = tester
         .getRect(find.byKey(ChatWorkspace.chatPaneKey))
         .left;
-    expect(dualLeft, greaterThan(fold.bounds.right));
+    // The chat starts on the crease itself; the grip floats above it.
+    expect(dualLeft, closeTo(fold.bounds.center.dx, 0.5));
 
     await tester.tap(toggle);
     await tester.pumpAndSettle();
@@ -535,8 +536,8 @@ void main() {
       );
       expect(
         dualChat.left,
-        closeTo(hingeBounds.right + ChatWorkspace.foldGap, 0.5),
-        reason: 'the dual panes must sit on the physical divider',
+        closeTo(hingeBounds.right, 0.5),
+        reason: 'the chat pane starts on the hinge edge; the grip floats above',
       );
 
       // A reading scene to prove the transition keeps it.
@@ -606,8 +607,8 @@ void main() {
       final Rect dualChat = tester.getRect(chatPane);
       expect(
         dualChat.left,
-        closeTo(foldX + ChatWorkspace.foldGap / 2, 0.5),
-        reason: 'the right pane starts past the fold and its half band',
+        closeTo(foldX, 0.5),
+        reason: 'the right pane starts on the crease; the band floats above',
       );
 
       final Finder toggle = find.byKey(ChatWorkspace.toggleKey);
@@ -666,14 +667,16 @@ void main() {
       expect(grip.width, lessThanOrEqualTo(ChatWorkspace.foldGap));
       expect(grip.height, closeTo(ChatWorkspace.foldHandleHeight, 0.1));
       expect(ChatWorkspace.foldHandleHeight, closeTo(56, 0.1));
-      // The band straddles the crease: the whole extra width both panes give
-      // up is exactly 20 lp, 10 on each side of the fold.
-      expect(list.right, closeTo(512 - ChatWorkspace.foldGap / 2, 0.5));
-      expect(chat.left - list.right, closeTo(ChatWorkspace.foldGap, 0.5));
-      expect(chat.left - list.right, lessThanOrEqualTo(20));
-      // Grip inside the band: it never reaches into a row or a bubble.
-      expect(grip.left, greaterThanOrEqualTo(list.right));
-      expect(grip.right, lessThanOrEqualTo(chat.left));
+      // The panes meet on the crease: neither gives up width to the grip,
+      // which floats above both of them.
+      expect(list.right, closeTo(512, 0.5));
+      expect(chat.left, closeTo(512, 0.5));
+      expect(chat.left - list.right, 0);
+      // The 20 lp band is centred on the crease, 10 lp over each pane; the
+      // 16 lp pill sits inside it.
+      expect(grip.width, lessThanOrEqualTo(ChatWorkspace.foldGap));
+      expect(grip.left, closeTo(512 - ChatWorkspace.foldHandleWidth / 2, 0.5));
+      expect(grip.right, closeTo(512 + ChatWorkspace.foldHandleWidth / 2, 0.5));
       // Split: the arrow points at the direction the pane will grow.
       expect(
         tester
@@ -736,10 +739,12 @@ void main() {
     // grip sits on the touchable side instead of inside the non-touchable
     // hinge.
     expect(list.right, closeTo(hingeBounds.left, 0.5));
+    expect(chat.left, closeTo(hingeBounds.right, 0.5));
+    // The grip floats above the chat's left edge; the only thing it must never
+    // touch is the non-touchable hinge itself.
     expect(grip.left, greaterThanOrEqualTo(hingeBounds.right));
-    expect(grip.right, lessThanOrEqualTo(chat.left));
-    expect(chat.left - hingeBounds.right, lessThanOrEqualTo(20));
     expect(grip.overlaps(hingeBounds), isFalse);
+    expect(grip.right, greaterThan(chat.left));
 
     // Rows on the left stay clickable at the grip's own height…
     await tester.tap(find.byKey(UsersListView.rowKey(carol.account)));
@@ -811,9 +816,11 @@ void main() {
         reason: 'no part of the grip may sit on the non-touchable hinge',
       );
       expect(grip.left, greaterThanOrEqualTo(hingeBounds.right));
-      expect(grip.right, lessThanOrEqualTo(chat.left));
-      // Only the 20 lp band, never the hinge itself, is taken from the panes.
-      expect(chat.left - list.right - hingeWidth, lessThanOrEqualTo(20));
+      // Nothing is reserved: the chat starts on the hinge edge and the grip
+      // floats above its left edge.
+      expect(chat.left, closeTo(hingeBounds.right, 0.5));
+      expect(chat.left - list.right - hingeWidth, 0);
+      expect(grip.right, greaterThan(chat.left));
 
       await tester.tap(toggle);
       await tester.pumpAndSettle();

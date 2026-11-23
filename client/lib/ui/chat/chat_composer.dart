@@ -993,12 +993,17 @@ class _ChatComposerState extends State<ChatComposer> {
                       key: ChatComposer.attachMenuKey,
                       tooltip: '添加',
                       icon: Icons.add_rounded,
-                      iconColor: AppColors.inkMuted,
+                      iconColor: AppColors.accentDeep,
+                      background: AppColors.accentSoft,
                       onTap: widget.enabled ? _openAttachSheet : null,
                     ),
                     const SizedBox(width: AppSpacing.sm),
                     Expanded(
                       child: Container(
+                        // Same height as the round + and send buttons on one
+                        // line; it still grows with a multi-line draft.
+                        constraints: const BoxConstraints(minHeight: 44),
+                        alignment: Alignment.center,
                         decoration: BoxDecoration(
                           color: AppColors.surface,
                           borderRadius: BorderRadius.circular(999),
@@ -1006,7 +1011,6 @@ class _ChatComposerState extends State<ChatComposer> {
                         ),
                         padding: const EdgeInsets.symmetric(
                           horizontal: AppSpacing.md,
-                          vertical: 2,
                         ),
                         child: TextField(
                           key: ChatComposer.inputKey,

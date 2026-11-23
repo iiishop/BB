@@ -44,7 +44,7 @@ abstract final class AppColors {
   /// milk paper, a beige peer bubble, a very pale sage-teal own bubble and a
   /// warmer grey for the centred group time.
   static const Color chatPaper = Color(0xFFFCF8F0);
-  static const Color bubblePeer = Color(0xFFF7F0E2);
+  static const Color bubblePeer = Color(0xFFEFE2CA);
   static const Color bubbleMine = Color(0xFFDFE5D8);
   static const Color chatTime = Color(0xFF8B8577);
   static const Color success = Color(0xFF1F7A4D);

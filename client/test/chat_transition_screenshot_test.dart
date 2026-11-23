@@ -473,7 +473,7 @@ void main() {
     await capture(tester, 'dea493-shell-restored.png');
     expect(
       tester.getRect(find.byKey(ChatWorkspace.chatPaneKey)).left,
-      closeTo(hinge.bounds.right + ChatWorkspace.foldGap, 0.5),
+      closeTo(hinge.bounds.right, 0.5),
     );
     expect(tester.takeException(), isNull);
   }, skip: skipReason != null);

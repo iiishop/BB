@@ -104,20 +104,27 @@ class ChatWorkspace extends StatefulWidget {
   static bool hasHardHinge(DisplayFeature feature) =>
       feature.type == DisplayFeatureType.hinge;
 
-  /// Left edge of the 20 px grip band.
+  /// The pane boundary: the conversation list ends and the chat begins here.
   ///
-  /// A physical hinge is not touchable, so the grip sits just past its right
+  /// A hinge keeps its own non-touchable strip, so the list stops on its left
+  /// edge and the chat starts on its right edge. A fold crease is a single
+  /// line: both panes run right up to it, so neither loses width to the grip.
+  static double dividerFor(DisplayFeature feature) =>
+      hasHardHinge(feature) ? feature.bounds.right : feature.bounds.center.dx;
+
+  /// Left edge of the 20 px grip band, which floats *above* the panes.
+  ///
+  /// A physical hinge is not touchable, so the grip floats just past its right
   /// edge, clear of the strip even when it is only 4 px wide. A fold crease has
-  /// no untouchable strip, so the band straddles it: the grip is mounted on the
-  /// divider instead of floating beside it.
+  /// no untouchable strip, so the band is centred on the crease.
   static double bandLeftFor(DisplayFeature feature) => hasHardHinge(feature)
       ? feature.bounds.right
       : feature.bounds.center.dx - foldGap / 2;
 
-  /// Where the conversation list has to stop: before a physical hinge, or at
-  /// the left half of the straddling band on a fold crease.
+  /// Where the conversation list has to stop: before a physical hinge, or on
+  /// the fold crease itself (the floating band does not reserve any width).
   static double listStopFor(DisplayFeature feature) =>
-      hasHardHinge(feature) ? feature.bounds.left : bandLeftFor(feature);
+      hasHardHinge(feature) ? feature.bounds.left : feature.bounds.center.dx;
 
   /// The vertical hinge or fold that separates two physical panes.
   ///
@@ -275,12 +282,11 @@ class _ChatWorkspaceState extends State<ChatWorkspace>
           _expanded = false;
           _scheduleFoldReset();
         }
-        // The chat starts one band past the grip band. No extra floor: on a
-        // narrow unfolded screen that floor would pull the chat across the
-        // divider and let the grip drift off the fold.
+        // The chat starts exactly at the pane boundary: the grip band floats
+        // above both panes instead of reserving a gutter, so the whole strip on
+        // either side of the crease belongs to a pane.
         final double dualLeft = splitFeature != null
-            ? (ChatWorkspace.bandLeftFor(splitFeature) + ChatWorkspace.foldGap)
-                  .clamp(0.0, total)
+            ? ChatWorkspace.dividerFor(splitFeature).clamp(0.0, total)
             : _listWidth(total, null);
         final Curve curve = _expanded
             ? Curves.easeOutBack
@@ -299,10 +305,10 @@ class _ChatWorkspaceState extends State<ChatWorkspace>
           // bounce that never scales the message text or avatars.
           final double chatLeft = dualLeft * (1 - progress);
           final double chatWidth = math.max(0.0, total - chatLeft);
-          // The handle band is exactly the divider gutter: it starts where the
-          // list ends and is as wide as [ChatWorkspace.foldGap], so it never
-          // eats into either pane beyond the 20 px the owner allowed.
-          final double bandLeft = dualLeft - ChatWorkspace.foldGap;
+          // The grip band floats above the panes; it takes no layout width.
+          final double bandLeft = splitFeature != null
+              ? ChatWorkspace.bandLeftFor(splitFeature)
+              : 0.0;
           final double bandTop = math.max(
             8.0,
             math.min(
@@ -325,11 +331,13 @@ class _ChatWorkspaceState extends State<ChatWorkspace>
                 width: _listWidth(total, splitFeature),
                 child: _listPane(divider: splitFeature == null),
               ),
-              // Hairline through the middle of the band, interrupted by the
-              // handle: a divider with a grip, not a blank gutter.
-              if (splitFeature != null)
+              // A fold crease gets one hairline seam; on a hinge the physical
+              // strip already separates the panes, so no extra line is drawn
+              // over the chat.
+              if (splitFeature != null &&
+                  !ChatWorkspace.hasHardHinge(splitFeature))
                 Positioned(
-                  left: bandLeft + ChatWorkspace.foldGap / 2 - 0.5,
+                  left: ChatWorkspace.dividerFor(splitFeature) - 0.5,
                   top: 0,
                   bottom: 0,
                   width: 1,
@@ -355,17 +363,15 @@ class _ChatWorkspaceState extends State<ChatWorkspace>
                   child: Opacity(
                     // Edge grip: only once the chat has almost reached the
                     // screen edge, so it never floats over the rail or the list
-                    // mid-transition. Divider grip: only once the chat has
-                    // swept clear of the band.
+                    // mid-transition. Divider grip: full strength at rest,
+                    // fading out as the chat sweeps across the crease (and back
+                    // in while it retreats), so it never lingers over messages.
                     opacity: _expanded
                         ? ((ChatWorkspace.foldGap + 40 - chatLeft) / 40).clamp(
                             0.0,
                             1.0,
                           )
-                        : ((chatLeft - bandLeft) / ChatWorkspace.foldGap).clamp(
-                            0.0,
-                            1.0,
-                          ),
+                        : (1 - progress).clamp(0.0, 1.0),
                     child: _FoldHandle(
                       expanded: _expanded,
                       onTap: _toggleExpanded,
