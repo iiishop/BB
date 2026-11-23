@@ -137,7 +137,9 @@ void main() {
 
     List<ProfileAvatar> avatars = harness.avatars();
     final List<ProfileAvatar> appBarAvatars = avatars
-        .where((ProfileAvatar avatar) => avatar.size == 36)
+        .where(
+          (ProfileAvatar avatar) => avatar.size == ChatPage.headerAvatarSize,
+        )
         .toList();
     expect(appBarAvatars, hasLength(1));
     expect(listEquals(appBarAvatars.single.bytes, peerIdenticon), isTrue);
@@ -192,7 +194,9 @@ void main() {
 
     avatars = harness.avatars();
     final List<ProfileAvatar> reenteredAppBar = avatars
-        .where((ProfileAvatar avatar) => avatar.size == 36)
+        .where(
+          (ProfileAvatar avatar) => avatar.size == ChatPage.headerAvatarSize,
+        )
         .toList();
     expect(reenteredAppBar, hasLength(1));
     expect(

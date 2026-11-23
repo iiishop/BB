@@ -103,6 +103,13 @@ class ChatPage extends StatefulWidget {
   static const Key refreshKey = Key('chat-refresh');
   static const Key newMessagesKey = Key('chat-new-messages');
   static const Key groupTimeKey = Key('chat-group-time');
+  static const Key headerNameKey = Key('chat-header-name');
+  static const Key headerStatusKey = Key('chat-header-status');
+
+  /// Header metrics taken from the annotated reference: a 48 px avatar with
+  /// the name over the live presence, inside a 72 px tall bar.
+  static const double headerHeight = 72;
+  static const double headerAvatarSize = 48;
   static const Key keyboardBodyKey = Key('chat-keyboard-body');
   static const Key mediaTransitionKey = Key('chat-media-transition');
 
@@ -214,6 +221,15 @@ class _ChatPageState extends State<ChatPage> {
   /// It keeps the old 860px centred column (860 minus the list's 2x16 padding)
   /// while the scroll viewport itself stays as wide as the chat pane.
   static const double _readingColumnMaxWidth = 860 - AppSpacing.md * 2;
+
+  /// Title padding: right after the back arrow (or the fold switch), or the
+  /// page gutter when the split pane has no navigation control at all.
+  double get _titleInset {
+    if (widget.leading != null) {
+      return 8;
+    }
+    return widget.embedded ? 16 : 8;
+  }
 
   String get _consumerSession =>
       'ui:${widget.chat.selfAccount}:${widget.peer.account}';
@@ -1420,40 +1436,60 @@ class _ChatPageState extends State<ChatPage> {
       // the AppBar stays where it is.
       resizeToAvoidBottomInset: false,
       appBar: AppBar(
+        // One header for the phone route and the split pane: back (phone only)
+        // → peer avatar → name over the live presence → the existing refresh.
+        toolbarHeight: ChatPage.headerHeight,
         backgroundColor: AppColors.surface,
         surfaceTintColor: AppColors.surface,
         elevation: 0,
         scrolledUnderElevation: 1,
         automaticallyImplyLeading: !widget.embedded && widget.leading == null,
         leading: widget.leading,
-        leadingWidth: widget.leading == null ? null : 56,
-        titleSpacing: 0,
+        leadingWidth: widget.leading != null
+            ? 56
+            : (widget.embedded ? null : 48),
+        // The back arrow sits right next to the avatar; an embedded header has
+        // no navigation control, so its avatar starts at the page padding.
+        titleSpacing: _titleInset,
         title: Row(
           children: <Widget>[
             ProfileAvatar(
               bytes: _avatars.bytesFor(widget.peer.account),
-              size: 36,
-              showBorder: false,
+              size: ChatPage.headerAvatarSize,
+              showBorder: true,
               loading: _avatars.isLoading(widget.peer.account),
               semanticLabel: '${widget.peer.username} 的头像',
             ),
-            const SizedBox(width: AppSpacing.sm),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                Text(
-                  widget.peer.username,
-                  style: text.titleMedium,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                Text(
-                  '${widget.peer.account} · '
-                  '${_presenceOfPeer == Presence.online ? '在线' : '离线'}',
-                  style: text.bodySmall?.copyWith(fontSize: 11),
-                ),
-              ],
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Text(
+                    widget.peer.username,
+                    key: ChatPage.headerNameKey,
+                    style: text.titleLarge?.copyWith(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    _presenceOfPeer == Presence.online ? '在线' : '离线',
+                    key: ChatPage.headerStatusKey,
+                    style: text.bodySmall?.copyWith(
+                      fontSize: 12.5,
+                      color: _presenceOfPeer == Presence.online
+                          ? AppColors.accent
+                          : AppColors.inkMuted,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),

@@ -149,16 +149,31 @@ void main() {
         child: MaterialApp(
           debugShowCheckedModeBanner: false,
           theme: buildAppTheme(),
-          home: ChatPage(
-            peer: const ChatUser(
-              account: '10000002',
-              username: 'bob',
-              avatarUrl: '/avatars/10000002.png',
-              avatarVersion: 'v1',
-              presence: Presence.online,
-            ),
-            chat: chat,
-            profile: profile,
+          // A real phone opens the conversation as a pushed route, so the
+          // header shows its back control. Two initial routes give the
+          // Navigator something to pop without building a fake list page.
+          home: Navigator(
+            onGenerateInitialRoutes:
+                (NavigatorState navigator, String initialRoute) =>
+                    <Route<void>>[
+                      MaterialPageRoute<void>(
+                        builder: (BuildContext context) =>
+                            const Scaffold(backgroundColor: AppColors.paper),
+                      ),
+                      MaterialPageRoute<void>(
+                        builder: (BuildContext context) => ChatPage(
+                          peer: const ChatUser(
+                            account: '10000002',
+                            username: 'bob',
+                            avatarUrl: '/avatars/10000002.png',
+                            avatarVersion: 'v1',
+                            presence: Presence.online,
+                          ),
+                          chat: chat,
+                          profile: profile,
+                        ),
+                      ),
+                    ],
           ),
         ),
       ),
