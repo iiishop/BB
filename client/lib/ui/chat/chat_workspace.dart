@@ -93,21 +93,29 @@ class ChatWorkspace extends StatefulWidget {
 
   static const Duration foldDuration = Duration(milliseconds: 360);
 
-  /// True when the device gives a physical, non-touchable strip (a real hinge)
-  /// rather than a zero-width fold crease.
-  static bool hasHardHinge(DisplayFeature feature) => feature.bounds.width >= 8;
+  /// True when the device gives a physical, non-touchable strip.
+  ///
+  /// Flutter reports that strip as [DisplayFeatureType.hinge] whatever its
+  /// logical size: real units range from 0 through a few pixels to ~40, and a
+  /// 4 px hinge is just as untouchable as a 40 px one. Width alone must never
+  /// decide this — treating a narrow hinge as a crease put the grip (and the
+  /// arrow) on the hinge itself. [DisplayFeatureType.fold] is a crease that
+  /// stays touchable, so it may be straddled.
+  static bool hasHardHinge(DisplayFeature feature) =>
+      feature.type == DisplayFeatureType.hinge;
 
   /// Left edge of the 20 px grip band.
   ///
-  /// A real hinge is not touchable, so the grip sits just past its right edge.
-  /// A zero-width fold has no strip to avoid, so the band straddles the crease:
-  /// the grip is mounted on the divider instead of floating beside it.
+  /// A physical hinge is not touchable, so the grip sits just past its right
+  /// edge, clear of the strip even when it is only 4 px wide. A fold crease has
+  /// no untouchable strip, so the band straddles it: the grip is mounted on the
+  /// divider instead of floating beside it.
   static double bandLeftFor(DisplayFeature feature) => hasHardHinge(feature)
       ? feature.bounds.right
       : feature.bounds.center.dx - foldGap / 2;
 
   /// Where the conversation list has to stop: before a physical hinge, or at
-  /// the left half of the straddling band on a zero-width fold.
+  /// the left half of the straddling band on a fold crease.
   static double listStopFor(DisplayFeature feature) =>
       hasHardHinge(feature) ? feature.bounds.left : bandLeftFor(feature);
 

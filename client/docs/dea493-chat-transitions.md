@@ -160,9 +160,11 @@ flutter test test/chat_send_feedback_test.dart test/chat_flow_widget_test.dart \
 
 - `ChatWorkspace.foldGap` 从 56 收到 20：分隔带 = 把手 16 + 左右各 2；`foldHandleWidth=16`、
   `foldHandleHeight=56`。分隔带就是两栏各自让出的全部宽度，横向点击区不超出它，所以旁边
-  的列表行和消息气泡照常可点、可滚。分带位置按设备分界算：零宽折痕让 20 跨在折痕两侧各
-  10（把手压在折痕上）；实体铰链让列表止于铰链左缘、把手带落在铰链右侧可触区，40 的铰链
-  本身不计入这 20。折痕布局去掉列表右边框，只保留分隔带中间那一条线。
+  的列表行和消息气泡照常可点、可滚。分带位置按设备分界算：折痕让 20 跨在折痕两侧各
+  10（把手压在折痕上）；实体铰链让列表止于铰链左缘、把手与整块点击区落在铰链右侧可触区，
+  铰链本身不计入这 20。判定按 `DisplayFeatureType`：Flutter 的 `hinge` 就是物理不可触间隔，
+  宽度可以只有 4~7 逻辑像素，用宽度阈值判断会把把手压到窄铰链上。折痕布局去掉列表右边框，
+  只保留分隔带中间那一条线。
 - 把手是分隔线中段的一个白色圆角胶囊 + 12px 方向箭头，沿用 `AppColors.border` /
   `AppColors.surface` / `AppColors.accentDeep`；只有按下（InkWell highlight）或键盘聚焦时
   边框才变成 `accentDeep`。
@@ -174,8 +176,11 @@ flutter test test/chat_send_feedback_test.dart test/chat_flow_widget_test.dart \
 
 回归：`test/chat_workspace_widget_test.dart` 新增“the fold grip fits the 20 lp divider
 band and points the right way”（零宽折痕：占宽 ≤20、高 56、在分隔带内、箭头方向、全屏贴
-左缘）与“the grip keeps clear of a real hinge and of both panes”（实体铰链：把手在可触侧
-不压铰链、同高处的列表行仍可点、紧邻分隔带的纵向拖拽仍滚动消息）。
+左缘）、“the grip keeps clear of a real hinge and of both panes”（实体铰链：把手在可触侧
+不压铰链、同高处的列表行仍可点、紧邻分隔带的纵向拖拽仍滚动消息），以及按 4/7/8/40 逻辑像素
+铰链参数化的“a N lp hinge keeps the grip and its hit band on the touchable side”
+（列表止于铰链左缘、把手不与铰链相交、带外占宽 ≤20、双向切换）。窄铰链两例在
+`e7eca23` 上失败（列表 502、把手压铰链），修复后通过。
 
 ## 5. 未测 / 限制
 

@@ -770,4 +770,64 @@ void main() {
     );
     expect(tester.takeException(), isNull);
   });
+
+  // Flutter reports the physical, non-touchable strip as DisplayFeatureType
+  // .hinge whatever its logical size. A 4 lp hinge is as untouchable as a
+  // 40 lp one; judging by width alone put the grip (and the arrow) on the
+  // hinge at 4 and 7 lp.
+  for (final double hingeWidth in <double>[4, 7, 8, 40]) {
+    testWidgets('a $hingeWidth lp hinge keeps the grip and its hit band on the '
+        'touchable side', (WidgetTester tester) async {
+      const double mid = 512;
+      final Rect hingeBounds = Rect.fromLTWH(
+        mid - hingeWidth / 2,
+        0,
+        hingeWidth,
+        768,
+      );
+      final DisplayFeature hinge = DisplayFeature(
+        bounds: hingeBounds,
+        type: DisplayFeatureType.hinge,
+        state: DisplayFeatureState.postureFlat,
+      );
+      await pumpAt(
+        tester,
+        const Size(1024, 768),
+        features: <DisplayFeature>[hinge],
+      );
+
+      final Finder toggle = find.byKey(ChatWorkspace.toggleKey);
+      final Rect list = tester.getRect(find.byKey(ChatWorkspace.listPaneKey));
+      final Rect grip = tester.getRect(toggle);
+      final Rect chat = tester.getRect(find.byKey(ChatWorkspace.chatPaneKey));
+      expect(
+        list.right,
+        closeTo(hingeBounds.left, 0.5),
+        reason: 'the list stops before the hinge',
+      );
+      expect(
+        grip.overlaps(hingeBounds),
+        isFalse,
+        reason: 'no part of the grip may sit on the non-touchable hinge',
+      );
+      expect(grip.left, greaterThanOrEqualTo(hingeBounds.right));
+      expect(grip.right, lessThanOrEqualTo(chat.left));
+      // Only the 20 lp band, never the hinge itself, is taken from the panes.
+      expect(chat.left - list.right - hingeWidth, lessThanOrEqualTo(20));
+
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      expect(
+        tester.getRect(find.byKey(ChatWorkspace.chatPaneKey)).left,
+        closeTo(0, 0.5),
+      );
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      expect(
+        tester.getRect(find.byKey(ChatWorkspace.chatPaneKey)).left,
+        closeTo(chat.left, 0.5),
+      );
+      expect(tester.takeException(), isNull);
+    });
+  }
 }
