@@ -1,6 +1,8 @@
 """Deterministic exports: uv run --project server --locked python server/contract/export_chat_v2.py."""
 
+import base64
 import copy
+import hashlib
 import json
 from pathlib import Path
 
@@ -107,6 +109,12 @@ def fixtures():
                 old["inputs"]
                 | old["internal_inputs"]
                 | {
+                    "view_cover": {},
+                    "update_cover": {
+                        "base64": old["inputs"]["send_message"]["content"][1]["source"][
+                            "base64"
+                        ]
+                    },
                     "view_avatar": {},
                     "update_avatar": {
                         "base64": old["inputs"]["send_message"]["content"][1]["source"][
@@ -208,7 +216,21 @@ def fixtures():
     }
     for name in ["get_message", "get_context"]:
         inputs[name]["message_id"] = message["id"]
+    cover = {
+        "cover_url": f"/covers/{AUTH['account']}",
+        "cover_version": "sha256-" + hashlib.sha256(
+            base64.b64decode(inputs["update_cover"]["base64"], validate=True)
+        ).hexdigest(),
+    }
     results = {
+        "view_cover": {
+            **cover,
+            "account": AUTH["account"],
+            "mime_type": "image/png",
+            "data": inputs["update_cover"]["base64"],
+            "is_default": False,
+        },
+        "update_cover": cover,
         "get_notifications": {"enabled": True, "revision": 1, "skip_source_through": 0},
         "set_notifications": {"enabled": False, "revision": 2, "skip_source_through": 0},
         "notification_changes": {"deferred": [], "settings": {"enabled": True, "revision": 1, "skip_source_through": 0}, "items": [], "next_cursor": 0, "through_cursor": 0, "has_more": False},

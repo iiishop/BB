@@ -128,7 +128,7 @@ void main() {
     expect(
       find.descendant(
         of: find.byKey(UsersListView.rowKey('10000002')),
-        matching: find.text('在线'),
+        matching: find.byKey(UsersListView.presenceDotKey('10000002')),
       ),
       findsOneWidget,
       reason: 'list and header share one last-confirmed value',

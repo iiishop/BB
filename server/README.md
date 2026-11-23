@@ -7,7 +7,7 @@ uv sync --project server --locked
 BB_DATABASE_PATH=./local-data/auth.db BB_AVATAR_DIRECTORY=./local-data/avatars BB_MEDIA_DIRECTORY=./local-data/media BB_HOST=127.0.0.1 BB_PORT=8000 uv run --project server --locked bb-server
 ```
 
-Windows Git Bash 同样使用上述命令。以上五个环境变量均必填，不自动加载 `.env`。服务启动时事务性应用 `src/bb_server/migrations/001_auth.sql` 、`002_profile.sql` 和 `003_chat.sql`，以 SQLite `user_version=3` 记录版本；已有数据不重建，遇到更高版本拒绝启动。
+Windows Git Bash 同样使用上述命令。以上五个环境变量均必填，不自动加载 `.env`。服务启动时事务性应用 `src/bb_server/migrations/` 中的迁移，以 SQLite `user_version=8` 记录当前版本。遇到更高版本拒绝启动。
 
 | 接口 | 成功响应 | 失败 |
 | --- | --- | --- |
@@ -40,6 +40,8 @@ uv run --project server --locked python -m bb_server.backup ./local-data/auth.db
 
 
 STEP-2 完整接口、错误、头像规范、六个本地接口与客户端接入规则见 `docs/contracts/profile-step2.md`。`GET /users/{account}/profile`、`PATCH /me/profile`、`POST/DELETE /me/avatar`、`GET /avatars/{account}.png` 均需 Bearer 鉴权。头像按 magic bytes + 实际解码校验，上传原始数据最多 5 MiB，归一化 PNG；默认 identicon 不落文件。`POST /auth/logout` 返回 204；`POST /auth/heartbeat` 返回 online 与 UTC last_seen_at。
+
+资料封面见 `contract/profile-cover.md`。自定义封面的账号引用、原图和展示图位于同一 SQLite 数据库，随 SQLite 一起备份。默认海浪随服务端包分发。
 
 `BB_SESSION_MAINTENANCE_SECONDS` 默认 5 秒（正有限数），控制后台会话维护频率；90 秒边界在下一次维护 tick 写入，认证/心跳也执行同一清理逻辑。维护任务在应用 lifespan 内启动/停止，存储暂时失败后下次 tick 重试。升级 STEP-1 时旧会话从迁移时间开始计时，不按旧 created_at 立即清理。
 

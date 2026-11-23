@@ -153,6 +153,71 @@ void main() {
     expect(failure.status, 503);
     expect(session.hasToken, isTrue);
   });
+  test(
+    'loadCover revalidates: default first, then 304 with cached bytes',
+    () async {
+      final CoverImage first = await service.loadCover();
+      expect(first.isDefault, isTrue);
+      expect(first.mimeType, 'image/png');
+      expect(backend.coverIfNoneMatch.first, isNull);
+
+      final CoverImage second = await service.loadCover();
+      expect(second.bytes, first.bytes);
+      expect(second.version, first.version);
+      expect(second.isDefault, isTrue);
+      expect(backend.coverIfNoneMatch, hasLength(2));
+      expect(backend.coverIfNoneMatch[1], '"${first.version}"');
+    },
+  );
+
+  test('a replaced server cover replaces the cached bytes', () async {
+    final CoverImage first = await service.loadCover();
+    backend.replaceCover(_png2);
+    final CoverImage second = await service.loadCover();
+    expect(second.bytes, _png2);
+    expect(second.version, isNot(first.version));
+    expect(second.isDefault, isFalse);
+  });
+
+  test(
+    'updateCoverFromBytes uploads a multipart file then reads it back',
+    () async {
+      final CoverInfo info = await service.updateCoverFromBytes(_png2);
+      expect(backend.coverUploadSizes, hasLength(1));
+      expect(info.coverUrl, '/covers/${backend.validAccount}');
+      expect(info.coverVersion, backend.coverVersion);
+
+      final CoverImage displayed = await service.loadCover();
+      expect(displayed.bytes, _png2);
+      expect(displayed.isDefault, isFalse);
+      // The upload invalidated the cache, so the next read cannot be a 304.
+      expect(backend.coverIfNoneMatch.last, isNull);
+    },
+  );
+
+  test('an oversize cover is rejected before any upload request', () async {
+    final Uint8List tooLarge = Uint8List(8 * 1024 * 1024 + 1)..[0] = 0x89;
+    await expectLater(
+      service.updateCoverFromBytes(tooLarge),
+      throwsA(
+        isA<AuthFailure>()
+            .having((AuthFailure f) => f.status, 'status', 413)
+            .having((AuthFailure f) => f.code, 'code', 'payload_too_large'),
+      ),
+    );
+    expect(backend.coverUploadSizes, isEmpty);
+  });
+
+  test('a failed upload keeps the previous server cover', () async {
+    backend.replaceCover(_png1);
+    backend.coverUploadStatus = 503;
+    await expectLater(
+      service.updateCoverFromBytes(_png2),
+      throwsA(isA<AuthFailure>()),
+    );
+    final CoverImage displayed = await service.loadCover();
+    expect(displayed.bytes, _png1);
+  });
 }
 
 Future<AuthFailure> _captureFailure(Future<Object?> Function() action) async {

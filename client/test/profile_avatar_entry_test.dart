@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/fake_profile_gateway.dart';
+import 'support/phone_profile.dart';
 
 /// DEA-482: the avatar source dialog must offer platform-appropriate entry
 /// points. Desktop keeps the path field but gains a native "选择图片" button;
@@ -54,6 +55,10 @@ void main() {
     );
     await tester.tap(find.text('open-profile'));
     await tester.pumpAndSettle();
+    if (size.width < 600) {
+      // Phone page: avatar actions live behind 编辑资料 since DEA-492.
+      await openProfileEditSheet(tester);
+    }
     await tester.tap(find.text('更换头像').first);
     await tester.pumpAndSettle();
   }

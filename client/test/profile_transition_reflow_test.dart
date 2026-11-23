@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/fake_profile_gateway.dart';
+import 'support/phone_profile.dart';
 
 const AuthUser _user = AuthUser(account: '40218765', username: 'muse.tester');
 
@@ -193,6 +194,7 @@ void main() {
     expect(panel(tester).mode, ProfilePanelMode.mobile);
     expect(find.text('跨形态签名'), findsWidgets);
 
+    await openProfileEditSheet(tester);
     await tester.tap(find.byKey(ProfilePanel.editNicknameKey));
     await tester.pumpAndSettle();
     await tester.enterText(

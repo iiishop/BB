@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/fake_profile_gateway.dart';
+import 'support/phone_profile.dart';
 
 const AuthUser _user = AuthUser(account: '40218765', username: 'muse.tester');
 
@@ -150,6 +151,7 @@ void main() {
     WidgetTester tester,
   ) async {
     await pumpHost(tester, size: const Size(390, 844));
+    await openProfileEditSheet(tester);
     await tester.tap(find.byKey(ProfilePanel.editNicknameKey));
     await tester.pumpAndSettle();
 
@@ -169,6 +171,7 @@ void main() {
     WidgetTester tester,
   ) async {
     await pumpHost(tester, size: const Size(390, 844));
+    await openProfileEditSheet(tester);
     await tester.tap(find.byKey(ProfilePanel.editSignatureKey));
     await tester.pumpAndSettle();
 
@@ -185,6 +188,7 @@ void main() {
     WidgetTester tester,
   ) async {
     await pumpHost(tester, size: const Size(390, 844));
+    await openProfileEditSheet(tester);
     await tester.tap(find.text('更换头像').first);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Base64'));
@@ -245,26 +249,35 @@ void main() {
     );
     await tester.pumpAndSettle();
   });
-  testWidgets('QA mobile control slides left when opened narrow', (
-    tester,
-  ) async {
+  testWidgets('QA phone page exits by cross-fade, not a slide', (tester) async {
+    // DEA-492 turned the phone presentation into a full-screen route so the
+    // avatar can fly back to the messages-page entry. The page itself must stay
+    // put and fade; only the avatar travels.
     await pumpHost(tester, size: const Size(390, 844));
-    tester.view.physicalSize = const Size(390, 844);
-    await tester.pumpAndSettle();
     expect(
       tester.widget<ProfilePanel>(find.byType(ProfilePanel)).mode,
       ProfilePanelMode.mobile,
     );
-    final before = tester.getTopLeft(find.byKey(ProfilePanel.panelKey)).dx;
+    final double before = tester
+        .getTopLeft(find.byKey(ProfilePanel.panelKey))
+        .dx;
     Navigator.of(tester.element(find.byType(ProfilePanel))).pop();
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 100));
-    final during = tester.getTopLeft(find.byKey(ProfilePanel.panelKey)).dx;
+    await tester.pump(const Duration(milliseconds: 120));
     expect(
-      during,
-      lessThan(before - 1),
-      reason: 'mobile dismissal must slide left after metrics reflow',
+      tester.getTopLeft(find.byKey(ProfilePanel.panelKey)).dx,
+      closeTo(before, 0.5),
+      reason: 'phone page must not slide while the avatar returns',
+    );
+    final FadeTransition fade = tester.widget<FadeTransition>(
+      find.byKey(profilePhoneFadeKey),
+    );
+    expect(
+      fade.opacity.value,
+      lessThan(1.0),
+      reason: 'phone page must fade out during the hero return',
     );
     await tester.pumpAndSettle();
+    expect(find.byType(ProfilePanel), findsNothing);
   });
 }

@@ -1,4 +1,5 @@
 import base64
+import hashlib
 import json
 
 import httpx
@@ -8,6 +9,59 @@ from guarded_fixture import IDENTITY, guarded_client
 from bb_dsh_plugin.guarded import invoke_guarded as invoke
 
 PNG = base64.b64encode(b"\x89PNG\r\n\x1a\nimage-test-double").decode()
+
+
+@pytest.mark.parametrize("response_case", ["valid", "wrong_hash", "wrong_account"])
+async def test_cover_read_projects_only_verified_display_bytes(response_case):
+    account = "87654321"
+    version = "sha256-" + hashlib.sha256(base64.b64decode(PNG)).hexdigest()
+    content = {
+        "account": account,
+        "cover_url": f"/covers/{account}",
+        "cover_version": version,
+        "is_default": True,
+        "mime_type": "image/png",
+        "data": PNG,
+    }
+    if response_case == "wrong_hash":
+        content["cover_version"] = "sha256-" + "a" * 64
+    if response_case == "wrong_account":
+        content["account"] = "87654322"
+
+    def handler(request):
+        assert request.url.path == "/v2/profile/view_cover"
+        assert json.loads(request.content) == {
+            "account": account,
+            "expected_identity": IDENTITY,
+        }
+        return httpx.Response(200, json=content)
+
+    local = guarded_client(
+        "http://127.0.0.1:9187", transport=httpx.MockTransport(handler)
+    )
+    response = await invoke(local, "view_cover", {"account": account})
+    if response_case == "valid":
+        assert not response.isError
+        assert response.content[0].data == PNG
+        assert response.structuredContent == {
+            name: value for name, value in content.items() if name != "data"
+        }
+    else:
+        assert response.isError and response.structuredContent["status"] == 502
+        assert all(item.type != "image" for item in response.content)
+
+
+async def test_cover_write_rejects_other_account_before_dispatch():
+    def handler(_):
+        pytest.fail("Cover target reached the local client")
+
+    local = guarded_client(
+        "http://127.0.0.1:9187", transport=httpx.MockTransport(handler)
+    )
+    response = await invoke(
+        local, "update_cover", {"account": "87654321", "base64": PNG},
+    )
+    assert response.isError and response.structuredContent["status"] == 422
 
 
 async def test_view_avatar_returns_mcp_image_and_revalidates_each_time():

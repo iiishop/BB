@@ -98,6 +98,11 @@ class _HomeViewState extends State<HomeView>
   /// snapshot or its own poll.
   PresenceDirectory? _presence;
 
+  /// Conversation the list marks with its message note. On the phone list the
+  /// chat itself is a pushed page, so the note is what remains after coming
+  /// back; a wide two-pane shell passes the conversation shown on the right.
+  String? _selectedAccount;
+
   /// One relationship owner for the signed-in account's feed cards and the
   /// author home page. Recreated when the server/account scope changes.
   SpaceFollowStore? _followStore;
@@ -298,6 +303,12 @@ class _HomeViewState extends State<HomeView>
         // A failed view record must not block opening or later refreshes; the
         // next refresh retries the derivation from the same server facts.
         .catchError((Object _) {});
+    // Selection is stored by account, not row index: after a reorder or a
+    // refresh the note still marks this contact. The wide shell reuses the
+    // field it passes to UsersListView when it opens the right-hand pane.
+    if (mounted && _selectedAccount != user.account) {
+      setState(() => _selectedAccount = user.account);
+    }
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (BuildContext context) => ChatPage(
@@ -322,14 +333,25 @@ class _HomeViewState extends State<HomeView>
   }
 
   /// The header entry that replaces the BB badge on narrow layouts.
+  ///
+  /// A phone opens Profile as a full-screen route, so the avatar is a Hero that
+  /// flies to the cover edge; desktop/folded keep the dialog and stay plain.
   Widget _headerAvatar() {
-    return ProfileAvatar(
+    final Widget avatar = ProfileAvatar(
       key: HomeView.avatarEntryKey,
       bytes: _avatar,
       size: 44,
       loading: _loading && _avatar == null,
       onTap: _openProfile,
       semanticLabel: '打开个人资料',
+    );
+    if (MediaQuery.sizeOf(context).width >= 600) {
+      return avatar;
+    }
+    return Hero(
+      tag: ProfilePanel.avatarHeroTag,
+      flightShuttleBuilder: ProfilePanel.avatarFlightShuttle,
+      child: avatar,
     );
   }
 
@@ -483,6 +505,7 @@ class _HomeViewState extends State<HomeView>
                         profile: widget.profile,
                         presence: _presence,
                         onlineFilter: _onlineFilter,
+                        selectedAccount: _selectedAccount,
                         onOpenChat: _openChat,
                         onSessionExpired: widget.onSessionExpired,
                       ),

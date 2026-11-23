@@ -154,8 +154,15 @@ void main() {
     expect(find.text('bob：晚上见'), findsOneWidget);
     expect(find.text('尚未联系'), findsOneWidget);
     expect(find.text('暂无消息'), findsOneWidget);
-    expect(find.text('在线'), findsOneWidget);
-    expect(find.text('离线'), findsOneWidget);
+    // Presence is the dot on the avatar; the row no longer carries a text label.
+    expect(
+      find.byKey(UsersListView.presenceDotKey(_bob.account)),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(UsersListView.presenceDotKey(_carol.account)),
+      findsNothing,
+    );
     expect(find.byKey(HomeView.avatarEntryKey), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
