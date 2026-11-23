@@ -74,6 +74,10 @@ void main() {
       expect((chat.downloads as FakeDownloads).starts, isEmpty);
       expect(chat.openMediaStreamCalls, isEmpty);
 
+      // The video is picture-first now: play lives in the message menu, not
+      // in a permanent row under the cover.
+      await tester.longPress(find.text('clip.mp4'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('播放'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));

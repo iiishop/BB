@@ -131,8 +131,10 @@ class FakeChatService extends ChatService {
 
   /// Test-only directory page cap so two-page list paths stay cheap.
   final int? userPageSize;
-  final int? gateAtPosition;
-  final Completer<void>? gate;
+
+  /// Mutable so a test can hold a poll that starts after the initial load.
+  int? gateAtPosition;
+  Completer<void>? gate;
   int _seq = 100;
 
   /// Reply gate for a presence refresh. Tests open the page first, then gate so

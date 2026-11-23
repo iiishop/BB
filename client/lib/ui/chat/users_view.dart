@@ -34,6 +34,9 @@ class UsersListView extends StatefulWidget {
     this.presence,
     this.onSessionExpired,
     this.selectedAccount,
+    this.onSelect,
+    this.onDirectoryLoaded,
+    this.onlineFilter,
   });
 
   final ChatService chat;
@@ -58,6 +61,20 @@ class UsersListView extends StatefulWidget {
   /// [HomeView] so the note never invents a conversation that is not there.
   final String? selectedAccount;
 
+  /// Split-layout row action: switch the chat pane without pushing a route.
+  /// Null keeps the phone behaviour (open the conversation page).
+  final void Function(ChatUser user)? onSelect;
+
+  /// Called after each successful directory read, before any highlight is
+  /// applied by the parent. Used once by the split surface to pick a first
+  /// conversation; it must not loop.
+  final void Function(List<ChatUser> users)? onDirectoryLoaded;
+
+  /// Optional shared "only online" state. The phone and split surfaces both
+  /// read and write this one value, so resizing the window cannot silently
+  /// reset the filter.
+  final ValueNotifier<bool>? onlineFilter;
+
   static const Key listKey = Key('users-list');
   static const Key emptyKey = Key('users-empty');
   static const Key errorKey = Key('users-error');
@@ -66,6 +83,7 @@ class UsersListView extends StatefulWidget {
   static const Key onlineEmptyKey = Key('users-online-empty');
   static Key rowKey(String account) => Key('user-row-$account');
   static Key unreadKey(String account) => Key('user-unread-$account');
+  static Key selectedKey(String account) => Key('user-selected-$account');
 
   /// The light-teal note around the current conversation. It exists only for
   /// the selected account, which makes tests and visual review unambiguous.
@@ -127,7 +145,9 @@ class _UsersListViewState extends State<UsersListView> {
   /// "Only show online" is a view filter: it never rewrites [_users] or clears
   /// the server-derived unread counts, so turning it off restores the complete
   /// list in the same sorted order.
-  bool _onlineOnly = false;
+  bool _localOnlineOnly = false;
+
+  bool get _onlineOnly => widget.onlineFilter?.value ?? _localOnlineOnly;
 
   /// The same last-confirmed presence the row badge renders, so a row cannot
   /// say 在线 while the filter hides it (or the other way round).
@@ -138,6 +158,7 @@ class _UsersListViewState extends State<UsersListView> {
   void initState() {
     super.initState();
     widget.presence?.addListener(_onPresenceChanged);
+    widget.onlineFilter?.addListener(_onFilterChanged);
     unawaited(_load());
     _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       if (mounted && !_inFlight) {
@@ -147,8 +168,18 @@ class _UsersListViewState extends State<UsersListView> {
   }
 
   @override
+  void didUpdateWidget(covariant UsersListView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.onlineFilter != widget.onlineFilter) {
+      oldWidget.onlineFilter?.removeListener(_onFilterChanged);
+      widget.onlineFilter?.addListener(_onFilterChanged);
+    }
+  }
+
+  @override
   void dispose() {
     widget.presence?.removeListener(_onPresenceChanged);
+    widget.onlineFilter?.removeListener(_onFilterChanged);
     _refreshTimer?.cancel();
     super.dispose();
   }
@@ -156,6 +187,21 @@ class _UsersListViewState extends State<UsersListView> {
   void _onPresenceChanged() {
     if (mounted) {
       setState(() {});
+    }
+  }
+
+  void _onFilterChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  void _setOnlineOnly(bool value) {
+    final ValueNotifier<bool>? shared = widget.onlineFilter;
+    if (shared != null) {
+      shared.value = value;
+    } else {
+      setState(() => _localOnlineOnly = value);
     }
   }
 
@@ -287,6 +333,7 @@ class _UsersListViewState extends State<UsersListView> {
           _loading = false;
           _error = null;
         });
+        widget.onDirectoryLoaded?.call(List<ChatUser>.unmodifiable(_users));
         // A fresh directory read is authoritative for the accounts it
         // contains; share it so an open conversation cannot keep a stale
         // header. The ticket makes an older read lose.
@@ -414,8 +461,7 @@ class _UsersListViewState extends State<UsersListView> {
                 child: Switch(
                   key: UsersListView.onlineOnlyKey,
                   value: _onlineOnly,
-                  onChanged: (bool value) =>
-                      setState(() => _onlineOnly = value),
+                  onChanged: _setOnlineOnly,
                 ),
               ),
             ],
@@ -541,7 +587,9 @@ class _UsersListViewState extends State<UsersListView> {
                 selfAccount: widget.chat.selfAccount,
                 current: user.account == widget.selectedAccount,
                 compact: compact,
-                onTap: () => _open(user),
+                onTap: widget.onSelect == null
+                    ? () => _open(user)
+                    : () => widget.onSelect!(user),
               );
             },
           ),
@@ -707,6 +755,12 @@ class _UserRow extends StatelessWidget {
       ),
     );
 
+    // The note keeps its own key; the split shell's selectedKey lives on the
+    // content so one row can answer both contracts.
+    final Widget content = KeyedSubtree(
+      key: current ? UsersListView.selectedKey(user.account) : null,
+      child: noteContent,
+    );
     final Widget note = current
         ? Ink(
             key: UsersListView.noteKey(user.account),
@@ -715,9 +769,9 @@ class _UserRow extends StatelessWidget {
               tailWidth: _noteTailWidth,
               radius: AppRadius.card,
             ),
-            child: noteContent,
+            child: content,
           )
-        : noteContent;
+        : content;
 
     return Semantics(
       selected: current,

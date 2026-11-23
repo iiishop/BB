@@ -86,9 +86,10 @@ void main() {
     expect(find.byType(ChatPage), findsOneWidget);
   }
 
-  /// The AppBar subtitle is the only "account · presence" line on screen.
+  /// The header's presence line under the peer name (the conversation header
+  /// shows the status itself, not the account id).
   String headerStatus(WidgetTester tester) {
-    final Text text = tester.widget<Text>(find.textContaining(' · '));
+    final Text text = tester.widget<Text>(find.byKey(ChatPage.headerStatusKey));
     return text.data ?? '';
   }
 

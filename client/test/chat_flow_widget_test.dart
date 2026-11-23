@@ -277,9 +277,16 @@ void main() {
     expect(texts, containsAllInOrder(<String>['文字A', '文字B']));
     expect(find.byType(Image), findsWidgets, reason: 'body image rendered');
     expect(find.text('旅行.mp4'), findsOneWidget);
-    expect(find.text('另存为'), findsOneWidget);
-    expect(find.text('下载'), findsOneWidget);
-    expect(find.text('播放'), findsOneWidget);
+    // The video is picture-first: the three actions moved from a permanent
+    // row under the cover into the message's long-press / right-click menu.
+    expect(find.text('另存为'), findsNothing);
+    expect(find.text('下载'), findsNothing);
+    expect(find.text('播放'), findsNothing);
+    expect(
+      find.byKey(const ValueKey<String>('chat-media-video1')),
+      findsOneWidget,
+      reason: 'the whole preview remains the opener',
+    );
     expect(tester.takeException(), isNull);
 
     await tester.enterText(find.byKey(ChatComposer.inputKey), '这是新消息');
@@ -302,6 +309,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('另存为'), findsWidgets);
     expect(find.text('下载'), findsWidgets);
+    expect(find.text('播放'), findsWidgets);
 
     await tester.tapAt(const Offset(10, 10));
     await tester.pumpAndSettle();

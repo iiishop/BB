@@ -864,7 +864,7 @@ void main() {
       isTrue,
       reason: 'the same operation must keep the actual entrance State',
     );
-    expect(find.text('昨天'), findsOneWidget);
+    expect(find.textContaining('昨天'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -1128,15 +1128,18 @@ void main() {
     await harness.send(tester, 'lookup unavailable');
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
-    await tester.pump(const Duration(seconds: 3));
-    await tester.pump();
 
+    // While the operation outcome is unknown the failure prompt and its retry
+    // entry exist on the held message.
     expect(find.byKey(MessageBubble.failedKey), findsOneWidget);
     expect(
       find.text('lookup unavailable'),
       findsOneWidget,
       reason: 'an unknown operation keeps the accepted message held',
     );
+
+    // Retrying settles through the same operation: the accepted message stays
+    // exactly once and the failure entry disappears.
     service.retryReturnsCommitted = true;
     await tester.tap(find.byKey(MessageBubble.failedKey));
     await tester.pumpAndSettle();
@@ -1238,9 +1241,9 @@ void main() {
   testWidgets('status rows scale with text and are not vertically clipped', (
     WidgetTester tester,
   ) async {
-    void expectFullyLaidOut(String text) {
+    void expectFinderFullyLaidOut(Finder finder, String label) {
       final RenderParagraph paragraph = tester.renderObject<RenderParagraph>(
-        find.text(text),
+        finder,
       );
       final TextPainter painter = TextPainter(
         text: paragraph.text,
@@ -1250,10 +1253,13 @@ void main() {
       expect(
         paragraph.size.height,
         greaterThanOrEqualTo(painter.height - 0.01),
-        reason: '$text must not be taller than its allocated box',
+        reason: '$label must not be taller than its allocated box',
       );
       painter.dispose();
     }
+
+    void expectFullyLaidOut(String text) =>
+        expectFinderFullyLaidOut(find.text(text), text);
 
     final _Harness harness = _Harness(
       thread: <ChatMessage>[_message(1)],
@@ -1262,7 +1268,8 @@ void main() {
     harness.chat.sendGate = Completer<void>();
     harness.chat.failBody = true;
     await harness.pump(tester);
-    expectFullyLaidOut('12:01');
+    // The transcript's centred group time replaces the old per-bubble clock.
+    expectFinderFullyLaidOut(find.byKey(ChatPage.groupTimeKey), 'group time');
 
     await harness.send(tester, 'scaled status');
     await tester.pump();

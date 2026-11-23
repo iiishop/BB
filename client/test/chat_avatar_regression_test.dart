@@ -137,7 +137,9 @@ void main() {
 
     List<ProfileAvatar> avatars = harness.avatars();
     final List<ProfileAvatar> appBarAvatars = avatars
-        .where((ProfileAvatar avatar) => avatar.size == 36)
+        .where(
+          (ProfileAvatar avatar) => avatar.size == ChatPage.headerAvatarSize,
+        )
         .toList();
     expect(appBarAvatars, hasLength(1));
     expect(listEquals(appBarAvatars.single.bytes, peerIdenticon), isTrue);
@@ -152,13 +154,15 @@ void main() {
       isTrue,
       reason: 'peer bubbles render the fetched image, not the username initial',
     );
+    // Own replies are right-aligned without an avatar slot (DEA-493 visual
+    // reference), so the signed-in image must not appear beside them; the
+    // hardcoded "我" placeholder is still forbidden.
     expect(
-      bubbleAvatars.any(
+      bubbleAvatars.where(
         (ProfileAvatar avatar) => listEquals(avatar.bytes, selfIdenticon),
       ),
-      isTrue,
-      reason:
-          'own bubbles render the signed-in account image, not a hardcoded 我',
+      isEmpty,
+      reason: 'own bubbles carry no avatar placeholder',
     );
     expect(find.text('我'), findsNothing);
     expect(find.text(initialsOf(_bob.username)), findsNothing);
@@ -190,7 +194,9 @@ void main() {
 
     avatars = harness.avatars();
     final List<ProfileAvatar> reenteredAppBar = avatars
-        .where((ProfileAvatar avatar) => avatar.size == 36)
+        .where(
+          (ProfileAvatar avatar) => avatar.size == ChatPage.headerAvatarSize,
+        )
         .toList();
     expect(reenteredAppBar, hasLength(1));
     expect(

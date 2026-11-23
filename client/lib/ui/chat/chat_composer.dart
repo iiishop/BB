@@ -99,6 +99,10 @@ class ChatComposer extends StatefulWidget {
   static const Key imageKey = Key('chat-composer-image');
   static const Key fileKey = Key('chat-composer-file');
 
+  /// The round "+" that collects the existing image/attachment entries.
+  static const Key attachMenuKey = Key('chat-composer-attach');
+  static const Key attachSheetKey = Key('chat-composer-attach-sheet');
+
   /// Blocks editing while an update install transaction is admitted.
   static const Key safetyGateKey = Key('chat-composer-safety-gate');
 
@@ -114,6 +118,7 @@ class _ChatComposerState extends State<ChatComposer> {
   List<SendOutcome> _failed = <SendOutcome>[];
   final List<PendingSend> _pending = <PendingSend>[];
   bool _pasting = false;
+  bool _hadText = false;
   late final Object _draftSession;
   final Set<String> _ownedOperations = <String>{};
 
@@ -129,6 +134,7 @@ class _ChatComposerState extends State<ChatComposer> {
     );
     if (stored != null) {
       _controller.text = stored.text;
+      _hadText = _controller.text.trim().isNotEmpty;
       _parts.addAll(stored.parts);
       _attachments.addAll(stored.attachments);
       _pending.addAll(stored.pending);
@@ -167,6 +173,13 @@ class _ChatComposerState extends State<ChatComposer> {
   }
 
   void _persistDraft() {
+    final bool hasText = _controller.text.trim().isNotEmpty;
+    if (mounted && hasText != _hadText) {
+      _hadText = hasText;
+      // The send affordance follows "is there anything sendable" without a
+      // separate text editing callback.
+      setState(() {});
+    }
     final stored = !mounted
         ? ChatDrafts.instance.read(_draftSession, widget.peerAccount)
         : null;
@@ -213,6 +226,44 @@ class _ChatComposerState extends State<ChatComposer> {
       return;
     }
     _change(() {});
+  }
+
+  /// The round "+" menu: the same two entries the bar used to show.
+  Future<void> _openAttachSheet() async {
+    final BuildContext context = this.context;
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (BuildContext sheetContext) => SafeArea(
+        key: ChatComposer.attachSheetKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            ListTile(
+              key: ChatComposer.imageKey,
+              leading: const Icon(Icons.image_outlined),
+              title: const Text('图片'),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                unawaited(_addImage());
+              },
+            ),
+            ListTile(
+              key: ChatComposer.fileKey,
+              leading: const Icon(Icons.attach_file_rounded),
+              title: const Text('附件'),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                unawaited(_addFile());
+              },
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _addImage() =>
@@ -898,7 +949,15 @@ class _ChatComposerState extends State<ChatComposer> {
 
   @override
   Widget build(BuildContext context) {
-    final bool hasDraft = _parts.isNotEmpty || _attachments.isNotEmpty;
+    // The send key is emphasised for any sendable content, including plain
+    // text that still lives in the input. The staged strip, however, only
+    // belongs to text/image parts and attachments; showing a duplicate text
+    // chip for the field itself used to add a 64px band on every keystroke.
+    final bool hasSendable =
+        _controller.text.trim().isNotEmpty ||
+        _parts.isNotEmpty ||
+        _attachments.isNotEmpty;
+    final bool hasStaged = _parts.isNotEmpty || _attachments.isNotEmpty;
     return IgnorePointer(
       key: ChatComposer.safetyGateKey,
       ignoring: InstallSafetyGate.instance.installing,
@@ -919,7 +978,7 @@ class _ChatComposerState extends State<ChatComposer> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
-                if (hasDraft) _draftStrip(),
+                if (hasStaged) _draftStrip(),
                 if (_failed.isNotEmpty)
                   TextButton(
                     onPressed: _discardFailed,
@@ -928,56 +987,73 @@ class _ChatComposerState extends State<ChatComposer> {
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: <Widget>[
-                    IconButton(
-                      key: ChatComposer.imageKey,
-                      tooltip: '图片',
-                      onPressed: widget.enabled ? _addImage : null,
-                      icon: const Icon(Icons.image_outlined),
+                    // One round "+" collects the existing image and file
+                    // entries; there is no separate paperclip in the bar.
+                    _CircleButton(
+                      key: ChatComposer.attachMenuKey,
+                      tooltip: '添加',
+                      icon: Icons.add_rounded,
+                      iconColor: AppColors.accentDeep,
+                      background: AppColors.accentSoft,
+                      onTap: widget.enabled ? _openAttachSheet : null,
                     ),
-                    IconButton(
-                      key: ChatComposer.fileKey,
-                      tooltip: '附件',
-                      onPressed: widget.enabled ? _addFile : null,
-                      icon: const Icon(Icons.attach_file_rounded),
-                    ),
+                    const SizedBox(width: AppSpacing.sm),
                     Expanded(
-                      child: TextField(
-                        key: ChatComposer.inputKey,
-                        controller: _controller,
-                        focusNode: _focus,
-                        enabled:
-                            widget.enabled &&
-                            !InstallSafetyGate.instance.installing,
-                        minLines: 1,
-                        maxLines: 5,
-                        textInputAction: TextInputAction.newline,
-                        decoration: InputDecoration(
-                          hintText: _usesSendShortcut
-                              ? '输入消息… Enter 发送，Ctrl+Enter 换行'
-                              : '输入消息…',
-                          isDense: true,
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: AppSpacing.md,
-                            vertical: AppSpacing.sm + 4,
+                      child: Container(
+                        // Same height as the round + and send buttons on one
+                        // line; it still grows with a multi-line draft.
+                        constraints: const BoxConstraints(minHeight: 44),
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: AppColors.surface,
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(color: AppColors.border),
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.md,
+                        ),
+                        child: TextField(
+                          key: ChatComposer.inputKey,
+                          controller: _controller,
+                          focusNode: _focus,
+                          enabled:
+                              widget.enabled &&
+                              !InstallSafetyGate.instance.installing,
+                          minLines: 1,
+                          maxLines: 5,
+                          textInputAction: TextInputAction.newline,
+                          // The pill is the field's own outline; the theme's
+                          // focus border must not draw a second one inside it.
+                          decoration: InputDecoration(
+                            hintText: _usesSendShortcut
+                                ? '输入消息… Enter 发送'
+                                : '输入消息…',
+                            isDense: true,
+                            border: InputBorder.none,
+                            enabledBorder: InputBorder.none,
+                            focusedBorder: InputBorder.none,
+                            disabledBorder: InputBorder.none,
+                            contentPadding: EdgeInsets.zero,
                           ),
                         ),
                       ),
                     ),
-                    const SizedBox(width: AppSpacing.xs),
+                    const SizedBox(width: AppSpacing.sm),
                     Tooltip(
                       message: _usesSendShortcut ? '发送（Enter）' : '发送',
-                      child: SizedBox(
-                        width: 48,
-                        height: 48,
-                        child: FilledButton(
-                          key: ChatComposer.sendKey,
-                          onPressed: widget.enabled ? _send : null,
-                          style: FilledButton.styleFrom(
-                            padding: EdgeInsets.zero,
-                            minimumSize: const Size(48, 48),
-                          ),
-                          child: const Icon(Icons.arrow_upward_rounded),
-                        ),
+                      child: _CircleButton(
+                        key: ChatComposer.sendKey,
+                        icon: Icons.arrow_forward_rounded,
+                        iconColor: hasSendable
+                            ? AppColors.surface
+                            : AppColors.inkMuted,
+                        background: hasSendable
+                            ? AppColors.accentDeep
+                            : AppColors.surface,
+                        border: hasSendable
+                            ? AppColors.accentDeep
+                            : AppColors.border,
+                        onTap: widget.enabled ? _send : null,
                       ),
                     ),
                   ],
@@ -1166,5 +1242,46 @@ class _ChatComposerState extends State<ChatComposer> {
         ],
       ),
     );
+  }
+}
+
+/// A round, thin-outlined icon button used by the composer bar.
+class _CircleButton extends StatelessWidget {
+  const _CircleButton({
+    super.key,
+    required this.icon,
+    required this.iconColor,
+    this.tooltip,
+    this.background = AppColors.surface,
+    this.border = AppColors.border,
+    this.onTap,
+  });
+
+  final IconData icon;
+  final Color iconColor;
+  final String? tooltip;
+  final Color background;
+  final Color border;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final Widget button = SizedBox(
+      width: 44,
+      height: 44,
+      child: Material(
+        color: background,
+        shape: CircleBorder(side: BorderSide(color: border)),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onTap,
+          child: Icon(icon, size: 20, color: iconColor),
+        ),
+      ),
+    );
+    if (tooltip == null) {
+      return button;
+    }
+    return Tooltip(message: tooltip!, child: button);
   }
 }

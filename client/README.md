@@ -217,7 +217,7 @@ QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_test
 ```
 
 - 默认 `flutter test`：合并最新 main 并加入 Windows 内置 FFmpeg 解析回归后为
-  **550 passed / 8 skipped / exit 0**。新增覆盖
+  **980 passed / 20 skipped / exit 0**（2026-11-22 Linux 测试机；DEA-493 候选）。新增覆盖
   1000 条真实分页下发送/接收并发补取无缺口、events/wait limit 边界、原子展示确认/冲突/全组
   拒绝/重启幂等、新 consumer 独立补取、有序图文发送、幂等/冲突、read→receipt→ACK 缺口、
   附件只读元信息、异步下载内容、持久事件、wait 积压/提前到达、用户列表分页/预览/在线状态、
@@ -237,6 +237,15 @@ QA_REQUIRE_INTEGRATION=1 QA_REQUIRE_WIDGET_TESTS=1 bash scripts/run_flutter_test
   不覆盖列表新结果（保持会话与关闭重开两种导航）、旧列表页不覆盖新单账号读取、unwatch 作废
   在途读取、真实 HTTP 下切换账号后旧账号在途 presence 读取被拒且新账号独立解析同一对端、
   新会话在旧账号请求未完成时立即发起自己的首读、关闭后重开同一会话立即重读且旧响应不覆盖。
+- DEA-493 会话体验回归：`chat_workspace_widget_test.dart` 覆盖桌面/折叠双栏直接复用
+  `UsersListView` + 嵌入 `ChatPage`、按账号选中高亮、切换会话恢复滚动位置/草稿/光标、
+  折叠全屏的果冻越界与状态恢复、开关避开铰链、竖向零宽折痕同样有开关、手机仍走路由；
+  `chat_hidden_display_test.dart` 覆盖隐藏会话不清未读、轮询在切走后返回不记展示、重新可见
+  才提交暂存展示；`chat_motion_input_test.dart`
+  覆盖键盘整体升降与页头固定、历史打开键盘不跳、`↓ N 条新消息` 提示、组首头像、160ms 入场、
+  发送键强调、视频画面卡与长按菜单、媒体原位转场与返回位置。同轮全量 `flutter test`
+  **980 passed / 20 skipped / exit 0**；`xvfb-run -a flutter test integration_test -d linux`
+  **14 passed / exit 0**（Linux 桌面真实进程，不代表 Android/Windows 真机）。
 - DEA-477 按键/剪贴板回归：`chat_composer_shortcuts_test.dart` 覆盖 Enter 只发送一次、Ctrl+Enter
   换行不发送、IME 组词时 Enter 不发送、空/纯空白不发、长按 Enter 不重复、专用粘贴按钮消失；
   `chat_clipboard_paste_test.dart` 覆盖 Windows 剪贴板 listing 解析与脚本转义、多文件任意类型
