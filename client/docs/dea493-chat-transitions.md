@@ -132,6 +132,28 @@ flutter test test/chat_send_feedback_test.dart test/chat_flow_widget_test.dart \
 两例在修复前的 `d5a7571` 上均失败：未读被写成已展示（`Set:['m31']`），全屏后聊天左缘为
 `680`（即屏幕 92 偏移下的 588）。
 
+## QA 返工（QA r3）
+
+1. **同一张图出现在两条消息里 → 重复 GlobalKey**：转场锚点原来只用 media id 做 token，
+   两条真实消息引用同一 media 时，两个 `RepaintBoundary` 拿到同一个 `GlobalKey`，
+   `ListView` 直接抛 `Duplicate GlobalKey`。现在 token 是“这一次出现”——
+   `media:<message.id>:<partIndex 或 attachment>`；气泡把 message 和内容槽位一起传给
+   `originKeyFor`，`_openMedia` 用同一 token 取锚点，所以点哪张缩略图就从哪张展开。
+   列表里 `chat-media-<mediaId>` 的 ValueKey 仍按媒体（彼此父节点不同，只用于测试定位）。
+2. **800px 展开屏只剩列表**：720 是**设备**展开宽度，而登录外壳先扣掉 92px 导航栏再判断，
+   只剩 708 → 判成单栏。`ChatWorkspace.usesSplit` 与 `canExpand` 增加 `displayWidth`：
+   有竖向折痕时用设备宽度判断 720，没有折痕时仍按工作区宽度判断 900（桌面阈值语义不变）。
+   `HomeView` 传外层 `constraints.maxWidth`，`foldCapable`（rail 收起动画）同口径。
+   800×840、x=400 零宽折痕：双栏、右栏起于 400+56、开关不压折痕，展开到屏幕 x=0 后
+   能恢复同一双栏。
+   顺带修正：`usesSplit` 有折痕时不再要求工作区自身 ≥720，否则宽展开设备同样会被截断。
+
+回归：`test/chat_motion_input_test.dart`“同一张图出现在两条消息里：两块缩略图各自作为
+转场起点”（分别点开并核对转场首帧矩形属于被点的那一块）、
+`test/chat_workspace_widget_test.dart`“窄展开屏仍分栏：导航栏不能吃掉 720 断点”。
+两例在修复前的 `942fdf8` 上分别报 `Duplicate GlobalKey` 和
+`Found 0 widgets with key [chat-workspace-chat-pane]`。
+
 ## 5. 未测 / 限制
 
 - 无 Android 真机或模拟器（`adb devices` 为空）；未在 Android 实机验证 IME 动画、返回手势、

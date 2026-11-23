@@ -1125,23 +1125,15 @@ class _ChatPageState extends State<ChatPage> {
     );
   }
 
-  /// The thumbnail token the bubble and the viewer route both use. It is the
-  /// media id actually painted in the list (a video's cover, never the video
-  /// original), so the transition starts from the tile the user touched.
+  /// The thumbnail token the bubble and the viewer route both use.
+  ///
+  /// It identifies the *occurrence* — this message, this content slot — not
+  /// just the media. One image can legitimately appear in several messages
+  /// (the same picture sent twice); the painted id alone would give two live
+  /// `RepaintBoundary` tiles the same `GlobalKey`, and the transition would
+  /// start from whichever one the framework last moved.
   String _mediaOriginToken(ChatMessage message, int? partIndex) {
-    final Attachment? attachment = message.attachment;
-    if (attachment != null) {
-      return 'media:${attachment.coverMediaId ?? attachment.mediaId}';
-    }
-    if (partIndex != null &&
-        partIndex >= 0 &&
-        partIndex < message.parts.length) {
-      final MessagePart part = message.parts[partIndex];
-      if (part is ImagePart) {
-        return 'media:${part.mediaId}';
-      }
-    }
-    return 'media:${message.id}:${partIndex ?? 0}';
+    return 'media:${message.id}:${partIndex ?? 'attachment'}';
   }
 
   GlobalKey _mediaOriginKey(String token) => _mediaOriginKeys.putIfAbsent(
@@ -1685,7 +1677,8 @@ class _ChatPageState extends State<ChatPage> {
             : null,
         showAvatar: runStart,
         isRunEnd: runEnd,
-        originKeyFor: (String mediaId) => _mediaOriginKey('media:$mediaId'),
+        originKeyFor: (ChatMessage message, int? partIndex) =>
+            _mediaOriginKey(_mediaOriginToken(message, partIndex)),
         onSaveAs: committed && attachment != null
             ? () => _saveAs(attachment)
             : null,

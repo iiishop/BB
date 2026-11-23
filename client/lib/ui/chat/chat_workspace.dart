@@ -29,6 +29,7 @@ class ChatWorkspace extends StatefulWidget {
     this.onSessionExpired,
     this.visible = true,
     this.foldController,
+    this.displayWidth,
   });
 
   final ChatService chat;
@@ -56,10 +57,21 @@ class ChatWorkspace extends StatefulWidget {
   /// for surfaces without a rail.
   final AnimationController? foldController;
 
+  /// Physical display width when the host hides part of the screen from this
+  /// widget (the signed-in shell reserves 92 px for its rail). The unfolded
+  /// breakpoint is a device width; without this, an 800 px unfolded device
+  /// would be judged at 708 px and lose its second pane.
+  final double? displayWidth;
+
   /// Below this width the phone layout (route-pushed [ChatPage]) is used.
   static const double splitMinWidth = 900;
 
   /// With a real hinge or fold, the unfolded foldable can split from 720 px up.
+  ///
+  /// This is a *device* width: an unfolded 800 px foldable has two 400 px
+  /// panes even when the host keeps 92 px for its navigation rail. Use
+  /// [displayWidth] from the host for this breakpoint and [width] only for the
+  /// rail-free desktop threshold.
   static const double foldedSplitMinWidth = 720;
 
   static const Key listPaneKey = Key('chat-workspace-list-pane');
@@ -93,11 +105,20 @@ class ChatWorkspace extends StatefulWidget {
   }
 
   /// True when [width] gets the two-pane arrangement.
-  static bool usesSplit(BuildContext context, double width) {
-    if (width < foldedSplitMinWidth) {
-      return false;
+  ///
+  /// Pass [displayWidth] when the host hides part of the screen from this
+  /// widget (the signed-in shell keeps a 92 px rail): the unfolded breakpoint
+  /// is a device width, so 800 px of display still means two panes even though
+  /// only 708 px reach the workspace.
+  static bool usesSplit(
+    BuildContext context,
+    double width, {
+    double? displayWidth,
+  }) {
+    if (splitFeatureOf(context) == null) {
+      return width >= splitMinWidth;
     }
-    return splitFeatureOf(context) != null || width >= splitMinWidth;
+    return (displayWidth ?? width) >= foldedSplitMinWidth;
   }
 
   @override
@@ -207,7 +228,8 @@ class _ChatWorkspaceState extends State<ChatWorkspace>
         final double total = constraints.maxWidth;
         final double height = constraints.maxHeight;
         final bool canExpand =
-            splitFeature != null && total >= ChatWorkspace.foldedSplitMinWidth;
+            splitFeature != null &&
+            (widget.displayWidth ?? total) >= ChatWorkspace.foldedSplitMinWidth;
         if (!canExpand && (_expanded || _fold.value != 0)) {
           // The fold disappeared (window resize / device rotation) while the
           // chat was full screen. Give the rail back on the next frame instead

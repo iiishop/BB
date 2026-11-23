@@ -477,6 +477,75 @@ void main() {
     );
     expect(tester.takeException(), isNull);
   }, skip: skipReason != null);
+
+  testWidgets('capture the narrow unfolded shell over the rail', (
+    WidgetTester tester,
+  ) async {
+    if (outputDir == null) {
+      return;
+    }
+    await loadFonts(tester);
+
+    final DisplayFeature fold = DisplayFeature(
+      bounds: const Rect.fromLTWH(400, 0, 0, 840),
+      type: DisplayFeatureType.fold,
+      state: DisplayFeatureState.postureFlat,
+    );
+    tester.view.physicalSize = const Size(800, 840);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      RepaintBoundary(
+        key: boundary,
+        child: MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: _theme(),
+          builder: (BuildContext context, Widget? child) => MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(displayFeatures: <DisplayFeature>[fold]),
+            child: child!,
+          ),
+          home: HomeView(
+            user: _self,
+            profile: profile,
+            auth: FakeAuthGateway(),
+            heartbeat: heartbeat,
+            chat: chat,
+            space: FakeSpaceGateway(),
+            onSignedOut: (LogoutResult? _) {},
+            onSessionExpired: () {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    });
+    await tester.pump();
+
+    // The 800 px unfolded screen keeps two panes next to the 92 px rail.
+    final Finder toggle = find.byKey(ChatWorkspace.toggleKey);
+    expect(toggle, findsOneWidget);
+    await capture(tester, 'dea493-shell-800-dual.png');
+
+    await tester.tap(toggle);
+    for (int frame = 0; frame <= 9; frame += 1) {
+      await tester.pump(const Duration(milliseconds: 30));
+      await capture(
+        tester,
+        'dea493-shell-800-fold-${frame.toString().padLeft(2, '0')}.png',
+      );
+    }
+    await tester.pumpAndSettle();
+    expect(
+      tester.getRect(find.byKey(ChatWorkspace.chatPaneKey)).left,
+      closeTo(0, 0.1),
+    );
+    await capture(tester, 'dea493-shell-800-full.png');
+    expect(tester.takeException(), isNull);
+  }, skip: skipReason != null);
 }
 
 ThemeData _theme() {

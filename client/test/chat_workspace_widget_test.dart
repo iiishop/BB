@@ -574,4 +574,66 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets(
+    'a narrow unfolded shell still splits: the rail must not eat the 720 px '
+    'breakpoint',
+    (WidgetTester tester) async {
+      // QA counterexample: an 800 px unfolded screen keeps 92 px for the rail,
+      // so only 708 px reached the workspace and the right pane disappeared.
+      const double foldX = 400;
+      final DisplayFeature fold = DisplayFeature(
+        bounds: const Rect.fromLTWH(foldX, 0, 0, 840),
+        type: DisplayFeatureType.fold,
+        state: DisplayFeatureState.postureFlat,
+      );
+      await pumpAt(
+        tester,
+        const Size(800, 840),
+        features: <DisplayFeature>[fold],
+        withSpace: true,
+      );
+
+      // The contacts pane stays the shared list, and the right pane exists.
+      expect(find.byType(UsersListView), findsOneWidget);
+      expect(find.byKey(UsersListView.rowKey(bob.account)), findsOneWidget);
+      final Finder chatPane = find.byKey(ChatWorkspace.chatPaneKey);
+      expect(
+        chatPane,
+        findsOneWidget,
+        reason: 'unfolded defaults to two panes',
+      );
+      final Rect dualChat = tester.getRect(chatPane);
+      expect(
+        dualChat.left,
+        closeTo(foldX + ChatWorkspace.foldGap, 0.5),
+        reason: 'the right pane starts after the fold and its gutter',
+      );
+
+      final Finder toggle = find.byKey(ChatWorkspace.toggleKey);
+      expect(toggle, findsOneWidget);
+      expect(
+        tester.getRect(toggle).left,
+        greaterThanOrEqualTo(foldX),
+        reason: 'the switch must not sit on the fold',
+      );
+
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      final Rect full = tester.getRect(chatPane);
+      expect(full.left, closeTo(0, 0.5));
+      expect(full.right, closeTo(800, 0.5));
+      expect(find.byKey(HomeView.navSpaceKey).hitTestable(), findsNothing);
+
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      expect(
+        tester.getRect(chatPane).left,
+        closeTo(dualChat.left, 0.5),
+        reason: 'collapsing restores the same two panes',
+      );
+      expect(find.byKey(HomeView.navSpaceKey).hitTestable(), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 }

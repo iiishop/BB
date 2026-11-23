@@ -390,4 +390,67 @@ void main() {
     expect(find.text('看图'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'one image sent in two messages renders twice and each tile is its own '
+    'transition origin',
+    (WidgetTester tester) async {
+      // QA counterexample: accepted messages with distinct ids may reference
+      // the same media id. Keying the thumbnail anchor by media alone put two
+      // live RepaintBoundaries on one GlobalKey and crashed the transcript.
+      final DateTime now = DateTime.now().toUtc();
+      chat.conversations[_bob.account] = <ChatMessage>[
+        for (int position = 1; position <= 2; position += 1)
+          ChatMessage(
+            id: 'img-$position',
+            position: position,
+            senderAccount: _bob.account,
+            targetAccount: _self.account,
+            createdAt: now.add(Duration(seconds: position)),
+            kind: ChatMessageKind.body,
+            parts: const <MessagePart>[ImagePart('img-1')],
+          ),
+      ];
+      await pumpChat(tester);
+      final Finder tiles = find.byKey(
+        const ValueKey<String>('chat-media-img-1'),
+      );
+      expect(tiles, findsNWidgets(2));
+      expect(tester.takeException(), isNull);
+
+      // Tapping either tile must expand from *that* rectangle. The transition
+      // overlay paints the captured frame in the last RawImage of the route.
+      Future<Rect> openFrom(int index) async {
+        await tester.tap(tiles.at(index));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 1));
+        final Finder overlay = find
+            .descendant(
+              of: find.byKey(ChatPage.mediaTransitionKey),
+              matching: find.byType(RawImage),
+            )
+            .last;
+        expect(overlay, findsOneWidget);
+        final Rect origin = tester.getRect(overlay);
+        await tester.pumpAndSettle();
+        expect(find.byType(MediaViewer), findsOneWidget);
+        await tester.tap(find.byKey(MediaViewer.closeKey));
+        await tester.pumpAndSettle();
+        expect(find.byType(MediaViewer), findsNothing);
+        return origin;
+      }
+
+      for (final int index in <int>[1, 0]) {
+        final Rect tile = tester.getRect(tiles.at(index));
+        final Rect origin = await openFrom(index);
+        expect(
+          origin.center.dy,
+          closeTo(tile.center.dy, 6),
+          reason: 'the transition starts from tile $index, not its twin',
+        );
+        expect(origin.width, closeTo(tile.width, 6));
+        expect(tester.takeException(), isNull);
+      }
+    },
+  );
 }

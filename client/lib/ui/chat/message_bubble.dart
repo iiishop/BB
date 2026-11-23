@@ -141,9 +141,13 @@ class MessageBubble extends StatelessWidget {
   /// Grouping: the sender-side bottom corner tightens at the run end.
   final bool isRunEnd;
 
-  /// Page-owned key for the painted thumbnail of [mediaId]; the viewer route
-  /// captures that exact rectangle for the origin-expand transition.
-  final GlobalKey? Function(String mediaId)? originKeyFor;
+  /// Page-owned key for one painted thumbnail occurrence of this message.
+  ///
+  /// The same media id may legitimately appear in several messages (the user
+  /// sends one image twice). Each occurrence needs its own key — keyed by the
+  /// message and the content slot — or the viewer transition anchors two live
+  /// `RepaintBoundary`s on one `GlobalKey`.
+  final GlobalKey? Function(ChatMessage message, int? partIndex)? originKeyFor;
 
   static const Key sendingKey = Key('chat-bubble-sending');
   static const Key failedKey = Key('chat-bubble-failed');
@@ -324,7 +328,7 @@ class MessageBubble extends StatelessWidget {
                   ? null
                   : () => onOpenMedia!(message, index),
               child: RepaintBoundary(
-                key: originKeyFor?.call(part.mediaId),
+                key: originKeyFor?.call(message, index),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(12),
                   child: _MediaImage(
@@ -504,15 +508,14 @@ class _AttachmentCard extends StatelessWidget {
   final VoidCallback? onSaveAs;
   final VoidCallback? onDownload;
   final void Function(ChatMessage message, int? partIndex)? onOpenMedia;
-  final GlobalKey? Function(String mediaId)? originKeyFor;
+
+  /// One key per message/attachment occurrence; see [MessageBubble.originKeyFor].
+  final GlobalKey? Function(ChatMessage message, int? partIndex)? originKeyFor;
 
   @override
   Widget build(BuildContext context) {
     final Attachment attachment = message.attachment!;
     final bool video = attachment.kind == AttachmentKind.video;
-    // The thumbnail is the painted media id: a video shows its cover, and the
-    // viewer transition captures exactly this rectangle.
-    final String originMediaId = attachment.coverMediaId ?? attachment.mediaId;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
@@ -527,7 +530,7 @@ class _AttachmentCard extends StatelessWidget {
                   ? null
                   : () => onOpenMedia!(message, null),
               child: RepaintBoundary(
-                key: originKeyFor?.call(originMediaId),
+                key: originKeyFor?.call(message, null),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(12),
                   child: SizedBox(

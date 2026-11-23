@@ -337,17 +337,23 @@ class _HomeViewState extends State<HomeView>
     BuildContext context, {
     required bool showHeaderAvatar,
     bool visible = true,
+    double? displayWidth,
   }) {
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
         final ChatService? chat = widget.chat;
         if (chat != null &&
-            ChatWorkspace.usesSplit(context, constraints.maxWidth)) {
+            ChatWorkspace.usesSplit(
+              context,
+              constraints.maxWidth,
+              displayWidth: displayWidth,
+            )) {
           return _splitChatScaffold(
             context,
             chat,
             showHeaderAvatar: showHeaderAvatar,
             visible: visible,
+            displayWidth: displayWidth,
           );
         }
         return _singleChatScaffold(context, showHeaderAvatar: showHeaderAvatar);
@@ -362,6 +368,7 @@ class _HomeViewState extends State<HomeView>
     ChatService chat, {
     required bool showHeaderAvatar,
     bool visible = true,
+    double? displayWidth,
   }) {
     final bool reconnecting =
         widget.heartbeat.phase == HeartbeatPhase.reconnecting;
@@ -390,6 +397,9 @@ class _HomeViewState extends State<HomeView>
                 // display facts.
                 visible: visible,
                 foldController: _foldController,
+                // The unfolded breakpoint is a device width; this shell keeps
+                // 92 px for its rail, so an 800 px foldable must still split.
+                displayWidth: displayWidth,
                 listHeader: _chatHeader(
                   context,
                   showHeaderAvatar: showHeaderAvatar,
@@ -569,8 +579,9 @@ class _HomeViewState extends State<HomeView>
         final bool foldCapable =
             !compact &&
             ChatWorkspace.splitFeatureOf(context) != null &&
-            constraints.maxWidth - HomeView.railWidth >=
-                ChatWorkspace.foldedSplitMinWidth;
+            // Device width, not the pane width: the 92 px rail must not push
+            // an 800 px unfolded screen below the 720 px split breakpoint.
+            constraints.maxWidth >= ChatWorkspace.foldedSplitMinWidth;
         return AnimatedBuilder(
           animation: _foldController,
           builder: (BuildContext context, Widget? child) {
@@ -615,6 +626,7 @@ class _HomeViewState extends State<HomeView>
                       context,
                       showHeaderAvatar: compact,
                       visible: _section == 0,
+                      displayWidth: constraints.maxWidth,
                     ),
                     _spacePage(context, space, active: _section == 1),
                   ],
