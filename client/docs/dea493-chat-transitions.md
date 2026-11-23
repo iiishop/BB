@@ -45,9 +45,11 @@
   避免后台轮询提前清掉 A 的未读。轮询在切走前已发起、返回时已隐藏的竞态同样按返回时的
   `active` 判定。
 - **折叠屏**：存在竖向的 `DisplayFeatureType.hinge` 或 `DisplayFeatureType.fold`
-  （零宽平折痕也算）且 ≥720px 时默认双栏；横向折痕不当作左右分栏。双栏之间是 56px 的
-  无内容 gutter，切换开关放在 gutter 内，避开铰链/折痕；全屏时开关进入聊天页 AppBar 的
-  leading 槽位，仍可操作且不压消息。展开时聊天区右边缘固定、左边缘从 gutter 移到 0，使用
+  （零宽平折痕也算）且设备宽度 ≥720px 时默认双栏；横向折痕不当作左右分栏。双栏之间只留
+  **20 逻辑像素**的分隔带（把手 16 + 两侧各 2 留白，横向点击区不出这条带），中间是一条
+  分隔线加中段的一枚窄把手：双栏时把手在分隔线上、箭头朝左表示可展开；全屏时把手贴在
+  左缘、箭头朝右表示可恢复。把手高 56，按下或键盘聚焦时才加深轮廓。遇到实体铰链时把手
+  落在可触侧（铰链右缘之外）。展开时聊天区右边缘固定、左边缘从分隔带移到 0，使用
   `easeOutBack` 产生一次越界回弹（约一帧越过屏幕左缘）后停稳；内容宽度变化但不缩放文字
   或头像。减少动画时直接切换。
 
@@ -102,7 +104,7 @@ flutter test test/chat_send_feedback_test.dart test/chat_flow_widget_test.dart \
    返回时按当时的 `active` 判定，因此“发起轮询后才切走”也不会落账。`ChatWorkspace`
    只给当前选中会话传 `active: true`。
 2. **零宽折痕没有开关**：`ChatWorkspace` 的拆分特征从只认 `hinge` 扩展到竖向的
-   `hinge` 或 `fold`；零宽 `fold` 走同一套 56px gutter、开关和展开动画。
+   `hinge` 或 `fold`；零宽 `fold` 走同一套分隔带、把手和展开动画。
 3. **输入文字时输入区被草稿条撑高**：QA 锚点探针暴露纯文字也触发 64px 草稿条。
    现在草稿条只对应已暂存的图文 part / 附件，纯文字只影响发送键强调，输入区高度保持
    稳定；历史锚点在双栏→全屏→双栏后仍可见。
@@ -144,7 +146,7 @@ flutter test test/chat_send_feedback_test.dart test/chat_flow_widget_test.dart \
    只剩 708 → 判成单栏。`ChatWorkspace.usesSplit` 与 `canExpand` 增加 `displayWidth`：
    有竖向折痕时用设备宽度判断 720，没有折痕时仍按工作区宽度判断 900（桌面阈值语义不变）。
    `HomeView` 传外层 `constraints.maxWidth`，`foldCapable`（rail 收起动画）同口径。
-   800×840、x=400 零宽折痕：双栏、右栏起于 400+56、开关不压折痕，展开到屏幕 x=0 后
+   800×840、x=400 零宽折痕：双栏、右栏起于 400+20、把手不压折痕，展开到屏幕 x=0 后
    能恢复同一双栏。
    顺带修正：`usesSplit` 有折痕时不再要求工作区自身 ≥720，否则宽展开设备同样会被截断。
 
@@ -153,6 +155,25 @@ flutter test test/chat_send_feedback_test.dart test/chat_flow_widget_test.dart \
 `test/chat_workspace_widget_test.dart`“窄展开屏仍分栏：导航栏不能吃掉 720 断点”。
 两例在修复前的 `942fdf8` 上分别报 `Duplicate GlobalKey` 和
 `Found 0 widgets with key [chat-workspace-chat-pane]`。
+
+## 折叠屏窄把手（本次）
+
+- `ChatWorkspace.foldGap` 从 56 收到 20：分隔带 = 把手 16 + 左右各 2；`foldHandleWidth=16`、
+  `foldHandleHeight=56`。分隔带就是两栏各自让出的全部宽度，横向点击区不超出它，所以旁边
+  的列表行和消息气泡照常可点、可滚。
+- 把手是分隔线中段的一个白色圆角胶囊 + 12px 方向箭头，沿用 `AppColors.border` /
+  `AppColors.surface` / `AppColors.accentDeep`；只有按下（InkWell highlight）或键盘聚焦时
+  边框才变成 `accentDeep`。
+- 全屏时把手贴在屏幕左缘（带 2px 内缩），展开动画最后约 60px 才淡入；收起时等聊天区
+  扫离分隔带后再淡入，避免把手在过渡中浮在消息上。
+- `Stack` 子节点顺序固定为“列表 → 分隔线 → 聊天 → 把手”。此前把手在两个状态间切换
+  `if` 分支会让聊天页在 `Stack` 里换位置，`ChatPage` 被重建，阅读位置被重置到底部——
+  这也是“展开后阅读位置丢失”的真实原因，不是重排。
+
+回归：`test/chat_workspace_widget_test.dart` 新增“the fold grip fits the 20 lp divider
+band and points the right way”（零宽折痕：占宽 ≤20、高 56、在分隔带内、箭头方向、全屏贴
+左缘）与“the grip keeps clear of a real hinge and of both panes”（实体铰链：把手在可触侧
+不压铰链、同高处的列表行仍可点、紧邻分隔带的纵向拖拽仍滚动消息）。
 
 ## 5. 未测 / 限制
 

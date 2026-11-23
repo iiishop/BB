@@ -636,4 +636,135 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets(
+    'the fold grip fits the 20 lp divider band and points the right way',
+    (WidgetTester tester) async {
+      // Owner cap: handle + padding + horizontal hit area at most 20 lp, while
+      // keeping a 56 lp tall target. Zero-width fold first.
+      final DisplayFeature fold = DisplayFeature(
+        bounds: const Rect.fromLTWH(512, 0, 0, 768),
+        type: DisplayFeatureType.fold,
+        state: DisplayFeatureState.postureFlat,
+      );
+      await pumpAt(
+        tester,
+        const Size(1024, 768),
+        features: <DisplayFeature>[fold],
+      );
+
+      expect(ChatWorkspace.foldGap, lessThanOrEqualTo(20));
+      final Finder toggle = find.byKey(ChatWorkspace.toggleKey);
+      final Finder listPane = find.byKey(ChatWorkspace.listPaneKey);
+      final Finder chatPane = find.byKey(ChatWorkspace.chatPaneKey);
+      final Rect grip = tester.getRect(toggle);
+      final Rect list = tester.getRect(listPane);
+      final Rect chat = tester.getRect(chatPane);
+
+      expect(grip.width, lessThanOrEqualTo(ChatWorkspace.foldGap));
+      expect(grip.height, closeTo(ChatWorkspace.foldHandleHeight, 0.1));
+      expect(ChatWorkspace.foldHandleHeight, closeTo(56, 0.1));
+      // The band is the whole extra width both panes give up.
+      expect(list.right, closeTo(512, 0.5));
+      expect(chat.left - list.right, closeTo(ChatWorkspace.foldGap, 0.5));
+      expect(chat.left - list.right, lessThanOrEqualTo(20));
+      // Grip inside the band: it never reaches into a row or a bubble.
+      expect(grip.left, greaterThanOrEqualTo(list.right));
+      expect(grip.right, lessThanOrEqualTo(chat.left));
+      // Split: the arrow points at the direction the pane will grow.
+      expect(
+        tester
+            .widget<Icon>(
+              find.descendant(of: toggle, matching: find.byType(Icon)),
+            )
+            .icon,
+        Icons.keyboard_double_arrow_left_rounded,
+      );
+
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      final Rect fullGrip = tester.getRect(toggle);
+      final Rect fullChat = tester.getRect(chatPane);
+      expect(fullChat.left, closeTo(0, 0.5));
+      expect(fullChat.right, closeTo(1024, 0.5));
+      // Full screen: the grip hugs the left edge (the 16 lp pill sits inside
+      // the 20 lp band) and points back.
+      expect(fullGrip.left, lessThanOrEqualTo(2));
+      expect(fullGrip.left + fullGrip.width, lessThanOrEqualTo(20));
+      expect(fullGrip.width, lessThanOrEqualTo(ChatWorkspace.foldGap));
+      expect(fullGrip.height, closeTo(ChatWorkspace.foldHandleHeight, 0.1));
+      expect(
+        tester
+            .widget<Icon>(
+              find.descendant(of: toggle, matching: find.byType(Icon)),
+            )
+            .icon,
+        Icons.keyboard_double_arrow_right_rounded,
+      );
+
+      // It stays reachable and returns to the same two panes.
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      expect(tester.getRect(chatPane).left, closeTo(chat.left, 0.5));
+      expect(tester.getRect(toggle).left, closeTo(grip.left, 0.5));
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('the grip keeps clear of a real hinge and of both panes', (
+    WidgetTester tester,
+  ) async {
+    const Rect hingeBounds = Rect.fromLTWH(492, 0, 40, 768);
+    final DisplayFeature hinge = DisplayFeature(
+      bounds: hingeBounds,
+      type: DisplayFeatureType.hinge,
+      state: DisplayFeatureState.postureFlat,
+    );
+    await pumpAt(
+      tester,
+      const Size(1024, 768),
+      features: <DisplayFeature>[hinge],
+    );
+
+    final Rect list = tester.getRect(find.byKey(ChatWorkspace.listPaneKey));
+    final Rect chat = tester.getRect(find.byKey(ChatWorkspace.chatPaneKey));
+    final Rect grip = tester.getRect(find.byKey(ChatWorkspace.toggleKey));
+    // The list stops at the hinge, the chat starts past the hinge, and the
+    // grip sits on the touchable side instead of inside the non-touchable
+    // hinge.
+    expect(list.right, closeTo(hingeBounds.left, 0.5));
+    expect(grip.left, greaterThanOrEqualTo(hingeBounds.right));
+    expect(grip.right, lessThanOrEqualTo(chat.left));
+    expect(chat.left - hingeBounds.right, lessThanOrEqualTo(20));
+    expect(grip.overlaps(hingeBounds), isFalse);
+
+    // Rows on the left stay clickable at the grip's own height…
+    await tester.tap(find.byKey(UsersListView.rowKey(carol.account)));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(UsersListView.selectedKey(carol.account)),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(UsersListView.rowKey(bob.account)));
+    await tester.pumpAndSettle();
+    expect(find.byKey(UsersListView.selectedKey(bob.account)), findsOneWidget);
+
+    // …and the transcript next to the band still scrolls vertically.
+    final Finder list2 = find.byKey(ChatPage.listKey);
+    final ScrollController controller = tester
+        .widget<ListView>(list2)
+        .controller!;
+    final double before = controller.offset;
+    await tester.dragFrom(
+      Offset(chat.left + 24, grip.center.dy),
+      const Offset(0, 240),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      controller.offset,
+      lessThan(before - 40),
+      reason: 'a vertical drag beside the grip scrolls into history',
+    );
+    expect(tester.takeException(), isNull);
+  });
 }

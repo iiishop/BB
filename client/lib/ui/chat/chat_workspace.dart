@@ -79,9 +79,17 @@ class ChatWorkspace extends StatefulWidget {
   static const Key emptyChatKey = Key('chat-workspace-empty');
   static const Key toggleKey = Key('chat-workspace-fold-toggle');
 
-  /// Real, content-free gutter between the panes on a folded device. The
-  /// switch lives here instead of on top of a message avatar.
-  static const double foldGap = 56;
+  /// Total width the divider handle takes from the two panes: handle, padding
+  /// and horizontal hit area included. The owner capped it at 20 logical
+  /// pixels, so the panes keep their content width instead of a wide gutter.
+  static const double foldGap = 20;
+
+  /// The visible grip inside [foldGap]; the rest of the band is 2 px padding on
+  /// each side. Vertically it keeps a comfortable 56 px target while only
+  /// covering 20 px of the divider, so list rows and messages next to it stay
+  /// clickable and scrollable.
+  static const double foldHandleWidth = 16;
+  static const double foldHandleHeight = 56;
 
   static const Duration foldDuration = Duration(milliseconds: 360);
 
@@ -260,15 +268,24 @@ class _ChatWorkspaceState extends State<ChatWorkspace>
           // bounce that never scales the message text or avatars.
           final double chatLeft = dualLeft * (1 - progress);
           final double chatWidth = math.max(0.0, total - chatLeft);
-          final double toggleLeft = splitFeature != null
-              ? (splitFeature.bounds.right + 6).clamp(
-                  8.0,
-                  math.max(8.0, total - 52),
-                )
-              : 8.0;
+          // The handle band is exactly the divider gutter: it starts where the
+          // list ends and is as wide as [ChatWorkspace.foldGap], so it never
+          // eats into either pane beyond the 20 px the owner allowed.
+          final double bandLeft = dualLeft - ChatWorkspace.foldGap;
+          final double bandTop = math.max(
+            8.0,
+            math.min(
+              height - ChatWorkspace.foldHandleHeight - 8,
+              height / 2 - 28,
+            ),
+          );
 
           return Stack(
             clipBehavior: Clip.hardEdge,
+            // Child order stays fixed for a given split feature (line, chat,
+            // grip). Reordering it would recreate the ChatPage mid-transition
+            // and throw away the reading position. The grip is painted above
+            // the chat pane, so it is the only child whose position changes.
             children: <Widget>[
               Positioned(
                 left: 0,
@@ -277,21 +294,52 @@ class _ChatWorkspaceState extends State<ChatWorkspace>
                 width: _listWidth(total, splitFeature),
                 child: _listPane(),
               ),
+              // Hairline through the middle of the band, interrupted by the
+              // handle: a divider with a grip, not a blank gutter.
+              if (splitFeature != null)
+                Positioned(
+                  left: bandLeft + ChatWorkspace.foldGap / 2 - 0.5,
+                  top: 0,
+                  bottom: 0,
+                  width: 1,
+                  child: const ColoredBox(color: AppColors.border),
+                ),
               Positioned(
                 left: chatLeft,
                 top: 0,
                 bottom: 0,
                 width: chatWidth,
-                child: _chatPane(canExpand && _expanded),
+                child: _chatPane(),
               ),
-              // In the split state the switch sits in the gutter between the
-              // panes. Expanded, it moves into the chat AppBar's leading slot
-              // so it never covers a message.
-              if (canExpand && !_expanded)
+              // One grip, two homes: on the divider in the split state, hugging
+              // the left screen edge once the chat is full screen. It only
+              // fades in while the chat sweeps over (or off) the divider, so it
+              // never floats over messages mid-transition.
+              if (canExpand)
                 Positioned(
-                  left: toggleLeft,
-                  top: math.max(8.0, height / 2 - 22),
-                  child: _FoldToggle(expanded: false, onTap: _toggleExpanded),
+                  left: _expanded ? 0 : bandLeft,
+                  top: bandTop,
+                  width: ChatWorkspace.foldGap,
+                  height: ChatWorkspace.foldHandleHeight,
+                  child: Opacity(
+                    // Edge grip: only once the chat has almost reached the
+                    // screen edge, so it never floats over the rail or the list
+                    // mid-transition. Divider grip: only once the chat has
+                    // swept clear of the band.
+                    opacity: _expanded
+                        ? ((ChatWorkspace.foldGap + 40 - chatLeft) / 40).clamp(
+                            0.0,
+                            1.0,
+                          )
+                        : ((chatLeft - bandLeft) / ChatWorkspace.foldGap).clamp(
+                            0.0,
+                            1.0,
+                          ),
+                    child: _FoldHandle(
+                      expanded: _expanded,
+                      onTap: _toggleExpanded,
+                    ),
+                  ),
                 ),
             ],
           );
@@ -333,7 +381,7 @@ class _ChatWorkspaceState extends State<ChatWorkspace>
     );
   }
 
-  Widget _chatPane(bool withToggle) {
+  Widget _chatPane() {
     if (_selected == null) {
       return Container(
         color: AppColors.paper,
@@ -362,42 +410,78 @@ class _ChatWorkspaceState extends State<ChatWorkspace>
             // hidden pages keep polling data but stage their receipts. A pane
             // that the host section has covered counts as hidden too.
             active: widget.visible && account == _selected,
-            leading: withToggle
-                ? _FoldToggle(expanded: true, onTap: _toggleExpanded)
-                : null,
           ),
       ],
     );
   }
 }
 
-class _FoldToggle extends StatelessWidget {
-  const _FoldToggle({required this.expanded, required this.onTap});
+/// The narrow divider grip that replaces the old 44 px switch.
+///
+/// Owner cap: handle, padding and horizontal hit area together must stay
+/// inside [ChatWorkspace.foldGap] (20 lp). Only the outline is emphasised —
+/// pressed or keyboard-focused — so the control reads as part of the divider
+/// instead of a floating button.
+class _FoldHandle extends StatefulWidget {
+  const _FoldHandle({required this.expanded, required this.onTap});
 
   final bool expanded;
   final VoidCallback onTap;
 
   @override
+  State<_FoldHandle> createState() => _FoldHandleState();
+}
+
+class _FoldHandleState extends State<_FoldHandle> {
+  bool _pressed = false;
+  bool _focused = false;
+
+  @override
   Widget build(BuildContext context) {
+    final bool emphasised = _pressed || _focused;
+    final BorderRadius radius = BorderRadius.circular(8);
     return Tooltip(
-      message: expanded ? '恢复双栏' : '全屏聊天',
-      child: Material(
-        color: AppColors.surface,
-        shape: const CircleBorder(side: BorderSide(color: AppColors.border)),
-        elevation: 3,
-        child: InkWell(
-          key: ChatWorkspace.toggleKey,
-          customBorder: const CircleBorder(),
-          onTap: onTap,
-          child: SizedBox(
-            width: 44,
-            height: 44,
-            child: Icon(
-              expanded
-                  ? Icons.keyboard_double_arrow_right_rounded
-                  : Icons.keyboard_double_arrow_left_rounded,
-              size: 20,
-              color: AppColors.accentDeep,
+      message: widget.expanded ? '恢复双栏' : '全屏聊天',
+      child: SizedBox(
+        // The full band is the tap target, so the horizontal hit area is the
+        // same 20 px the panes give up — it never reaches into a list row or a
+        // message bubble.
+        width: ChatWorkspace.foldGap,
+        height: ChatWorkspace.foldHandleHeight,
+        child: Center(
+          child: Focus(
+            onFocusChange: (bool hasFocus) =>
+                setState(() => _focused = hasFocus),
+            child: Material(
+              color: AppColors.surface,
+              borderRadius: radius,
+              child: InkWell(
+                key: ChatWorkspace.toggleKey,
+                borderRadius: radius,
+                onTap: widget.onTap,
+                onHighlightChanged: (bool pressed) =>
+                    setState(() => _pressed = pressed),
+                child: Container(
+                  width: ChatWorkspace.foldHandleWidth,
+                  height: ChatWorkspace.foldHandleHeight,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    borderRadius: radius,
+                    border: Border.all(
+                      color: emphasised
+                          ? AppColors.accentDeep
+                          : AppColors.border,
+                    ),
+                  ),
+                  child: Icon(
+                    widget.expanded
+                        ? Icons.keyboard_double_arrow_right_rounded
+                        : Icons.keyboard_double_arrow_left_rounded,
+                    size: 12,
+                    color: AppColors.accentDeep,
+                  ),
+                ),
+              ),
             ),
           ),
         ),
