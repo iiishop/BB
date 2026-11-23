@@ -546,6 +546,64 @@ void main() {
     await capture(tester, 'dea493-shell-800-full.png');
     expect(tester.takeException(), isNull);
   }, skip: skipReason != null);
+
+  testWidgets('capture a narrow physical hinge: grip on the touchable side', (
+    WidgetTester tester,
+  ) async {
+    if (outputDir == null) {
+      return;
+    }
+    await loadFonts(tester);
+
+    // Flutter reports a 4 lp physical gap as DisplayFeatureType.hinge. The
+    // grip must stay off that strip, unlike a zero-width fold crease.
+    final DisplayFeature hinge = DisplayFeature(
+      bounds: const Rect.fromLTWH(510, 0, 4, 768),
+      type: DisplayFeatureType.hinge,
+      state: DisplayFeatureState.postureFlat,
+    );
+    tester.view.physicalSize = const Size(1024, 768);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      RepaintBoundary(
+        key: boundary,
+        child: MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: _theme(),
+          builder: (BuildContext context, Widget? child) => MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(displayFeatures: <DisplayFeature>[hinge]),
+            child: child!,
+          ),
+          home: HomeView(
+            user: _self,
+            profile: profile,
+            auth: FakeAuthGateway(),
+            heartbeat: heartbeat,
+            chat: chat,
+            space: FakeSpaceGateway(),
+            onSignedOut: (LogoutResult? _) {},
+            onSessionExpired: () {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    });
+    await tester.pump();
+    expect(
+      tester
+          .getRect(find.byKey(ChatWorkspace.toggleKey))
+          .overlaps(hinge.bounds),
+      isFalse,
+    );
+    await capture(tester, 'dea493-hinge4-dual.png');
+    expect(tester.takeException(), isNull);
+  }, skip: skipReason != null);
 }
 
 ThemeData _theme() {
