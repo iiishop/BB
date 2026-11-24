@@ -167,15 +167,14 @@ export async function apply(ctx, config) {
       const candidate = new Client(get("clientUrl"), root);
       try {
         await candidate.bind(agent.session.id);
-        if (closed) {
-          candidate.close();
-          return;
-        }
+        // Adopt the binding before any further await so stop() also owns
+        // its state file if MCP replacement fails or teardown is pending.
+        client = candidate;
+        if (closed) return;
         if (mcpFiber) {
           await mcpFiber.dispose();
           mcpFiber = undefined;
         }
-        client = candidate;
         bridge = await new Bridge(ctx, agent, client, root).mount();
         bridge.notifications.scope = () => get("peerAccount");
         await connectMcp();
@@ -185,7 +184,9 @@ export async function apply(ctx, config) {
         requiredSessions = undefined;
       } catch (error) {
         candidate.close();
-        await stop();
+        // A pre-bind 401 has no bound resources to tear down. Keep the
+        // login MCP alive while polling; failures after adoption still stop it.
+        if (client || error.status !== 401) await stop();
         lastError = diagnostic(error, "binding_unavailable");
         requiredSessions = error.required_sessions;
         if (error.status !== 401) {
