@@ -148,9 +148,12 @@ class _ChatPageState extends State<ChatPage> {
   bool _pinBottomOnKeyboard = false;
 
   /// Display facts staged while this pane was hidden. They are sent only when
-  /// [ChatPage.active] turns true, so a background poll cannot consume the
-  /// other conversation's unread badge.
+  /// [ChatPage.active] turns true and no covering route sits above this page,
+  /// so a background poll cannot consume the other conversation's unread badge.
   final Map<String, ChatMessage> _pendingDisplayed = <String, ChatMessage>{};
+  ModalRoute<dynamic>? _modalRoute;
+  bool _routeCurrent = true;
+  int _modalCovers = 0;
 
   /// Identities that were not on screen at the previous build. Only these get
   /// the entrance animation; history, scroll rebuilds and refresh do not.
@@ -262,6 +265,19 @@ class _ChatPageState extends State<ChatPage> {
   void _onPresenceChanged() {
     if (mounted) {
       setState(() {});
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _modalRoute = ModalRoute.of(context);
+    final bool current = _modalRoute?.isCurrent ?? true;
+    if (current != _routeCurrent) {
+      _routeCurrent = current;
+      if (current) {
+        _flushDisplayed();
+      }
     }
   }
 
@@ -718,11 +734,38 @@ class _ChatPageState extends State<ChatPage> {
     _flushDisplayed();
   }
 
+  bool get _canConfirmDisplayed {
+    if (!mounted || !widget.active || _modalCovers > 0) {
+      return false;
+    }
+    return _modalRoute?.isCurrent ?? true;
+  }
+
+  Future<T> _runCoveringRoute<T>(Future<T> Function() action) async {
+    _modalCovers += 1;
+    try {
+      return await action();
+    } finally {
+      if (mounted) {
+        _modalCovers = math.max(0, _modalCovers - 1);
+        _flushDisplayed();
+      }
+    }
+  }
+
+  Future<void> _openPeerProfile() => _runCoveringRoute(
+    () => openPersonProfile(
+      context,
+      account: widget.peer.account,
+      gateway: widget.profile,
+    ),
+  );
+
   /// Sends staged display facts. Bookkeeping for account incoming unread only:
   /// it reuses confirmed display receipts, never the consumption ACK, and
   /// never an outbound read receipt.
   void _flushDisplayed() {
-    if (!mounted || !widget.active || _pendingDisplayed.isEmpty) {
+    if (!_canConfirmDisplayed || _pendingDisplayed.isEmpty) {
       return;
     }
     final List<ChatMessage> batch = List<ChatMessage>.of(
@@ -1229,7 +1272,9 @@ class _ChatPageState extends State<ChatPage> {
     );
     // The route keeps the captured frame alive for both directions; see
     // [_captureOrigin] for why it is not disposed here.
-    await Navigator.of(context).push<void>(_mediaRoute(viewer, captured));
+    await _runCoveringRoute(
+      () => Navigator.of(context).push<void>(_mediaRoute(viewer, captured)),
+    );
   }
 
   /// Opens the existing viewer by expanding the tap target from its real list
@@ -1462,11 +1507,7 @@ class _ChatPageState extends State<ChatPage> {
               showBorder: true,
               loading: _avatars.isLoading(widget.peer.account),
               semanticLabel: '查看 ${widget.peer.username} 的资料',
-              onTap: () => openPersonProfile(
-                context,
-                account: widget.peer.account,
-                gateway: widget.profile,
-              ),
+              onTap: _openPeerProfile,
             ),
             const SizedBox(width: 12),
             Expanded(

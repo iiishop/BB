@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:bb_client/app.dart';
 import 'package:bb_client/models/auth_models.dart';
 import 'package:bb_client/models/chat_models.dart';
+import 'package:bb_client/models/profile_models.dart';
 import 'package:bb_client/services/auth_api_client.dart';
 import 'package:bb_client/services/auth_service.dart';
 import 'package:bb_client/services/auth_session.dart';
@@ -253,6 +254,97 @@ void main() {
 
       // The staged batch is released only when the pane is visible again.
       await tester.pumpWidget(page(true));
+      await tester.pumpAndSettle();
+      expect(chat.viewedMessageIds, contains('m31'));
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'phone peer profile withholds in-flight and later arrivals until return',
+    (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      profile.profile = Profile(
+        account: bob.account,
+        username: bob.username,
+        signature: null,
+        avatarUrl: '',
+        avatarVersion: 'v1',
+      );
+      await tester.pumpWidget(app());
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(UsersListView.rowKey(bob.account)));
+      await tester.pumpAndSettle();
+      chat.viewedMessageIds.clear();
+
+      // Start a poll while the chat is visible, then cover it with the peer
+      // profile before the in-flight request finishes.
+      chat.gate = Completer<void>();
+      chat.gateAtPosition = 30;
+      chat.conversations[bob.account]!.add(
+        _inbound(31, bob.account, text: 'in flight before profile'),
+      );
+      await tester.pump(const Duration(seconds: 3));
+
+      await tester.tap(find.byKey(ChatPage.headerProfileKey));
+      await tester.pumpAndSettle();
+      expect(find.text('BB号 ${bob.account}'), findsOneWidget);
+      expect(find.byType(ChatPage), findsNothing);
+
+      chat.gate!.complete();
+      await tester.pumpAndSettle();
+      expect(
+        chat.viewedMessageIds,
+        isNot(contains('m31')),
+        reason: 'in-flight poll must not confirm display behind peer profile',
+      );
+
+      // A later arrival while the profile remains open stays staged too.
+      chat.conversations[bob.account]!.add(
+        _inbound(32, bob.account, text: 'arrived during profile'),
+      );
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pumpAndSettle();
+      expect(chat.viewedMessageIds, isNot(contains('m32')));
+
+      // Closing the peer profile flushes both staged display facts.
+      await tester.tap(find.byType(CloseButton));
+      await tester.pumpAndSettle();
+      expect(find.byType(ChatPage), findsOneWidget);
+      expect(chat.viewedMessageIds, containsAll(<String>['m31', 'm32']));
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'desktop peer profile dialog withholds arrivals until dismissed',
+    (WidgetTester tester) async {
+      profile.profile = Profile(
+        account: bob.account,
+        username: bob.username,
+        signature: null,
+        avatarUrl: '',
+        avatarVersion: 'v1',
+      );
+      await pumpWorkspace(tester);
+      chat.viewedMessageIds.clear();
+
+      await tester.tap(find.byKey(ChatPage.headerProfileKey));
+      await tester.pumpAndSettle();
+      expect(find.text('BB号 ${bob.account}'), findsOneWidget);
+
+      chat.conversations[bob.account]!.add(
+        _inbound(31, bob.account, text: 'arrived behind dialog'),
+      );
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pumpAndSettle();
+      expect(chat.viewedMessageIds, isNot(contains('m31')));
+
+      await tester.tap(find.byType(CloseButton));
       await tester.pumpAndSettle();
       expect(chat.viewedMessageIds, contains('m31'));
       expect(tester.takeException(), isNull);
