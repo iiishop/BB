@@ -398,6 +398,37 @@ class GroupService {
     return page;
   }
 
+  /// Finds a specific general [Notice] by its durable [notificationId] (e.g.
+  /// from a `notification.available` server event), paging until found.
+  Future<Notice?> findNoticeById(
+    String notificationId, {
+    NoticeFilter filter = NoticeFilter.all,
+    AuthIdentity? captured,
+  }) async {
+    if (!opaqueIdPattern.hasMatch(notificationId)) {
+      throw _validation('notification_id', '通知 ID 格式无效');
+    }
+    final AuthIdentity identity = _requireIdentity(captured);
+    String? cursor;
+    while (true) {
+      final NoticePage page = await listNotices(
+        filter: filter,
+        cursor: cursor,
+        limit: 100,
+        captured: identity,
+      );
+      for (final Notice item in page.items) {
+        if (item.id == notificationId) {
+          return item;
+        }
+      }
+      if (page.nextCursor == null) {
+        return null;
+      }
+      cursor = page.nextCursor;
+    }
+  }
+
   Future<Notice> markNoticeRead(
     String notificationId, {
     AuthIdentity? captured,
@@ -564,6 +595,7 @@ enum ServerEventDisposition {
   groupAccessGranted,
   groupAccessRevoked,
   staleAccessEvent,
+  notificationAvailable,
 }
 
 /// Pure-Dart shared conversation queries & revocable media byte store.
@@ -1095,13 +1127,17 @@ class SharedConversationService {
     }
   }
 
-  /// Applies a server event (`conversation.access_changed`, group
-  /// `message.available` with `membership_revision`, or direct
-  /// `message.available`) and reports its [ServerEventDisposition].
+  /// Applies a server event (`notification.available`,
+  /// `conversation.access_changed`, group `message.available` with
+  /// `membership_revision`, or direct `message.available`) and reports its
+  /// [ServerEventDisposition].
   Future<ServerEventDisposition> applyServerEvent(
     String account,
     ServerEvent event,
   ) async {
+    if (event.isNotificationAvailable) {
+      return ServerEventDisposition.notificationAvailable;
+    }
     final ConversationRef? conv = event.conversation;
     if (conv == null) {
       return ServerEventDisposition.directMessage;

@@ -810,6 +810,7 @@ class ServerEvent {
     this.active,
     this.membershipRevision,
     this.historyThrough,
+    this.notificationId = '',
   });
 
   final int eventId;
@@ -822,8 +823,11 @@ class ServerEvent {
   final bool? active;
   final int? membershipRevision;
   final int? historyThrough;
+  final String notificationId;
 
   bool get isAccessChanged => type == 'conversation.access_changed';
+
+  bool get isNotificationAvailable => type == 'notification.available';
 
   bool get isGroupMessage =>
       type == 'message.available' && (conversation?.isGroup ?? false);
@@ -844,6 +848,19 @@ class ServerEvent {
     final DateTime? timestamp = DateTime.tryParse(occurredAt);
     if (timestamp == null) {
       throw const FormatException('event occurred_at is invalid');
+    }
+
+    if (type == 'notification.available') {
+      final Object? notificationId = json['notification_id'];
+      if (notificationId is! String || notificationId.isEmpty) {
+        throw const FormatException('notification event has invalid fields');
+      }
+      return ServerEvent(
+        eventId: eventId,
+        type: type,
+        occurredAt: timestamp.toUtc(),
+        notificationId: notificationId,
+      );
     }
 
     if (type == 'conversation.access_changed') {
