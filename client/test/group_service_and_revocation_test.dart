@@ -61,6 +61,8 @@ class _FakeGroupServer {
   String group2Name = 'Group Beta';
   Completer<void>? holdFind;
   Completer<void>? holdAvatar;
+  Completer<void>? beforeUpdateCommit;
+  Completer<void>? holdUpdate;
   final Uint8List resetPng = base64Decode(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNQXtcDAAJVAV4On0tgAAAAAElFTkSuQmCC',
   );
@@ -318,6 +320,11 @@ class _FakeGroupServer {
                 : '10000001');
         final bool isFirst = requestedNumber == '10000001';
         if (path == '/chat/groups/update') {
+          if (isFirst && beforeUpdateCommit != null) {
+            final Completer<void> before = beforeUpdateCommit!;
+            beforeUpdateCommit = null;
+            await before.future;
+          }
           if (jsonBody?['reset_avatar'] == true) {
             if (isFirst) {
               groupAvatarVersion += 1;
@@ -355,6 +362,11 @@ class _FakeGroupServer {
         if (path == '/chat/groups/find' && isFirst && holdFind != null) {
           final Completer<void> hold = holdFind!;
           holdFind = null;
+          await hold.future;
+        }
+        if (path == '/chat/groups/update' && isFirst && holdUpdate != null) {
+          final Completer<void> hold = holdUpdate!;
+          holdUpdate = null;
           await hold.future;
         }
         await _json(request, 200, payload);
@@ -1226,5 +1238,37 @@ void main() {
     );
     expect(latestDirect?.version, 'v2');
     expect(latestDirect?.bytes, orderedEquals(server.resetPng));
+
+    // 5. Overlapping updateGroup calls reconcile to server's authoritative commit
+    //    for both response-delayed-after-commit and commit-last orders.
+    emitted.clear();
+    final Completer<void> holdFirstReply = Completer<void>();
+    server.holdUpdate = holdFirstReply;
+    final Future<GroupProfile> firstCommitted = groups.updateGroup(
+      conversation: group1Ref,
+      name: 'First edit',
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    await groups.updateGroup(conversation: group1Ref, name: 'Final edit');
+    holdFirstReply.complete();
+    final GroupProfile resolvedFirst = await firstCommitted;
+    await Future<void>.delayed(Duration.zero);
+    expect(resolvedFirst.name, 'Final edit');
+    expect(emitted.last.name, 'Final edit');
+
+    emitted.clear();
+    final Completer<void> holdFirstCommit = Completer<void>();
+    server.beforeUpdateCommit = holdFirstCommit;
+    final Future<GroupProfile> lastCommitted = groups.updateGroup(
+      conversation: group1Ref,
+      name: 'First edit',
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    await groups.updateGroup(conversation: group1Ref, name: 'Final edit');
+    holdFirstCommit.complete();
+    final GroupProfile resolvedLast = await lastCommitted;
+    await Future<void>.delayed(Duration.zero);
+    expect(resolvedLast.name, 'First edit');
+    expect(emitted.last.name, 'First edit');
   });
 }

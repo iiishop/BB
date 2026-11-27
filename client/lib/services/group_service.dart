@@ -51,6 +51,7 @@ class GroupService {
       StreamController<GroupProfile>.broadcast();
   int _profileTicket = 0;
   final Map<String, int> _latestProfileTicket = <String, int>{};
+  final Map<String, int> _latestMutationCommit = <String, int>{};
   final Map<String, String> _knownAvatarVersions = <String, String>{};
   int _avatarTicket = 0;
   final Map<String, int> _latestAvatarTicket = <String, int>{};
@@ -84,6 +85,33 @@ class GroupService {
     if (!_groupUpdates.isClosed) {
       _groupUpdates.add(profile);
     }
+  }
+
+  Future<GroupProfile> _finalizeMutation(
+    GroupProfile profile, {
+    required int startTicket,
+    required AuthIdentity captured,
+  }) async {
+    final String convId = profile.conversation.id;
+    final int? priorCommit = _latestMutationCommit[convId];
+    final int commitTicket = ++_profileTicket;
+    _latestMutationCommit[convId] = commitTicket;
+    if (priorCommit != null && startTicket < priorCommit) {
+      // Another mutation committed while this request was in flight; re-query
+      // so either server commit order converges to the authoritative state.
+      try {
+        return await findGroup(profile.groupNumber, captured: captured);
+      } on AuthFailure catch (failure) {
+        if (failure.status == 401 || failure == staleIdentity) {
+          rethrow;
+        }
+        return profile;
+      } catch (_) {
+        return profile;
+      }
+    }
+    _emitGroupUpdate(profile, ticket: commitTicket);
+    return profile;
   }
 
   String _token(AuthIdentity? captured) {
@@ -261,6 +289,7 @@ class GroupService {
         ? null
         : await _resolveAvatarBytes(avatar);
     _ensureCurrent(identity);
+    final int startTicket = ++_profileTicket;
     final GroupProfile profile = await api.updateGroup(
       token: identity.token,
       conversation: conversation,
@@ -274,8 +303,11 @@ class GroupService {
     if (avatarBytes != null || resetAvatar) {
       await invalidateGroupAvatar(profile.groupNumber);
     }
-    _emitGroupUpdate(profile, ticket: ++_profileTicket);
-    return profile;
+    return _finalizeMutation(
+      profile,
+      startTicket: startTicket,
+      captured: identity,
+    );
   }
 
   Future<DirectoryPage> listDirectory({
@@ -391,6 +423,7 @@ class GroupService {
     if (!isValidAccount(account)) {
       throw _validation('account', '账号必须是 8 位 BB 号');
     }
+    final int startTicket = ++_profileTicket;
     final GroupProfile profile = await api.removeGroupMember(
       token: identity.token,
       conversation: conversation,
@@ -400,8 +433,11 @@ class GroupService {
     if (account == identity.account) {
       await access?.revoke(identity.account, conversation.id);
     }
-    _emitGroupUpdate(profile, ticket: ++_profileTicket);
-    return profile;
+    return _finalizeMutation(
+      profile,
+      startTicket: startTicket,
+      captured: identity,
+    );
   }
 
   Future<GroupProfile> dissolveGroup({
@@ -410,14 +446,18 @@ class GroupService {
   }) async {
     final AuthIdentity identity = _requireIdentity(captured);
     _requireGroupConversation(conversation);
+    final int startTicket = ++_profileTicket;
     final GroupProfile profile = await api.dissolveGroup(
       token: identity.token,
       conversation: conversation,
     );
     _ensureCurrent(identity);
     await access?.revoke(identity.account, conversation.id);
-    _emitGroupUpdate(profile, ticket: ++_profileTicket);
-    return profile;
+    return _finalizeMutation(
+      profile,
+      startTicket: startTicket,
+      captured: identity,
+    );
   }
 
   Future<NoticePage> listNotices({
