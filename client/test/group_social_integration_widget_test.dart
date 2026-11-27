@@ -83,6 +83,7 @@ class _UiSocialServer {
   bool inviteNoticeRead = false;
   bool paginatedNoticesMode = false;
   bool paginatedPendingAccepted = false;
+  bool paginatedPendingInvalidated = false;
   bool paginatedPendingTwoPages = false;
   bool paginatedSecondPendingAccepted = false;
   bool notificationEventPending = false;
@@ -90,6 +91,7 @@ class _UiSocialServer {
   Completer<void>? holdNoticeRefresh;
   bool noticeRefreshHeldStarted = false;
   Completer<void>? holdNoticeLoadMore;
+  bool clearNoticeLoadMoreHoldOnHit = false;
   bool noticeLoadMoreHeldStarted = false;
 
   final List<Map<String, dynamic>> createdRequests = <Map<String, dynamic>>[];
@@ -448,8 +450,17 @@ class _UiSocialServer {
         }
         if (holdNoticeLoadMore != null && cursor != null) {
           noticeLoadMoreHeldStarted = true;
-          await holdNoticeLoadMore!.future;
+          final Completer<void> blocker = holdNoticeLoadMore!;
+          if (clearNoticeLoadMoreHoldOnHit) {
+            holdNoticeLoadMore = null;
+          }
+          await blocker.future;
         }
+        final String inviteState = paginatedPendingInvalidated
+            ? 'invalidated'
+            : paginatedPendingAccepted
+            ? 'processed'
+            : 'pending';
         final Map<String, dynamic> olderInvite = <String, dynamic>{
           'id': 'dcf091d4b3f941269deae8748a4fa894',
           'type': 'group_invitation',
@@ -459,10 +470,9 @@ class _UiSocialServer {
               : 'Alice 邀请你加入「old」',
           'created_at': '2026-11-27T21:37:50.022Z',
           'read': true,
-          'state': paginatedPendingAccepted ? 'processed' : 'pending',
-          'actions': paginatedPendingAccepted
-              ? const <Map<String, dynamic>>[]
-              : <Map<String, dynamic>>[
+          'state': inviteState,
+          'actions': inviteState == 'pending'
+              ? <Map<String, dynamic>>[
                   <String, dynamic>{
                     'id': 'accept',
                     'label': '接受',
@@ -473,7 +483,8 @@ class _UiSocialServer {
                     'label': '拒绝',
                     'available': true,
                   },
-                ],
+                ]
+              : const <Map<String, dynamic>>[],
           'link': <String, dynamic>{'type': 'group', 'id': '27973482'},
         };
         final Map<String, dynamic> extraPending = <String, dynamic>{
@@ -573,7 +584,10 @@ class _UiSocialServer {
             'items': items,
             'next_cursor': '4bdbf08bf02c41e89899cdd42464875a',
             'unread_count': 100,
-            'pending_count': paginatedPendingAccepted ? 0 : 1,
+            'pending_count':
+                (paginatedPendingAccepted || paginatedPendingInvalidated)
+                ? 0
+                : 1,
           });
           return;
         }
@@ -1445,6 +1459,70 @@ void main() {
       );
       await _settle(tester);
       expect(server.executeActions, contains('$targetId:accept'));
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump(const Duration(seconds: 35));
+    },
+  );
+
+  testWidgets(
+    'A7: refresh with unchanged next_cursor invalidates stalled page two and shows updated invalidated state',
+    (WidgetTester tester) async {
+      server.paginatedNoticesMode = true;
+      server.clearNoticeLoadMoreHoldOnHit = true;
+      const String targetId = 'dcf091d4b3f941269deae8748a4fa894';
+      await pumpHome(tester, size: const Size(1280, 900));
+
+      // Open Notifications -> "全部", scroll to loadMoreKey and click it while
+      // pre-dissolve page 2 response stalls.
+      await tester.tap(find.byKey(HomeView.navNotificationsKey));
+      await _settle(tester);
+      final Finder scrollable = find.byType(Scrollable).last;
+      await tester.scrollUntilVisible(
+        find.byKey(NotificationCenter.loadMoreKey),
+        600,
+        scrollable: scrollable,
+      );
+      await _settle(tester);
+
+      final Completer<void> stalledOldPage2 = Completer<void>();
+      server.holdNoticeLoadMore = stalledOldPage2;
+      await tester.tap(find.byKey(NotificationCenter.loadMoreKey));
+      await _settle(tester);
+      expect(server.noticeLoadMoreHeldStarted, isTrue);
+
+      // Simulate group dissolution: page 1 keeps the SAME next_cursor while
+      // pending_count becomes 0 and page 2 now carries state=invalidated. Switch
+      // to Chat and back to Notifications to trigger page 1 refresh first.
+      server.paginatedPendingInvalidated = true;
+      final int callsBeforeRefresh = server.noticeListCalls;
+      await tester.tap(find.byKey(HomeView.navChatKey));
+      await _settle(tester);
+      await tester.tap(find.byKey(HomeView.navNotificationsKey));
+      await _settle(tester);
+      expect(server.noticeListCalls, greaterThan(callsBeforeRefresh));
+
+      // Now deliver the delayed pre-dissolve page 2 response. Host must discard
+      // it, re-fetch page 2, and render the invalidated entry WITHOUT "accept".
+      stalledOldPage2.complete();
+      await _settle(tester);
+
+      final Finder targetRow = find.byKey(
+        NotificationCenter.entryKey(targetId),
+      );
+      await tester.scrollUntilVisible(
+        targetRow,
+        500,
+        scrollable: find.byType(Scrollable).last,
+      );
+      await tester.ensureVisible(targetRow);
+      await tester.pumpAndSettle();
+      expect(targetRow, findsOneWidget);
+      expect(
+        find.byKey(NotificationCenter.actionKey(targetId, 'accept')),
+        findsNothing,
+      );
+      expect(find.byKey(NotificationCenter.loadMoreKey), findsNothing);
 
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pump(const Duration(seconds: 35));

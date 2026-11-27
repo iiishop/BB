@@ -164,6 +164,7 @@ class NotificationCenterHostState extends State<NotificationCenterHost> {
   NoticeFilter _filter = NoticeFilter.all;
   final Map<NoticeFilter, _NoticeFilterFeed> _feeds =
       <NoticeFilter, _NoticeFilterFeed>{};
+  final Map<NoticeFilter, int> _reloadCommitEpoch = <NoticeFilter, int>{};
   bool _loading = true;
   bool _loadingMore = false;
   String? _error;
@@ -311,6 +312,7 @@ class NotificationCenterHostState extends State<NotificationCenterHost> {
         cursor = nextCursor;
       }
       setState(() {
+        _reloadCommitEpoch[target] = (_reloadCommitEpoch[target] ?? 0) + 1;
         _feeds[target] = _NoticeFilterFeed(
           items: List<Notice>.unmodifiable(collected),
           nextCursor: nextCursor,
@@ -376,6 +378,7 @@ class NotificationCenterHostState extends State<NotificationCenterHost> {
     String cursor = initialCursor;
     try {
       while (true) {
+        final int reloadCommitBefore = _reloadCommitEpoch[target] ?? 0;
         final NoticePage page = await widget.groups.listNotices(
           filter: target,
           cursor: cursor,
@@ -389,9 +392,13 @@ class NotificationCenterHostState extends State<NotificationCenterHost> {
         }
         final _NoticeFilterFeed latest =
             _feeds[target] ?? const _NoticeFilterFeed();
-        // If a concurrent reload changed the first-page tail cursor while we
-        // were awaiting this cursor, follow the updated cursor (or stop if none).
-        if (latest.loaded && latest.nextCursor != cursor) {
+        final bool refreshedDuringFetch =
+            (_reloadCommitEpoch[target] ?? 0) != reloadCommitBefore;
+        // If a reload committed on this filter while this page fetch was in
+        // flight, invalidate the stale page response and re-fetch from
+        // latest.nextCursor even if the cursor value itself stayed unchanged.
+        if (refreshedDuringFetch ||
+            (latest.loaded && latest.nextCursor != cursor)) {
           final String? updatedCursor = latest.nextCursor;
           if (updatedCursor == null) {
             _inFlightLoadMoreCursor = null;
