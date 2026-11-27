@@ -158,6 +158,22 @@ class GroupService {
     return profile;
   }
 
+  /// Resolves a group profile from a [GroupConversationItem] returned by
+  /// `GET /chat/conversations`, using its explicit [GroupConversationItem.groupNumber].
+  Future<GroupProfile> findGroupForConversationItem(
+    GroupConversationItem item, {
+    AuthIdentity? captured,
+  }) async {
+    final GroupProfile profile = await findGroup(
+      item.groupNumber,
+      captured: captured,
+    );
+    if (profile.conversation != item.conversation) {
+      throw upstreamMalformed;
+    }
+    return profile;
+  }
+
   Future<GroupProfile> updateGroup({
     required ConversationRef conversation,
     String? name,
@@ -538,6 +554,17 @@ class GroupService {
   );
 }
 
+/// Outcome of processing a [ServerEvent] in [SharedConversationService].
+enum ServerEventDisposition {
+  directMessage,
+  groupCurrentMessage,
+  staleGroupMessage,
+  revokedGroupMessage,
+  groupAccessGranted,
+  groupAccessRevoked,
+  staleAccessEvent,
+}
+
 /// Pure-Dart shared conversation queries & revocable media byte store.
 ///
 /// Complements `ChatService` without touching `chat_service.dart` (owned by
@@ -562,6 +589,7 @@ class SharedConversationService {
   final Map<String, Uint8List> _originalCache = <String, Uint8List>{};
   final Map<String, Attachment> _metadataCache = <String, Attachment>{};
   final Map<String, Set<String>> _scopeMedia = <String, Set<String>>{};
+  final Map<String, String> _groupNumbers = <String, String>{};
 
   void dispose() {
     access.unregisterPurger(_purgeMemoryForConversation);
@@ -569,7 +597,14 @@ class SharedConversationService {
     _originalCache.clear();
     _metadataCache.clear();
     _scopeMedia.clear();
+    _groupNumbers.clear();
   }
+
+  String? groupNumberFor(String account, String conversationId) =>
+      _groupNumbers[ConversationAccessController.scopeKey(
+        account,
+        conversationId,
+      )];
 
   AuthIdentity _requireIdentity(AuthIdentity? captured) {
     final AuthIdentity? current = session.identity;
@@ -601,6 +636,11 @@ class SharedConversationService {
     }
     for (final SharedConversation item in page.items) {
       if (item is GroupConversationItem) {
+        _groupNumbers[ConversationAccessController.scopeKey(
+              identity.account,
+              item.conversation.id,
+            )] =
+            item.groupNumber;
         access.grant(
           identity.account,
           item.conversation.id,
@@ -610,6 +650,51 @@ class SharedConversationService {
       }
     }
     return page;
+  }
+
+  /// Looks up a group's profile via `POST /chat/groups/find` using the
+  /// `group_number` associated with [conversation] from shared conversation
+  /// items (fetching shared conversation pages if not yet cached).
+  Future<GroupProfile> loadGroupProfile({
+    required ConversationRef conversation,
+    required GroupService groups,
+    AuthIdentity? captured,
+  }) async {
+    final AuthIdentity identity = _requireIdentity(captured);
+    if (!conversation.isGroup) {
+      throw GroupService._validation('conversation', '需要群会话 ID');
+    }
+    String? groupNumber = groupNumberFor(identity.account, conversation.id);
+    if (groupNumber == null) {
+      String afterId = '';
+      while (true) {
+        final SharedConversationPage page = await listSharedConversations(
+          afterId: afterId,
+          limit: 100,
+          captured: identity,
+        );
+        groupNumber = groupNumberFor(identity.account, conversation.id);
+        if (groupNumber != null || page.nextCursor == null) {
+          break;
+        }
+        afterId = page.nextCursor!;
+      }
+    }
+    if (groupNumber == null) {
+      throw const AuthFailure(
+        status: 404,
+        code: 'not_found',
+        message: '未找到对应群会话的群号',
+      );
+    }
+    final GroupProfile profile = await groups.findGroup(
+      groupNumber,
+      captured: identity,
+    );
+    if (profile.conversation != conversation) {
+      throw upstreamMalformed;
+    }
+    return profile;
   }
 
   Future<MessagePage> loadConversationHistory({
@@ -863,30 +948,49 @@ class SharedConversationService {
     }
   }
 
-  /// Applies a server event (`conversation.access_changed` or group
-  /// `message.available` membership revision) immediately.
-  Future<void> applyServerEvent(String account, ServerEvent event) async {
+  /// Applies a server event (`conversation.access_changed`, group
+  /// `message.available` with `membership_revision`, or direct
+  /// `message.available`) and reports its [ServerEventDisposition].
+  Future<ServerEventDisposition> applyServerEvent(
+    String account,
+    ServerEvent event,
+  ) async {
     final ConversationRef? conv = event.conversation;
     if (conv == null) {
-      return;
+      return ServerEventDisposition.directMessage;
     }
     if (event.isAccessChanged) {
-      await access.applyAccessEvent(
+      final bool applied = await access.applyAccessEvent(
         account: account,
         conversationId: conv.id,
         active: event.active ?? false,
         membershipRevision: event.membershipRevision ?? 1,
         historyThrough: event.historyThrough,
       );
-      return;
+      if (!applied) {
+        return ServerEventDisposition.staleAccessEvent;
+      }
+      return (event.active ?? false)
+          ? ServerEventDisposition.groupAccessGranted
+          : ServerEventDisposition.groupAccessRevoked;
     }
     if (event.isGroupMessage && event.membershipRevision != null) {
-      access.grant(
+      final GroupMessageEventStatus status = access.classifyGroupMessageEvent(
         account,
         conv.id,
         membershipRevision: event.membershipRevision!,
+        position: event.position > 0 ? event.position : null,
       );
+      return switch (status) {
+        GroupMessageEventStatus.currentCycle =>
+          ServerEventDisposition.groupCurrentMessage,
+        GroupMessageEventStatus.stalePreLeaveRevision =>
+          ServerEventDisposition.staleGroupMessage,
+        GroupMessageEventStatus.revokedAccess =>
+          ServerEventDisposition.revokedGroupMessage,
+      };
     }
+    return ServerEventDisposition.directMessage;
   }
 
   void _registerMessageMedia(
