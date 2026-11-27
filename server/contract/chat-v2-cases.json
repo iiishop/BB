@@ -667,29 +667,7 @@
       "result": {
         "items": [
           {
-            "peer_account": "10000002",
-            "display_name": "Bob",
-            "last_message": {
-              "id": "example-message",
-              "position": 1,
-              "sender_account": "10000002",
-              "target_account": "10000001",
-              "created_at": "2026-11-11T00:00:00Z",
-              "kind": "body",
-              "content": [
-                {
-                  "type": "text",
-                  "text": "hello"
-                }
-              ],
-              "attachment": null
-            },
-            "last_activity_at": "2026-11-11T00:00:00Z",
             "latest_position": 1,
-            "conversation": {
-              "type": "direct",
-              "id": "dm:10000001:10000002"
-            },
             "incoming_unread": 1,
             "latest_unread": {
               "message_id": "example-message",
@@ -700,7 +678,29 @@
               "truncated": false
             },
             "consumed_through": 0,
-            "unconsumed_positions": 1
+            "unconsumed_positions": 1,
+            "peer_account": "10000002",
+            "display_name": "Bob",
+            "last_message": {
+              "id": "example-message",
+              "position": 1,
+              "created_at": "2026-11-11T00:00:00Z",
+              "sender_account": "10000002",
+              "kind": "body",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "hello"
+                }
+              ],
+              "attachment": null,
+              "target_account": "10000001"
+            },
+            "last_activity_at": "2026-11-11T00:00:00Z",
+            "conversation": {
+              "type": "direct",
+              "id": "dm:10000001:10000002"
+            }
           }
         ],
         "next_cursor": null
@@ -718,9 +718,8 @@
           "message": {
             "id": "example-message",
             "position": 1,
-            "sender_account": "10000002",
-            "target_account": "10000001",
             "created_at": "2026-11-11T00:00:00Z",
+            "sender_account": "10000002",
             "kind": "body",
             "content": [
               {
@@ -728,7 +727,8 @@
                 "text": "hello"
               }
             ],
-            "attachment": null
+            "attachment": null,
+            "target_account": "10000001"
           },
           "presentation": {
             "receipt_id": "example-receipt",
@@ -768,9 +768,8 @@
             "message": {
               "id": "example-message",
               "position": 1,
-              "sender_account": "10000002",
-              "target_account": "10000001",
               "created_at": "2026-11-11T00:00:00Z",
+              "sender_account": "10000002",
               "kind": "body",
               "content": [
                 {
@@ -778,7 +777,8 @@
                   "text": "hello"
                 }
               ],
-              "attachment": null
+              "attachment": null,
+              "target_account": "10000001"
             },
             "presentation": {
               "receipt_id": "example-receipt",
@@ -817,9 +817,8 @@
       "result": {
         "id": "sent-message",
         "position": 1,
-        "sender_account": "10000001",
-        "target_account": "10000002",
         "created_at": "2026-11-11T00:00:00Z",
+        "sender_account": "10000001",
         "kind": "body",
         "content": [
           {
@@ -835,7 +834,8 @@
             "text": "after"
           }
         ],
-        "attachment": null
+        "attachment": null,
+        "target_account": "10000002"
       }
     },
     "send_attachment": {
@@ -848,9 +848,8 @@
       "result": {
         "id": "sent-attachment",
         "position": 1,
-        "sender_account": "10000001",
-        "target_account": "10000002",
         "created_at": "2026-11-11T00:00:00Z",
+        "sender_account": "10000001",
         "kind": "attachment",
         "content": null,
         "attachment": {
@@ -860,7 +859,8 @@
           "mime_type": "application/pdf",
           "byte_size": 10,
           "cover_media_id": null
-        }
+        },
+        "target_account": "10000002"
       }
     },
     "read_messages": {
@@ -876,9 +876,8 @@
             "message": {
               "id": "example-message",
               "position": 1,
-              "sender_account": "10000002",
-              "target_account": "10000001",
               "created_at": "2026-11-11T00:00:00Z",
+              "sender_account": "10000002",
               "kind": "body",
               "content": [
                 {
@@ -886,7 +885,8 @@
                   "text": "hello"
                 }
               ],
-              "attachment": null
+              "attachment": null,
+              "target_account": "10000001"
             },
             "presentation": {
               "receipt_id": "example-receipt",
@@ -917,9 +917,8 @@
             "message": {
               "id": "example-message",
               "position": 1,
-              "sender_account": "10000002",
-              "target_account": "10000001",
               "created_at": "2026-11-11T00:00:00Z",
+              "sender_account": "10000002",
               "kind": "body",
               "content": [
                 {
@@ -927,7 +926,8 @@
                   "text": "hello"
                 }
               ],
-              "attachment": null
+              "attachment": null,
+              "target_account": "10000001"
             },
             "presentation": {
               "receipt_id": "example-receipt",
@@ -1039,9 +1039,8 @@
         "message": {
           "id": "sent-message",
           "position": 1,
-          "sender_account": "10000001",
-          "target_account": "10000002",
           "created_at": "2026-11-11T00:00:00Z",
+          "sender_account": "10000001",
           "kind": "body",
           "content": [
             {
@@ -1057,7 +1056,8 @@
               "text": "after"
             }
           ],
-          "attachment": null
+          "attachment": null,
+          "target_account": "10000002"
         },
         "task_id": null,
         "error_code": null

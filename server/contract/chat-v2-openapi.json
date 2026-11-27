@@ -2666,7 +2666,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Reply_Message"
+                  "$ref": "#/components/schemas/Reply_Union_Message_GroupMessage_SystemMessage"
                 }
               }
             }
@@ -2798,7 +2798,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Reply_Message"
+                  "$ref": "#/components/schemas/Reply_Union_Message_GroupMessage_SystemMessage"
                 }
               }
             }
@@ -5205,17 +5205,85 @@
         "title": "NotificationChanges",
         "type": "object"
       },
+      "BusinessNoticePreview": {
+        "additionalProperties": false,
+        "properties": {
+          "notification_id": {
+            "pattern": "^[A-Za-z0-9_-]{1,200}$",
+            "title": "Notification Id",
+            "type": "string"
+          },
+          "type": {
+            "pattern": "^[A-Za-z0-9_-]{1,200}$",
+            "title": "Type",
+            "type": "string"
+          },
+          "text": {
+            "maxLength": 160,
+            "title": "Text",
+            "type": "string"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "notification_id",
+          "type",
+          "text",
+          "truncated"
+        ],
+        "title": "BusinessNoticePreview",
+        "type": "object"
+      },
+      "BusinessNoticeSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "new_count": {
+            "minimum": 1,
+            "title": "New Count",
+            "type": "integer"
+          },
+          "unread_count": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Unread Count",
+            "type": "integer"
+          },
+          "pending_count": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Pending Count",
+            "type": "integer"
+          },
+          "last_notice": {
+            "$ref": "#/components/schemas/BusinessNoticePreview"
+          }
+        },
+        "required": [
+          "new_count",
+          "unread_count",
+          "pending_count",
+          "last_notice"
+        ],
+        "title": "BusinessNoticeSummary",
+        "type": "object"
+      },
       "ConversationRef": {
         "additionalProperties": false,
         "properties": {
           "type": {
-            "const": "direct",
             "default": "direct",
+            "enum": [
+              "direct",
+              "group"
+            ],
             "title": "Type",
             "type": "string"
           },
           "id": {
-            "pattern": "^dm:[1-9][0-9]{7}:[1-9][0-9]{7}$",
+            "pattern": "^(dm:[1-9][0-9]{7}:[1-9][0-9]{7}|group:[a-f0-9]{32})$",
             "title": "Id",
             "type": "string"
           }
@@ -5224,6 +5292,44 @@
           "id"
         ],
         "title": "ConversationRef",
+        "type": "object"
+      },
+      "DeferredGroupNotification": {
+        "additionalProperties": false,
+        "properties": {
+          "cursor": {
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "title": "Cursor",
+            "type": "integer"
+          },
+          "conversation": {
+            "$ref": "#/components/schemas/GroupConversationRef"
+          },
+          "membership_revision": {
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "title": "Membership Revision",
+            "type": "integer"
+          },
+          "error_code": {
+            "enum": [
+              "not_found",
+              "upstream_unavailable",
+              "upstream_timeout",
+              "network_error"
+            ],
+            "title": "Error Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cursor",
+          "conversation",
+          "membership_revision",
+          "error_code"
+        ],
+        "title": "DeferredGroupNotification",
         "type": "object"
       },
       "DeferredNotification": {
@@ -5257,6 +5363,69 @@
           "error_code"
         ],
         "title": "DeferredNotification",
+        "type": "object"
+      },
+      "GroupConversationRef": {
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "const": "group",
+            "title": "Type",
+            "type": "string"
+          },
+          "id": {
+            "pattern": "^group:[a-f0-9]{32}$",
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id"
+        ],
+        "title": "GroupConversationRef",
+        "type": "object"
+      },
+      "GroupNotificationSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "conversation": {
+            "$ref": "#/components/schemas/GroupConversationRef"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "membership_revision": {
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "title": "Membership Revision",
+            "type": "integer"
+          },
+          "new_count": {
+            "minimum": 1,
+            "title": "New Count",
+            "type": "integer"
+          },
+          "incoming_unread": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Incoming Unread",
+            "type": "integer"
+          },
+          "last_message": {
+            "$ref": "#/components/schemas/MessagePreview"
+          }
+        },
+        "required": [
+          "conversation",
+          "display_name",
+          "membership_revision",
+          "new_count",
+          "incoming_unread",
+          "last_message"
+        ],
+        "title": "GroupNotificationSummary",
         "type": "object"
       },
       "MessagePreview": {
@@ -5310,7 +5479,14 @@
         "properties": {
           "deferred": {
             "items": {
-              "$ref": "#/components/schemas/DeferredNotification"
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/DeferredNotification"
+                },
+                {
+                  "$ref": "#/components/schemas/DeferredGroupNotification"
+                }
+              ]
             },
             "title": "Deferred",
             "type": "array"
@@ -5320,10 +5496,28 @@
           },
           "items": {
             "items": {
-              "$ref": "#/components/schemas/NotificationSummary"
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/NotificationSummary"
+                },
+                {
+                  "$ref": "#/components/schemas/GroupNotificationSummary"
+                }
+              ]
             },
             "title": "Items",
             "type": "array"
+          },
+          "business_notices": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BusinessNoticeSummary"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           },
           "next_cursor": {
             "maximum": 9007199254740991,
@@ -5469,30 +5663,11 @@
       "ConsumerConversation": {
         "additionalProperties": false,
         "properties": {
-          "peer_account": {
-            "pattern": "^[1-9][0-9]{7}$",
-            "title": "Peer Account",
-            "type": "string"
-          },
-          "display_name": {
-            "title": "Display Name",
-            "type": "string"
-          },
-          "last_message": {
-            "$ref": "#/components/schemas/Message"
-          },
-          "last_activity_at": {
-            "title": "Last Activity At",
-            "type": "string"
-          },
           "latest_position": {
             "maximum": 9007199254740991,
             "minimum": 0,
             "title": "Latest Position",
             "type": "integer"
-          },
-          "conversation": {
-            "$ref": "#/components/schemas/ConversationRef"
           },
           "incoming_unread": {
             "maximum": 9007199254740991,
@@ -5521,19 +5696,38 @@
             "minimum": 0,
             "title": "Unconsumed Positions",
             "type": "integer"
+          },
+          "peer_account": {
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Peer Account",
+            "type": "string"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "last_message": {
+            "$ref": "#/components/schemas/Message"
+          },
+          "last_activity_at": {
+            "title": "Last Activity At",
+            "type": "string"
+          },
+          "conversation": {
+            "$ref": "#/components/schemas/ConversationRef"
           }
         },
         "required": [
+          "latest_position",
+          "incoming_unread",
+          "latest_unread",
+          "consumed_through",
+          "unconsumed_positions",
           "peer_account",
           "display_name",
           "last_message",
           "last_activity_at",
-          "latest_position",
-          "conversation",
-          "incoming_unread",
-          "latest_unread",
-          "consumed_through",
-          "unconsumed_positions"
+          "conversation"
         ],
         "title": "ConsumerConversation",
         "type": "object"
@@ -5543,7 +5737,14 @@
         "properties": {
           "items": {
             "items": {
-              "$ref": "#/components/schemas/ConsumerConversation"
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/ConsumerConversation"
+                },
+                {
+                  "$ref": "#/components/schemas/ConsumerGroupConversation"
+                }
+              ]
             },
             "title": "Items",
             "type": "array"
@@ -5565,6 +5766,223 @@
           "next_cursor"
         ],
         "title": "ConsumerConversationPage",
+        "type": "object"
+      },
+      "ConsumerGroupConversation": {
+        "additionalProperties": false,
+        "properties": {
+          "latest_position": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Latest Position",
+            "type": "integer"
+          },
+          "incoming_unread": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Incoming Unread",
+            "type": "integer"
+          },
+          "latest_unread": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MessagePreview"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "consumed_through": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Consumed Through",
+            "type": "integer"
+          },
+          "unconsumed_positions": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Unconsumed Positions",
+            "type": "integer"
+          },
+          "history_through": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "History Through",
+            "type": "integer"
+          },
+          "membership_revision": {
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "title": "Membership Revision",
+            "type": "integer"
+          },
+          "conversation": {
+            "$ref": "#/components/schemas/GroupConversationRef"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "last_message": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Message"
+              },
+              {
+                "$ref": "#/components/schemas/GroupMessage"
+              },
+              {
+                "$ref": "#/components/schemas/SystemMessage"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Message"
+          },
+          "last_activity_at": {
+            "title": "Last Activity At",
+            "type": "string"
+          },
+          "avatar_url": {
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "avatar_version": {
+            "title": "Avatar Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "latest_position",
+          "incoming_unread",
+          "latest_unread",
+          "consumed_through",
+          "unconsumed_positions",
+          "history_through",
+          "membership_revision",
+          "conversation",
+          "display_name",
+          "last_message",
+          "last_activity_at",
+          "avatar_url",
+          "avatar_version"
+        ],
+        "title": "ConsumerGroupConversation",
+        "type": "object"
+      },
+      "GroupMessage": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "position": {
+            "title": "Position",
+            "type": "integer"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "sender_account": {
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Sender Account",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "body",
+              "attachment"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "content": {
+            "anyOf": [
+              {
+                "items": {
+                  "discriminator": {
+                    "mapping": {
+                      "image": "#/components/schemas/Image",
+                      "text": "#/components/schemas/Text"
+                    },
+                    "propertyName": "type"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Text"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Image"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Content"
+          },
+          "attachment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Media"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "conversation": {
+            "$ref": "#/components/schemas/GroupConversationRef"
+          },
+          "sender_username": {
+            "title": "Sender Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "position",
+          "created_at",
+          "sender_account",
+          "kind",
+          "conversation",
+          "sender_username"
+        ],
+        "title": "GroupMessage",
+        "type": "object"
+      },
+      "GroupRenamed": {
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "const": "group.renamed",
+            "title": "Type",
+            "type": "string"
+          },
+          "old_name": {
+            "title": "Old Name",
+            "type": "string"
+          },
+          "new_name": {
+            "title": "New Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "old_name",
+          "new_name"
+        ],
+        "title": "GroupRenamed",
         "type": "object"
       },
       "Image": {
@@ -5640,6 +6058,32 @@
         "title": "Media",
         "type": "object"
       },
+      "MemberJoined": {
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "const": "member.joined",
+            "title": "Type",
+            "type": "string"
+          },
+          "account": {
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Account",
+            "type": "string"
+          },
+          "username": {
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "account",
+          "username"
+        ],
+        "title": "MemberJoined",
+        "type": "object"
+      },
       "Message": {
         "additionalProperties": false,
         "properties": {
@@ -5651,18 +6095,13 @@
             "title": "Position",
             "type": "integer"
           },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
           "sender_account": {
             "pattern": "^[1-9][0-9]{7}$",
             "title": "Sender Account",
-            "type": "string"
-          },
-          "target_account": {
-            "pattern": "^[1-9][0-9]{7}$",
-            "title": "Target Account",
-            "type": "string"
-          },
-          "created_at": {
-            "title": "Created At",
             "type": "string"
           },
           "kind": {
@@ -5712,17 +6151,80 @@
               }
             ],
             "default": null
+          },
+          "target_account": {
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Target Account",
+            "type": "string"
           }
         },
         "required": [
           "id",
           "position",
-          "sender_account",
-          "target_account",
           "created_at",
-          "kind"
+          "sender_account",
+          "kind",
+          "target_account"
         ],
         "title": "Message",
+        "type": "object"
+      },
+      "SystemMessage": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "position": {
+            "title": "Position",
+            "type": "integer"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "kind": {
+            "const": "system",
+            "title": "Kind",
+            "type": "string"
+          },
+          "conversation": {
+            "$ref": "#/components/schemas/ConversationRef"
+          },
+          "system": {
+            "discriminator": {
+              "mapping": {
+                "group.renamed": "#/components/schemas/GroupRenamed",
+                "member.joined": "#/components/schemas/MemberJoined"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/MemberJoined"
+              },
+              {
+                "$ref": "#/components/schemas/GroupRenamed"
+              }
+            ],
+            "title": "System"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "position",
+          "created_at",
+          "kind",
+          "conversation",
+          "system",
+          "text"
+        ],
+        "title": "SystemMessage",
         "type": "object"
       },
       "Text": {
@@ -5840,7 +6342,18 @@
         "additionalProperties": false,
         "properties": {
           "message": {
-            "$ref": "#/components/schemas/Message"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Message"
+              },
+              {
+                "$ref": "#/components/schemas/GroupMessage"
+              },
+              {
+                "$ref": "#/components/schemas/SystemMessage"
+              }
+            ],
+            "title": "Message"
           },
           "presentation": {
             "anyOf": [
@@ -5983,9 +6496,28 @@
         "additionalProperties": false,
         "properties": {
           "peer_account": {
-            "pattern": "^[1-9][0-9]{7}$",
-            "title": "Peer Account",
-            "type": "string"
+            "anyOf": [
+              {
+                "pattern": "^[1-9][0-9]{7}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Peer Account"
+          },
+          "conversation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GroupConversationRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           },
           "anchor_message_id": {
             "maxLength": 200,
@@ -6044,7 +6576,6 @@
           }
         },
         "required": [
-          "peer_account",
           "anchor_message_id",
           "range",
           "before_has_more",
@@ -6315,9 +6846,28 @@
         "additionalProperties": false,
         "properties": {
           "target_account": {
-            "pattern": "^[1-9][0-9]{7}$",
-            "title": "Target Account",
-            "type": "string"
+            "anyOf": [
+              {
+                "pattern": "^[1-9][0-9]{7}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Target Account"
+          },
+          "conversation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConversationRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           },
           "operation_id": {
             "pattern": "^[A-Za-z0-9_-]{1,128}$",
@@ -6352,7 +6902,6 @@
           }
         },
         "required": [
-          "target_account",
           "operation_id",
           "content",
           "expected_identity"
@@ -6360,30 +6909,60 @@
         "title": "Send",
         "type": "object"
       },
-      "Reply_Message": {
+      "Reply_Union_Message_GroupMessage_SystemMessage": {
         "additionalProperties": false,
         "properties": {
           "identity": {
             "$ref": "#/components/schemas/ExpectedIdentity"
           },
           "result": {
-            "$ref": "#/components/schemas/Message"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Message"
+              },
+              {
+                "$ref": "#/components/schemas/GroupMessage"
+              },
+              {
+                "$ref": "#/components/schemas/SystemMessage"
+              }
+            ],
+            "title": "Result"
           }
         },
         "required": [
           "identity",
           "result"
         ],
-        "title": "Reply[Message]",
+        "title": "Reply[Union[Message, GroupMessage, SystemMessage]]",
         "type": "object"
       },
       "Attachment": {
         "additionalProperties": false,
         "properties": {
           "target_account": {
-            "pattern": "^[1-9][0-9]{7}$",
-            "title": "Target Account",
-            "type": "string"
+            "anyOf": [
+              {
+                "pattern": "^[1-9][0-9]{7}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Target Account"
+          },
+          "conversation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConversationRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           },
           "operation_id": {
             "pattern": "^[A-Za-z0-9_-]{1,128}$",
@@ -6409,7 +6988,6 @@
           }
         },
         "required": [
-          "target_account",
           "operation_id",
           "source",
           "expected_identity"
@@ -6459,9 +7037,28 @@
             "$ref": "#/components/schemas/ExpectedIdentity"
           },
           "account": {
-            "pattern": "^[1-9][0-9]{7}$",
-            "title": "Account",
-            "type": "string"
+            "anyOf": [
+              {
+                "pattern": "^[1-9][0-9]{7}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Account"
+          },
+          "conversation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConversationRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           },
           "unread_only": {
             "default": false,
@@ -6470,8 +7067,7 @@
           }
         },
         "required": [
-          "expected_identity",
-          "account"
+          "expected_identity"
         ],
         "title": "Read",
         "type": "object"
@@ -6527,9 +7123,28 @@
             "$ref": "#/components/schemas/ExpectedIdentity"
           },
           "account": {
-            "pattern": "^[1-9][0-9]{7}$",
-            "title": "Account",
-            "type": "string"
+            "anyOf": [
+              {
+                "pattern": "^[1-9][0-9]{7}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Account"
+          },
+          "conversation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConversationRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           },
           "seen_position": {
             "maximum": 9007199254740991,
@@ -6550,7 +7165,6 @@
         },
         "required": [
           "expected_identity",
-          "account",
           "seen_position"
         ],
         "title": "Wait",
@@ -6618,9 +7232,28 @@
             "$ref": "#/components/schemas/ExpectedIdentity"
           },
           "account": {
-            "pattern": "^[1-9][0-9]{7}$",
-            "title": "Account",
-            "type": "string"
+            "anyOf": [
+              {
+                "pattern": "^[1-9][0-9]{7}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Account"
+          },
+          "conversation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConversationRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           },
           "through_position": {
             "maximum": 9007199254740991,
@@ -6631,7 +7264,6 @@
         },
         "required": [
           "expected_identity",
-          "account",
           "through_position"
         ],
         "title": "Ack",
@@ -6675,14 +7307,32 @@
             "$ref": "#/components/schemas/ExpectedIdentity"
           },
           "account": {
-            "pattern": "^[1-9][0-9]{7}$",
-            "title": "Account",
-            "type": "string"
+            "anyOf": [
+              {
+                "pattern": "^[1-9][0-9]{7}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Account"
+          },
+          "conversation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConversationRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           }
         },
         "required": [
-          "expected_identity",
-          "account"
+          "expected_identity"
         ],
         "title": "Peer",
         "type": "object"
@@ -6989,10 +7639,17 @@
                 "$ref": "#/components/schemas/Message"
               },
               {
+                "$ref": "#/components/schemas/GroupMessage"
+              },
+              {
+                "$ref": "#/components/schemas/SystemMessage"
+              },
+              {
                 "type": "null"
               }
             ],
-            "default": null
+            "default": null,
+            "title": "Message"
           },
           "task_id": {
             "anyOf": [
@@ -7168,6 +7825,101 @@
         "title": "EventsRead",
         "type": "object"
       },
+      "AccessChangedEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "const": 2,
+            "title": "Version",
+            "type": "integer"
+          },
+          "event_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "origin_identity": {
+            "$ref": "#/components/schemas/ExpectedIdentity"
+          },
+          "conversation": {
+            "$ref": "#/components/schemas/GroupConversationRef"
+          },
+          "type": {
+            "const": "conversation.access_changed",
+            "title": "Type",
+            "type": "string"
+          },
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "membership_revision": {
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "title": "Membership Revision",
+            "type": "integer"
+          },
+          "history_through": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "History Through",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "event_id",
+          "origin_identity",
+          "conversation",
+          "type",
+          "active",
+          "membership_revision",
+          "history_through"
+        ],
+        "title": "AccessChangedEvent",
+        "type": "object"
+      },
+      "BusinessNoticeEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "const": 2,
+            "title": "Version",
+            "type": "integer"
+          },
+          "event_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "origin_identity": {
+            "$ref": "#/components/schemas/ExpectedIdentity"
+          },
+          "type": {
+            "const": "notification.available",
+            "title": "Type",
+            "type": "string"
+          },
+          "notification_id": {
+            "pattern": "^[A-Za-z0-9_-]{1,200}$",
+            "title": "Notification Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "event_id",
+          "origin_identity",
+          "type",
+          "notification_id"
+        ],
+        "title": "BusinessNoticeEvent",
+        "type": "object"
+      },
       "DownloadFailed": {
         "additionalProperties": false,
         "properties": {
@@ -7286,17 +8038,18 @@
             "type": "integer"
           },
           "event": {
-            "discriminator": {
-              "mapping": {
-                "download.failed": "#/components/schemas/DownloadFailed",
-                "download.succeeded": "#/components/schemas/DownloadSucceeded",
-                "message.available": "#/components/schemas/MessageEvent"
-              },
-              "propertyName": "type"
-            },
-            "oneOf": [
+            "anyOf": [
               {
                 "$ref": "#/components/schemas/MessageEvent"
+              },
+              {
+                "$ref": "#/components/schemas/GroupMessageEvent"
+              },
+              {
+                "$ref": "#/components/schemas/AccessChangedEvent"
+              },
+              {
+                "$ref": "#/components/schemas/BusinessNoticeEvent"
               },
               {
                 "$ref": "#/components/schemas/DownloadSucceeded"
@@ -7342,6 +8095,50 @@
           "has_more"
         ],
         "title": "EventPage",
+        "type": "object"
+      },
+      "GroupMessageEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "const": 2,
+            "title": "Version",
+            "type": "integer"
+          },
+          "event_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "origin_identity": {
+            "$ref": "#/components/schemas/ExpectedIdentity"
+          },
+          "conversation": {
+            "$ref": "#/components/schemas/GroupConversationRef"
+          },
+          "type": {
+            "const": "message.available",
+            "title": "Type",
+            "type": "string"
+          },
+          "position": {
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "title": "Position",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "event_id",
+          "origin_identity",
+          "conversation",
+          "type",
+          "position"
+        ],
+        "title": "GroupMessageEvent",
         "type": "object"
       },
       "MessageEvent": {

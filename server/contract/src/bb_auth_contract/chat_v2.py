@@ -9,7 +9,8 @@ from pydantic import ConfigDict, Field, model_validator
 
 from . import chat as v1
 from . import chat_query as query
-from . import cover, profile
+from . import cover, group, profile
+from .conversation import GroupConversationRef
 
 VERSION = "dea467-local-v2"
 Opaque = Annotated[
@@ -135,7 +136,14 @@ class Attachment(Protected, v1.LocalAttachment):
 
 
 class Peer(Protected):
-    account: v1.Account  # Peer, NOT expected_identity.account.
+    account: v1.Account | None = None  # Legacy peer selector.
+    conversation: query.ConversationRef | None = None
+
+    @model_validator(mode="after")
+    def one_conversation(self):
+        if (self.account is None) == (self.conversation is None):
+            raise ValueError("select one peer account or conversation")
+        return self
 
 
 class Read(Peer, query.HistoryQuery):
@@ -251,6 +259,7 @@ class Subscribe(Protected):
             raise ValueError("self conversation is unsupported")
         if (
             self.conversation
+            and self.conversation.type == "direct"
             and self.expected_identity.account
             not in self.conversation.id.split(":")[1:]
         ):
@@ -275,7 +284,9 @@ class SetNotifications(Protected):
 
 
 class NotificationChanges(Protected):
-    retry_cursors: list[Annotated[int, Field(ge=1, le=9007199254740991)]] = Field(default_factory=list, max_length=100)
+    retry_cursors: list[Annotated[int, Field(ge=1, le=9007199254740991)]] = Field(
+        default_factory=list, max_length=100
+    )
     after_cursor: Position = 0
     through_cursor: Position | None = None
     limit: int = Field(default=100, ge=1, le=100)
@@ -293,13 +304,48 @@ class NotificationSummary(v1.Wire):
 class DeferredNotification(v1.Wire):
     cursor: int = Field(ge=1, le=9007199254740991)
     peer_account: v1.Account
-    error_code: Literal["not_found", "upstream_unavailable", "upstream_timeout", "network_error"]
+    error_code: Literal[
+        "not_found", "upstream_unavailable", "upstream_timeout", "network_error"
+    ]
+
+
+class GroupNotificationSummary(v1.Wire):
+    conversation: GroupConversationRef
+    display_name: str
+    membership_revision: Revision
+    new_count: int = Field(ge=1)
+    incoming_unread: Position
+    last_message: query.MessagePreview
+
+
+class DeferredGroupNotification(v1.Wire):
+    cursor: int = Field(ge=1, le=9007199254740991)
+    conversation: GroupConversationRef
+    membership_revision: Revision
+    error_code: Literal[
+        "not_found", "upstream_unavailable", "upstream_timeout", "network_error"
+    ]
+
+
+class BusinessNoticePreview(v1.Wire):
+    notification_id: group.OpaqueId
+    type: group.OpaqueId
+    text: str = Field(max_length=160)
+    truncated: bool
+
+
+class BusinessNoticeSummary(v1.Wire):
+    new_count: int = Field(ge=1)
+    unread_count: Position
+    pending_count: Position
+    last_notice: BusinessNoticePreview
 
 
 class NotificationPage(v1.Wire):
-    deferred: list[DeferredNotification]
+    deferred: list[DeferredNotification | DeferredGroupNotification]
     settings: NotificationSettings
-    items: list[NotificationSummary]
+    items: list[NotificationSummary | GroupNotificationSummary]
+    business_notices: BusinessNoticeSummary | None = None
     next_cursor: Position
     through_cursor: Position
     has_more: bool
@@ -327,6 +373,25 @@ class MessageEvent(EventBase):
     position: int = Field(ge=1, le=9007199254740991)
 
 
+class GroupMessageEvent(EventBase):
+    conversation: GroupConversationRef
+    type: Literal["message.available"]
+    position: int = Field(ge=1, le=9007199254740991)
+
+
+class AccessChangedEvent(EventBase):
+    conversation: GroupConversationRef
+    type: Literal["conversation.access_changed"]
+    active: bool
+    membership_revision: Revision
+    history_through: Position
+
+
+class BusinessNoticeEvent(EventBase):
+    type: Literal["notification.available"]
+    notification_id: group.OpaqueId
+
+
 class DownloadSucceeded(EventBase):
     type: Literal["download.succeeded"]
     task_id: Opaque
@@ -341,9 +406,14 @@ class DownloadFailed(EventBase):
     error_code: Opaque
 
 
-LocalEvent = Annotated[
-    MessageEvent | DownloadSucceeded | DownloadFailed, Field(discriminator="type")
-]
+LocalEvent = (
+    MessageEvent
+    | GroupMessageEvent
+    | AccessChangedEvent
+    | BusinessNoticeEvent
+    | DownloadSucceeded
+    | DownloadFailed
+)
 
 
 class EventEntry(v1.Wire):
@@ -448,9 +518,27 @@ BUSINESS = {
         200,
         True,
     ),
-    "get_notifications": ("/v2/notifications/get", Protected, Reply[NotificationSettings], 200, True),
-    "set_notifications": ("/v2/notifications/set", SetNotifications, Reply[NotificationSettings], 200, True),
-    "notification_changes": ("/v2/notifications/changes", NotificationChanges, Reply[NotificationPage], 200, True),
+    "get_notifications": (
+        "/v2/notifications/get",
+        Protected,
+        Reply[NotificationSettings],
+        200,
+        True,
+    ),
+    "set_notifications": (
+        "/v2/notifications/set",
+        SetNotifications,
+        Reply[NotificationSettings],
+        200,
+        True,
+    ),
+    "notification_changes": (
+        "/v2/notifications/changes",
+        NotificationChanges,
+        Reply[NotificationPage],
+        200,
+        True,
+    ),
     "list_conversations": (
         "/v2/chat/list_conversations",
         Conversations,
@@ -473,11 +561,11 @@ BUSINESS = {
         True,
     ),
     "list_users": ("/v2/chat/list_users", Users, Reply[v1.UserPage], 200, True),
-    "send_message": ("/v2/chat/send_message", Send, Reply[v1.Message], 200, True),
+    "send_message": ("/v2/chat/send_message", Send, Reply[v1.ChatMessage], 200, True),
     "send_attachment": (
         "/v2/chat/send_attachment",
         Attachment,
-        Reply[v1.Message],
+        Reply[v1.ChatMessage],
         200,
         True,
     ),
@@ -510,6 +598,140 @@ BUSINESS = {
     ),
     "events_read": ("/v2/events/read", EventsRead, Reply[EventPage], 200, True),
     "events_wait": ("/v2/events/wait", EventsWait, Reply[EventWait], 200, True),
+}
+
+
+# Release with the corresponding Dart handlers and MCP registration in DEA-503.
+class CreateGroup(Protected, group.GroupCreate):
+    pass
+
+
+class FindGroup(Protected, group.GroupNumberRequest):
+    pass
+
+
+class UpdateGroup(Protected, group.GroupUpdate):
+    pass
+
+
+class Directory(Protected, group.DirectoryQuery):
+    pass
+
+
+class ListMembers(Protected, group.GroupMembers):
+    pass
+
+
+class GroupInvite(Protected, group.GroupInvite):
+    pass
+
+
+class GroupTarget(Protected, group.GroupTarget):
+    pass
+
+
+class GroupRemove(Protected, group.GroupRemove):
+    pass
+
+
+class ListNotices(Protected, group.Notices):
+    pass
+
+
+class NoticeId(Protected, group.NoticeId):
+    pass
+
+
+class ExecuteNoticeAction(Protected, group.NoticeActionRequest):
+    pass
+
+
+GROUP_BUSINESS = {
+    "create_group": (
+        "/v2/groups/create",
+        CreateGroup,
+        Reply[group.GroupProfile],
+        200,
+        True,
+    ),
+    "find_group": ("/v2/groups/find", FindGroup, Reply[group.GroupProfile], 200, True),
+    "update_group": (
+        "/v2/groups/update",
+        UpdateGroup,
+        Reply[group.GroupProfile],
+        200,
+        True,
+    ),
+    "list_directory": (
+        "/v2/directory/list",
+        Directory,
+        Reply[group.DirectoryPage],
+        200,
+        True,
+    ),
+    "list_group_members": (
+        "/v2/groups/members",
+        ListMembers,
+        Reply[group.GroupMemberPage],
+        200,
+        True,
+    ),
+    "invite_to_group": (
+        "/v2/groups/invite",
+        GroupInvite,
+        Reply[group.GroupRequests],
+        200,
+        True,
+    ),
+    "apply_to_group": (
+        "/v2/groups/apply",
+        GroupTarget,
+        Reply[group.GroupRequests],
+        200,
+        True,
+    ),
+    "leave_group": (
+        "/v2/groups/leave",
+        GroupTarget,
+        Reply[group.GroupProfile],
+        200,
+        True,
+    ),
+    "remove_group_member": (
+        "/v2/groups/remove_member",
+        GroupRemove,
+        Reply[group.GroupProfile],
+        200,
+        True,
+    ),
+    "dissolve_group": (
+        "/v2/groups/dissolve",
+        GroupTarget,
+        Reply[group.GroupProfile],
+        200,
+        True,
+    ),
+    "list_notices": (
+        "/v2/notices/list",
+        ListNotices,
+        Reply[group.NoticePage],
+        200,
+        True,
+    ),
+    "mark_notice_read": (
+        "/v2/notices/mark_read",
+        NoticeId,
+        Reply[group.Notice],
+        200,
+        True,
+    ),
+    "execute_notice_action": (
+        "/v2/notices/execute_action",
+        ExecuteNoticeAction,
+        Reply[group.Notice],
+        200,
+        True,
+    ),
 }
 OPERATIONS = BOOTSTRAP | BUSINESS
 ERRORS = {
@@ -550,4 +772,16 @@ ERRORS = {
     "upstream_timeout": (504, "Outcome may be uncertain; query original operation ID."),
     "payload_too_large": (413, "Reduce input; never echo input."),
     "unsupported_media_type": (415, "Use a supported media type."),
+}
+
+GROUP_ERRORS = {
+    "forbidden": (403, "Role lacks permission; refresh the resource."),
+    "action_unavailable": (
+        409,
+        "Resolve current notification state before taking another action.",
+    ),
+    "group_unavailable": (
+        409,
+        "Group is dissolved; its basic profile is still readable.",
+    ),
 }
