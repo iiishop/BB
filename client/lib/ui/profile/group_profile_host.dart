@@ -169,7 +169,10 @@ class NotificationCenterHostState extends State<NotificationCenterHost> {
   String? _error;
   String? _loadMoreError;
   bool _busyAction = false;
-  int _requestGeneration = 0;
+  int _filterGeneration = 0;
+  int _reloadGeneration = 0;
+  int _loadMoreGeneration = 0;
+  String? _inFlightLoadMoreCursor;
 
   _NoticeFilterFeed get _currentFeed =>
       _feeds[_filter] ?? const _NoticeFilterFeed();
@@ -238,6 +241,10 @@ class NotificationCenterHostState extends State<NotificationCenterHost> {
     if (target == _filter && _error == null) {
       return;
     }
+    _filterGeneration += 1;
+    _reloadGeneration += 1;
+    _loadMoreGeneration += 1;
+    _inFlightLoadMoreCursor = null;
     final bool hasCached = _feeds[target]?.loaded ?? false;
     setState(() {
       _filter = target;
@@ -253,36 +260,34 @@ class NotificationCenterHostState extends State<NotificationCenterHost> {
     final NoticeFilter target = _filter;
     final _NoticeFilterFeed previous =
         _feeds[target] ?? const _NoticeFilterFeed();
-    final int generation = ++_requestGeneration;
+    final int filterGen = _filterGeneration;
+    final int reloadGen = ++_reloadGeneration;
     if ((!silent || !previous.loaded) && mounted) {
+      _loadMoreGeneration += 1;
+      _inFlightLoadMoreCursor = null;
       setState(() {
         _loading = true;
         _loadingMore = false;
         _error = null;
         _loadMoreError = null;
       });
-    } else if (mounted && _loadingMore) {
-      setState(() {
-        _loadingMore = false;
-        _loadMoreError = null;
-      });
     }
     try {
-      // Refresh as many pages as the user had already paged into for this
-      // filter so event-triggered reloads never truncate open page-2+ items.
-      final int targetPages = math.max(1, previous.pagesLoaded);
       final List<Notice> collected = <Notice>[];
       final Set<String> seenIds = <String>{};
       String? cursor;
       String? nextCursor;
       int pagesLoaded = 0;
-      while (pagesLoaded < targetPages) {
+      while (true) {
         final NoticePage page = await widget.groups.listNotices(
           filter: target,
           cursor: cursor,
           limit: 100,
         );
-        if (!mounted || generation != _requestGeneration || target != _filter) {
+        if (!mounted ||
+            filterGen != _filterGeneration ||
+            reloadGen != _reloadGeneration ||
+            target != _filter) {
           return;
         }
         for (final Notice item in page.items) {
@@ -292,7 +297,15 @@ class NotificationCenterHostState extends State<NotificationCenterHost> {
         }
         pagesLoaded += 1;
         nextCursor = page.nextCursor;
-        if (nextCursor == null || nextCursor == cursor) {
+        // Re-check expanded page count after each page fetch so a concurrent
+        // loadMore() that completed while refresh was in flight keeps its pages.
+        final int desiredPages = math.max(
+          math.max(1, previous.pagesLoaded),
+          _feeds[target]?.pagesLoaded ?? 1,
+        );
+        if (pagesLoaded >= desiredPages ||
+            nextCursor == null ||
+            nextCursor == cursor) {
           break;
         }
         cursor = nextCursor;
@@ -305,12 +318,17 @@ class NotificationCenterHostState extends State<NotificationCenterHost> {
           pagesLoaded: pagesLoaded,
         );
         _loading = false;
-        _loadingMore = false;
+        _loadingMore = _inFlightLoadMoreCursor != null;
         _error = null;
-        _loadMoreError = null;
+        if (_inFlightLoadMoreCursor == null) {
+          _loadMoreError = null;
+        }
       });
     } on AuthFailure catch (failure) {
-      if (!mounted || generation != _requestGeneration || target != _filter) {
+      if (!mounted ||
+          filterGen != _filterGeneration ||
+          reloadGen != _reloadGeneration ||
+          target != _filter) {
         return;
       }
       if (failure.status == 401) {
@@ -319,18 +337,21 @@ class NotificationCenterHostState extends State<NotificationCenterHost> {
       }
       setState(() {
         _loading = false;
-        _loadingMore = false;
+        _loadingMore = _inFlightLoadMoreCursor != null;
         if (_notices.isEmpty) {
           _error = failure.message;
         }
       });
     } catch (_) {
-      if (!mounted || generation != _requestGeneration || target != _filter) {
+      if (!mounted ||
+          filterGen != _filterGeneration ||
+          reloadGen != _reloadGeneration ||
+          target != _filter) {
         return;
       }
       setState(() {
         _loading = false;
-        _loadingMore = false;
+        _loadingMore = _inFlightLoadMoreCursor != null;
         if (_notices.isEmpty) {
           _error = '通知加载失败，请重试';
         }
@@ -341,40 +362,70 @@ class NotificationCenterHostState extends State<NotificationCenterHost> {
   Future<void> loadMore() async {
     final NoticeFilter target = _filter;
     final _NoticeFilterFeed feed = _feeds[target] ?? const _NoticeFilterFeed();
-    final String? cursor = feed.nextCursor;
-    if (_loading || _loadingMore || cursor == null) {
+    final String? initialCursor = feed.nextCursor;
+    if (_loading || _loadingMore || initialCursor == null) {
       return;
     }
-    final int generation = _requestGeneration;
+    final int filterGen = _filterGeneration;
+    final int loadMoreGen = ++_loadMoreGeneration;
+    _inFlightLoadMoreCursor = initialCursor;
     setState(() {
       _loadingMore = true;
       _loadMoreError = null;
     });
+    String cursor = initialCursor;
     try {
-      final NoticePage page = await widget.groups.listNotices(
-        filter: target,
-        cursor: cursor,
-        limit: 100,
-      );
-      if (!mounted || generation != _requestGeneration || target != _filter) {
-        return;
-      }
-      final _NoticeFilterFeed latest =
-          _feeds[target] ?? const _NoticeFilterFeed();
-      setState(() {
-        _feeds[target] = _NoticeFilterFeed(
-          items: _mergeNotices(latest.items, page.items),
-          nextCursor: page.nextCursor,
-          loaded: true,
-          pagesLoaded: latest.pagesLoaded + 1,
+      while (true) {
+        final NoticePage page = await widget.groups.listNotices(
+          filter: target,
+          cursor: cursor,
+          limit: 100,
         );
-        _loadingMore = false;
-        _loadMoreError = null;
-      });
-    } on AuthFailure catch (failure) {
-      if (!mounted || generation != _requestGeneration || target != _filter) {
+        if (!mounted ||
+            filterGen != _filterGeneration ||
+            loadMoreGen != _loadMoreGeneration ||
+            target != _filter) {
+          return;
+        }
+        final _NoticeFilterFeed latest =
+            _feeds[target] ?? const _NoticeFilterFeed();
+        // If a concurrent reload changed the first-page tail cursor while we
+        // were awaiting this cursor, follow the updated cursor (or stop if none).
+        if (latest.loaded && latest.nextCursor != cursor) {
+          final String? updatedCursor = latest.nextCursor;
+          if (updatedCursor == null) {
+            _inFlightLoadMoreCursor = null;
+            setState(() {
+              _loadingMore = false;
+              _loadMoreError = null;
+            });
+            return;
+          }
+          cursor = updatedCursor;
+          _inFlightLoadMoreCursor = updatedCursor;
+          continue;
+        }
+        _inFlightLoadMoreCursor = null;
+        setState(() {
+          _feeds[target] = _NoticeFilterFeed(
+            items: _mergeNotices(latest.items, page.items),
+            nextCursor: page.nextCursor,
+            loaded: true,
+            pagesLoaded: latest.pagesLoaded + 1,
+          );
+          _loadingMore = false;
+          _loadMoreError = null;
+        });
         return;
       }
+    } on AuthFailure catch (failure) {
+      if (!mounted ||
+          filterGen != _filterGeneration ||
+          loadMoreGen != _loadMoreGeneration ||
+          target != _filter) {
+        return;
+      }
+      _inFlightLoadMoreCursor = null;
       if (failure.status == 401) {
         widget.onSessionExpired?.call();
         return;
@@ -384,9 +435,13 @@ class NotificationCenterHostState extends State<NotificationCenterHost> {
         _loadMoreError = failure.message;
       });
     } catch (_) {
-      if (!mounted || generation != _requestGeneration || target != _filter) {
+      if (!mounted ||
+          filterGen != _filterGeneration ||
+          loadMoreGen != _loadMoreGeneration ||
+          target != _filter) {
         return;
       }
+      _inFlightLoadMoreCursor = null;
       setState(() {
         _loadingMore = false;
         _loadMoreError = '加载更多失败，请重试';
