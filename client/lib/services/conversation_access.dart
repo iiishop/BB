@@ -31,6 +31,22 @@ typedef ConversationCachePurger = FutureOr<void> Function(
   Set<String> mediaIds,
 );
 
+/// Classification of an incoming group `message.available` event relative to
+/// the caller's current membership lifecycle.
+enum GroupMessageEventStatus {
+  /// Belongs to the active current membership cycle (after any rejoin
+  /// `history_through` floor when known).
+  currentCycle,
+
+  /// Belongs to a pre-leave revision (`< current`) or position at/below the
+  /// rejoin `history_through` floor; must not trigger live unread/preview.
+  stalePreLeaveRevision,
+
+  /// Membership is currently revoked (`active == false`); must never
+  /// reactivate access on replayed `message.available` events.
+  revokedAccess,
+}
+
 /// Pure-Dart access state & listener registry shared by services and UI.
 class ConversationAccessController {
   final Map<String, _AccessEntry> _entries = <String, _AccessEntry>{};
@@ -105,7 +121,10 @@ class ConversationAccessController {
 
   /// Marks `(account, conversationId)` revoked, bumps its epoch, notifies open
   /// viewers/windows, and invokes registered memory/disk cache purgers.
-  Future<void> revoke(
+  ///
+  /// Returns `false` if [membershipRevision] is older than the currently known
+  /// revision and the event was ignored as stale.
+  Future<bool> revoke(
     String account,
     String conversationId, {
     int? membershipRevision,
@@ -115,7 +134,7 @@ class ConversationAccessController {
     if (membershipRevision != null &&
         entry.membershipRevision != null &&
         membershipRevision < entry.membershipRevision!) {
-      return;
+      return false;
     }
     entry.active = false;
     entry.epoch += 1;
@@ -129,13 +148,15 @@ class ConversationAccessController {
         in List<ConversationCachePurger>.of(_purgers)) {
       await purger(account, conversationId, mediaIds);
     }
+    return true;
   }
 
   /// Records active access (or re-join with a newer membership revision).
   ///
   /// When restoring after a previous revocation or a newer revision, the epoch
-  /// advances so any pre-revocation window or viewer stays invalidated.
-  void grant(
+  /// advances so any pre-revocation window or viewer stays invalidated. Returns
+  /// `false` if [membershipRevision] is stale (`< current`).
+  bool grant(
     String account,
     String conversationId, {
     required int membershipRevision,
@@ -145,7 +166,7 @@ class ConversationAccessController {
     final _AccessEntry entry = _entries.putIfAbsent(key, () => _AccessEntry());
     if (entry.membershipRevision != null &&
         membershipRevision < entry.membershipRevision!) {
-      return;
+      return false;
     }
     final bool revisionAdvanced =
         entry.membershipRevision != null &&
@@ -160,10 +181,53 @@ class ConversationAccessController {
       entry.epoch += 1;
       _notify();
     }
+    return true;
+  }
+
+  /// Evaluates a group `message.available` event carrying [membershipRevision]
+  /// (and optional [position]) against current membership state.
+  ///
+  /// Never reactivates a revoked membership; replayed events from prior
+  /// membership revisions are flagged [GroupMessageEventStatus.stalePreLeaveRevision]
+  /// or [GroupMessageEventStatus.revokedAccess] so pre-leave and post-rejoin
+  /// notifications stay strictly separated.
+  GroupMessageEventStatus classifyGroupMessageEvent(
+    String account,
+    String conversationId, {
+    required int membershipRevision,
+    int? position,
+  }) {
+    final String key = scopeKey(account, conversationId);
+    final _AccessEntry? entry = _entries[key];
+    if (entry == null) {
+      grant(account, conversationId, membershipRevision: membershipRevision);
+      return GroupMessageEventStatus.currentCycle;
+    }
+    if (!entry.active) {
+      if (entry.membershipRevision != null &&
+          membershipRevision < entry.membershipRevision!) {
+        return GroupMessageEventStatus.stalePreLeaveRevision;
+      }
+      return GroupMessageEventStatus.revokedAccess;
+    }
+    final int? currentRevision = entry.membershipRevision;
+    if (currentRevision != null && membershipRevision < currentRevision) {
+      return GroupMessageEventStatus.stalePreLeaveRevision;
+    }
+    if (currentRevision == null || membershipRevision > currentRevision) {
+      grant(account, conversationId, membershipRevision: membershipRevision);
+      return GroupMessageEventStatus.currentCycle;
+    }
+    if (entry.historyThrough != null &&
+        position != null &&
+        position <= entry.historyThrough!) {
+      return GroupMessageEventStatus.stalePreLeaveRevision;
+    }
+    return GroupMessageEventStatus.currentCycle;
   }
 
   /// Applies a server `conversation.access_changed` event.
-  Future<void> applyAccessEvent({
+  Future<bool> applyAccessEvent({
     required String account,
     required String conversationId,
     required bool active,
@@ -171,14 +235,13 @@ class ConversationAccessController {
     int? historyThrough,
   }) async {
     if (!active) {
-      await revoke(
+      return revoke(
         account,
         conversationId,
         membershipRevision: membershipRevision,
       );
-      return;
     }
-    grant(
+    return grant(
       account,
       conversationId,
       membershipRevision: membershipRevision,

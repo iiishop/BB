@@ -56,6 +56,8 @@ class _FakeGroupServer {
   bool sendAssociationHeader = false;
   int groupAvatarVersion = 1;
   final String groupId = 'group:${'1234abcd' * 4}';
+  List<Map<String, dynamic>>? sharedConversationsOverride;
+  List<Map<String, dynamic>>? eventsOverride;
 
   Uri get baseUri => Uri.parse('http://127.0.0.1:${_server.port}');
 
@@ -82,18 +84,49 @@ class _FakeGroupServer {
 
     if (request.method == 'GET' && path == '/chat/conversations') {
       await _json(request, 200, <String, dynamic>{
+        'items':
+            sharedConversationsOverride ??
+            <Map<String, dynamic>>[
+              <String, dynamic>{
+                'conversation': <String, dynamic>{
+                  'type': 'group',
+                  'id': groupId,
+                },
+                'group_number': '10000001',
+                'display_name': 'Alpha',
+                'last_message': null,
+                'last_activity_at': '2026-11-27T10:00:00Z',
+                'latest_position': 0,
+                'history_through': 0,
+                'membership_revision': 1,
+                'avatar_url': '/chat/groups/10000001/avatar.png',
+                'avatar_version': 'gv1',
+              },
+            ],
+        'next_cursor': null,
+      });
+      return;
+    }
+
+    if (request.method == 'GET' && path == '/conversations') {
+      await _json(request, 200, <String, dynamic>{
         'items': <Map<String, dynamic>>[
           <String, dynamic>{
-            'conversation': <String, dynamic>{'type': 'group', 'id': groupId},
-            'group_number': '10000001',
-            'display_name': 'Alpha',
-            'last_message': null,
-            'last_activity_at': '2026-11-27T10:00:00Z',
-            'latest_position': 0,
-            'history_through': 0,
-            'membership_revision': 1,
-            'avatar_url': '/chat/groups/10000001/avatar.png',
-            'avatar_version': 'gv1',
+            'peer_account': '10000002',
+            'last_message': <String, dynamic>{
+              'id': 'dm-1',
+              'position': 1,
+              'sender_account': '10000002',
+              'target_account': '10000001',
+              'created_at': '2026-11-27T09:50:00Z',
+              'kind': 'body',
+              'content': <Map<String, dynamic>>[
+                <String, dynamic>{'type': 'text', 'text': 'legacy dm'},
+              ],
+              'attachment': null,
+            },
+            'last_activity_at': '2026-11-27T09:50:00Z',
+            'latest_position': 1,
           },
         ],
         'next_cursor': null,
@@ -180,20 +213,23 @@ class _FakeGroupServer {
     }
 
     if (request.method == 'GET' && path == '/events') {
+      final List<Map<String, dynamic>> items =
+          eventsOverride ??
+          <Map<String, dynamic>>[
+            <String, dynamic>{
+              'version': 1,
+              'event_id': 7,
+              'type': 'conversation.access_changed',
+              'occurred_at': '2026-11-27T10:04:00Z',
+              'conversation': <String, dynamic>{'type': 'group', 'id': groupId},
+              'active': false,
+              'membership_revision': 2,
+              'history_through': 3,
+            },
+          ];
       await _json(request, 200, <String, dynamic>{
-        'items': <Map<String, dynamic>>[
-          <String, dynamic>{
-            'version': 1,
-            'event_id': 7,
-            'type': 'conversation.access_changed',
-            'occurred_at': '2026-11-27T10:04:00Z',
-            'conversation': <String, dynamic>{'type': 'group', 'id': groupId},
-            'active': false,
-            'membership_revision': 2,
-            'history_through': 3,
-          },
-        ],
-        'next_event_id': 7,
+        'items': items,
+        'next_event_id': items.isEmpty ? 0 : items.last['event_id'],
         'has_more': false,
       });
       return;
@@ -703,5 +739,306 @@ void main() {
       ),
     );
     expect(lateSource.invalidated, isTrue);
+  });
+
+  test('uses group_number from shared conversation list to load group profile while preserving direct chat shape', () async {
+    final SharedConversationService shared = SharedConversationService(
+      api: chatApi,
+      session: session,
+      access: access,
+    );
+    addTearDown(shared.dispose);
+    final GroupService groups = GroupService(
+      api: groupApi,
+      session: session,
+      avatarCache: AvatarCache(
+        directory: Directory('${tempDir.path}/group-avatars-profile'),
+      ),
+      access: access,
+    );
+
+    server.sharedConversationsOverride = <Map<String, dynamic>>[
+      <String, dynamic>{
+        'conversation': <String, dynamic>{
+          'type': 'direct',
+          'id': 'dm:10000001:10000002',
+        },
+        'peer_account': '10000002',
+        'display_name': 'Bob',
+        'last_message': <String, dynamic>{
+          'id': 'dm-1',
+          'position': 1,
+          'sender_account': '10000002',
+          'target_account': '10000001',
+          'created_at': '2026-11-27T09:50:00Z',
+          'kind': 'body',
+          'content': <Map<String, dynamic>>[
+            <String, dynamic>{'type': 'text', 'text': 'legacy dm'},
+          ],
+          'attachment': null,
+        },
+        'last_activity_at': '2026-11-27T09:50:00Z',
+        'latest_position': 1,
+      },
+      <String, dynamic>{
+        'conversation': <String, dynamic>{
+          'type': 'group',
+          'id': server.groupId,
+        },
+        'group_number': '10000001',
+        'display_name': 'Alpha',
+        'last_message': null,
+        'last_activity_at': '2026-11-27T10:00:00Z',
+        'latest_position': 0,
+        'history_through': 0,
+        'membership_revision': 1,
+        'avatar_url': '/chat/groups/10000001/avatar.png',
+        'avatar_version': 'gv1',
+      },
+    ];
+
+    final SharedConversationPage sharedPage = await shared
+        .listSharedConversations();
+    expect(sharedPage.items, hasLength(2));
+    final DirectConversationItem directItem =
+        sharedPage.items[0] as DirectConversationItem;
+    final GroupConversationItem groupItem =
+        sharedPage.items[1] as GroupConversationItem;
+    expect(directItem.peerAccount, '10000002');
+    expect(directItem.lastMessage.targetAccount, '10000001');
+    expect(groupItem.groupNumber, '10000001');
+    expect(shared.groupNumberFor('10000001', server.groupId), '10000001');
+
+    // Legacy private conversation list shape stays intact.
+    final ConversationRecordPage legacyConvs = await chatApi.conversations(
+      token: 'tok-alice',
+    );
+    expect(legacyConvs.items, hasLength(1));
+    expect(legacyConvs.items.single.peerAccount, '10000002');
+    expect(legacyConvs.items.single.lastMessage.targetAccount, '10000001');
+
+    // Query group profile via both SharedConversationService.loadGroupProfile
+    // and GroupService.findGroupForConversationItem using group_number.
+    final GroupProfile fromShared = await shared.loadGroupProfile(
+      conversation: groupItem.conversation,
+      groups: groups,
+    );
+    final GroupProfile fromItem = await groups.findGroupForConversationItem(
+      groupItem,
+    );
+    expect(fromShared.groupNumber, '10000001');
+    expect(fromShared.conversation, groupItem.conversation);
+    expect(fromItem.groupNumber, '10000001');
+
+    final List<
+      ({String method, String path, Map<String, dynamic>? body, String? query})
+    >
+    findCalls = server.requests
+        .where((r) => r.path == '/chat/groups/find')
+        .toList();
+    expect(findCalls, hasLength(2));
+    for (final call in findCalls) {
+      expect(call.body, <String, dynamic>{'group_number': '10000001'});
+    }
+
+    // Rejects direct conversation refs cleanly rather than hitting /chat/groups/find.
+    await expectLater(
+      () => shared.loadGroupProfile(
+        conversation: directItem.conversation,
+        groups: groups,
+      ),
+      throwsA(
+        isA<AuthFailure>().having((AuthFailure f) => f.status, 'status', 422),
+      ),
+    );
+  });
+
+  test('distinguishes pre-leave vs post-rejoin group message events by membership_revision and survives event replay', () async {
+    final SharedConversationService shared = SharedConversationService(
+      api: chatApi,
+      session: session,
+      access: access,
+    );
+    addTearDown(shared.dispose);
+    final GroupService groups = GroupService(
+      api: groupApi,
+      session: session,
+      avatarCache: AvatarCache(
+        directory: Directory('${tempDir.path}/group-avatars-replay'),
+      ),
+      access: access,
+    );
+
+    final ConversationRef groupRef = ConversationRef.group(server.groupId);
+
+    // 1. Sync active membership at revision 1 (history_through: 0), then receive
+    // a revision-1 group message and a legacy direct message.
+    await shared.listSharedConversations();
+    server.eventsOverride = <Map<String, dynamic>>[
+      <String, dynamic>{
+        'version': 1,
+        'event_id': 1,
+        'type': 'message.available',
+        'occurred_at': '2026-11-27T10:01:00Z',
+        'message_id': 'm-g-rev1',
+        'conversation': <String, dynamic>{
+          'type': 'group',
+          'id': server.groupId,
+        },
+        'membership_revision': 1,
+        'position': 2,
+      },
+      <String, dynamic>{
+        'version': 1,
+        'event_id': 2,
+        'type': 'message.available',
+        'occurred_at': '2026-11-27T10:01:30Z',
+        'message_id': 'm-dm-1',
+        'peer_account': '10000002',
+        'position': 4,
+      },
+    ];
+    final ServerEventPage initialEvents = await chatApi.events(
+      token: 'tok-alice',
+      includeGroups: true,
+    );
+    expect(
+      await shared.applyServerEvent('10000001', initialEvents.items[0]),
+      ServerEventDisposition.groupCurrentMessage,
+    );
+    expect(
+      await shared.applyServerEvent('10000001', initialEvents.items[1]),
+      ServerEventDisposition.directMessage,
+    );
+
+    // 2. Member leaves locally before access_changed arrives -> replaying rev=1
+    // event must NOT reactivate membership.
+    await groups.leaveGroup(conversation: groupRef);
+    expect(access.isRevoked('10000001', groupRef.id), isTrue);
+    expect(
+      await shared.applyServerEvent('10000001', initialEvents.items[0]),
+      ServerEventDisposition.revokedGroupMessage,
+    );
+    expect(access.isRevoked('10000001', groupRef.id), isTrue);
+
+    // 3. Server delivers access_changed(active: false, rev: 2), then user
+    // rejoins at rev: 3 with history_through: 5, followed by replay of old rev: 1,
+    // stale rev: 2 revoke, a pos=5 pre-rejoin boundary event, and a true
+    // post-rejoin rev: 3 pos=6 event + direct message.
+    server.eventsOverride = <Map<String, dynamic>>[
+      <String, dynamic>{
+        'version': 1,
+        'event_id': 3,
+        'type': 'conversation.access_changed',
+        'occurred_at': '2026-11-27T10:02:00Z',
+        'conversation': <String, dynamic>{
+          'type': 'group',
+          'id': server.groupId,
+        },
+        'active': false,
+        'membership_revision': 2,
+        'history_through': 0,
+      },
+      <String, dynamic>{
+        'version': 1,
+        'event_id': 4,
+        'type': 'conversation.access_changed',
+        'occurred_at': '2026-11-27T10:05:00Z',
+        'conversation': <String, dynamic>{
+          'type': 'group',
+          'id': server.groupId,
+        },
+        'active': true,
+        'membership_revision': 3,
+        'history_through': 5,
+      },
+      <String, dynamic>{
+        'version': 1,
+        'event_id': 5,
+        'type': 'message.available',
+        'occurred_at': '2026-11-27T10:01:00Z',
+        'message_id': 'm-g-rev1',
+        'conversation': <String, dynamic>{
+          'type': 'group',
+          'id': server.groupId,
+        },
+        'membership_revision': 1,
+        'position': 2,
+      },
+      <String, dynamic>{
+        'version': 1,
+        'event_id': 6,
+        'type': 'conversation.access_changed',
+        'occurred_at': '2026-11-27T10:02:00Z',
+        'conversation': <String, dynamic>{
+          'type': 'group',
+          'id': server.groupId,
+        },
+        'active': false,
+        'membership_revision': 2,
+        'history_through': 0,
+      },
+      <String, dynamic>{
+        'version': 1,
+        'event_id': 7,
+        'type': 'message.available',
+        'occurred_at': '2026-11-27T10:04:00Z',
+        'message_id': 'm-g-gap',
+        'conversation': <String, dynamic>{
+          'type': 'group',
+          'id': server.groupId,
+        },
+        'membership_revision': 3,
+        'position': 5,
+      },
+      <String, dynamic>{
+        'version': 1,
+        'event_id': 8,
+        'type': 'message.available',
+        'occurred_at': '2026-11-27T10:06:00Z',
+        'message_id': 'm-g-rev3',
+        'conversation': <String, dynamic>{
+          'type': 'group',
+          'id': server.groupId,
+        },
+        'membership_revision': 3,
+        'position': 6,
+      },
+      <String, dynamic>{
+        'version': 1,
+        'event_id': 9,
+        'type': 'message.available',
+        'occurred_at': '2026-11-27T10:06:30Z',
+        'message_id': 'm-dm-2',
+        'peer_account': '10000002',
+        'position': 5,
+      },
+    ];
+
+    final ServerEventPage replayPage = await chatApi.events(
+      token: 'tok-alice',
+      includeGroups: true,
+    );
+    final List<ServerEventDisposition> outcomes = <ServerEventDisposition>[];
+    for (final ServerEvent ev in replayPage.items) {
+      outcomes.add(await shared.applyServerEvent('10000001', ev));
+    }
+    expect(outcomes, <ServerEventDisposition>[
+      ServerEventDisposition.groupAccessRevoked, // event_id 3 (rev 2 revoke)
+      ServerEventDisposition.groupAccessGranted, // event_id 4 (rev 3 rejoin)
+      ServerEventDisposition
+          .staleGroupMessage, // event_id 5 (pre-leave rev 1 replay)
+      ServerEventDisposition
+          .staleAccessEvent, // event_id 6 (stale rev 2 revoke replay)
+      ServerEventDisposition
+          .staleGroupMessage, // event_id 7 (pos <= historyThrough)
+      ServerEventDisposition
+          .groupCurrentMessage, // event_id 8 (post-rejoin rev 3, pos 6)
+      ServerEventDisposition
+          .directMessage, // event_id 9 (legacy direct untouched)
+    ]);
+    expect(access.isRevoked('10000001', groupRef.id), isFalse);
+    expect(access.stateFor('10000001', groupRef.id)?.membershipRevision, 3);
+    expect(access.stateFor('10000001', groupRef.id)?.historyThrough, 5);
   });
 }
