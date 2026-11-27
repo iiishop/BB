@@ -237,8 +237,10 @@ test('group and business notices use one recovered batch with membership and act
   assert.deepEqual(summary.conversations, [groupSummary(3, 5)]);
   assert.deepEqual(summary.business_notices, {...page.business_notices, new_count: 2});
   membership = null;
-  const projected = {messages: [...f.sent]};
-  await f.n.beforeModel(projected);
+  await assert.rejects(f.n.beforeModel({messages: Object.freeze([...f.sent])}),
+    /group access changed during model admission/);
+  const projected = await f.n.prepareModelStep({kind: 'enter', messages: Object.freeze([...f.sent])});
+  await f.n.beforeModel({messages: Object.freeze(projected.messages)});
   const safe = JSON.parse(projected.messages[0].content[0].text);
   assert.deepEqual(safe.conversations, []);
   assert.equal(safe.business_notices.pending_count, 2);

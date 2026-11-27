@@ -67,11 +67,10 @@ export class Bridge {
       name: "bb-chat-consumption",
       apply(ctx) {
         ctx.on("agent/pre-step", async (p, next) => {
-          if (p.agent === self.agent) {
-            self.turn = p.turn;
-            await self.check();
-          }
-          return next();
+          if (p.agent !== self.agent) return next();
+          self.turn = p.turn;
+          await self.check();
+          return self.notifications.prepareModelStep(await next());
         });
         ctx.on("llm/stream", async function* (options, next) {
           if (options.sessionId !== self.agent.session.id) {

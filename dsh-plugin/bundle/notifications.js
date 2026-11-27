@@ -116,30 +116,51 @@ export class Notifications {
         ? value : null;
     } catch { return null; }
   }
-  async beforeModel(options) {
-    const notices = options.messages.flatMap(message => {
+  project(message, value, revisions) {
+    const current = this.filterActiveGroups(value.conversations, revisions);
+    if (current.length === value.conversations.length) return message;
+    value.conversations = current;
+    delete value.omitted_groups;
+    return {...message, content: [{type: "text", text: JSON.stringify(value)}]};
+  }
+  async prepareModelStep(decision) {
+    if (decision.kind !== "enter") return decision;
+    const {session} = this.bridge.agent;
+    const nodes = new Set(session.surface?.nodes ?? []);
+    const projected = session.snapshotEvents().filter(event =>
+      event.type === "user/message" && nodes.has(event.seq) && this.owned(event.data));
+    const groups = [...projected.map(event => event.data), ...decision.messages]
+      .flatMap(message => this.owned(message)?.conversations ?? []);
+    if (!groups.some(item => item.conversation.type === "group")) return decision;
+    const revisions = await this.activeGroupRevisions(groups);
+    await this.bridge.check();
+    // DSH freezes the request surface before calling llm/stream. Use the
+    // public pre-step and session surface APIs to change what it assembles.
+    for (const event of projected) {
+      const safe = this.project(event.data, this.owned(event.data), revisions);
+      if (safe === event.data) continue;
+      session.append("user/message", safe, {
+        surfaceOp: {op: "replace", startSeq: event.seq, endSeq: event.seq},
+        sourceEventSeqs: [event.seq],
+      });
+    }
+    return {...decision, messages: decision.messages.map(message => {
       const value = this.owned(message);
-      return value ? [{message, value}] : [];
-    });
+      return value ? this.project(message, value, revisions) : message;
+    })};
+  }
+  async beforeModel(options) {
+    const notices = options.messages.map(message => this.owned(message)).filter(Boolean);
     if (!notices.length) return;
-    // Protocol 2 invariant: no provider/tool side effect can precede durable
-    // native input evidence. Absence after restoring the same incarnation is
-    // then proof of no model exposure, not a guessed unsuccessful dispatch.
+    // Protocol 2 invariant: persistence of native evidence precedes exposure.
     await this.bridge.check();
     await this.bridge.flush();
     await this.bridge.checkpoint("notification-visible");
-    const revisions = await this.activeGroupRevisions(notices.flatMap(({value}) => value.conversations));
+    const items = notices.flatMap(value => value.conversations);
+    const revisions = await this.activeGroupRevisions(items);
     await this.bridge.check();
-    for (const {message, value} of notices) {
-      const current = this.filterActiveGroups(value.conversations, revisions);
-      if (current.length === value.conversations.length) continue;
-      value.conversations = current;
-      delete value.omitted_groups;
-      // Replace the model projection only. The session remains evidence of
-      // native acceptance even if a membership later ends.
-      const index = options.messages.indexOf(message);
-      options.messages[index] = {...message, content: [{type: "text", text: JSON.stringify(value)}]};
-    }
+    if (this.filterActiveGroups(items, revisions).length !== items.length)
+      throw new Error("BB group access changed during model admission");
   }
   async resumePending() {
     const b = this.bridge, agent = b.agent;
