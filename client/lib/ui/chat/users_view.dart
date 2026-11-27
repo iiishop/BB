@@ -128,6 +128,7 @@ class _UsersListViewState extends State<UsersListView> {
   bool _loading = true;
   String? _error;
   Timer? _refreshTimer;
+  StreamSubscription<void>? _displayedSub;
   bool _inFlight = false;
 
   /// Set when a refresh is requested while a directory read is still running
@@ -180,6 +181,9 @@ class _UsersListViewState extends State<UsersListView> {
     widget.presence?.addListener(_onPresenceChanged);
     widget.onlineFilter?.addListener(_onFilterChanged);
     widget.shared?.access.addListener(_onAccessOrRefreshTriggered);
+    _displayedSub = widget.shared?.displayedChanges.listen((_) {
+      _onDisplayedChanged();
+    });
     widget.refreshTrigger?.addListener(_onAccessOrRefreshTriggered);
     unawaited(_load());
     _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
@@ -200,6 +204,12 @@ class _UsersListViewState extends State<UsersListView> {
       oldWidget.shared?.access.removeListener(_onAccessOrRefreshTriggered);
       widget.shared?.access.addListener(_onAccessOrRefreshTriggered);
     }
+    if (oldWidget.shared != widget.shared) {
+      unawaited(_displayedSub?.cancel());
+      _displayedSub = widget.shared?.displayedChanges.listen((_) {
+        _onDisplayedChanged();
+      });
+    }
     if (oldWidget.refreshTrigger != widget.refreshTrigger) {
       oldWidget.refreshTrigger?.removeListener(_onAccessOrRefreshTriggered);
       widget.refreshTrigger?.addListener(_onAccessOrRefreshTriggered);
@@ -211,9 +221,19 @@ class _UsersListViewState extends State<UsersListView> {
     widget.presence?.removeListener(_onPresenceChanged);
     widget.onlineFilter?.removeListener(_onFilterChanged);
     widget.shared?.access.removeListener(_onAccessOrRefreshTriggered);
+    unawaited(_displayedSub?.cancel());
+    _displayedSub = null;
     widget.refreshTrigger?.removeListener(_onAccessOrRefreshTriggered);
     _refreshTimer?.cancel();
     super.dispose();
+  }
+
+  void _onDisplayedChanged() {
+    if (!mounted) {
+      return;
+    }
+    _unreadDirty = true;
+    unawaited(_refreshUnread());
   }
 
   void _onAccessOrRefreshTriggered() {
@@ -260,12 +280,22 @@ class _UsersListViewState extends State<UsersListView> {
     _unreadDirty = false;
     final Map<String, String?> covered = _knownPreviews;
     try {
-      final Map<String, int> unread = await widget.chat.incomingUnreadByPeer();
+      final Map<String, int> unread = Map<String, int>.from(
+        await widget.chat.incomingUnreadByPeer(),
+      );
+      if (widget.shared != null && _groups.isNotEmpty) {
+        unread.addAll(
+          await widget.shared!.incomingUnreadByGroup(
+            groups: List<GroupConversationItem>.of(_groups),
+            ledger: widget.chat.ledger,
+          ),
+        );
+      }
       if (!mounted) {
         return;
       }
       setState(() {
-        _unread = unread;
+        _unread = Map<String, int>.unmodifiable(unread);
         _coveredPreviews = covered;
       });
       _unreadRetryNow = _unreadRetryNow || _previewsDifferFromCovered();
@@ -425,8 +455,11 @@ class _UsersListViewState extends State<UsersListView> {
         // contains; share it so an open conversation cannot keep a stale
         // header. The ticket makes an older read lose.
         presence?.seed(users, observation: observation);
-        _knownPreviews = {
-          for (final user in users) user.account: user.lastMessage?.id,
+        _knownPreviews = <String, String?>{
+          for (final ChatUser user in users) user.account: user.lastMessage?.id,
+          for (final GroupConversationItem group in groups)
+            'group:${group.conversation.id}:${group.membershipRevision}':
+                '${group.latestPosition}:${group.historyThrough}',
         };
         if (_unreadDirty || _previewsDifferFromCovered()) {
           unawaited(_refreshUnread());
@@ -674,6 +707,7 @@ class _UsersListViewState extends State<UsersListView> {
                 return _GroupRow(
                   key: UsersListView.groupRowKey(entry.conversation.id),
                   group: entry,
+                  unread: _unread[entry.conversation.id] ?? 0,
                   groups: widget.groups,
                   selfAccount: widget.chat.selfAccount,
                   current:
@@ -1038,6 +1072,7 @@ class _GroupRow extends StatefulWidget {
   const _GroupRow({
     super.key,
     required this.group,
+    required this.unread,
     required this.selfAccount,
     required this.current,
     required this.compact,
@@ -1046,6 +1081,7 @@ class _GroupRow extends StatefulWidget {
   });
 
   final GroupConversationItem group;
+  final int unread;
   final GroupService? groups;
   final String selfAccount;
   final bool current;
@@ -1127,6 +1163,7 @@ class _GroupRowState extends State<_GroupRow> {
   @override
   Widget build(BuildContext context) {
     final TextTheme text = Theme.of(context).textTheme;
+    final String? unreadLabel = unreadBadgeLabel(widget.unread);
     final double avatarSize = widget.compact ? 46 : 50;
     final double avatarGap = widget.compact ? AppSpacing.sm : AppSpacing.sm + 2;
     final double notePaddingVertical = widget.compact
@@ -1197,13 +1234,36 @@ class _GroupRowState extends State<_GroupRow> {
             ],
           ),
           const SizedBox(height: 5),
-          Text(
-            _previewLabel(widget.group.lastMessage),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: text.bodyMedium?.copyWith(
-              fontSize: 14,
-              color: AppColors.inkMuted,
+          LayoutBuilder(
+            builder: (BuildContext context, BoxConstraints constraints) => Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: <Widget>[
+                Expanded(
+                  child: Padding(
+                    padding: EdgeInsets.only(
+                      right: unreadLabel == null ? 0 : AppSpacing.sm,
+                    ),
+                    child: Text(
+                      _previewLabel(widget.group.lastMessage),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: text.bodyMedium?.copyWith(
+                        fontSize: 14,
+                        color: AppColors.inkMuted,
+                      ),
+                    ),
+                  ),
+                ),
+                if (unreadLabel != null)
+                  ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: constraints.maxWidth),
+                    child: _UnreadBadge(
+                      count: widget.unread,
+                      label: unreadLabel,
+                      account: widget.group.conversation.id,
+                    ),
+                  ),
+              ],
             ),
           ),
         ],

@@ -16,6 +16,7 @@ import 'auth_session.dart';
 import 'avatar_cache.dart';
 import 'avatar_source.dart';
 import 'chat_api_client.dart';
+import 'chat_ledger.dart';
 import 'chat_service.dart';
 import 'client_identity.dart';
 import 'conversation_access.dart';
@@ -397,6 +398,37 @@ class GroupService {
     return page;
   }
 
+  /// Finds a specific general [Notice] by its durable [notificationId] (e.g.
+  /// from a `notification.available` server event), paging until found.
+  Future<Notice?> findNoticeById(
+    String notificationId, {
+    NoticeFilter filter = NoticeFilter.all,
+    AuthIdentity? captured,
+  }) async {
+    if (!opaqueIdPattern.hasMatch(notificationId)) {
+      throw _validation('notification_id', '通知 ID 格式无效');
+    }
+    final AuthIdentity identity = _requireIdentity(captured);
+    String? cursor;
+    while (true) {
+      final NoticePage page = await listNotices(
+        filter: filter,
+        cursor: cursor,
+        limit: 100,
+        captured: identity,
+      );
+      for (final Notice item in page.items) {
+        if (item.id == notificationId) {
+          return item;
+        }
+      }
+      if (page.nextCursor == null) {
+        return null;
+      }
+      cursor = page.nextCursor;
+    }
+  }
+
   Future<Notice> markNoticeRead(
     String notificationId, {
     AuthIdentity? captured,
@@ -563,6 +595,7 @@ enum ServerEventDisposition {
   groupAccessGranted,
   groupAccessRevoked,
   staleAccessEvent,
+  notificationAvailable,
 }
 
 /// Pure-Dart shared conversation queries & revocable media byte store.
@@ -590,6 +623,10 @@ class SharedConversationService {
   final Map<String, Attachment> _metadataCache = <String, Attachment>{};
   final Map<String, Set<String>> _scopeMedia = <String, Set<String>>{};
   final Map<String, String> _groupNumbers = <String, String>{};
+  final StreamController<void> _displayedChanges =
+      StreamController<void>.broadcast();
+
+  Stream<void> get displayedChanges => _displayedChanges.stream;
 
   void dispose() {
     access.unregisterPurger(_purgeMemoryForConversation);
@@ -598,6 +635,9 @@ class SharedConversationService {
     _metadataCache.clear();
     _scopeMedia.clear();
     _groupNumbers.clear();
+    if (!_displayedChanges.isClosed) {
+      unawaited(_displayedChanges.close());
+    }
   }
 
   String? groupNumberFor(String account, String conversationId) =>
@@ -695,6 +735,149 @@ class SharedConversationService {
       throw upstreamMalformed;
     }
     return profile;
+  }
+
+  /// Computes account-level incoming unread counts per shared group from the
+  /// sole [ChatLedger] confirmed display receipts, counting only post-join
+  /// (`position > historyThrough`) non-system inbound messages from others.
+  Future<Map<String, int>> incomingUnreadByGroup({
+    required Iterable<GroupConversationItem> groups,
+    required ChatLedger ledger,
+    AuthIdentity? captured,
+  }) async {
+    final AuthIdentity identity = _requireIdentity(captured);
+    final Set<String> displayed = await ledger.displayedMessageIds(
+      identity.account,
+    );
+    final Map<String, int> counts = <String, int>{};
+    for (final GroupConversationItem group in groups) {
+      final String convId = group.conversation.id;
+      if (group.latestPosition <= group.historyThrough ||
+          access.isRevoked(identity.account, convId)) {
+        counts[convId] = 0;
+        continue;
+      }
+      int unread = 0;
+      int position = group.historyThrough;
+      try {
+        while (position < group.latestPosition) {
+          final MessagePage page = await loadConversationHistory(
+            conversation: group.conversation,
+            afterPosition: position,
+            limit: 100,
+            captured: identity,
+          );
+          for (final ChatMessage message in page.items) {
+            if (message.position > group.latestPosition) {
+              break;
+            }
+            if (message.position <= group.historyThrough ||
+                message.isSystem ||
+                message.senderAccount == identity.account ||
+                displayed.contains(message.id)) {
+              continue;
+            }
+            unread += 1;
+          }
+          if (!page.hasMore || page.nextPosition <= position) {
+            break;
+          }
+          position = page.nextPosition;
+        }
+      } on AuthFailure catch (failure) {
+        if (failure.status == 401 || failure == staleIdentity) {
+          rethrow;
+        }
+      }
+      counts[convId] = unread;
+    }
+    if (!session.isCurrent(identity)) {
+      throw staleIdentity;
+    }
+    return Map<String, int>.unmodifiable(counts);
+  }
+
+  /// Records exact display confirmations in [ledger] for post-join inbound group
+  /// messages that the human UI actually rendered.
+  Future<int> recordGroupDisplayedIncoming({
+    required GroupConversationItem group,
+    required ChatLedger ledger,
+    required Iterable<ChatMessage> messages,
+    AuthIdentity? captured,
+  }) async {
+    final AuthIdentity identity = _requireIdentity(captured);
+    if (!group.conversation.isGroup) {
+      throw GroupService._validation('conversation', '需要群会话 ID');
+    }
+    if (access.isRevoked(identity.account, group.conversation.id)) {
+      return 0;
+    }
+    final List<ChatMessage> inbound = <ChatMessage>[
+      for (final ChatMessage message in messages)
+        if (!message.isSystem &&
+            message.senderAccount != identity.account &&
+            message.position > group.historyThrough &&
+            (message.conversation == null ||
+                message.conversation == group.conversation))
+          message,
+    ];
+    if (inbound.isEmpty) {
+      return 0;
+    }
+    final ConsumerBinding binding = await ledger.bindConsumer(
+      account: identity.account,
+      authGeneration: identity.authGeneration,
+      consumerSession: 'human:${identity.account}',
+      allowGenerationRotation: true,
+    );
+    final Set<String> displayed = await ledger.displayedMessageIds(
+      identity.account,
+    );
+    final String peerKey =
+        '${group.conversation.id}@${group.membershipRevision}';
+    final List<String> receiptIds = <String>[];
+    for (final ChatMessage message in inbound) {
+      if (displayed.contains(message.id)) {
+        continue;
+      }
+      final String parts = message.kind == ChatMessageKind.body
+          ? MessagePart.digestOf(message.parts)
+          : 'attachment:${message.attachment?.mediaId ?? ''}';
+      final String digest = sha256Hex(
+        utf8.encode(
+          <String>[
+            message.id,
+            '${message.position}',
+            message.kind.wire,
+            parts,
+          ].join('\u0001'),
+        ),
+      );
+      final PresentationReceipt receipt = await ledger.prepareReceipt(
+        account: identity.account,
+        consumerId: binding.consumerId,
+        consumerSession: 'human:${identity.account}',
+        peerAccount: peerKey,
+        messageId: message.id,
+        position: message.position,
+        contentDigest: digest,
+      );
+      receiptIds.add(receipt.receiptId);
+    }
+    if (receiptIds.isEmpty) {
+      return 0;
+    }
+    final List<String> confirmed = await ledger.confirmReceipts(
+      account: identity.account,
+      receiptIds: receiptIds,
+    );
+    if (!session.isCurrent(identity)) {
+      throw staleIdentity;
+    }
+    if (confirmed.isNotEmpty && !_displayedChanges.isClosed) {
+      _displayedChanges.add(null);
+    }
+    return confirmed.length;
   }
 
   Future<MessagePage> loadConversationHistory({
@@ -1094,13 +1277,17 @@ class SharedConversationService {
     }
   }
 
-  /// Applies a server event (`conversation.access_changed`, group
-  /// `message.available` with `membership_revision`, or direct
-  /// `message.available`) and reports its [ServerEventDisposition].
+  /// Applies a server event (`notification.available`,
+  /// `conversation.access_changed`, group `message.available` with
+  /// `membership_revision`, or direct `message.available`) and reports its
+  /// [ServerEventDisposition].
   Future<ServerEventDisposition> applyServerEvent(
     String account,
     ServerEvent event,
   ) async {
+    if (event.isNotificationAvailable) {
+      return ServerEventDisposition.notificationAvailable;
+    }
     final ConversationRef? conv = event.conversation;
     if (conv == null) {
       return ServerEventDisposition.directMessage;

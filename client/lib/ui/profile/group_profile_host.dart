@@ -1,6 +1,6 @@
 import 'dart:async';
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../app.dart';
@@ -126,6 +126,7 @@ class NotificationCenterHost extends StatefulWidget {
     this.chat,
     this.profile,
     this.active = true,
+    this.refreshTrigger,
     this.onOpenDirectChat,
     this.onGroupsChanged,
     this.onSessionExpired,
@@ -135,6 +136,7 @@ class NotificationCenterHost extends StatefulWidget {
   final ChatService? chat;
   final ProfileGateway? profile;
   final bool active;
+  final ValueListenable<int>? refreshTrigger;
   final Future<void> Function(ChatUser user)? onOpenDirectChat;
   final VoidCallback? onGroupsChanged;
   final VoidCallback? onSessionExpired;
@@ -149,15 +151,32 @@ class NotificationCenterHostState extends State<NotificationCenterHost> {
   String? _error;
   bool _busyAction = false;
 
+  void _onRefreshSignal() {
+    if (mounted) {
+      unawaited(reload(silent: true));
+    }
+  }
+
   @override
   void initState() {
     super.initState();
+    widget.refreshTrigger?.addListener(_onRefreshSignal);
     unawaited(reload());
+  }
+
+  @override
+  void dispose() {
+    widget.refreshTrigger?.removeListener(_onRefreshSignal);
+    super.dispose();
   }
 
   @override
   void didUpdateWidget(covariant NotificationCenterHost oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.refreshTrigger != widget.refreshTrigger) {
+      oldWidget.refreshTrigger?.removeListener(_onRefreshSignal);
+      widget.refreshTrigger?.addListener(_onRefreshSignal);
+    }
     if (!oldWidget.active && widget.active) {
       unawaited(reload(silent: true));
     }

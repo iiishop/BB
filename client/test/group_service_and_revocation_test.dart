@@ -58,6 +58,7 @@ class _FakeGroupServer {
   final String groupId = 'group:${'1234abcd' * 4}';
   List<Map<String, dynamic>>? sharedConversationsOverride;
   List<Map<String, dynamic>>? eventsOverride;
+  List<Map<String, dynamic>> noticesOverride = <Map<String, dynamic>>[];
 
   Uri get baseUri => Uri.parse('http://127.0.0.1:${_server.port}');
 
@@ -343,10 +344,10 @@ class _FakeGroupServer {
       }
       if (path == '/chat/notices/list') {
         await _json(request, 200, <String, dynamic>{
-          'items': <Map<String, dynamic>>[],
+          'items': noticesOverride,
           'next_cursor': null,
-          'unread_count': 0,
-          'pending_count': 0,
+          'unread_count': noticesOverride.length,
+          'pending_count': noticesOverride.length,
         });
         return;
       }
@@ -1013,6 +1014,13 @@ void main() {
         'peer_account': '10000002',
         'position': 5,
       },
+      <String, dynamic>{
+        'version': 1,
+        'event_id': 10,
+        'type': 'notification.available',
+        'occurred_at': '2026-11-27T10:07:00Z',
+        'notification_id': 'n-app-1',
+      },
     ];
 
     final ServerEventPage replayPage = await chatApi.events(
@@ -1036,6 +1044,35 @@ void main() {
           .groupCurrentMessage, // event_id 8 (post-rejoin rev 3, pos 6)
       ServerEventDisposition
           .directMessage, // event_id 9 (legacy direct untouched)
+      ServerEventDisposition
+          .notificationAvailable, // event_id 10 (notification.available)
+    ]);
+    final ServerEvent noticeEvent = replayPage.items.last;
+    expect(noticeEvent.isNotificationAvailable, isTrue);
+    expect(noticeEvent.notificationId, 'n-app-1');
+    server.noticesOverride = <Map<String, dynamic>>[
+      <String, dynamic>{
+        'id': 'n-app-1',
+        'type': 'group_application',
+        'title': '入群申请',
+        'text': 'Charlie 申请加入群',
+        'created_at': '2026-11-27T10:07:00Z',
+        'read': false,
+        'state': 'pending',
+        'actions': <Map<String, dynamic>>[
+          <String, dynamic>{'id': 'approve', 'label': '同意', 'available': true},
+          <String, dynamic>{'id': 'reject', 'label': '拒绝', 'available': true},
+        ],
+        'link': <String, dynamic>{'type': 'group', 'id': '10000001'},
+      },
+    ];
+    final Notice? notice = await groups.findNoticeById(
+      noticeEvent.notificationId,
+    );
+    expect(notice?.id, 'n-app-1');
+    expect(notice?.actions.map((NoticeAction a) => a.id).toList(), <String>[
+      'approve',
+      'reject',
     ]);
     expect(access.isRevoked('10000001', groupRef.id), isFalse);
     expect(access.stateFor('10000001', groupRef.id)?.membershipRevision, 3);

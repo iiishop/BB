@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 import 'dart:math' as math;
 
@@ -121,7 +123,11 @@ class _HomeViewState extends State<HomeView>
   String? _selectedAccount;
   String? _selectedConversationId;
   final ValueNotifier<int> _groupsRefresh = ValueNotifier<int>(0);
+  final ValueNotifier<int> _noticesRefresh = ValueNotifier<int>(0);
   Timer? _groupEventsTimer;
+  WebSocket? _groupEventsSocket;
+  StreamSubscription<dynamic>? _groupEventsSub;
+  bool _groupSocketConnecting = false;
   int _lastGroupEventId = 0;
   bool _groupEventsInFlight = false;
 
@@ -145,9 +151,16 @@ class _HomeViewState extends State<HomeView>
     _followStore = _buildFollowStore();
     if (widget.shared != null) {
       unawaited(_pollGroupEvents());
+      unawaited(_ensureGroupEventSocket());
       _groupEventsTimer = Timer.periodic(const Duration(seconds: 3), (_) {
-        if (mounted && !_groupEventsInFlight) {
+        if (!mounted) {
+          return;
+        }
+        if (!_groupEventsInFlight) {
           unawaited(_pollGroupEvents());
+        }
+        if (_groupEventsSocket == null && !_groupSocketConnecting) {
+          unawaited(_ensureGroupEventSocket());
         }
       });
     }
@@ -168,10 +181,15 @@ class _HomeViewState extends State<HomeView>
   void dispose() {
     widget.heartbeat.removeListener(_onHeartbeatChanged);
     _groupEventsTimer?.cancel();
+    unawaited(_groupEventsSub?.cancel());
+    unawaited(_groupEventsSocket?.close());
+    _groupEventsSub = null;
+    _groupEventsSocket = null;
     _presence?.dispose();
     _followStore?.dispose();
     _onlineFilter.dispose();
     _groupsRefresh.dispose();
+    _noticesRefresh.dispose();
     _foldController.dispose();
     super.dispose();
   }
@@ -179,6 +197,91 @@ class _HomeViewState extends State<HomeView>
   void _bumpGroupsRefresh() {
     if (mounted) {
       _groupsRefresh.value += 1;
+    }
+  }
+
+  void _bumpNoticesRefresh() {
+    if (mounted) {
+      _noticesRefresh.value += 1;
+    }
+  }
+
+  Future<void> _applySharedEvent(String account, ServerEvent event) async {
+    final SharedConversationService? shared = widget.shared;
+    if (shared == null || event.eventId <= _lastGroupEventId) {
+      return;
+    }
+    _lastGroupEventId = event.eventId;
+    final ServerEventDisposition disposition = await shared.applyServerEvent(
+      account,
+      event,
+    );
+    switch (disposition) {
+      case ServerEventDisposition.notificationAvailable:
+        _bumpNoticesRefresh();
+      case ServerEventDisposition.groupAccessGranted:
+      case ServerEventDisposition.groupAccessRevoked:
+      case ServerEventDisposition.groupCurrentMessage:
+        _bumpGroupsRefresh();
+      case ServerEventDisposition.directMessage:
+      case ServerEventDisposition.staleGroupMessage:
+      case ServerEventDisposition.revokedGroupMessage:
+      case ServerEventDisposition.staleAccessEvent:
+        break;
+    }
+  }
+
+  Future<void> _ensureGroupEventSocket() async {
+    final SharedConversationService? shared = widget.shared;
+    final AuthIdentity? identity = shared?.session.identity;
+    if (shared == null ||
+        identity == null ||
+        _groupSocketConnecting ||
+        _groupEventsSocket != null ||
+        !mounted) {
+      return;
+    }
+    _groupSocketConnecting = true;
+    try {
+      final WebSocket socket = await shared.api.connectAllEvents(
+        identity.token,
+        includeGroups: true,
+      );
+      if (!mounted || !shared.session.isCurrent(identity)) {
+        await socket.close();
+        return;
+      }
+      _groupEventsSocket = socket;
+      _groupEventsSub = socket.listen(
+        (dynamic raw) {
+          if (!mounted || !shared.session.isCurrent(identity)) {
+            return;
+          }
+          if (raw is String) {
+            try {
+              final ServerEvent event = ServerEvent.fromJson(jsonDecode(raw));
+              unawaited(_applySharedEvent(identity.account, event));
+              return;
+            } catch (_) {
+              // Fall back to HTTP event replay with shared cursor below.
+            }
+          }
+          unawaited(_pollGroupEvents());
+        },
+        onError: (_) {
+          _groupEventsSub = null;
+          _groupEventsSocket = null;
+        },
+        onDone: () {
+          _groupEventsSub = null;
+          _groupEventsSocket = null;
+        },
+        cancelOnError: true,
+      );
+    } catch (_) {
+      // Best-effort hint socket; HTTP /events?include_groups=true polling stays active.
+    } finally {
+      _groupSocketConnecting = false;
     }
   }
 
@@ -200,10 +303,7 @@ class _HomeViewState extends State<HomeView>
           includeGroups: true,
         );
         for (final ServerEvent event in page.items) {
-          await shared.applyServerEvent(identity.account, event);
-          if (event.eventId > _lastGroupEventId) {
-            _lastGroupEventId = event.eventId;
-          }
+          await _applySharedEvent(identity.account, event);
         }
         if (!page.hasMore || page.nextEventId <= _lastGroupEventId) {
           if (page.nextEventId > _lastGroupEventId) {
@@ -859,6 +959,7 @@ class _HomeViewState extends State<HomeView>
                                 chat: widget.chat,
                                 profile: widget.profile,
                                 active: _section == 2,
+                                refreshTrigger: _noticesRefresh,
                                 onOpenDirectChat: _openChat,
                                 onGroupsChanged: _bumpGroupsRefresh,
                                 onSessionExpired: widget.onSessionExpired,

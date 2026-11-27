@@ -980,14 +980,49 @@ class _ChatPageState extends State<ChatPage> {
     if (!_canConfirmDisplayed || _pendingDisplayed.isEmpty) {
       return;
     }
-    if (_isGroup) {
-      _pendingDisplayed.clear();
-      return;
-    }
     final List<ChatMessage> batch = List<ChatMessage>.of(
       _pendingDisplayed.values,
     );
     _pendingDisplayed.clear();
+    if (_isGroup) {
+      final GroupConversationItem? group = widget.group;
+      final SharedConversationService? shared = widget.shared;
+      if (group == null || shared == null) {
+        return;
+      }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!_canConfirmDisplayed) {
+          for (final ChatMessage message in batch) {
+            _pendingDisplayed[message.identity] = message;
+          }
+          return;
+        }
+        unawaited(
+          shared
+              .recordGroupDisplayedIncoming(
+                group: group,
+                ledger: widget.chat.ledger,
+                messages: batch,
+              )
+              .then<void>((int confirmed) {
+                if (confirmed > 0 && mounted) {
+                  widget.onGroupsChanged?.call();
+                }
+              })
+              .catchError((Object _) {
+                if (mounted) {
+                  for (final ChatMessage message in batch) {
+                    _pendingDisplayed.putIfAbsent(
+                      message.identity,
+                      () => message,
+                    );
+                  }
+                }
+              }),
+        );
+      });
+      return;
+    }
     unawaited(
       widget.chat
           .recordDisplayedIncoming(

@@ -74,7 +74,10 @@ class _UiSocialServer {
   String group1Name = 'Alpha群';
   String group1Desc = '初始简介';
   GroupRole? selfRole = GroupRole.owner;
+  int group1HistoryThrough = 0;
+  int noticeListCalls = 0;
   bool accessRevokedEventPending = false;
+  bool mixedEventsPagePending = false;
   bool inviteNoticeAccepted = false;
   bool inviteNoticeRead = false;
 
@@ -175,6 +178,13 @@ class _UiSocialServer {
       });
       return;
     }
+    if (request.method == 'GET' && path == '/conversations') {
+      await _json(request, 200, <String, dynamic>{
+        'items': const <Object>[],
+        'next_cursor': null,
+      });
+      return;
+    }
     if (request.method == 'GET' && path == '/conversations/10000002/messages') {
       await _json(request, 200, <String, dynamic>{
         'items': const <Object>[],
@@ -193,7 +203,7 @@ class _UiSocialServer {
             'last_message': null,
             'last_activity_at': '2026-11-27T11:00:00Z',
             'latest_position': group1Messages.length,
-            'history_through': 0,
+            'history_through': group1HistoryThrough,
             'membership_revision': 1,
             'avatar_url': '/chat/groups/10000001/avatar.png',
             'avatar_version': 'gv1',
@@ -262,7 +272,29 @@ class _UiSocialServer {
     }
     if (request.method == 'GET' && path == '/events') {
       final List<Map<String, dynamic>> events = <Map<String, dynamic>>[];
-      if (accessRevokedEventPending) {
+      int nextEventId = 0;
+      if (mixedEventsPagePending) {
+        mixedEventsPagePending = false;
+        selfRole = null;
+        events.add(<String, dynamic>{
+          'version': 1,
+          'event_id': 2,
+          'type': 'notification.available',
+          'occurred_at': '2026-11-27T11:11:00Z',
+          'notification_id': 'notice-invite-1',
+        });
+        events.add(<String, dynamic>{
+          'version': 1,
+          'event_id': 7,
+          'type': 'conversation.access_changed',
+          'occurred_at': '2026-11-27T11:12:00Z',
+          'conversation': <String, dynamic>{'type': 'group', 'id': group1Id},
+          'active': false,
+          'membership_revision': 2,
+          'history_through': 2,
+        });
+        nextEventId = 7;
+      } else if (accessRevokedEventPending) {
         accessRevokedEventPending = false;
         selfRole = null;
         events.add(<String, dynamic>{
@@ -275,10 +307,11 @@ class _UiSocialServer {
           'membership_revision': 2,
           'history_through': 2,
         });
+        nextEventId = 1;
       }
       await _json(request, 200, <String, dynamic>{
         'items': events,
-        'next_event_id': events.isEmpty ? 0 : 1,
+        'next_event_id': nextEventId,
         'has_more': false,
       });
       return;
@@ -383,6 +416,7 @@ class _UiSocialServer {
       return;
     }
     if (request.method == 'POST' && path == '/chat/notices/list') {
+      noticeListCalls += 1;
       await _json(request, 200, <String, dynamic>{
         'items': <Map<String, dynamic>>[
           <String, dynamic>{
@@ -739,7 +773,7 @@ void main() {
       expect(find.text('Bob'), findsWidgets);
       expect(find.text('在线'), findsOneWidget);
       await tester.pumpWidget(const SizedBox.shrink());
-      await tester.pump(const Duration(seconds: 20));
+      await tester.pump(const Duration(seconds: 35));
     },
   );
 
@@ -792,7 +826,7 @@ void main() {
       expect(find.text('该群已解散'), findsOneWidget);
       expect(find.text('申请加入'), findsNothing);
       await tester.pumpWidget(const SizedBox.shrink());
-      await tester.pump(const Duration(seconds: 20));
+      await tester.pump(const Duration(seconds: 35));
     },
   );
 
@@ -886,7 +920,153 @@ void main() {
         findsNothing,
       );
       await tester.pumpWidget(const SizedBox.shrink());
-      await tester.pump(const Duration(seconds: 20));
+      await tester.pump(const Duration(seconds: 35));
+    },
+  );
+
+  testWidgets(
+    'A5/A7/A8/§8: group unread badge excludes historyThrough, confirms display after visible, and mixed event page refreshes notices + revokes access',
+    (WidgetTester tester) async {
+      server.createdGroup1 = true;
+      server.group1HistoryThrough = 1;
+      server.group1Messages
+        ..clear()
+        ..addAll(<Map<String, dynamic>>[
+          <String, dynamic>{
+            'id': 'g1-pre',
+            'position': 1,
+            'sender_account': '10000002',
+            'sender_username': 'Bob',
+            'conversation': <String, dynamic>{
+              'type': 'group',
+              'id': server.group1Id,
+            },
+            'created_at': '2026-11-27T09:55:00Z',
+            'kind': 'body',
+            'content': <Map<String, dynamic>>[
+              <String, dynamic>{'type': 'text', 'text': 'pre-join old'},
+            ],
+            'attachment': null,
+          },
+          <String, dynamic>{
+            'id': 'g1-sys',
+            'position': 2,
+            'created_at': '2026-11-27T10:00:00Z',
+            'kind': 'system',
+            'conversation': <String, dynamic>{
+              'type': 'group',
+              'id': server.group1Id,
+            },
+            'system': <String, dynamic>{
+              'type': 'member.joined',
+              'account': '10000001',
+              'username': 'Alice',
+            },
+            'text': 'Alice 加入了群聊',
+          },
+          <String, dynamic>{
+            'id': 'g1-post',
+            'position': 3,
+            'sender_account': '10000002',
+            'sender_username': 'Bob',
+            'conversation': <String, dynamic>{
+              'type': 'group',
+              'id': server.group1Id,
+            },
+            'created_at': '2026-11-27T10:01:00Z',
+            'kind': 'body',
+            'content': <Map<String, dynamic>>[
+              <String, dynamic>{'type': 'text', 'text': 'post-join unread'},
+            ],
+            'attachment': null,
+          },
+        ]);
+
+      await pumpHome(tester, size: const Size(1280, 900));
+      // Only post-join non-system message 'g1-post' counts towards unread badge.
+      expect(
+        tester
+            .widget<Text>(find.byKey(UsersListView.unreadKey(server.group1Id)))
+            .data,
+        '1',
+      );
+      Set<String> displayed =
+          await tester.runAsync(
+            () => chat.ledger.displayedMessageIds('10000001'),
+          ) ??
+          <String>{};
+      expect(displayed, isNot(contains('g1-post')));
+      expect(displayed, isNot(contains('g1-pre')));
+
+      // Switch to NotificationCenter tab (mounts NotificationCenterHost & obscures
+      // chat surface) while another post-join inbound message arrives.
+      await tester.tap(find.byKey(HomeView.navNotificationsKey));
+      await _settle(tester);
+      final int noticeCallsBefore = server.noticeListCalls;
+      server.group1Messages.add(<String, dynamic>{
+        'id': 'g1-obscured',
+        'position': 4,
+        'sender_account': '10000002',
+        'sender_username': 'Bob',
+        'conversation': <String, dynamic>{
+          'type': 'group',
+          'id': server.group1Id,
+        },
+        'created_at': '2026-11-27T10:02:00Z',
+        'kind': 'body',
+        'content': <Map<String, dynamic>>[
+          <String, dynamic>{'type': 'text', 'text': 'arrived while covered'},
+        ],
+        'attachment': null,
+      });
+      await tester.pump(const Duration(seconds: 3));
+      await _settle(tester);
+      displayed =
+          await tester.runAsync(
+            () => chat.ledger.displayedMessageIds('10000001'),
+          ) ??
+          <String>{};
+      expect(displayed, isNot(contains('g1-post')));
+      expect(displayed, isNot(contains('g1-obscured')));
+
+      // Return to Chat and open group -> body renders visible -> exact post-join
+      // message IDs are confirmed in ledger and badge clears; pre-join stays
+      // unrecorded.
+      await tester.tap(find.byKey(HomeView.navChatKey));
+      await _settle(tester);
+      await tester.tap(find.byKey(UsersListView.groupRowKey(server.group1Id)));
+      await _settle(tester);
+      expect(find.text('post-join unread'), findsOneWidget);
+      expect(find.text('arrived while covered'), findsOneWidget);
+      displayed =
+          await tester.runAsync(
+            () => chat.ledger.displayedMessageIds('10000001'),
+          ) ??
+          <String>{};
+      expect(displayed, containsAll(<String>['g1-post', 'g1-obscured']));
+      expect(displayed, isNot(contains('g1-pre')));
+      expect(displayed, isNot(contains('g1-sys')));
+      expect(
+        find.byKey(UsersListView.unreadKey(server.group1Id)),
+        findsNothing,
+      );
+
+      // Mixed /events?include_groups=true page: notification.available (event 2)
+      // followed by conversation.access_changed(active:false) (event 7) in the
+      // same HTTP page must BOTH refresh NotificationCenterHost AND revoke
+      // membership/evict the group cleanly.
+      server.mixedEventsPagePending = true;
+      await tester.pump(const Duration(seconds: 3));
+      await _settle(tester);
+      expect(server.noticeListCalls, greaterThan(noticeCallsBefore));
+      expect(access.isRevoked('10000001', server.group1Id), isTrue);
+      expect(
+        find.byKey(UsersListView.groupRowKey(server.group1Id)),
+        findsNothing,
+      );
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump(const Duration(seconds: 35));
     },
   );
 }
