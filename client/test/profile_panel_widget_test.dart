@@ -1,9 +1,12 @@
+import 'dart:convert';
 import 'dart:typed_data';
 import 'dart:ui' show DisplayFeature, DisplayFeatureState, DisplayFeatureType;
 
 import 'package:bb_client/app.dart';
 import 'package:bb_client/models/auth_models.dart';
+import 'package:bb_client/models/profile_models.dart';
 import 'package:bb_client/ui/profile/profile_panel.dart';
+import 'package:bb_client/ui/profile/profile_artwork.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -25,6 +28,7 @@ void main() {
     WidgetTester tester, {
     required Size size,
     List<DisplayFeature> features = const <DisplayFeature>[],
+    double textScale = 1,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
@@ -35,8 +39,11 @@ void main() {
       MaterialApp(
         theme: buildAppTheme(),
         builder: (BuildContext context, Widget? child) => MediaQuery(
-          data: MediaQuery.of(context)
-              .copyWith(size: size, displayFeatures: features),
+          data: MediaQuery.of(context).copyWith(
+            size: size,
+            displayFeatures: features,
+            textScaler: TextScaler.linear(textScale),
+          ),
           child: child!,
         ),
         home: Scaffold(
@@ -148,6 +155,122 @@ void main() {
     expect(panel.mode, ProfilePanelMode.desktop);
   });
 
+  for (final bool folded in <bool>[false, true]) {
+    testWidgets(
+      '${folded ? 'folded' : 'desktop'} shares the new Profile content',
+      (WidgetTester tester) async {
+        await pumpHost(
+          tester,
+          size: const Size(1024, 768),
+          features: folded
+              ? <DisplayFeature>[
+                  DisplayFeature(
+                    bounds: const Rect.fromLTWH(400, 0, 0, 768),
+                    type: DisplayFeatureType.fold,
+                    state: DisplayFeatureState.postureFlat,
+                  ),
+                ]
+              : const <DisplayFeature>[],
+        );
+        expect(find.byKey(ProfileSeaCover.coverKey), findsOneWidget);
+        expect(find.byKey(ScallopedAvatar.photoKey), findsOneWidget);
+        expect(find.byTooltip(folded ? '返回' : '关闭'), findsOneWidget);
+        await openProfileEditSheet(tester);
+        expect(find.byKey(ProfilePanel.changeCoverKey), findsOneWidget);
+        await tester.tap(find.byKey(ProfilePanel.editSignatureKey));
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          find.byKey(const Key('profile-edit-field')),
+          '跨形态签名',
+        );
+        await tester.tap(find.byKey(const Key('profile-edit-save')));
+        await tester.pumpAndSettle();
+        expect(find.text('跨形态签名'), findsOneWidget);
+        expect(gateway.loadCoverCalls, 1);
+        await openProfileEditSheet(tester);
+        await tester.tap(find.byKey(ProfilePanel.removeAvatarKey));
+        await tester.pumpAndSettle();
+        expect(gateway.profile.avatarVersion, 'v-identicon');
+        expect(gateway.loadAvatarCalls, 2);
+        final Image avatar = tester.widget<Image>(
+          find.descendant(
+            of: find.byKey(ScallopedAvatar.photoKey),
+            matching: find.byType(Image),
+          ),
+        );
+        expect((avatar.image as MemoryImage).bytes, gateway.avatar);
+        await openProfileEditSheet(tester);
+        await tester.tap(find.byKey(ProfilePanel.changeCoverKey));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Base64'));
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          find.byKey(const Key('avatar-source-field')),
+          base64Encode(gateway.avatar),
+        );
+        await tester.tap(find.byKey(const Key('avatar-source-apply')));
+        await tester.pumpAndSettle();
+        expect(gateway.loadCoverCalls, 2);
+        final Image cover = tester.widget<Image>(
+          find.descendant(
+            of: find.byKey(ProfileSeaCover.coverKey),
+            matching: find.byType(Image),
+          ),
+        );
+        expect((cover.image as MemoryImage).bytes, gateway.cover!.bytes);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  for (final bool folded in <bool>[false, true]) {
+    testWidgets(
+      '${folded ? 'narrow fold' : 'desktop'} wraps long content at 200% text',
+      (WidgetTester tester) async {
+        gateway.profile = const Profile(
+          account: '40218765',
+          username: '一二三四五六七八九十一二三四五六七八九十',
+          signature: '放大字号之后，长签名应完整换行并推动按钮向下，不能压住头像、昵称或操作。',
+          avatarUrl: '/avatars/40218765.png',
+          avatarVersion: 'v1',
+        );
+        await pumpHost(
+          tester,
+          size: const Size(1024, 768),
+          textScale: 2,
+          features: folded
+              ? <DisplayFeature>[
+                  DisplayFeature(
+                    bounds: const Rect.fromLTWH(280, 0, 0, 768),
+                    type: DisplayFeatureType.hinge,
+                    state: DisplayFeatureState.postureFlat,
+                  ),
+                ]
+              : <DisplayFeature>[],
+        );
+        final Rect nickname = tester.getRect(
+          find.byKey(ProfilePanel.nicknameValueKey),
+        );
+        final Rect avatar = tester.getRect(
+          find.byKey(ScallopedAvatar.photoKey),
+        );
+        expect(nickname.top, greaterThan(avatar.bottom));
+        final Rect signature = tester.getRect(
+          find.byKey(ProfilePanel.signatureValueKey),
+        );
+        final Rect edit = tester.getRect(
+          find.byKey(ProfilePanel.editProfileKey),
+        );
+        final Rect home = tester.getRect(
+          find.byKey(ProfilePanel.homeButtonKey),
+        );
+        expect(edit.top, greaterThan(signature.bottom));
+        expect(home.top, greaterThan(edit.bottom));
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
   testWidgets('nickname edit trims, saves and updates the panel', (
     WidgetTester tester,
   ) async {
@@ -224,7 +347,13 @@ void main() {
     expect(gateway.loadProfileCalls, 1);
     expect(gateway.loadAvatarCalls, 1);
     // The avatar bytes are rendered, never an invented default.
-    expect(find.byType(Image), findsOneWidget);
+    final Image avatar = tester.widget<Image>(
+      find.descendant(
+        of: find.byKey(ScallopedAvatar.photoKey),
+        matching: find.byType(Image),
+      ),
+    );
+    expect((avatar.image as MemoryImage).bytes, gateway.avatar);
     expect(gateway.avatar, isNotEmpty);
     expect(Uint8List.fromList(gateway.avatar).isNotEmpty, isTrue);
   });

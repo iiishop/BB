@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:typed_data';
 import 'dart:math' as math;
-import 'dart:ui' show DisplayFeature;
 
 import 'package:flutter/material.dart';
 
@@ -15,6 +14,7 @@ import '../services/presence_directory.dart';
 import '../services/media_disk_cache.dart';
 import '../services/profile_service.dart';
 import '../models/chat_models.dart';
+import 'display_features.dart';
 import 'chat/chat_page.dart';
 import 'chat/chat_workspace.dart';
 import 'chat/users_view.dart';
@@ -394,41 +394,52 @@ class _HomeViewState extends State<HomeView>
   }) {
     final bool reconnecting =
         widget.heartbeat.phase == HeartbeatPhase.reconnecting;
+    final MediaQueryData media = MediaQuery.of(context);
+    final EdgeInsets padding = media.padding;
     return Scaffold(
       backgroundColor: AppColors.paper,
-      body: SafeArea(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            AnimatedSize(
-              duration: const Duration(milliseconds: 220),
-              curve: Curves.easeOutCubic,
-              child: reconnecting
-                  ? _ReconnectBanner(key: HomeView.reconnectingBannerKey)
-                  : const SizedBox(width: double.infinity),
-            ),
-            Expanded(
-              child: ChatWorkspace(
-                chat: chat,
-                profile: widget.profile,
-                presence: _presence,
-                onlineFilter: _onlineFilter,
-                onSessionExpired: widget.onSessionExpired,
-                // The shell can cover this whole surface with Space; then the
-                // reader cannot see arrivals and the panes must not confirm
-                // display facts.
-                visible: visible,
-                foldController: _foldController,
-                // The unfolded breakpoint is a device width; this shell keeps
-                // 92 px for its rail, so an 800 px foldable must still split.
-                displayWidth: displayWidth,
-                listHeader: _chatHeader(
-                  context,
-                  showHeaderAvatar: showHeaderAvatar,
+      // SafeArea moves the workspace again after the rail translation.
+      body: MediaQuery(
+        data: media.copyWith(
+          displayFeatures: translateDisplayFeatures(
+            media.displayFeatures,
+            Offset(-padding.left, -padding.top),
+          ),
+        ),
+        child: SafeArea(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              AnimatedSize(
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeOutCubic,
+                child: reconnecting
+                    ? _ReconnectBanner(key: HomeView.reconnectingBannerKey)
+                    : const SizedBox(width: double.infinity),
+              ),
+              Expanded(
+                child: ChatWorkspace(
+                  chat: chat,
+                  profile: widget.profile,
+                  presence: _presence,
+                  onlineFilter: _onlineFilter,
+                  onSessionExpired: widget.onSessionExpired,
+                  // The shell can cover this whole surface with Space; then the
+                  // reader cannot see arrivals and the panes must not confirm
+                  // display facts.
+                  visible: visible,
+                  foldController: _foldController,
+                  // The unfolded breakpoint is a device width; this shell keeps
+                  // 92 px for its rail, so an 800 px foldable must still split.
+                  displayWidth: displayWidth,
+                  listHeader: _chatHeader(
+                    context,
+                    showHeaderAvatar: showHeaderAvatar,
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -629,14 +640,10 @@ class _HomeViewState extends State<HomeView>
                   math.max(media.size.width - rail, 0),
                   media.size.height,
                 ),
-                displayFeatures: <DisplayFeature>[
-                  for (final DisplayFeature feature in media.displayFeatures)
-                    DisplayFeature(
-                      bounds: feature.bounds.translate(-rail, 0),
-                      type: feature.type,
-                      state: feature.state,
-                    ),
-                ],
+                displayFeatures: translateDisplayFeatures(
+                  media.displayFeatures,
+                  Offset(-rail, 0),
+                ),
               ),
               child: Builder(
                 builder: (BuildContext context) => IndexedStack(

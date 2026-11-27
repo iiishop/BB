@@ -63,6 +63,10 @@ Android release 已在主 manifest 声明 `INTERNET`，并允许明文流量—�
 - **桌面（宽）**：居中浮动卡片（≤ 440px），不加黑色遮罩。
 
 折叠判定永远优先于宽度断点；`didChangeMetrics`/`MediaQuery` 更新时展开、合拢会实时重排。
+三形态共用新版封面、花边头像、昵称/账号、签名及主操作；头像、封面、昵称和签名均从
+「编辑资料」进入同一组编辑入口。面板内容按自身宽高排列，桌面关闭和手机/展开屏返回方式保留。
+折叠聊天的坐标反例、页面策略差异及真机最小采集项见
+[`docs/dea496-profile-fold-investigation.md`](docs/dea496-profile-fold-investigation.md)。
 
 Linux 默认窗口 1180×780，Windows 同样 1180×780。Windows 构建/运行与 Android 运行在本
 环境均为 **NOT RUN**：Windows 没有 MSVC 工具链、Android 没有模拟器/真机；Linux 截图不代表

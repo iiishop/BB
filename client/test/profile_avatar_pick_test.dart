@@ -156,10 +156,7 @@ void main() {
     );
     await tester.tap(find.text('open-profile'));
     await tester.pumpAndSettle();
-    if (size.width < 600) {
-      // Phone page: avatar actions live behind 编辑资料 since DEA-492.
-      await openProfileEditSheet(tester);
-    }
+    await openProfileEditSheet(tester);
     await tester.tap(find.text('更换头像').first);
     await tester.pumpAndSettle();
   }

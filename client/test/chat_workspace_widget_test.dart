@@ -13,6 +13,8 @@ import 'package:bb_client/ui/chat/chat_page.dart';
 import 'package:bb_client/ui/chat/chat_workspace.dart';
 import 'package:bb_client/ui/chat/users_view.dart';
 import 'package:bb_client/ui/home_view.dart';
+import 'package:bb_client/ui/login_page.dart';
+import 'package:bb_client/ui/profile/profile_panel.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -109,12 +111,14 @@ void main() {
   Widget app({
     List<DisplayFeature> features = const <DisplayFeature>[],
     bool withSpace = false,
+    EdgeInsets padding = EdgeInsets.zero,
   }) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: buildAppTheme(),
       builder: (BuildContext context, Widget? child) => MediaQuery(
-        data: MediaQuery.of(context).copyWith(displayFeatures: features),
+        data: MediaQuery.of(context)
+            .copyWith(displayFeatures: features, padding: padding),
         child: child!,
       ),
       home: HomeView(
@@ -135,12 +139,15 @@ void main() {
     Size size, {
     List<DisplayFeature> features = const <DisplayFeature>[],
     bool withSpace = false,
+    EdgeInsets padding = EdgeInsets.zero,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    await tester.pumpWidget(app(features: features, withSpace: withSpace));
+    await tester.pumpWidget(
+      app(features: features, withSpace: withSpace, padding: padding),
+    );
     await tester.pumpAndSettle();
   }
 
@@ -492,6 +499,197 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('signed-in fold divider accounts for rail and safe-area origin', (
+    WidgetTester tester,
+  ) async {
+    final DisplayFeature fold = DisplayFeature(
+      bounds: const Rect.fromLTWH(400, 0, 0, 840),
+      type: DisplayFeatureType.fold,
+      state: DisplayFeatureState.postureFlat,
+    );
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      BbClientApp(
+        authGateway: FakeAuthGateway()..loginResult = _self,
+        profile: profile,
+        heartbeat: heartbeat,
+        chat: chat,
+        space: FakeSpaceGateway(),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.descendant(
+        of: find.byKey(LoginPage.accountFieldKey),
+        matching: find.byType(EditableText),
+      ),
+      _self.account,
+    );
+    await tester.enterText(
+      find.descendant(
+        of: find.byKey(LoginPage.passwordFieldKey),
+        matching: find.byType(EditableText),
+      ),
+      'Synthetic42',
+    );
+    await tester.tap(find.byKey(LoginPage.submitButtonKey));
+    await tester.pumpAndSettle();
+    expect(find.byType(HomeView), findsOneWidget);
+    expect(find.byType(ChatWorkspace), findsNothing);
+    tester.view.physicalSize = const Size(800, 840);
+    tester.view.displayFeatures = <DisplayFeature>[fold];
+    tester.view.padding = const FakeViewPadding(
+      left: 24,
+      top: 20,
+      right: 12,
+      bottom: 16,
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(ChatWorkspace), findsOneWidget);
+    final BuildContext workspace = tester.element(find.byType(ChatWorkspace));
+    expect(MediaQuery.displayFeaturesOf(workspace).single.bounds.left, 284);
+    expect(tester.getSize(find.byType(ChatWorkspace)).width, 672);
+    expect(
+      tester.getRect(find.byKey(ChatWorkspace.chatPaneKey)).left,
+      closeTo(400, 0.5),
+    );
+    expect(
+      tester.getRect(find.byKey(ChatWorkspace.toggleKey)).center.dx,
+      closeTo(400, 0.5),
+    );
+    expect(
+      tester.getRect(find.byKey(ChatWorkspace.listPaneKey)).right,
+      closeTo(400, 0.5),
+    );
+    await tester.tap(find.byKey(HomeView.railAvatarKey));
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<ProfilePanel>(find.byType(ProfilePanel)).mode,
+      ProfilePanelMode.folded,
+    );
+    await tester.tap(find.byKey(ProfilePanel.closeButtonKey));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(ChatWorkspace.toggleKey));
+    await tester.pumpAndSettle();
+    expect(
+      tester.getRect(find.byKey(ChatWorkspace.chatPaneKey)).left,
+      closeTo(24, 0.5),
+    );
+    await tester.tap(find.byKey(ChatWorkspace.toggleKey));
+    await tester.pumpAndSettle();
+    expect(
+      tester.getRect(find.byKey(ChatWorkspace.chatPaneKey)).left,
+      closeTo(400, 0.5),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final scenario in [
+    (
+      width: 719.0,
+      type: DisplayFeatureType.fold,
+      state: DisplayFeatureState.postureFlat,
+      horizontal: false,
+      split: false,
+      mode: ProfilePanelMode.folded,
+    ),
+    (
+      width: 720.0,
+      type: DisplayFeatureType.fold,
+      state: DisplayFeatureState.postureFlat,
+      horizontal: false,
+      split: true,
+      mode: ProfilePanelMode.folded,
+    ),
+    (
+      width: 800.0,
+      type: DisplayFeatureType.hinge,
+      state: DisplayFeatureState.postureHalfOpened,
+      horizontal: false,
+      split: true,
+      mode: ProfilePanelMode.desktop,
+    ),
+    (
+      width: 800.0,
+      type: DisplayFeatureType.fold,
+      state: DisplayFeatureState.postureFlat,
+      horizontal: true,
+      split: false,
+      mode: ProfilePanelMode.folded,
+    ),
+    (
+      width: 800.0,
+      type: DisplayFeatureType.cutout,
+      state: DisplayFeatureState.unknown,
+      horizontal: false,
+      split: false,
+      mode: ProfilePanelMode.desktop,
+    ),
+    (
+      width: 991.0,
+      type: null,
+      state: DisplayFeatureState.unknown,
+      horizontal: false,
+      split: false,
+      mode: ProfilePanelMode.desktop,
+    ),
+    (
+      width: 992.0,
+      type: null,
+      state: DisplayFeatureState.unknown,
+      horizontal: false,
+      split: true,
+      mode: ProfilePanelMode.desktop,
+    ),
+  ]) {
+    testWidgets(
+      'home policy: ${scenario.width}/${scenario.type}/${scenario.state}/horizontal=${scenario.horizontal}',
+      (WidgetTester tester) async {
+        final List<DisplayFeature> features = scenario.type == null
+            ? <DisplayFeature>[]
+            : <DisplayFeature>[
+                DisplayFeature(
+                  bounds: scenario.horizontal
+                      ? Rect.fromLTWH(0, 420, scenario.width, 0)
+                      : Rect.fromLTWH(scenario.width / 2, 0, 0, 840),
+                  type: scenario.type!,
+                  state: scenario.state,
+                ),
+              ];
+        await pumpAt(
+          tester,
+          Size(scenario.width, 840),
+          features: features,
+          withSpace: true,
+        );
+        expect(
+          find.byType(ChatWorkspace),
+          scenario.split ? findsOneWidget : findsNothing,
+        );
+        expect(
+          find.byKey(ChatWorkspace.toggleKey),
+          scenario.split && scenario.type != null
+              ? findsOneWidget
+              : findsNothing,
+        );
+        final Finder entry = find.byKey(
+          scenario.width < 720
+              ? HomeView.avatarEntryKey
+              : HomeView.railAvatarKey,
+        );
+        await tester.tap(entry);
+        await tester.pumpAndSettle();
+        expect(
+          tester.widget<ProfilePanel>(find.byType(ProfilePanel)).mode,
+          scenario.mode,
+        );
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 
   testWidgets('phone layout still uses the pushed conversation route', (
     WidgetTester tester,

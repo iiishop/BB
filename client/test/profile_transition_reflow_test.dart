@@ -178,6 +178,7 @@ void main() {
     await pumpHost(tester, size: const Size(1280, 900));
     expect(panel(tester).mode, ProfilePanelMode.desktop);
 
+    await openProfileEditSheet(tester);
     await tester.tap(find.byKey(ProfilePanel.editSignatureKey));
     await tester.pumpAndSettle();
     await tester.enterText(

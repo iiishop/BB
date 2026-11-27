@@ -113,6 +113,10 @@ void main() {
     }
 
     Future<void> capture(String name) async {
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+      });
+      await tester.pumpAndSettle();
       // Golden capture lets the test framework rasterize; calling
       // RenderRepaintBoundary.toImage directly deadlocks under the fake async
       // clock used by widget tests.

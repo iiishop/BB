@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' show DisplayFeature, DisplayFeatureState, DisplayFeatureType;
 
 import 'package:bb_client/app.dart';
 import 'package:bb_client/models/auth_models.dart';
@@ -23,9 +24,11 @@ import 'package:bb_client/ui/chat/media_actions.dart';
 import 'package:bb_client/ui/chat/media_save.dart';
 import 'package:bb_client/ui/chat/media_viewer.dart';
 import 'package:bb_client/ui/chat/chat_page.dart';
+import 'package:bb_client/ui/chat/chat_workspace.dart';
 import 'package:bb_client/ui/chat/users_view.dart';
 import 'package:bb_client/ui/home_view.dart';
 import 'package:bb_client/ui/profile/profile_panel.dart';
+import 'package:bb_client/ui/profile/profile_artwork.dart';
 import 'package:bb_client/ui/login_page.dart';
 import 'package:bb_client/ui/register_page.dart';
 import 'package:bb_client/ui/signed_in_view.dart';
@@ -40,6 +43,7 @@ import '../test/support/fake_auth_gateway.dart';
 import '../test/support/fake_chat_backend.dart';
 import '../test/support/fake_chat_service.dart';
 import '../test/support/fake_profile_gateway.dart';
+import '../test/support/fake_space_gateway.dart';
 
 /// Linux desktop end-to-end coverage of STEP-1 against a real HTTP upstream.
 ///
@@ -503,6 +507,113 @@ void main() {
       await heartbeat.beatNow();
       await tester.pumpAndSettle();
       expect(find.byKey(HomeView.reconnectingBannerKey), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'real HTTP login + Linux: unfold uses shared Profile and safe divider',
+    (WidgetTester tester) async {
+      final AuthService service = newService();
+      final ProfileService profile = ProfileService(
+        api: ProfileApiClient(baseUri: backendBaseUri),
+        auth: service,
+        cache: AvatarCache(),
+      );
+      final HeartbeatController heartbeat = HeartbeatController(auth: service);
+      addTearDown(heartbeat.dispose);
+      final FakeChatService chat = FakeChatService(
+        self: const AuthUser(account: '40218765', username: 'muse.tester'),
+        users: <ChatUser>[
+          ChatUser(
+            account: '10000002',
+            username: 'bob',
+            avatarUrl: '/avatars/10000002.png',
+            avatarVersion: 'v1',
+            presence: Presence.online,
+          ),
+        ],
+      );
+      addTearDown(chat.dispose);
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        BbClientApp(
+          authGateway: service,
+          profile: profile,
+          heartbeat: heartbeat,
+          chat: chat,
+          space: FakeSpaceGateway(),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.enterText(editable(LoginPage.accountFieldKey), '40218765');
+      await tester.enterText(editable(LoginPage.passwordFieldKey), 'Secret42');
+      await tester.tap(find.byKey(LoginPage.submitButtonKey));
+      await tester.pumpAndSettle();
+      expect(find.byType(HomeView), findsOneWidget);
+      tester.view.physicalSize = const Size(800, 840);
+      tester.view.displayFeatures = <DisplayFeature>[
+        DisplayFeature(
+          bounds: const Rect.fromLTWH(400, 0, 0, 840),
+          type: DisplayFeatureType.fold,
+          state: DisplayFeatureState.postureFlat,
+        ),
+      ];
+      tester.view.padding = const FakeViewPadding(
+        left: 24,
+        top: 20,
+        right: 12,
+        bottom: 16,
+      );
+      await tester.pumpAndSettle();
+      expect(
+        tester.getRect(find.byKey(ChatWorkspace.chatPaneKey)).left,
+        closeTo(400, .5),
+      );
+      expect(
+        tester.getRect(find.byKey(ChatWorkspace.toggleKey)).center.dx,
+        closeTo(400, .5),
+      );
+      await tester.tap(find.byKey(ChatWorkspace.toggleKey));
+      await tester.pumpAndSettle();
+      expect(
+        tester.getRect(find.byKey(ChatWorkspace.chatPaneKey)).left,
+        closeTo(24, .5),
+      );
+      await tester.tap(find.byKey(ChatWorkspace.toggleKey));
+      await tester.pumpAndSettle();
+      expect(
+        tester.getRect(find.byKey(ChatWorkspace.chatPaneKey)).left,
+        closeTo(400, .5),
+      );
+      await tester.tap(find.byKey(HomeView.railAvatarKey));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<ProfilePanel>(find.byType(ProfilePanel)).mode,
+        ProfilePanelMode.folded,
+      );
+      expect(find.byKey(ProfileSeaCover.coverKey), findsOneWidget);
+      expect(find.byKey(ScallopedAvatar.photoKey), findsOneWidget);
+      await tester.tap(find.byKey(ProfilePanel.editProfileKey));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(ProfilePanel.changeCoverKey));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Base64'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('avatar-source-field')),
+        _chatPng,
+      );
+      await tester.tap(find.byKey(const Key('avatar-source-apply')));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('封面已更新'), findsOneWidget);
+      expect(backend.coverUploadSizes.single, greaterThan(0));
+      expect(backend.coverIsDefault, isFalse);
+      await tester.tap(find.byKey(ProfilePanel.closeButtonKey));
+      await tester.pumpAndSettle();
+      expect(find.byType(ChatWorkspace), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
