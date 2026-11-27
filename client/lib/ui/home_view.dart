@@ -6,20 +6,27 @@ import 'package:flutter/material.dart';
 
 import '../app.dart';
 import '../models/auth_models.dart';
+import '../models/group_models.dart';
 import '../models/profile_models.dart';
 import '../services/auth_service.dart';
+import '../services/auth_session.dart';
+import '../services/chat_api_client.dart';
 import '../services/chat_service.dart';
+import '../services/group_service.dart';
 import '../services/heartbeat_controller.dart';
 import '../services/presence_directory.dart';
 import '../services/media_disk_cache.dart';
 import '../services/profile_service.dart';
 import '../models/chat_models.dart';
 import 'display_features.dart';
+import 'notifications/notification_center.dart';
 import 'chat/chat_page.dart';
 import 'chat/chat_workspace.dart';
 import 'chat/users_view.dart';
 import 'updates/update_scope.dart';
 import 'updates/update_settings_host.dart';
+import 'profile/avatar_picker.dart';
+import 'profile/group_profile_host.dart';
 import 'profile/profile_panel.dart';
 import 'space/space_follow_store.dart';
 import 'space/space_gateway.dart';
@@ -31,12 +38,8 @@ import 'space/profile/space_profile_gateway.dart';
 import 'space/profile/space_profile_page.dart';
 import 'widgets/profile_avatar.dart';
 
-/// Signed-in home surface for STEP-2.
-///
-/// Profile is the only live module in this step. The signed-in avatar is the
-/// single way into Profile: narrow message layouts replace the header BB badge
-/// with it, while wide layouts keep the rail entry. The heartbeat banner appears
-/// after three missed beats without logging the user out.
+/// Signed-in shell. General notifications remain available independently of
+/// Space; hidden chat panes keep their existing display-confirmation rules.
 class HomeView extends StatefulWidget {
   const HomeView({
     super.key,
@@ -47,7 +50,13 @@ class HomeView extends StatefulWidget {
     required this.onSignedOut,
     required this.onSessionExpired,
     this.chat,
+    this.groups,
+    this.shared,
+    this.avatarPicker,
     this.space,
+    this.notificationBuilder,
+    this.onCreateGroup,
+    this.onFindGroup,
   });
 
   final AuthUser user;
@@ -58,7 +67,13 @@ class HomeView extends StatefulWidget {
   /// STEP-3 chat service. When present the signed-in home is the registered
   /// user list; when null the STEP-2 profile-only home is kept.
   final ChatService? chat;
+  final GroupService? groups;
+  final SharedConversationService? shared;
+  final AvatarImagePicker? avatarPicker;
   final SpaceGateway? space;
+  final Widget Function(BuildContext context, bool active)? notificationBuilder;
+  final VoidCallback? onCreateGroup;
+  final VoidCallback? onFindGroup;
   final void Function(LogoutResult? result) onSignedOut;
   final void Function() onSessionExpired;
 
@@ -69,6 +84,8 @@ class HomeView extends StatefulWidget {
   static const Key errorKey = Key('home-profile-error');
   static const Key navChatKey = Key('home-nav-chat');
   static const Key navSpaceKey = Key('home-nav-space');
+  static const Key navNotificationsKey = Key('home-nav-notifications');
+  static const Key groupMenuKey = Key('home-group-menu');
   static const Key railAvatarKey = Key('home-rail-avatar');
   static const double railWidth = 92;
 
@@ -102,6 +119,11 @@ class _HomeViewState extends State<HomeView>
   /// chat itself is a pushed page, so the note is what remains after coming
   /// back; a wide two-pane shell passes the conversation shown on the right.
   String? _selectedAccount;
+  String? _selectedConversationId;
+  final ValueNotifier<int> _groupsRefresh = ValueNotifier<int>(0);
+  Timer? _groupEventsTimer;
+  int _lastGroupEventId = 0;
+  bool _groupEventsInFlight = false;
 
   /// One relationship owner for the signed-in account's feed cards and the
   /// author home page. Recreated when the server/account scope changes.
@@ -121,6 +143,14 @@ class _HomeViewState extends State<HomeView>
       _presence = PresenceDirectory(chat: chat);
     }
     _followStore = _buildFollowStore();
+    if (widget.shared != null) {
+      unawaited(_pollGroupEvents());
+      _groupEventsTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+        if (mounted && !_groupEventsInFlight) {
+          unawaited(_pollGroupEvents());
+        }
+      });
+    }
     unawaited(_load());
   }
 
@@ -137,11 +167,57 @@ class _HomeViewState extends State<HomeView>
   @override
   void dispose() {
     widget.heartbeat.removeListener(_onHeartbeatChanged);
+    _groupEventsTimer?.cancel();
     _presence?.dispose();
     _followStore?.dispose();
     _onlineFilter.dispose();
+    _groupsRefresh.dispose();
     _foldController.dispose();
     super.dispose();
+  }
+
+  void _bumpGroupsRefresh() {
+    if (mounted) {
+      _groupsRefresh.value += 1;
+    }
+  }
+
+  Future<void> _pollGroupEvents() async {
+    final SharedConversationService? shared = widget.shared;
+    if (shared == null || _groupEventsInFlight) {
+      return;
+    }
+    final AuthIdentity? identity = shared.session.identity;
+    if (identity == null) {
+      return;
+    }
+    _groupEventsInFlight = true;
+    try {
+      while (mounted && shared.session.isCurrent(identity)) {
+        final ServerEventPage page = await shared.api.events(
+          token: identity.token,
+          afterEventId: _lastGroupEventId,
+          includeGroups: true,
+        );
+        for (final ServerEvent event in page.items) {
+          await shared.applyServerEvent(identity.account, event);
+          if (event.eventId > _lastGroupEventId) {
+            _lastGroupEventId = event.eventId;
+          }
+        }
+        if (!page.hasMore || page.nextEventId <= _lastGroupEventId) {
+          if (page.nextEventId > _lastGroupEventId) {
+            _lastGroupEventId = page.nextEventId;
+          }
+          break;
+        }
+        _lastGroupEventId = page.nextEventId;
+      }
+    } catch (_) {
+      // Background event polling is best effort and resumes on next tick.
+    } finally {
+      _groupEventsInFlight = false;
+    }
   }
 
   SpaceFollowStore? _buildFollowStore() {
@@ -306,9 +382,14 @@ class _HomeViewState extends State<HomeView>
     // Selection is stored by account, not row index: after a reorder or a
     // refresh the note still marks this contact. The wide shell reuses the
     // field it passes to UsersListView when it opens the right-hand pane.
-    if (mounted && _selectedAccount != user.account) {
-      setState(() => _selectedAccount = user.account);
+    if (mounted &&
+        (_selectedAccount != user.account || _selectedConversationId != null)) {
+      setState(() {
+        _selectedAccount = user.account;
+        _selectedConversationId = null;
+      });
     }
+    ScaffoldMessenger.maybeOf(context)?.hideCurrentSnackBar();
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (BuildContext context) => ChatPage(
@@ -322,14 +403,89 @@ class _HomeViewState extends State<HomeView>
     await viewed;
   }
 
+  Future<void> _openGroup(GroupConversationItem group) async {
+    final ChatService? chat = widget.chat;
+    if (chat == null) {
+      return;
+    }
+    if (mounted && _selectedConversationId != group.conversation.id) {
+      setState(() {
+        _selectedConversationId = group.conversation.id;
+        _selectedAccount = null;
+      });
+    }
+    ScaffoldMessenger.maybeOf(context)?.hideCurrentSnackBar();
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) => ChatPage(
+          group: group,
+          chat: chat,
+          profile: widget.profile,
+          shared: widget.shared,
+          groups: widget.groups,
+          onOpenDirectChat: _openChat,
+          onGroupsChanged: _bumpGroupsRefresh,
+          onGroupRevoked: (_) => _bumpGroupsRefresh(),
+        ),
+      ),
+    );
+    _bumpGroupsRefresh();
+  }
+
+  Future<void> _handleCreateGroup() async {
+    if (widget.onCreateGroup != null) {
+      widget.onCreateGroup!.call();
+      return;
+    }
+    final GroupService? groups = widget.groups;
+    final ChatService? chat = widget.chat;
+    if (groups == null || chat == null) {
+      return;
+    }
+    final GroupProfile? created = await openCreateGroupFlow(
+      context,
+      chat: chat,
+      groups: groups,
+      profile: widget.profile,
+      avatarPicker: widget.avatarPicker,
+      onSessionExpired: widget.onSessionExpired,
+    );
+    if (created == null || !mounted) {
+      return;
+    }
+    _bumpGroupsRefresh();
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text('已创建群聊 ${created.name}（群号 ${created.groupNumber}）'),
+        ),
+      );
+  }
+
+  Future<void> _handleFindGroup() async {
+    if (widget.onFindGroup != null) {
+      widget.onFindGroup!.call();
+      return;
+    }
+    final GroupService? groups = widget.groups;
+    if (groups == null) {
+      return;
+    }
+    await openFindGroupDialog(
+      context,
+      groups: groups,
+      chat: widget.chat,
+      profile: widget.profile,
+      onOpenDirectChat: _openChat,
+      onGroupsChanged: _bumpGroupsRefresh,
+      onSessionExpired: widget.onSessionExpired,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final SpaceGateway? space = widget.space;
-    if (space == null) {
-      // No rail in this shell, so the header avatar is the only profile entry.
-      return _chatScaffold(context, showHeaderAvatar: true);
-    }
-    return _appScaffold(context, space);
+    return _appScaffold(context, widget.space);
   }
 
   /// The header entry that replaces the BB badge on narrow layouts.
@@ -421,6 +577,9 @@ class _HomeViewState extends State<HomeView>
                 child: ChatWorkspace(
                   chat: chat,
                   profile: widget.profile,
+                  shared: widget.shared,
+                  groups: widget.groups,
+                  refreshTrigger: _groupsRefresh,
                   presence: _presence,
                   onlineFilter: _onlineFilter,
                   onSessionExpired: widget.onSessionExpired,
@@ -464,6 +623,29 @@ class _HomeViewState extends State<HomeView>
               _BrandRow(
                 account: widget.user.account,
                 avatarEntry: showHeaderAvatar ? _headerAvatar() : null,
+                trailing: PopupMenuButton<String>(
+                  key: HomeView.groupMenuKey,
+                  tooltip: '添加',
+                  icon: const Icon(Icons.add_rounded),
+                  onSelected: (value) => value == 'create'
+                      ? unawaited(_handleCreateGroup())
+                      : unawaited(_handleFindGroup()),
+                  itemBuilder: (_) => <PopupMenuEntry<String>>[
+                    PopupMenuItem(
+                      value: 'create',
+                      enabled:
+                          widget.onCreateGroup != null ||
+                          (widget.groups != null && widget.chat != null),
+                      child: const Text('创建群'),
+                    ),
+                    PopupMenuItem(
+                      value: 'find',
+                      enabled:
+                          widget.onFindGroup != null || widget.groups != null,
+                      child: const Text('申请加入群'),
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(height: AppSpacing.md),
               Text(
@@ -514,10 +696,15 @@ class _HomeViewState extends State<HomeView>
                       child: UsersListView(
                         chat: widget.chat!,
                         profile: widget.profile,
+                        shared: widget.shared,
+                        groups: widget.groups,
+                        refreshTrigger: _groupsRefresh,
                         presence: _presence,
                         onlineFilter: _onlineFilter,
                         selectedAccount: _selectedAccount,
+                        selectedConversationId: _selectedConversationId,
                         onOpenChat: _openChat,
+                        onOpenGroup: _openGroup,
                         onSessionExpired: widget.onSessionExpired,
                       ),
                     ),
@@ -599,14 +786,14 @@ class _HomeViewState extends State<HomeView>
     );
   }
 
-  /// Signed-in shell when Space is available. Chat keeps its existing surface;
+  /// Signed-in shell. Chat keeps its existing surface;
   /// Space is a sibling tab, so switching never rebuilds either state tree.
   ///
   /// The rail is painted beneath the page stack and the stack sits at the
   /// rail's right edge. A full-screen chat has to reach physical screen x = 0,
   /// so the fold transition slides the rail out from under the pages instead
   /// of leaving 92 px reserved; both share one controller so they never drift.
-  Widget _appScaffold(BuildContext context, SpaceGateway space) {
+  Widget _appScaffold(BuildContext context, SpaceGateway? space) {
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
         final bool compact = constraints.maxWidth < 720;
@@ -658,7 +845,25 @@ class _HomeViewState extends State<HomeView>
                       visible: _section == 0,
                       displayWidth: constraints.maxWidth,
                     ),
-                    _spacePage(context, space, active: _section == 1),
+                    space == null
+                        ? const Scaffold(
+                            body: SafeArea(
+                              child: Center(child: Text('BB空间暂不可用')),
+                            ),
+                          )
+                        : _spacePage(context, space, active: _section == 1),
+                    widget.notificationBuilder?.call(context, _section == 2) ??
+                        (widget.groups != null
+                            ? NotificationCenterHost(
+                                groups: widget.groups!,
+                                chat: widget.chat,
+                                profile: widget.profile,
+                                active: _section == 2,
+                                onOpenDirectChat: _openChat,
+                                onGroupsChanged: _bumpGroupsRefresh,
+                                onSessionExpired: widget.onSessionExpired,
+                              )
+                            : const NotificationCenter(available: false)),
                   ],
                 ),
               ),
@@ -704,6 +909,12 @@ class _HomeViewState extends State<HomeView>
                           icon: Icon(Icons.public_outlined),
                           selectedIcon: Icon(Icons.public_rounded),
                           label: 'BB空间',
+                        ),
+                        NavigationDestination(
+                          key: HomeView.navNotificationsKey,
+                          icon: Icon(Icons.notifications_none_rounded),
+                          selectedIcon: Icon(Icons.notifications_rounded),
+                          label: '通知',
                         ),
                       ],
                     )
@@ -787,16 +998,29 @@ class _HomeViewState extends State<HomeView>
               selected: _section == 1,
               onTap: () => setState(() => _section = 1),
             ),
+            const SizedBox(height: AppSpacing.sm),
+            _RailButton(
+              key: HomeView.navNotificationsKey,
+              icon: _section == 2
+                  ? Icons.notifications_rounded
+                  : Icons.notifications_none_rounded,
+              label: '通知',
+              selected: _section == 2,
+              onTap: () => setState(() => _section = 2),
+            ),
             const Spacer(),
             Padding(
               padding: const EdgeInsets.only(bottom: AppSpacing.md),
-              child: ProfileAvatar(
-                key: HomeView.railAvatarKey,
-                bytes: _avatar,
-                size: 48,
-                loading: _loading && _avatar == null,
-                onTap: _openProfile,
-                semanticLabel: '打开个人资料',
+              child: KeyedSubtree(
+                key: widget.space == null ? HomeView.avatarEntryKey : null,
+                child: ProfileAvatar(
+                  key: HomeView.railAvatarKey,
+                  bytes: _avatar,
+                  size: 48,
+                  loading: _loading && _avatar == null,
+                  onTap: _openProfile,
+                  semanticLabel: '打开个人资料',
+                ),
               ),
             ),
           ],
@@ -823,31 +1047,35 @@ class _RailButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final Color color = selected ? AppColors.accentDeep : AppColors.inkMuted;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(AppRadius.brand),
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
-          decoration: BoxDecoration(
-            color: selected ? AppColors.accentSoft : Colors.transparent,
-            borderRadius: BorderRadius.circular(AppRadius.brand),
-          ),
-          child: Column(
-            children: <Widget>[
-              Icon(icon, color: color, size: 22),
-              const SizedBox(height: 2),
-              Text(
-                label,
-                style: TextStyle(
-                  color: color,
-                  fontSize: 11.5,
-                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+    return Semantics(
+      button: true,
+      selected: selected,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(AppRadius.brand),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+            decoration: BoxDecoration(
+              color: selected ? AppColors.accentSoft : Colors.transparent,
+              borderRadius: BorderRadius.circular(AppRadius.brand),
+            ),
+            child: Column(
+              children: <Widget>[
+                Icon(icon, color: color, size: 22),
+                const SizedBox(height: 2),
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 11.5,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -892,13 +1120,14 @@ class _ReconnectBanner extends StatelessWidget {
 }
 
 class _BrandRow extends StatelessWidget {
-  const _BrandRow({required this.account, this.avatarEntry});
+  const _BrandRow({required this.account, this.avatarEntry, this.trailing});
 
   final String account;
 
   /// When present, the signed-in avatar replaces the BB badge on the same row
   /// as the account, above the "消息" title.
   final Widget? avatarEntry;
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
@@ -931,6 +1160,7 @@ class _BrandRow extends StatelessWidget {
             style: text.bodySmall?.copyWith(letterSpacing: 1),
           ),
         ),
+        ?trailing,
       ],
     );
   }

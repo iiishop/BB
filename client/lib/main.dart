@@ -15,7 +15,11 @@ import 'services/avatar_cache.dart';
 import 'services/chat_api_client.dart';
 import 'services/chat_ledger.dart';
 import 'services/chat_service.dart';
+import 'services/conversation_access.dart';
+import 'services/group_api_client.dart';
+import 'services/group_service.dart';
 import 'services/heartbeat_controller.dart';
+import 'services/media_disk_cache.dart';
 import 'services/profile_api_client.dart';
 import 'services/profile_service.dart';
 import 'services/server_address_store.dart';
@@ -170,6 +174,8 @@ class _BbRootState extends State<BbRoot> {
           profile: services.profile,
           heartbeat: services.heartbeat,
           chat: services.chat,
+          groups: services.groups,
+          shared: services.shared,
           space: SpaceServiceGateway(services.space),
         ),
       );
@@ -207,6 +213,8 @@ class _AppServices {
     required this.profile,
     required this.heartbeat,
     required this.chat,
+    required this.groups,
+    required this.shared,
     required this.space,
   });
 
@@ -215,6 +223,8 @@ class _AppServices {
   final ProfileService profile;
   final HeartbeatController heartbeat;
   final ChatService chat;
+  final GroupService groups;
+  final SharedConversationService shared;
   final SpaceService space;
 
   static Future<_AppServices> create(Uri baseUri, File sessionFile) async {
@@ -237,6 +247,25 @@ class _AppServices {
       cacheRoot: await _chatCacheDirectory(sessionFile),
     );
     chat.start();
+    final ConversationAccessController access = ConversationAccessController();
+    registerDiskCachePurger(
+      access: access,
+      disk: sharedMediaDiskCache(),
+      serverUri: baseUri,
+    );
+    final GroupService groups = GroupService(
+      api: GroupApiClient(baseUri: baseUri),
+      session: session,
+      avatarCache: AvatarCache(
+        directory: await _groupAvatarCacheDirectory(sessionFile),
+      ),
+      access: access,
+    );
+    final SharedConversationService shared = SharedConversationService(
+      api: chat.api,
+      session: session,
+      access: access,
+    );
     final SpaceService space = SpaceService(
       api: SpaceApiClient(baseUri: baseUri),
       session: session,
@@ -248,12 +277,15 @@ class _AppServices {
       profile: profile,
       heartbeat: heartbeat,
       chat: chat,
+      groups: groups,
+      shared: shared,
       space: space,
     );
   }
 
   Future<void> dispose() async {
     heartbeat.stop();
+    shared.dispose();
     // Teardown is not consent to discard unsaved content. Server changes are
     // refused above while drafts exist; account drafts remain isolated.
     await chat.dispose();
@@ -339,5 +371,11 @@ Future<Directory> _avatarCacheDirectory(File sessionFile) async {
   }
   return Directory(
     '${sessionFile.parent.path}${Platform.pathSeparator}avatar-cache',
+  );
+}
+
+Future<Directory> _groupAvatarCacheDirectory(File sessionFile) async {
+  return Directory(
+    '${sessionFile.parent.path}${Platform.pathSeparator}group-avatar-cache',
   );
 }

@@ -12,8 +12,11 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../app.dart';
+import '../../models/auth_models.dart';
 import '../../models/chat_media.dart';
+import '../../models/chat_models.dart';
 import '../../services/chat_service.dart';
+import '../../services/conversation_access.dart';
 import '../../services/media_disk_cache.dart';
 import '../media/photo_page.dart';
 import '../media/photo_pager.dart';
@@ -38,12 +41,19 @@ class MediaViewer extends StatefulWidget {
     this.localPreviewFor,
     this.videoSessionFactory,
     this.inlineVideoSupported,
+    this.conversation,
+    this.access,
   });
 
   final List<ChatMediaItem> items;
   final int initialIndex;
   final ChatService chat;
   final MediaSaveService saveService;
+
+  /// Canonical conversation and access coordinator for group media
+  /// revocation.
+  final ConversationRef? conversation;
+  final ConversationAccessController? access;
 
   /// Reuses the chat page's existing online-stream play action.
   final Future<void> Function(ChatMediaItem item)? onPlayVideo;
@@ -106,13 +116,44 @@ class _MediaViewerState extends State<MediaViewer> {
     _complete = widget.sequenceComplete;
     _index = widget.initialIndex.clamp(0, _items.length - 1);
     _controller = PageController(initialPage: _index);
+    widget.access?.addListener(_onAccessChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant MediaViewer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.access != widget.access) {
+      oldWidget.access?.removeListener(_onAccessChanged);
+      widget.access?.addListener(_onAccessChanged);
+    }
   }
 
   @override
   void dispose() {
+    widget.access?.removeListener(_onAccessChanged);
     _pages.dispose();
     _controller.dispose();
     super.dispose();
+  }
+
+  void _onAccessChanged() {
+    final ConversationRef? conv = widget.conversation;
+    final ConversationAccessController? access = widget.access;
+    if (!mounted || conv == null || !conv.isGroup || access == null) {
+      return;
+    }
+    try {
+      if (access.isRevoked(widget.chat.selfAccount, conv.id)) {
+        setState(() {});
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            unawaited(Navigator.of(context).maybePop());
+          }
+        });
+      }
+    } on AuthFailure {
+      // Unauthenticated; closed by auth flow.
+    }
   }
 
   ChatMediaItem get _current => _items[_index];
@@ -126,6 +167,8 @@ class _MediaViewerState extends State<MediaViewer> {
         chat: widget.chat,
         heldBytes: widget.localPreviewFor?.call(item.mediaId),
         disk: _disk,
+        conversation: widget.conversation,
+        access: widget.access,
       ),
     );
   }
@@ -253,7 +296,8 @@ class _MediaViewerState extends State<MediaViewer> {
                   if (currentPage.offersOriginal)
                     Positioned(
                       left: AppSpacing.md,
-                      bottom: AppSpacing.lg + MediaQuery.of(context).padding.bottom,
+                      bottom:
+                          AppSpacing.lg + MediaQuery.of(context).padding.bottom,
                       child: SafeArea(
                         right: false,
                         top: false,

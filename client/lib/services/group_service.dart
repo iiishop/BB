@@ -16,6 +16,7 @@ import 'auth_session.dart';
 import 'avatar_cache.dart';
 import 'avatar_source.dart';
 import 'chat_api_client.dart';
+import 'chat_service.dart';
 import 'client_identity.dart';
 import 'conversation_access.dart';
 import 'group_api_client.dart';
@@ -809,6 +810,152 @@ class SharedConversationService {
       }
       rethrow;
     }
+  });
+
+  /// Sends one ordered body message to a group and wraps the outcome with the
+  /// same [SendOutcome] shape used by `ChatComposer` retries.
+  Future<SendOutcome> sendGroupBodyOutcome({
+    required ConversationRef conversation,
+    required List<OutgoingPart> content,
+    required String operationId,
+    AuthIdentity? captured,
+  }) => InstallSafetyGate.instance.protect(() async {
+    final AuthIdentity identity = _requireIdentity(captured);
+    if (!conversation.isGroup) {
+      return SendOutcome(
+        operationId: operationId,
+        failure: const AuthFailure(
+          status: 422,
+          code: 'validation_error',
+          message: '需要群会话 ID',
+        ),
+        part: content,
+      );
+    }
+    try {
+      final List<MessagePart> wireParts = <MessagePart>[];
+      for (final OutgoingPart part in content) {
+        if (part is OutgoingText) {
+          if (part.text.isNotEmpty) {
+            wireParts.add(TextPart(part.text));
+          }
+        } else if (part is OutgoingImage) {
+          final Attachment uploaded = await uploadConversationMedia(
+            conversation: conversation,
+            source: part.source,
+            captured: identity,
+          );
+          wireParts.add(ImagePart(uploaded.mediaId));
+        }
+      }
+      final ChatMessage committed = await sendGroupMessage(
+        conversation: conversation,
+        clientNonce: operationId,
+        content: wireParts,
+        captured: identity,
+      );
+      return SendOutcome(operationId: operationId, message: committed);
+    } on AuthFailure catch (failure) {
+      return SendOutcome(
+        operationId: operationId,
+        failure: failure,
+        part: content,
+      );
+    }
+  });
+
+  /// Sends one attachment (uploading cover when present) to a group and wraps
+  /// the result in [SendOutcome].
+  Future<SendOutcome> sendGroupAttachmentOutcome({
+    required ConversationRef conversation,
+    required OutgoingAttachment attachment,
+    required String operationId,
+    AuthIdentity? captured,
+  }) => InstallSafetyGate.instance.protect(() async {
+    final AuthIdentity identity = _requireIdentity(captured);
+    if (!conversation.isGroup) {
+      return SendOutcome(
+        operationId: operationId,
+        failure: const AuthFailure(
+          status: 422,
+          code: 'validation_error',
+          message: '需要群会话 ID',
+        ),
+        attachment: attachment,
+      );
+    }
+    try {
+      String? coverMediaId;
+      if (attachment.cover != null) {
+        final Attachment cover = await uploadConversationMedia(
+          conversation: conversation,
+          source: attachment.cover!,
+          captured: identity,
+        );
+        coverMediaId = cover.mediaId;
+      }
+      final Attachment uploaded = await uploadConversationMedia(
+        conversation: conversation,
+        source: attachment.source,
+        coverMediaId: coverMediaId,
+        captured: identity,
+      );
+      final ChatMessage committed = await sendGroupAttachment(
+        conversation: conversation,
+        clientNonce: operationId,
+        mediaId: uploaded.mediaId,
+        captured: identity,
+      );
+      return SendOutcome(operationId: operationId, message: committed);
+    } on AuthFailure catch (failure) {
+      return SendOutcome(
+        operationId: operationId,
+        failure: failure,
+        attachment: attachment,
+      );
+    }
+  });
+
+  /// UI entry: sends ordered body parts first, then each attachment, returning
+  /// the exact [ComposedSendResult] consumed by `ChatComposer`.
+  Future<ComposedSendResult> sendGroupComposed({
+    required ConversationRef conversation,
+    required List<OutgoingPart> body,
+    required List<OutgoingAttachment> attachments,
+    String? operationSeed,
+    AuthIdentity? captured,
+  }) => InstallSafetyGate.instance.protect(() async {
+    final AuthIdentity identity = _requireIdentity(captured);
+    final String seed = operationSeed ?? newOperationId('x');
+    SendOutcome? bodyOutcome;
+    final List<SendOutcome> outcomes = <SendOutcome>[];
+    final List<OutgoingPart> cleaned = <OutgoingPart>[
+      for (final OutgoingPart part in body)
+        if (part is! OutgoingText || part.text.isNotEmpty) part,
+    ];
+    if (cleaned.isNotEmpty) {
+      bodyOutcome = await sendGroupBodyOutcome(
+        conversation: conversation,
+        content: cleaned,
+        operationId: '$seed-b',
+        captured: identity,
+      );
+    }
+    for (int i = 0; i < attachments.length; i += 1) {
+      outcomes.add(
+        await sendGroupAttachmentOutcome(
+          conversation: conversation,
+          attachment: attachments[i],
+          operationId: '$seed-a$i',
+          captured: identity,
+        ),
+      );
+    }
+    return ComposedSendResult(
+      body: bodyOutcome,
+      attachments: outcomes,
+      operationSeed: seed,
+    );
   });
 
   Future<Attachment> uploadConversationMedia({

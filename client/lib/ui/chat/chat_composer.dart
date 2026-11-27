@@ -10,6 +10,7 @@ import '../../app.dart';
 import '../../models/auth_models.dart';
 import '../../models/chat_models.dart';
 import '../../services/chat_service.dart';
+import '../../services/group_service.dart';
 import '../../services/install_safety_gate.dart';
 import '../../services/media_source.dart';
 import 'chat_format.dart';
@@ -66,10 +67,16 @@ class ChatComposer extends StatefulWidget {
     this.enabled = true,
     this.clipboard = const PlatformClipboardMediaReader(),
     this.coverExtractor = defaultVideoCoverExtractor,
+    this.conversation,
+    this.shared,
+    this.draftKey,
   });
 
   final ChatService chat;
   final String peerAccount;
+  final ConversationRef? conversation;
+  final SharedConversationService? shared;
+  final String? draftKey;
 
   /// Successful messages plus the local bytes already held for body images,
   /// keyed by the committed media id.
@@ -122,6 +129,12 @@ class _ChatComposerState extends State<ChatComposer> {
   late final Object _draftSession;
   final Set<String> _ownedOperations = <String>{};
 
+  bool get _isGroup =>
+      widget.conversation?.isGroup == true && widget.shared != null;
+
+  String get _draftAccount =>
+      widget.draftKey ?? widget.conversation?.id ?? widget.peerAccount;
+
   @override
   void initState() {
     super.initState();
@@ -130,7 +143,7 @@ class _ChatComposerState extends State<ChatComposer> {
     widget.controller?._attach(this);
     final ChatDraft? stored = ChatDrafts.instance.read(
       _draftSession,
-      widget.peerAccount,
+      _draftAccount,
     );
     if (stored != null) {
       _controller.text = stored.text;
@@ -181,11 +194,11 @@ class _ChatComposerState extends State<ChatComposer> {
       setState(() {});
     }
     final stored = !mounted
-        ? ChatDrafts.instance.read(_draftSession, widget.peerAccount)
+        ? ChatDrafts.instance.read(_draftSession, _draftAccount)
         : null;
     ChatDrafts.instance.write(
       _draftSession,
-      widget.peerAccount,
+      _draftAccount,
       ChatDraft(
         text: stored?.text ?? _controller.text,
         parts: stored?.parts ?? List<ChatDraftPart>.of(_parts),
@@ -573,12 +586,19 @@ class _ChatComposerState extends State<ChatComposer> {
       for (final ChatDraftAttachment item in attachments) item.attachment,
     ];
     try {
-      final ComposedSendResult result = await widget.chat.sendComposed(
-        targetAccount: widget.peerAccount,
-        body: body,
-        attachments: outgoingAttachments,
-        operationSeed: seed,
-      );
+      final ComposedSendResult result = _isGroup
+          ? await widget.shared!.sendGroupComposed(
+              conversation: widget.conversation!,
+              body: body,
+              attachments: outgoingAttachments,
+              operationSeed: seed,
+            )
+          : await widget.chat.sendComposed(
+              targetAccount: widget.peerAccount,
+              body: body,
+              attachments: outgoingAttachments,
+              operationSeed: seed,
+            );
       _applyResult(result);
     } on AuthFailure catch (failure) {
       _markSeedFailed(seed, parts, attachments, failure);
@@ -697,17 +717,29 @@ class _ChatComposerState extends State<ChatComposer> {
     SendOutcome? retried;
     try {
       if (outcome.part != null) {
-        retried = await widget.chat.sendBody(
-          targetAccount: widget.peerAccount,
-          content: outcome.part!,
-          operationId: operationId,
-        );
+        retried = _isGroup
+            ? await widget.shared!.sendGroupBodyOutcome(
+                conversation: widget.conversation!,
+                content: outcome.part!,
+                operationId: operationId,
+              )
+            : await widget.chat.sendBody(
+                targetAccount: widget.peerAccount,
+                content: outcome.part!,
+                operationId: operationId,
+              );
       } else if (outcome.attachment != null) {
-        retried = await widget.chat.sendAttachment(
-          targetAccount: widget.peerAccount,
-          attachment: outcome.attachment!,
-          operationId: operationId,
-        );
+        retried = _isGroup
+            ? await widget.shared!.sendGroupAttachmentOutcome(
+                conversation: widget.conversation!,
+                attachment: outcome.attachment!,
+                operationId: operationId,
+              )
+            : await widget.chat.sendAttachment(
+                targetAccount: widget.peerAccount,
+                attachment: outcome.attachment!,
+                operationId: operationId,
+              );
       }
     } catch (error) {
       _change(() {
@@ -863,7 +895,10 @@ class _ChatComposerState extends State<ChatComposer> {
             id: 'pending:$seed-b',
             position: 0,
             senderAccount: self,
-            targetAccount: widget.peerAccount,
+            targetAccount: widget.conversation?.isGroup == true
+                ? ''
+                : widget.peerAccount,
+            conversation: widget.conversation,
             createdAt: now,
             kind: ChatMessageKind.body,
             parts: bodyParts,
@@ -887,7 +922,10 @@ class _ChatComposerState extends State<ChatComposer> {
             id: 'pending:$seed-a$index',
             position: 0,
             senderAccount: self,
-            targetAccount: widget.peerAccount,
+            targetAccount: widget.conversation?.isGroup == true
+                ? ''
+                : widget.peerAccount,
+            conversation: widget.conversation,
             createdAt: now,
             kind: ChatMessageKind.attachment,
             attachment: Attachment(
