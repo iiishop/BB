@@ -116,6 +116,30 @@ export async function probeGroups({client, ctx, tool, executeTool, settings, unt
   await denied("get_message", {message_id: ownMessage.id}, ["forbidden", "not_found"]);
   assert.ok(!(await invoke("list_conversations")).items.some(
     row => row.conversation.id === conversation.id));
+  await invoke("apply_to_group", {conversation});
+  const ownerPending = await post("/chat/notices/list", {filter: "pending"}, token);
+  const application = ownerPending.items.find(({link}) => link?.id === group.group_number);
+  assert.ok(application?.actions.length);
+  const approve = application.actions.find(({id, available}) => id === "approve" && available);
+  assert.ok(approve);
+  const modelStart = modelRequests.length;
+  await post("/chat/notices/execute_action", {notification_id: application.id, action_id: approve.id}, token);
+  const rejoined = (await invoke("list_conversations")).items.find(
+    row => row.conversation.id === conversation.id);
+  assert.ok(rejoined.membership_revision > group.membership_revision);
+  assert.equal(rejoined.incoming_unread, 0);
+  assert.ok(rejoined.history_through >= ownMessage.position);
+  const next = await sendPeer("group-history-after-rejoin", "after rejoin");
+  function projectedGroups() {
+    return modelRequests.slice(modelStart).flat()
+      .filter(message => message.id?.startsWith("bb-notice-"))
+      .flatMap(message => JSON.parse(message.content[0].text).conversations)
+      .filter(row => row.conversation.id === conversation.id);
+  }
+  await until(async () => projectedGroups().some(
+    row => row.last_message.message_id === next.id));
+  assert.ok(projectedGroups().every(row =>
+    row.membership_revision === rejoined.membership_revision));
   await invoke("dissolve_group", {conversation: own.conversation});
   assert.equal((await invoke("find_group", {group_number: own.group_number})).status, "dissolved");
   return {
@@ -126,6 +150,7 @@ export async function probeGroups({client, ctx, tool, executeTool, settings, unt
     group_history_boundary: true,
     group_media_order: true,
     revoked_history_access: true,
+    rejoined_only_current_previews: true,
     provider: "deterministic double",
   };
 }

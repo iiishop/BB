@@ -1554,6 +1554,10 @@ class ChatService {
       throw staleIdentity;
     }
     if (record != null) {
+      if (member != null && expectedIdentity != null &&
+          record.expectedIdentity?.consumerId != currentIdentity.consumerId) {
+        throw staleBinding('群发送操作属于另一个消费者');
+      }
       _expectSameOperation(record, targetAccount, sourceDigest, 'message');
       if (record.state == 'succeeded' && record.message != null) {
         await requireSameGroupMembership(captured, member);
@@ -1970,6 +1974,10 @@ class ChatService {
       throw staleIdentity;
     }
     if (record != null) {
+      if (member != null && expectedIdentity != null &&
+          record.expectedIdentity?.consumerId != currentIdentity.consumerId) {
+        throw staleBinding('群发送操作属于另一个消费者');
+      }
       _expectSameOperation(record, targetAccount, sourceDigest, 'attachment');
       if (record.state == 'succeeded' && record.message != null) {
         await requireSameGroupMembership(captured, member);

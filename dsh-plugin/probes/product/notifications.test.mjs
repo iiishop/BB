@@ -246,3 +246,30 @@ test('group and business notices use one recovered batch with membership and act
   await f.n.tick();
   assert.equal(f.sent.length, 1);
 });
+
+test('one batch bounds group previews and keeps the omitted counts', async t => {
+  const f = await fixture(t);
+  const groups = Array.from({length: 21}, (_, index) => ({
+    conversation: {type: 'group', id: 'group:' + index.toString(16).padStart(32, '0')},
+    display_name: 'Synthetic group',
+    membership_revision: 1, new_count: 2, incoming_unread: 5,
+    last_message: {position: 1, text: 'bounded', created_at: new Date(index * 1000).toISOString()},
+  }));
+  f.bridge.client.call = async (path, args) => {
+    if (path === 'notifications/get') return {...f.settings};
+    if (path === 'chat/list_conversations') return {items: groups, next_cursor: null};
+    assert.equal(path, 'notifications/changes');
+    return {
+      settings: {...f.settings}, items: args.after_cursor === 0 ? groups : [],
+      next_cursor: 21, through_cursor: 21, has_more: false, deferred: [],
+    };
+  };
+  await f.n.tick();
+  f.now = 1000;
+  await f.n.tick();
+  assert.equal(f.sent.length, 1);
+  const summary = JSON.parse(f.sent[0].content[0].text);
+  assert.equal(summary.conversations.length, 20);
+  assert.equal(summary.conversations[0].conversation.id, groups.at(-1).conversation.id);
+  assert.deepEqual(summary.omitted_groups, {count: 1, new_count: 2, incoming_unread: 5});
+});
