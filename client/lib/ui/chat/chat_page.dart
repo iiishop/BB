@@ -429,6 +429,10 @@ class _ChatPageState extends State<ChatPage> {
     setState(() {
       _liveGroupProfile = profile;
     });
+    if (profile.name != group.displayName ||
+        profile.avatarVersion != group.avatarVersion) {
+      widget.onGroupsChanged?.call();
+    }
     if (profile.avatarUrl != previousUrl ||
         profile.avatarVersion != previousVersion) {
       unawaited(_loadGroupAvatar());

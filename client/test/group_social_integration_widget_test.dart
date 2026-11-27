@@ -102,6 +102,8 @@ class _UiSocialServer {
   );
   Completer<void>? holdFind;
   Completer<void>? holdAvatar;
+  Completer<void>? beforeUpdateCommit;
+  Completer<void>? holdUpdate;
 
   final List<Map<String, dynamic>> createdRequests = <Map<String, dynamic>>[];
   final List<Map<String, dynamic>> sentMessages = <Map<String, dynamic>>[];
@@ -410,6 +412,11 @@ class _UiSocialServer {
       return;
     }
     if (request.method == 'POST' && path == '/chat/groups/update') {
+      final Completer<void>? before = beforeUpdateCommit;
+      if (before != null) {
+        beforeUpdateCommit = null;
+        await before.future;
+      }
       if (jsonBody!['reset_avatar'] == true) {
         group1Avatar = resetGroupAvatarBytes;
         group1AvatarVersion = 'gv2';
@@ -423,7 +430,13 @@ class _UiSocialServer {
       if (jsonBody.containsKey('allow_member_invites')) {
         group1AllowMemberInvites = jsonBody['allow_member_invites'] as bool;
       }
-      await _json(request, 200, _groupProfileJson('10000001'));
+      final Map<String, dynamic> committed = _groupProfileJson('10000001');
+      final Completer<void>? held = holdUpdate;
+      if (held != null) {
+        holdUpdate = null;
+        await held.future;
+      }
+      await _json(request, 200, committed);
       return;
     }
     if (request.method == 'POST' && path == '/chat/groups/members') {
@@ -1780,6 +1793,98 @@ void main() {
           matching: find.text('Renamed folded group'),
         ),
         findsOneWidget,
+      );
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump(const Duration(seconds: 35));
+    },
+  );
+
+  testWidgets(
+    'A6: earlier committed rename response arriving after later rename preserves latest title',
+    (WidgetTester tester) async {
+      server.createdGroup1 = true;
+      await pumpHome(tester, size: const Size(375, 812));
+
+      await tester.tap(find.byKey(UsersListView.groupRowKey(server.group1Id)));
+      await _settle(tester);
+
+      Future<void> saveName(String name) async {
+        await tester.tap(find.byKey(ChatPage.headerProfileKey));
+        await _settle(tester);
+        await tester.tap(find.text('编辑群资料'));
+        await _settle(tester);
+        await tester.enterText(find.byType(TextFormField).first, name);
+        await tester.tap(find.text('保存群资料'));
+        await _settle(tester);
+        expect(server.group1Name, name);
+        await tester.binding.handlePopRoute();
+        await _settle(tester);
+      }
+
+      final Completer<void> first = Completer<void>();
+      server.holdUpdate = first;
+      await saveName('First edit');
+      expect(server.holdUpdate, isNull);
+      await saveName('Final edit');
+      expect(
+        tester.widget<Text>(find.byKey(ChatPage.headerNameKey)).data,
+        'Final edit',
+      );
+
+      first.complete();
+      await _settle(tester);
+      expect(server.group1Name, 'Final edit');
+      expect(
+        tester.widget<Text>(find.byKey(ChatPage.headerNameKey)).data,
+        'Final edit',
+      );
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump(const Duration(seconds: 35));
+    },
+  );
+
+  testWidgets(
+    'A6: earlier-started rename that commits last on server becomes authoritative title',
+    (WidgetTester tester) async {
+      server.createdGroup1 = true;
+      await pumpHome(tester, size: const Size(375, 812));
+
+      await tester.tap(find.byKey(UsersListView.groupRowKey(server.group1Id)));
+      await _settle(tester);
+
+      Future<void> saveName(String name) async {
+        await tester.tap(find.byKey(ChatPage.headerProfileKey));
+        await _settle(tester);
+        await tester.tap(find.text('编辑群资料'));
+        await _settle(tester);
+        await tester.enterText(find.byType(TextFormField).first, name);
+        await tester.tap(find.text('保存群资料'));
+        await _settle(tester);
+        if (name == 'Final edit') {
+          expect(server.group1Name, name);
+        }
+        await tester.binding.handlePopRoute();
+        await _settle(tester);
+      }
+
+      final Completer<void> first = Completer<void>();
+      server.beforeUpdateCommit = first;
+      await saveName('First edit');
+      expect(server.beforeUpdateCommit, isNull);
+      await saveName('Final edit');
+      expect(
+        tester.widget<Text>(find.byKey(ChatPage.headerNameKey)).data,
+        'Final edit',
+      );
+
+      first.complete();
+      await _settle(tester);
+      expect(server.group1Name, 'First edit');
+      expect(
+        tester.widget<Text>(find.byKey(ChatPage.headerNameKey)).data,
+        'First edit',
       );
 
       await tester.pumpWidget(const SizedBox.shrink());
