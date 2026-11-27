@@ -11,8 +11,8 @@ class ChatDeliveryRemote {
   ChatDeliveryRemote(this.api);
 
   final ChatApiClient api;
-  late final HttpTransport _transport = api.transport ??
-      HttpTransport(connectionTimeout: api.timeout);
+  late final HttpTransport _transport =
+      api.transport ?? HttpTransport(connectionTimeout: api.timeout);
 
   Future<Map<String, dynamic>> request(
     String token,
@@ -26,9 +26,7 @@ class ChatDeliveryRemote {
       service: 'chat',
       timeout: api.timeout,
       maxBytes: ChatApiClient.maxJsonBytes,
-      headers: {
-        HttpHeaders.authorizationHeader: 'Bearer $token',
-      },
+      headers: {HttpHeaders.authorizationHeader: 'Bearer $token'},
     );
     if (response.status == 401) throw unauthenticated;
     try {
@@ -51,8 +49,11 @@ class ChatDeliveryRemote {
   }
 
   Future<int> eventHead(String token) async {
-    final result = await request(token, '/events/head',
-      query: {'include_groups': 'true'});
+    final result = await request(
+      token,
+      '/events/head',
+      query: {'include_groups': 'true'},
+    );
     final head = result['event_id'];
     if (head is! int || head < 0) throw upstreamMalformed;
     return head;
@@ -60,7 +61,8 @@ class ChatDeliveryRemote {
 
   static List<Map<String, dynamic>> jsonItems(Map<String, dynamic> page) {
     final values = page['items'];
-    if (values is! List || values.any((value) => value is! Map<String, dynamic>)) {
+    if (values is! List ||
+        values.any((value) => value is! Map<String, dynamic>)) {
       throw upstreamMalformed;
     }
     return values.cast<Map<String, dynamic>>();

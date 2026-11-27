@@ -121,6 +121,20 @@ test("poll errors remain visible instead of being swallowed", async (t) => {
   await assert.rejects(f.bridge.tick(a), (error) => error === failure);
 });
 
+test("notification backend outage still drains the existing download feed", async t => {
+  const f = await fixture(t);
+  const failure = Object.assign(new Error("Unavailable"), {code: "upstream_unavailable"});
+  const download = {type: "download.succeeded", task_id: "synthetic"};
+  const delivered = [];
+  f.bridge.notifications.tick = async () => { throw failure; };
+  f.bridge.client.call = async path => path === "events/read"
+    ? {items: [{event: download, cursor: 1}], has_more: false}
+    : {};
+  f.bridge.claimDownload = async (event, cursor) => delivered.push({event, cursor});
+  await assert.rejects(f.bridge.tick(), error => error === failure);
+  assert.deepEqual(delivered, [{event: download, cursor: 1}]);
+});
+
 test("legacy claim guard: pending A does not suppress B; A cannot claim via passive or query", async (t) => {
   const f = await fixture(t);
   await f.plan();

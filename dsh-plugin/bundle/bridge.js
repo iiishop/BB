@@ -803,7 +803,14 @@ export class Bridge {
       if (completed) await this.settle(row);
     }
     await this.client.call("events/subscribe", peer ? { peer_account: peer } : { discover: true });
-    await this.notifications.tick(peer);
+    let notificationFailure;
+    try {
+      await this.notifications.tick(peer);
+    } catch (error) {
+      if (!["upstream_unavailable", "upstream_timeout", "network_error"].includes(error.code))
+        throw error;
+      notificationFailure = error;
+    }
     let after_cursor = 0;
     for (;;) {
       const page = await this.client.call("events/read", {
@@ -816,6 +823,7 @@ export class Bridge {
       if (!page.has_more) break;
       after_cursor = page.next_cursor;
     }
+    if (notificationFailure) throw notificationFailure;
   }
   async poll(peer) {
     return this.notifications.tick(peer);

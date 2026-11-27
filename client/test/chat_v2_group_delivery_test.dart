@@ -77,7 +77,7 @@ void main() {
     }
 
     server.listen((request) async {
-      final path = request.uri.path;
+      final path = Uri.decodeComponent(request.uri.path);
       requests.add(path);
       final int latest = messages.isEmpty
           ? 0

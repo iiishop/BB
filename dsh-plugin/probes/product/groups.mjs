@@ -82,6 +82,8 @@ export async function probeGroups({client, ctx, tool, executeTool, settings, unt
   const rows = await invoke("list_conversations");
   const group = rows.items.find(row => row.conversation.id === conversation.id);
   assert.equal(group.group_number, remoteGroup.group_number);
+  assert.equal((await invoke("find_group", {group_number: group.group_number})).conversation.id,
+    conversation.id);
   assert.equal(group.incoming_unread, 0);
   assert.ok(group.history_through >= old.position);
   const history = await invoke("read_messages", {conversation, after_position: 0});

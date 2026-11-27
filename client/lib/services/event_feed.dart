@@ -9,6 +9,7 @@ import 'chat_api_client.dart';
 import 'chat_delivery_remote.dart';
 import 'chat_ledger.dart';
 import 'client_identity.dart';
+import 'group_service.dart' show ServerEventDisposition;
 
 /// Durable local event feed for DSH consumers.
 ///
@@ -30,7 +31,7 @@ class EventFeed {
   final ChatDeliveryRemote deliveryRemote;
   final AuthSession session;
   final ChatLedger ledger;
-  final Future<void> Function(String, ServerEvent)? onGroupEvent;
+  final Future<ServerEventDisposition> Function(String, ServerEvent)? onGroupEvent;
   final Duration pollInterval;
   final bool webSocketHints;
 
@@ -330,8 +331,13 @@ class EventFeed {
             continue;
         }
         if (groupId != null && onGroupEvent != null) {
-          await onGroupEvent!(captured.account, ServerEvent.fromJson(event));
+          final disposition = await onGroupEvent!(captured.account, ServerEvent.fromJson(event));
           requireCurrent();
+          if (disposition == ServerEventDisposition.staleAccessEvent ||
+              (kind == LocalEventType.messageAvailable &&
+                  disposition != ServerEventDisposition.groupCurrentMessage)) {
+            continue;
+          }
         }
         events.add(LocalEvent(
           eventId: 'server:$id',
