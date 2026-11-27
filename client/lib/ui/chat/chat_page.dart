@@ -17,6 +17,7 @@ import '../../services/media_stream_proxy.dart';
 import '../../services/presence_directory.dart';
 import '../../services/profile_service.dart';
 import '../widgets/profile_avatar.dart';
+import '../profile/profile_details.dart';
 import 'chat_avatars.dart';
 import 'chat_composer.dart';
 import 'chat_format.dart';
@@ -105,6 +106,7 @@ class ChatPage extends StatefulWidget {
   static const Key groupTimeKey = Key('chat-group-time');
   static const Key headerNameKey = Key('chat-header-name');
   static const Key headerStatusKey = Key('chat-header-status');
+  static const Key headerProfileKey = Key('chat-header-profile');
 
   /// Header metrics taken from the annotated reference: a 48 px avatar with
   /// the name over the live presence, inside a 72 px tall bar.
@@ -1454,11 +1456,17 @@ class _ChatPageState extends State<ChatPage> {
         title: Row(
           children: <Widget>[
             ProfileAvatar(
+              key: ChatPage.headerProfileKey,
               bytes: _avatars.bytesFor(widget.peer.account),
               size: ChatPage.headerAvatarSize,
               showBorder: true,
               loading: _avatars.isLoading(widget.peer.account),
-              semanticLabel: '${widget.peer.username} 的头像',
+              semanticLabel: '查看 ${widget.peer.username} 的资料',
+              onTap: () => openPersonProfile(
+                context,
+                account: widget.peer.account,
+                gateway: widget.profile,
+              ),
             ),
             const SizedBox(width: 12),
             Expanded(
