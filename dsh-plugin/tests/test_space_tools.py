@@ -42,13 +42,13 @@ LEGACY_SPACE_ACTIONS = {
     "list_visitors",
     "get_operation",
 }
-HTTP_ONLY_SPACE_ACTIONS = (
+PROFILE_SPACE_ACTIONS = {
     "get_follow",
     "set_follow",
     "list_profile_posts",
     "list_profile_months",
-    "read_events",
-)
+}
+HTTP_ONLY_SPACE_ACTIONS = ("read_events",)
 
 IDENTITY = {
     "account": "10000001",
@@ -66,8 +66,13 @@ async def test_discovery_exact_contract_and_no_internal_replay():
     )
     tools = {t.name: t for t in reply.root.tools if t.name.startswith("space_")}
     assert set(tools) == set(SPACE_TOOLS)
-    assert len(tools) == 24
-    assert set(tools) == {"space_" + action for action in LEGACY_SPACE_ACTIONS}
+    assert len(tools) == 28
+    assert set(tools) == {
+        "space_" + action for action in (LEGACY_SPACE_ACTIONS | PROFILE_SPACE_ACTIONS)
+    }
+    assert tools["space_get_follow"].annotations.readOnlyHint is True
+    assert tools["space_set_follow"].annotations.readOnlyHint is False
+    assert tools["space_set_follow"].annotations.idempotentHint is True
     assert set(TOOL_SCHEMAS) == set(tools)
     for name, model in SPACE_TOOLS.items():
         assert model is space.REQUESTS[name.removeprefix("space_")]
@@ -80,13 +85,35 @@ async def test_discovery_exact_contract_and_no_internal_replay():
             assert set(model.model_json_schema()["properties"]) <= set(properties)
             assert {"path", "base64", "filename"} <= set(properties)
             continue
-        assert tools[name].inputSchema == model.model_json_schema()
+        if name == "space_list_profile_posts":
+            schema = model.model_json_schema()
+            schema["title"] = tools[name].inputSchema["title"]
+            schema["properties"]["limit"].update(default=1, maximum=3)
+            assert "Maximum 3 posts per call" in tools[name].description
+            assert tools[name].inputSchema == schema
+        else:
+            assert tools[name].inputSchema == model.model_json_schema()
         assert "untrusted" in tools[name].description
         assert "expected_identity" not in tools[name].inputSchema["properties"]
     result = await invoke_space(AwaitingBinding(), "space_overview", {})
     assert (
         result.isError and result.structuredContent["error"]["code"] == "stale_binding"
     )
+
+
+@pytest.mark.parametrize("limit", [0, 4, 100])
+async def test_profile_timeline_rejects_out_of_bounds_limit_before_dispatch(limit):
+    class NoDispatch:
+        async def call(self, operation, payload):
+            raise AssertionError("Invalid limit must not dispatch")
+
+    result = await invoke_space(
+        NoDispatch(),
+        "space_list_profile_posts",
+        {"target_account": "10000002", "timezone_offset_minutes": 0, "limit": limit},
+    )
+    assert result.isError and result.structuredContent["status"] == 422
+    assert result.structuredContent["error"]["code"] == "validation_error"
 
 
 @pytest.mark.asyncio
@@ -156,7 +183,7 @@ async def check():
     reply = await create_server(LocalClient('http://127.0.0.1')).request_handlers[ListToolsRequest](
         ListToolsRequest(method='tools/list'))
     names = {t.name for t in reply.root.tools if t.name.startswith('space_')}
-    assert len(names) == 24
+    assert len(names) == 28
     assert names == set(SPACE_TOOLS) == set(TOOL_SCHEMAS)
     assert 'space_future_extension' not in names
     result = await invoke_space(NoDispatch(), 'space_future_extension', {})

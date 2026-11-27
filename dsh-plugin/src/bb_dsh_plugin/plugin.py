@@ -141,7 +141,10 @@ def create_server(client: LocalClient, guarded=None) -> Server:
         ] + [Tool(name=name, description=description(name),
                   inputSchema=TOOL_SCHEMAS[name],
                   annotations=ToolAnnotations(
-                      readOnlyHint='operation_id' not in SPACE_TOOLS[name].model_fields and name != 'space_get_post',
+                      readOnlyHint=(
+                          "operation_id" not in SPACE_TOOLS[name].model_fields
+                          and name not in {"space_get_post", "space_set_follow"}
+                      ),
                       destructiveHint='delete' in name,
                       idempotentHint=True,
                       openWorldHint=True,
