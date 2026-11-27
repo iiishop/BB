@@ -9,6 +9,7 @@ from .conversation import (
     ConversationId,
     ConversationRef,
     GroupConversationRef,
+    GroupNumber,
 )
 
 Position = Annotated[int, Field(ge=0, le=9007199254740991)]
@@ -100,6 +101,7 @@ class ConversationDisplay(v1.Wire):
 
 class GroupConversation(ConversationDisplay, MemberHistory):
     conversation: GroupConversationRef
+    group_number: GroupNumber
     avatar_url: str
     avatar_version: str
 

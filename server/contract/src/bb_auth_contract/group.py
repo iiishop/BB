@@ -4,14 +4,13 @@ from typing import Annotated, Literal
 
 from pydantic import Field, StringConstraints, model_validator
 
-from .chat import Account, OperationId, Source, Wire
+from .chat import Account, OpaqueId, OperationId, Source, Wire
 from .conversation import GroupConversationRef, GroupNumber
 
 Name = Annotated[
     str, StringConstraints(strip_whitespace=True, min_length=1, max_length=80)
 ]
 Description = Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)]
-OpaqueId = Annotated[str, Field(pattern=r"^[A-Za-z0-9_-]{1,200}$")]
 
 
 class GroupNumberRequest(Wire):

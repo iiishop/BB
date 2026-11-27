@@ -45,7 +45,7 @@ from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from starlette.concurrency import run_in_threadpool
 
-from bb_server import space, space_media
+from bb_server import chat_media_gc, groups, space, space_media
 from bb_server.avatars import (
     default_version,
     etag_matches,
@@ -101,6 +101,10 @@ def create_app(
         migrate(path)
         # Retry physical cleanup without undoing committed logical deletion.
         try:
+            chat_media_gc.collect(path, media_root)
+        except (sqlite3.Error, OSError) as error:
+            storage_failure(error, route="chat_media_gc")
+        try:
             space_media.collect(path, media_root / "space", scan=True)
         except (sqlite3.Error, OSError) as error:
             storage_failure(error)
@@ -119,6 +123,10 @@ def create_app(
                         )
                     except (sqlite3.Error, OSError) as error:
                         storage_failure(error)
+                    try:
+                        await run_in_threadpool(chat_media_gc.collect, path, media_root)
+                    except (sqlite3.Error, OSError) as error:
+                        storage_failure(error, route="chat_media_gc")
 
         worker = asyncio.create_task(maintain())
         try:
@@ -408,11 +416,16 @@ def create_app(
     install(
         app,
         path,
-        Path(media_directory)
-        if media_directory
-        else path.parent / (path.name + ".media"),
+        media_root,
+        avatars / "groups",
         current_session,
         clock,
     )
     space.install(app, path, media_root / "space", current_session, clock)
+    groups.install(
+        app,
+        groups.Groups(path, media_root, avatars / "groups", clock),
+        current_session,
+        no_query,
+    )
     return app

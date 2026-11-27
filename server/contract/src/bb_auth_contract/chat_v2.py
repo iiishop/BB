@@ -376,6 +376,7 @@ class MessageEvent(EventBase):
 class GroupMessageEvent(EventBase):
     conversation: GroupConversationRef
     type: Literal["message.available"]
+    membership_revision: Revision
     position: int = Field(ge=1, le=9007199254740991)
 
 
