@@ -41,6 +41,7 @@ class AvatarCache implements AvatarCacheStore {
   final int maxEntries;
   final LinkedHashMap<String, CachedAvatar> _memory =
       LinkedHashMap<String, CachedAvatar>();
+  final Map<String, int> _generations = <String, int>{};
 
   @override
   Future<CachedAvatar?> read(String account, {bool thumb = false}) async {
@@ -87,25 +88,43 @@ class AvatarCache implements AvatarCacheStore {
       return;
     }
     final String key = _key(account, thumb);
+    final int generation = (_generations[key] ?? 0) + 1;
+    _generations[key] = generation;
     _remember(key, CachedAvatar(bytes: bytes, version: version));
     final Directory? directory = this.directory;
     if (directory == null) {
       return;
     }
+    File? temporary;
     try {
       await directory.create(recursive: true);
+      if (_generations[key] != generation) {
+        return;
+      }
       final File image = _imageFile(directory, account, thumb);
-      final File temporary = File('${image.path}.$pid.tmp');
+      temporary = File('${image.path}.$pid.$generation.tmp');
       await temporary.writeAsBytes(bytes, flush: true);
+      if (_generations[key] != generation) {
+        return;
+      }
       // The cache is expendable; if a Windows rename over the old file fails,
       // delete first instead of failing the avatar request.
       try {
         await temporary.rename(image.path);
       } on FileSystemException {
+        if (_generations[key] != generation) {
+          return;
+        }
         if (await image.exists()) {
           await image.delete();
         }
+        if (_generations[key] != generation) {
+          return;
+        }
         await temporary.rename(image.path);
+      }
+      if (_generations[key] != generation) {
+        return;
       }
       await _versionFile(
         directory,
@@ -114,6 +133,16 @@ class AvatarCache implements AvatarCacheStore {
       ).writeAsString(version, flush: true);
     } on FileSystemException {
       // Cache writes are best effort; the fetched bytes are still returned.
+    } finally {
+      if (temporary != null && _generations[key] != generation) {
+        try {
+          if (await temporary.exists()) {
+            await temporary.delete();
+          }
+        } on FileSystemException {
+          // Best-effort cleanup for superseded temp files.
+        }
+      }
     }
   }
 
@@ -121,8 +150,11 @@ class AvatarCache implements AvatarCacheStore {
   /// derivative together.
   @override
   Future<void> invalidate(String account) async {
-    _memory.remove(_key(account, false));
-    _memory.remove(_key(account, true));
+    for (final bool thumb in <bool>[false, true]) {
+      final String key = _key(account, thumb);
+      _generations[key] = (_generations[key] ?? 0) + 1;
+      _memory.remove(key);
+    }
     final Directory? directory = this.directory;
     if (directory == null) {
       return;
@@ -143,8 +175,7 @@ class AvatarCache implements AvatarCacheStore {
     }
   }
 
-  String _key(String account, bool thumb) =>
-      thumb ? '$account|thumb' : account;
+  String _key(String account, bool thumb) => thumb ? '$account|thumb' : account;
 
   void _remember(String key, CachedAvatar cached) {
     _memory.remove(key);

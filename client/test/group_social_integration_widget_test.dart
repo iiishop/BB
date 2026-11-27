@@ -37,6 +37,7 @@ import 'package:bb_client/ui/home_view.dart';
 import 'package:bb_client/ui/notifications/notification_center.dart';
 import 'package:bb_client/ui/profile/avatar_picker.dart';
 import 'package:bb_client/ui/profile/group_profile_panel.dart';
+import 'package:bb_client/ui/widgets/profile_avatar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -94,6 +95,13 @@ class _UiSocialServer {
   bool clearNoticeLoadMoreHoldOnHit = false;
   bool noticeLoadMoreHeldStarted = false;
   int allNoticePageTwoResponses = 0;
+  Uint8List group1Avatar = _png;
+  String group1AvatarVersion = 'gv1';
+  final Uint8List resetGroupAvatarBytes = base64Decode(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNQXtcDAAJVAV4On0tgAAAAAElFTkSuQmCC',
+  );
+  Completer<void>? holdFind;
+  Completer<void>? holdAvatar;
 
   final List<Map<String, dynamic>> createdRequests = <Map<String, dynamic>>[];
   final List<Map<String, dynamic>> sentMessages = <Map<String, dynamic>>[];
@@ -168,10 +176,18 @@ class _UiSocialServer {
         (path == '/avatars/10000001.png' ||
             path == '/avatars/10000002.png' ||
             path == '/chat/groups/10000001/avatar.png')) {
+      final bool isGroup = path.startsWith('/chat/groups/');
+      final Uint8List bytes = isGroup ? group1Avatar : _png;
+      final String etag = isGroup ? group1AvatarVersion : 'av1';
+      final Completer<void>? hold = isGroup ? holdAvatar : null;
+      if (hold != null) {
+        holdAvatar = null;
+        await hold.future;
+      }
       request.response.statusCode = 200;
       request.response.headers.contentType = ContentType('image', 'png');
-      request.response.headers.set('etag', '"av1"');
-      request.response.add(_png);
+      request.response.headers.set('etag', '"$etag"');
+      request.response.add(bytes);
       await request.response.close();
       return;
     }
@@ -220,7 +236,7 @@ class _UiSocialServer {
             'history_through': group1HistoryThrough,
             'membership_revision': 1,
             'avatar_url': '/chat/groups/10000001/avatar.png',
-            'avatar_version': 'gv1',
+            'avatar_version': group1AvatarVersion,
           },
         if (inviteNoticeAccepted)
           <String, dynamic>{
@@ -384,11 +400,21 @@ class _UiSocialServer {
     }
     if (request.method == 'POST' && path == '/chat/groups/find') {
       final String num = jsonBody!['group_number'] as String;
-      await _json(request, 200, _groupProfileJson(num));
+      final Map<String, dynamic> snapshot = _groupProfileJson(num);
+      final Completer<void>? hold = holdFind;
+      if (hold != null) {
+        holdFind = null;
+        await hold.future;
+      }
+      await _json(request, 200, snapshot);
       return;
     }
     if (request.method == 'POST' && path == '/chat/groups/update') {
-      if (jsonBody!.containsKey('name')) {
+      if (jsonBody!['reset_avatar'] == true) {
+        group1Avatar = resetGroupAvatarBytes;
+        group1AvatarVersion = 'gv2';
+      }
+      if (jsonBody.containsKey('name')) {
         group1Name = jsonBody['name'] as String;
       }
       if (jsonBody.containsKey('description')) {
@@ -715,7 +741,7 @@ class _UiSocialServer {
       'name': isFirst ? group1Name : 'Beta群',
       'description': isFirst ? group1Desc : '已解散群简介',
       'avatar_url': isFirst ? '/chat/groups/10000001/avatar.png' : '',
-      'avatar_version': isFirst ? 'gv1' : 'gv0',
+      'avatar_version': isFirst ? group1AvatarVersion : 'gv0',
       'status': dissolved ? 'dissolved' : 'active',
       'role': role?.name,
       'can_invite':
@@ -1604,6 +1630,154 @@ void main() {
         find.descendant(
           of: find.byKey(UsersListView.groupRowKey(server.group1Id)),
           matching: find.text('Renamed desktop group'),
+        ),
+        findsOneWidget,
+      );
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump(const Duration(seconds: 35));
+    },
+  );
+
+  testWidgets(
+    'A6: dismissed profile query completing after rename cannot revert ChatPage header',
+    (WidgetTester tester) async {
+      server.createdGroup1 = true;
+      await pumpHome(tester, size: const Size(375, 812));
+
+      await tester.tap(find.byKey(UsersListView.groupRowKey(server.group1Id)));
+      await _settle(tester);
+      expect(
+        tester.widget<Text>(find.byKey(ChatPage.headerNameKey)).data,
+        'Alpha群',
+      );
+
+      final Completer<void> held = Completer<void>();
+      server.holdFind = held;
+      await tester.tap(find.byKey(ChatPage.headerProfileKey));
+      await _settle(tester);
+      expect(server.holdFind, isNull);
+      await tester.binding.handlePopRoute();
+      await _settle(tester);
+
+      await tester.tap(find.byKey(ChatPage.headerProfileKey));
+      await _settle(tester);
+      await tester.tap(find.text('编辑群资料'));
+      await _settle(tester);
+      await tester.enterText(
+        find.byType(TextFormField).first,
+        'Renamed desktop group',
+      );
+      await tester.tap(find.text('保存群资料'));
+      await _settle(tester);
+      expect(server.group1Name, 'Renamed desktop group');
+
+      await tester.binding.handlePopRoute();
+      await _settle(tester);
+      expect(
+        tester.widget<Text>(find.byKey(ChatPage.headerNameKey)).data,
+        'Renamed desktop group',
+      );
+
+      held.complete();
+      await _settle(tester);
+      expect(
+        tester.widget<Text>(find.byKey(ChatPage.headerNameKey)).data,
+        'Renamed desktop group',
+      );
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump(const Duration(seconds: 35));
+    },
+  );
+
+  testWidgets(
+    'A6: pre-reset group avatar response arriving after reset cannot overwrite ChatPage header or thumbnail cache',
+    (WidgetTester tester) async {
+      server.createdGroup1 = true;
+      await pumpHome(tester, size: const Size(375, 812));
+
+      final Completer<void> held = Completer<void>();
+      server.holdAvatar = held;
+      await tester.tap(find.byKey(UsersListView.groupRowKey(server.group1Id)));
+      await _settle(tester);
+      expect(server.holdAvatar, isNull);
+
+      await tester.tap(find.byKey(ChatPage.headerProfileKey));
+      await _settle(tester);
+      await tester.tap(find.text('编辑群资料'));
+      await _settle(tester);
+      await tester.tap(find.byKey(const Key('group-edit-avatar-reset')));
+      await tester.tap(find.text('保存群资料'));
+      await _settle(tester);
+      expect(server.group1AvatarVersion, 'gv2');
+
+      await tester.binding.handlePopRoute();
+      await _settle(tester);
+      Uint8List? headerBytes() => tester
+          .widget<ProfileAvatar>(find.byKey(ChatPage.headerProfileKey))
+          .bytes;
+      expect(headerBytes(), orderedEquals(server.resetGroupAvatarBytes));
+
+      held.complete();
+      await _settle(tester);
+      final CachedAvatar? cached = await tester.runAsync<CachedAvatar?>(
+        () => groups.avatarCache.read('group-10000001', thumb: true),
+      );
+      expect(headerBytes(), orderedEquals(server.resetGroupAvatarBytes));
+      expect(cached?.version, 'gv2');
+      expect(cached?.bytes, orderedEquals(server.resetGroupAvatarBytes));
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump(const Duration(seconds: 35));
+    },
+  );
+
+  testWidgets(
+    'A6: folded layout updates both ChatPage header and UsersListView row after group rename',
+    (WidgetTester tester) async {
+      server.createdGroup1 = true;
+      await pumpHome(
+        tester,
+        size: const Size(900, 768),
+        features: const <DisplayFeature>[
+          DisplayFeature(
+            bounds: Rect.fromLTWH(450, 0, 8, 768),
+            type: DisplayFeatureType.hinge,
+            state: DisplayFeatureState.postureFlat,
+          ),
+        ],
+      );
+
+      await tester.tap(find.byKey(UsersListView.groupRowKey(server.group1Id)));
+      await _settle(tester);
+      expect(
+        tester.widget<Text>(find.byKey(ChatPage.headerNameKey)).data,
+        'Alpha群',
+      );
+
+      await tester.tap(find.byKey(ChatPage.headerProfileKey));
+      await _settle(tester);
+      await tester.tap(find.text('编辑群资料'));
+      await _settle(tester);
+      await tester.enterText(
+        find.byType(TextFormField).first,
+        'Renamed folded group',
+      );
+      await tester.tap(find.text('保存群资料'));
+      await _settle(tester);
+      expect(server.group1Name, 'Renamed folded group');
+
+      await tester.binding.handlePopRoute();
+      await _settle(tester);
+      expect(
+        tester.widget<Text>(find.byKey(ChatPage.headerNameKey)).data,
+        'Renamed folded group',
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(UsersListView.groupRowKey(server.group1Id)),
+          matching: find.text('Renamed folded group'),
         ),
         findsOneWidget,
       );

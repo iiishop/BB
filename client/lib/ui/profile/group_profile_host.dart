@@ -850,6 +850,8 @@ class _GroupProfileHostState extends State<_GroupProfileHost> {
   AvatarPick? _editAvatar;
   bool _editResetAvatar = false;
   _ProfileSubPage _page = _ProfileSubPage.details;
+  int _profileLoadTicket = 0;
+  int _avatarLoadTicket = 0;
 
   @override
   void initState() {
@@ -859,6 +861,8 @@ class _GroupProfileHostState extends State<_GroupProfileHost> {
   }
 
   Future<void> _load() async {
+    final int profileTicket = ++_profileLoadTicket;
+    final int avatarTicket = ++_avatarLoadTicket;
     setState(() {
       _loading = _group == null;
       _error = null;
@@ -867,6 +871,9 @@ class _GroupProfileHostState extends State<_GroupProfileHost> {
       final GroupProfile loaded = await widget.groups.findGroup(
         widget.groupNumber,
       );
+      if (!mounted || _profileLoadTicket != profileTicket) {
+        return;
+      }
       Uint8List? avatarBytes = _avatar;
       if (loaded.avatarUrl.isNotEmpty) {
         try {
@@ -875,21 +882,25 @@ class _GroupProfileHostState extends State<_GroupProfileHost> {
             avatarUrl: loaded.avatarUrl,
             thumb: true,
           );
-          avatarBytes = Uint8List.fromList(image.bytes);
+          if (_avatarLoadTicket == avatarTicket) {
+            avatarBytes = Uint8List.fromList(image.bytes);
+          }
         } catch (_) {
           // Avatar load failures leave initials/placeholder cleanly.
         }
       }
-      if (!mounted) {
+      if (!mounted || _profileLoadTicket != profileTicket) {
         return;
       }
       setState(() {
         _group = loaded;
-        _avatar = avatarBytes;
+        if (_avatarLoadTicket == avatarTicket) {
+          _avatar = avatarBytes;
+        }
         _loading = false;
       });
     } on AuthFailure catch (failure) {
-      if (!mounted) {
+      if (!mounted || _profileLoadTicket != profileTicket) {
         return;
       }
       if (failure.status == 401) {
@@ -1068,6 +1079,7 @@ class _GroupProfileHostState extends State<_GroupProfileHost> {
         conversation: current.conversation,
         account: member.account,
       );
+      _profileLoadTicket += 1;
       final List<GroupMember> reloaded = await _fetchAllMembers(
         updated.conversation,
       );
@@ -1108,6 +1120,7 @@ class _GroupProfileHostState extends State<_GroupProfileHost> {
       if (!mounted) {
         return;
       }
+      _profileLoadTicket += 1;
       setState(() => _group = updated);
     } on AuthFailure catch (failure) {
       if (failure.status == 401) {
@@ -1146,6 +1159,11 @@ class _GroupProfileHostState extends State<_GroupProfileHost> {
       );
       if (!mounted) {
         return;
+      }
+      final bool avatarChanged = _editAvatar != null || _editResetAvatar;
+      _profileLoadTicket += 1;
+      if (avatarChanged) {
+        _avatarLoadTicket += 1;
       }
       setState(() {
         _group = updated;
@@ -1233,6 +1251,7 @@ class _GroupProfileHostState extends State<_GroupProfileHost> {
       final GroupProfile dissolved = await widget.groups.dissolveGroup(
         conversation: current.conversation,
       );
+      _profileLoadTicket += 1;
       widget.onGroupsChanged?.call();
       if (mounted) {
         setState(() {

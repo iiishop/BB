@@ -1094,6 +1094,7 @@ class _GroupRow extends StatefulWidget {
 
 class _GroupRowState extends State<_GroupRow> {
   Uint8List? _avatar;
+  int _avatarTicket = 0;
 
   @override
   void initState() {
@@ -1113,16 +1114,25 @@ class _GroupRowState extends State<_GroupRow> {
 
   Future<void> _loadAvatar() async {
     final GroupService? groups = widget.groups;
-    if (groups == null || widget.group.avatarUrl.isEmpty) {
+    final int ticket = ++_avatarTicket;
+    final String groupNumber = widget.group.groupNumber;
+    final String avatarUrl = widget.group.avatarUrl;
+    if (groups == null || avatarUrl.isEmpty) {
+      if (mounted && _avatar != null && avatarUrl.isEmpty) {
+        setState(() => _avatar = null);
+      }
       return;
     }
     try {
       final GroupAvatarImage img = await groups.loadGroupAvatar(
-        groupNumber: widget.group.groupNumber,
-        avatarUrl: widget.group.avatarUrl,
+        groupNumber: groupNumber,
+        avatarUrl: avatarUrl,
         thumb: true,
       );
-      if (mounted) {
+      if (mounted &&
+          _avatarTicket == ticket &&
+          widget.group.groupNumber == groupNumber &&
+          widget.group.avatarUrl == avatarUrl) {
         setState(() => _avatar = Uint8List.fromList(img.bytes));
       }
     } catch (_) {
