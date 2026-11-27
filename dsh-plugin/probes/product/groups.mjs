@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readdir, readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 
 export async function probeGroups({client, ctx, tool, executeTool, settings, until, modelRequests}) {
   async function post(path, data, token, expected = 200) {
@@ -46,6 +48,38 @@ export async function probeGroups({client, ctx, tool, executeTool, settings, unt
   assert.deepEqual(ownMembers.items.map(({account}) => account), [client.account]);
 
   const {token} = await post("/auth/login", {account: client.peer, password: "Abc123"});
+  const digest = () => modelRequests.flat()
+    .filter(m => m.id?.startsWith("bb-notice-"))
+    .map(m => JSON.parse(m.content[0].text));
+  const rejectedGroup = await post("/chat/groups/create", {
+    name: "Resolved during collection", operation_id: "group-counts-rejected", invitees: [client.account],
+  }, token);
+  const rejectedInvite = (await invoke("list_notices", {filter: "pending"})).items.find(
+    ({link}) => link?.id === rejectedGroup.group_number,
+  );
+  assert.ok(rejectedInvite);
+  const journalDir = resolve(process.env.DSH_HOME, "../profile/.bb-bridge/notifications");
+  await until(async () => {
+    for (const file of await readdir(journalDir)) {
+      if (!file.endsWith(".json")) continue;
+      const {batch} = JSON.parse(await readFile(resolve(journalDir, file), "utf8"));
+      if (batch?.state === "collecting" &&
+          batch.businessNotices?.last_notice.notification_id === rejectedInvite.id) return true;
+    }
+    return false;
+  });
+  await invoke("mark_notice_read", {notification_id: rejectedInvite.id});
+  await invoke("execute_notice_action", {notification_id: rejectedInvite.id, action_id: "reject"});
+  const current = await invoke("list_notices");
+  assert.deepEqual([current.unread_count, current.pending_count], [0, 0]);
+  const rejectedSummary = () => digest().find(item =>
+    item.business_notices?.last_notice.notification_id === rejectedInvite.id);
+  assert.ok(!rejectedSummary(), "actions completed before delivery");
+  await until(async () => !!rejectedSummary());
+  const {new_count, unread_count, pending_count} = rejectedSummary().business_notices;
+  assert.deepEqual([new_count, unread_count, pending_count],
+    [1, 0, 0], "model counts must match resolved invitation");
+
   const remoteGroup = await post("/chat/groups/create", {
     name: "Owner-created group", operation_id: "group-create-other", invitees: [client.account],
   }, token);
@@ -60,9 +94,6 @@ export async function probeGroups({client, ctx, tool, executeTool, settings, unt
     ({link}) => link?.id === remoteGroup.group_number,
   );
   assert.ok(invitation?.actions.length);
-  const digest = () => modelRequests.flat()
-    .filter(m => m.id?.startsWith("bb-notice-"))
-    .map(m => JSON.parse(m.content[0].text));
   await until(async () => digest().some(item =>
     item.business_notices?.last_notice.notification_id === invitation.id));
   const marked = await invoke("mark_notice_read", {notification_id: invitation.id});
@@ -147,6 +178,7 @@ export async function probeGroups({client, ctx, tool, executeTool, settings, unt
     isolated_accounts: 3,
     real_routes: ["FastAPI", "independent Dart", "installed DSH MCP"],
     notice_action_and_read_independent: true,
+    notice_counts_refreshed_before_delivery: [new_count, unread_count, pending_count],
     group_history_boundary: true,
     group_media_order: true,
     revoked_history_access: true,

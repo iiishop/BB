@@ -17,7 +17,7 @@
 - 创建使用 operation_id 幂等；名称裁掉两端空白后必须非空。远端头像使用 JSON base64 与 mime_type，Dart 本地工具用已有 Source（由本地客户端读取）。资料按群号查找，解散后仍可查看；后续管理动作按 conversation。目录和成员列表只返回各自的资料投影。陌生用户只可查基础资料及申请。
 - 邀请与申请返回关联请求 ID。同人同群同一待处理状态协调交叉请求；邀请动作仍只归受邀人，申请动作仍只归群主。加入边界、系统消息和结果通知随业务提交一次写入。
 - 通知有持久 `id`，操作请求提交 `notification_id` 和 `action_id`。只有通知接收者可查看或操作；已读与 pending/processed/invalidated 独立。不可执行动作须拒绝，待处理筛选仅包含仍可执行的项。Space 通知走原路径。群资料链接使用 `{type:"group", id:"<group_number>"}`，可打开已解散群的基础资料。
-- `notification_changes` 复用统一的 source cursor。`include_groups=true` 的远端事件页包含仅向接收者投送的 `notification.available`，事件定位字段为 `notification_id`，使用同一远端事件 ID 序列。群消息摘要携带 membership_revision；`business_notices` 为可省略的独立有界预览、真实新通知计数及未读/待处理数。预览及正文视为不可信用户数据。展示预览或投递聚合均不读取、处理通知，也不确认底层聊天消息。通知动作和已读使用各自的业务操作。
+- `notification_changes` 复用统一的 source cursor。`include_groups=true` 的远端事件页包含仅向接收者投送的 `notification.available`，事件定位字段为 `notification_id`，使用同一远端事件 ID 序列。群消息摘要携带 membership_revision；`business_notices` 为可省略的独立有界预览、真实新通知计数及未读/待处理数。预览及正文视为不可信用户数据。展示预览或投递聚合均不读取、处理通知，也不确认底层聊天消息。通知动作和已读使用各自的业务操作。 DSH 批次保留按新增事件累计的 `new_count`。入队和恢复未领取的原生通知前，通过 `/v2/notices/list` 重新读取账户未读与待处理总数。
 
 群聊本地回执与消费水位按群 ID 和成员周期保存。群历史查询允许读取入群前内容，水位以入群边界为起点。DSH 在提交投递前及模型读取预览前核对群成员周期。业务通知预览使用独立的 `last_notice.notification_id`，外层投递批次 ID 继续供宿主恢复。
 
