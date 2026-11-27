@@ -236,7 +236,6 @@ class EventFeed {
           after = page.nextCursor!;
         } while (true);
       }
-      await _pollShared(captured, subscription.key, requireCurrentReplay);
       for (final String peer in peers) {
         if (isGroupId(peer)) continue;
         requireCurrentReplay();
@@ -260,6 +259,7 @@ class EventFeed {
           }
         }
       }
+      await _pollShared(captured, subscription.key, requireCurrentReplay);
     }
   }
 

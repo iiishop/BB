@@ -1,5 +1,6 @@
 import httpx
 import pytest
+
 from bb_dsh_plugin.plugin import LocalClient, invoke
 
 
@@ -139,9 +140,10 @@ async def test_group_tools_use_protected_contract_and_omit_internal_tools():
     from pathlib import Path
 
     from bb_auth_contract import chat_v2
+    from mcp.types import ListToolsRequest
+
     from bb_dsh_plugin.guarded import INTERNAL, GuardedTransport, invoke_guarded
     from bb_dsh_plugin.plugin import create_server
-    from mcp.types import ListToolsRequest
 
     fixtures = json.loads(
         (Path(__file__).resolve().parents[2] / "server/contract/chat-v2-cases.json").read_text()
