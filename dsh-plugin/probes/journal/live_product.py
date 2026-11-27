@@ -153,7 +153,7 @@ def run(
         "operation-result",
         "download-result",
     ]
-    if os.environ.get("BB_PRODUCT_CASES") in {"installed", "profile-cover"}:
+    if os.environ.get("BB_PRODUCT_CASES") in {"installed", "profile-cover", "groups"}:
         cuts = []
     if os.environ.get("BB_PRODUCT_CASES") == "cover":
         import secrets
@@ -255,11 +255,10 @@ def run(
         pipe=True,
     )
     stdout, stderr = child.communicate(timeout=90)
-    name = (
-        "installed-profile-cover"
-        if os.environ.get("BB_PRODUCT_CASES") == "profile-cover"
-        else "installed-product"
-    )
+    name = {
+        "profile-cover": "installed-profile-cover",
+        "groups": "installed-groups",
+    }.get(os.environ.get("BB_PRODUCT_CASES"), "installed-product")
     if child.returncode:
         record(name, status="FAIL", detail=stderr[-3000:])
         failures.append("installed")

@@ -21,6 +21,7 @@ class EventFeed {
     required this.session,
     required this.ledger,
     ChatDeliveryRemote? deliveryRemote,
+    this.onGroupEvent,
     this.pollInterval = const Duration(seconds: 2),
     this.webSocketHints = true,
   }) : deliveryRemote = deliveryRemote ?? ChatDeliveryRemote(api);
@@ -29,6 +30,7 @@ class EventFeed {
   final ChatDeliveryRemote deliveryRemote;
   final AuthSession session;
   final ChatLedger ledger;
+  final Future<void> Function(String, ServerEvent)? onGroupEvent;
   final Duration pollInterval;
   final bool webSocketHints;
 
@@ -326,6 +328,10 @@ class EventFeed {
             kind = LocalEventType.notificationAvailable;
           default:
             continue;
+        }
+        if (groupId != null && onGroupEvent != null) {
+          await onGroupEvent!(captured.account, ServerEvent.fromJson(event));
+          requireCurrent();
         }
         events.add(LocalEvent(
           eventId: 'server:$id',

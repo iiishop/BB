@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'conversation_access.dart';
+
 /// Byte-level cache for image bytes that must survive a restart.
 ///
 /// [SpaceImageLoader] keeps bytes in memory so re-reading one picture during a
@@ -222,3 +224,33 @@ MediaDiskCache? _shared;
 /// and evict without seeing the other's files, so the ceiling would drift and
 /// one surface could delete an entry the other is about to read.
 MediaDiskCache sharedMediaDiskCache() => _shared ??= MediaDiskCache();
+
+/// Registers a [MediaDiskCache] purger on [access] so any group revocation
+/// deletes `chat-original-<scopeTag>|*` entries for `(server, account,
+/// conversationId)` even when no viewer is currently open.
+ConversationCachePurger registerDiskCachePurger({
+  required ConversationAccessController access,
+  required MediaDiskCache disk,
+  required Uri serverUri,
+}) {
+  final String server = serverUri.toString();
+  Future<void> purger(
+    String account,
+    String conversationId,
+    Set<String> mediaIds,
+  ) async {
+    final String tag = ConversationAccessController.diskScopeTag(
+      server: server,
+      account: account,
+      conversationId: conversationId,
+    );
+    final String prefix = 'chat-original-$tag|';
+    await disk.deleteWhere((String key) => key.startsWith(prefix));
+    for (final String mediaId in mediaIds) {
+      await disk.delete('$prefix$mediaId');
+    }
+  }
+
+  access.registerPurger(purger);
+  return purger;
+}

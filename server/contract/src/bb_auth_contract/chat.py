@@ -144,16 +144,8 @@ class ConversationAccessEvent(Wire):
     history_through: int
 
 
-class BusinessNoticeEvent(Wire):
-    version: Literal[1] = 1
-    event_id: int
-    type: Literal["notification.available"] = "notification.available"
-    occurred_at: str
-    notification_id: Annotated[str, Field(pattern=r"^[A-Za-z0-9_-]{1,200}$")]
-
-
 class EventPage(Wire):
-    items: list[Event | GroupMessageEvent | ConversationAccessEvent | BusinessNoticeEvent]
+    items: list[Event | GroupMessageEvent | ConversationAccessEvent]
     next_event_id: int
     has_more: bool
 

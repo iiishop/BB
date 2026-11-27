@@ -20,7 +20,6 @@ import 'client_identity.dart';
 import 'conversation_access.dart';
 import 'group_api_client.dart';
 import 'install_safety_gate.dart';
-import 'media_disk_cache.dart';
 import 'media_source.dart';
 import 'profile_api_client.dart';
 
@@ -950,34 +949,4 @@ class SharedConversationService {
       _metadataCache.remove(key);
     }
   }
-}
-
-/// Registers a [MediaDiskCache] purger on [access] so any group revocation
-/// deletes `chat-original-<scopeTag>|*` entries for `(server, account,
-/// conversationId)` even when no viewer is currently open.
-ConversationCachePurger registerDiskCachePurger({
-  required ConversationAccessController access,
-  required MediaDiskCache disk,
-  required Uri serverUri,
-}) {
-  final String server = serverUri.toString();
-  Future<void> purger(
-    String account,
-    String conversationId,
-    Set<String> mediaIds,
-  ) async {
-    final String tag = ConversationAccessController.diskScopeTag(
-      server: server,
-      account: account,
-      conversationId: conversationId,
-    );
-    final String prefix = 'chat-original-$tag|';
-    await disk.deleteWhere((String key) => key.startsWith(prefix));
-    for (final String mediaId in mediaIds) {
-      await disk.delete('$prefix$mediaId');
-    }
-  }
-
-  access.registerPurger(purger);
-  return purger;
 }

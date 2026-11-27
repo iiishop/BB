@@ -58,28 +58,6 @@ class ChatDeliveryRemote {
     return head;
   }
 
-  Future<Map<String, GroupConversationItem>> groups(
-    String token, {
-    Set<String>? ids,
-  }) async {
-    if (ids?.isEmpty ?? false) return {};
-    final result = <String, GroupConversationItem>{};
-    var after = '';
-    do {
-      final page = await api.sharedConversations(token: token, afterId: after, limit: 100);
-      for (final row in page.items.whereType<GroupConversationItem>()) {
-        final id = row.conversation.id;
-        if (ids == null || ids.contains(id)) result[id] = row;
-      }
-      if (ids != null && result.length == ids.length) break;
-      final next = page.nextCursor;
-      if (next == null) break;
-      if (next.compareTo(after) <= 0) throw upstreamMalformed;
-      after = next;
-    } while (true);
-    return result;
-  }
-
   static List<Map<String, dynamic>> jsonItems(Map<String, dynamic> page) {
     final values = page['items'];
     if (values is! List || values.any((value) => value is! Map<String, dynamic>)) {

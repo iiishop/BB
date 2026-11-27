@@ -3,7 +3,6 @@ import 'dart:typed_data';
 
 import '../models/auth_models.dart';
 import '../models/chat_models.dart';
-import '../models/conversation_models.dart';
 import '../models/group_models.dart';
 import '../models/profile_models.dart';
 import 'auth_session.dart';

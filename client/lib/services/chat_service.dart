@@ -7,7 +7,6 @@ import 'dart:typed_data' show Uint8List;
 import '../config/media_policy.dart';
 import '../models/auth_models.dart';
 import '../models/chat_models.dart';
-import '../models/conversation_models.dart';
 import 'auth_session.dart';
 import 'install_safety_gate.dart';
 import 'chat_api_client.dart';
@@ -16,6 +15,7 @@ import 'chat_ledger.dart';
 import 'chat_query.dart';
 import 'client_identity.dart';
 import 'download_manager.dart';
+import 'conversation_access.dart';
 import 'event_feed.dart';
 import 'group_api_client.dart';
 import 'group_service.dart';
@@ -135,6 +135,7 @@ class ChatService {
       session: session,
       ledger: ledger,
       deliveryRemote: deliveryRemote,
+      onGroupEvent: (account, event) => sharedConversations.applyServerEvent(account, event),
       pollInterval: eventPollInterval,
       webSocketHints: webSocketHints,
     );
@@ -161,9 +162,14 @@ class ChatService {
   /// commit point and prove the watermark is not written.
   final Future<void> Function()? beforeCommit;
 
+  final _groupAccess = ConversationAccessController();
+  late final SharedConversationService sharedConversations = SharedConversationService(
+    api: api, session: session, access: _groupAccess, resolver: _resolver,
+  );
   late final GroupService groups = GroupService(
     api: GroupApiClient(baseUri: api.baseUri, timeout: api.timeout, transport: api.transport),
     session: session,
+    access: _groupAccess,
   );
   late final ChatDeliveryRemote deliveryRemote = ChatDeliveryRemote(api);
   late final EventFeed eventFeed;
@@ -210,6 +216,7 @@ class ChatService {
   }
 
   Future<void> dispose() async {
+    sharedConversations.dispose();
     await eventFeed.dispose();
     await downloads.dispose();
     await mediaStreams.close();
@@ -484,7 +491,7 @@ class ChatService {
     }
     final int next = settings['enabled'] == false ? head : fresh.isEmpty ? head : fresh.last.cursor;
     return <String, dynamic>{'settings': settings, 'items': changes.values.toList(), 'deferred': deferred,
-      if (businessNotices != null) 'business_notices': businessNotices,
+      'business_notices': ?businessNotices,
       'next_cursor': next, 'through_cursor': head, 'has_more': next < head};
   }
 
@@ -578,7 +585,7 @@ class ChatService {
     }
     Map<String, GroupConversationItem> members;
     try {
-      members = await deliveryRemote.groups(captured.token);
+      members = await _activeGroups(captured);
     } on AuthFailure catch (failure) {
       // An older BB server can still serve the existing direct-chat API.
       if (failure.status != 404) rethrow;
@@ -637,7 +644,7 @@ class ChatService {
       for (final row in snapshot.rows)
         if (row['membership_revision'] != null) (row['conversation'] as Map)['id'] as String,
     };
-    final current = await deliveryRemote.groups(captured.token, ids: groupIds);
+    final current = await _activeGroups(captured, ids: groupIds);
     final rows = snapshot.rows.where((row) {
       final revision = row['membership_revision'];
       return revision == null || current[(row['conversation'] as Map)['id']]?.membershipRevision == revision;
@@ -658,8 +665,31 @@ class ChatService {
     return {'items': rows.take(limit).toList(), 'next_cursor': next};
   }
 
+  Future<Map<String, GroupConversationItem>> _activeGroups(
+    AuthIdentity captured, {
+    Set<String>? ids,
+  }) async {
+    if (ids?.isEmpty ?? false) return {};
+    final result = <String, GroupConversationItem>{};
+    var after = '';
+    do {
+      final page = await sharedConversations.listSharedConversations(
+        captured: captured, afterId: after, limit: 100);
+      for (final row in page.items.whereType<GroupConversationItem>()) {
+        final id = row.conversation.id;
+        if (ids == null || ids.contains(id)) result[id] = row;
+      }
+      if (ids != null && result.length == ids.length) break;
+      final next = page.nextCursor;
+      if (next == null) break;
+      if (next.compareTo(after) <= 0) throw upstreamMalformed;
+      after = next;
+    } while (true);
+    return result;
+  }
+
   Future<GroupConversationItem> requireGroup(AuthIdentity captured, String id) async {
-    final current = await deliveryRemote.groups(captured.token, ids: {id});
+    final current = await _activeGroups(captured, ids: {id});
     if (!session.isCurrent(captured)) throw staleIdentity;
     return current[id] ?? (throw const AuthFailure(
       status: 404, code: 'not_found', message: '群会话当前不可访问'));
@@ -694,7 +724,7 @@ class ChatService {
     var position = boundary;
     Map<String, dynamic>? preview;
     while (position < latest) {
-      final page = await api.conversationHistory(token: captured.token,
+      final page = await sharedConversations.loadConversationHistory(captured: captured,
         conversation: membership.conversation, afterPosition: position, limit: 100);
       for (final message in page.items) {
         if (message.position > latest) break;
@@ -745,7 +775,7 @@ class ChatService {
     if (membershipRevision != null && revision != membershipRevision) {
       throw staleBinding('群成员身份已变化');
     }
-    final page = await api.conversationHistory(token: context.identity.token,
+    final page = await sharedConversations.loadConversationHistory(captured: context.identity,
       conversation: membership.conversation, afterPosition: after, beforePosition: before, limit: limit);
     final displayed = unreadOnly ? await ledger.displayedMessageIds(expected.account) : null;
     final items = <Map<String, dynamic>>[];
@@ -820,7 +850,7 @@ class ChatService {
       }
     }
     if (relevant.isEmpty) return;
-    final groups = await deliveryRemote.groups(captured.token, ids: relevant.keys.toSet());
+    final groups = await _activeGroups(captured, ids: relevant.keys.toSet());
     for (final group in groups.keys) {
       final membership = groups[group]!;
       final after = membership.historyThrough;
@@ -864,7 +894,7 @@ class ChatService {
       }
     }
     final sentGroups = changes.keys.where(isGroupId).toSet();
-    final current = await deliveryRemote.groups(captured.token, ids: sentGroups);
+    final current = await _activeGroups(captured, ids: sentGroups);
     for (final id in sentGroups) {
       if (current[id]?.membershipRevision != changes[id]!['membership_revision']) {
         changes.remove(id);
@@ -928,17 +958,14 @@ class ChatService {
   Future<LocalEventPage> _scopeSharedEvents(
     ExpectedIdentity expected, AuthIdentity captured, LocalEventPage page,
   ) async {
-    final ids = <String>{
-      for (final entry in page.items)
-        if (entry.event.groupId case final group?) group,
-    };
+    final ids = page.items.map((entry) => entry.event.groupId).whereType<String>().toSet();
     if (ids.isEmpty) return page;
     final discover = await ledger.discoversConversations(expected.account, expected.consumerId);
     if (!discover) {
       final peers = (await ledger.subscriptions(expected.account))[expected.consumerId];
       ids.retainWhere((id) => peers?.contains(id) ?? false);
     }
-    final current = await deliveryRemote.groups(captured.token, ids: ids);
+    final current = await _activeGroups(captured, ids: ids);
     await requireIdentity(expected);
     return LocalEventPage(
       items: page.items.where((entry) {
@@ -2739,7 +2766,7 @@ class ChatService {
       groupKeys[key] = key.split('@').first;
     }
     if (groupKeys.isNotEmpty) {
-      final groups = await deliveryRemote.groups(captured.token, ids: groupKeys.values.toSet());
+      final groups = await _activeGroups(captured, ids: groupKeys.values.toSet());
       for (final entry in groupKeys.entries) {
         final revision = groups[entry.value]?.membershipRevision;
         if (revision is! int || entry.key != groupConsumptionKey(entry.value, revision)) {
