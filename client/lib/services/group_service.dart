@@ -46,6 +46,18 @@ class GroupService {
   final AvatarCacheStore avatarCache;
   final AvatarSourceReader avatarSources;
   final ConversationAccessController? access;
+  final StreamController<GroupProfile> _groupUpdates =
+      StreamController<GroupProfile>.broadcast();
+
+  /// Broadcasts authoritative [GroupProfile] snapshots returned by group
+  /// queries and mutations so open chat views stay synchronized.
+  Stream<GroupProfile> get groupUpdates => _groupUpdates.stream;
+
+  void _emitGroupUpdate(GroupProfile profile) {
+    if (!_groupUpdates.isClosed) {
+      _groupUpdates.add(profile);
+    }
+  }
 
   String _token(AuthIdentity? captured) {
     if (captured != null) {
@@ -140,6 +152,7 @@ class GroupService {
       membershipRevision: 1,
       historyThrough: 0,
     );
+    _emitGroupUpdate(profile);
     return profile;
   }
 
@@ -156,6 +169,7 @@ class GroupService {
       groupNumber: groupNumber,
     );
     _ensureCurrent(identity);
+    _emitGroupUpdate(profile);
     return profile;
   }
 
@@ -232,6 +246,7 @@ class GroupService {
     if (avatarBytes != null || resetAvatar) {
       await avatarCache.invalidate(_avatarKey(profile.groupNumber));
     }
+    _emitGroupUpdate(profile);
     return profile;
   }
 
@@ -357,6 +372,7 @@ class GroupService {
     if (account == identity.account) {
       await access?.revoke(identity.account, conversation.id);
     }
+    _emitGroupUpdate(profile);
     return profile;
   }
 
@@ -372,6 +388,7 @@ class GroupService {
     );
     _ensureCurrent(identity);
     await access?.revoke(identity.account, conversation.id);
+    _emitGroupUpdate(profile);
     return profile;
   }
 

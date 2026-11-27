@@ -232,6 +232,8 @@ class _ChatPageState extends State<ChatPage> {
   String? _error;
   bool _revoked = false;
   int? _capturedEpoch;
+  GroupProfile? _liveGroupProfile;
+  StreamSubscription<GroupProfile>? _groupUpdatesSub;
   Uint8List? _groupAvatarBytes;
   Timer? _pollTimer;
   late final ChatAvatarController _avatars;
@@ -282,7 +284,15 @@ class _ChatPageState extends State<ChatPage> {
   String get _scopeId => widget.group?.conversation.id ?? widget._peer!.account;
 
   String get _displayName =>
-      widget.group?.displayName ?? widget._peer!.username;
+      _liveGroupProfile?.name ??
+      widget.group?.displayName ??
+      widget._peer!.username;
+
+  String get _groupAvatarUrl =>
+      _liveGroupProfile?.avatarUrl ?? widget.group?.avatarUrl ?? '';
+
+  String get _groupAvatarVersion =>
+      _liveGroupProfile?.avatarVersion ?? widget.group?.avatarVersion ?? '';
 
   ConversationRef? get _conversation => widget.group?.conversation;
 
@@ -311,6 +321,7 @@ class _ChatPageState extends State<ChatPage> {
       widget.presence?.watch(widget._peer!.account);
     } else {
       _attachGroupAccess();
+      _subscribeGroupUpdates();
       unawaited(_loadGroupAvatar());
     }
     unawaited(_loadInitial());
@@ -397,19 +408,52 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
+  void _subscribeGroupUpdates() {
+    unawaited(_groupUpdatesSub?.cancel());
+    _groupUpdatesSub = _isGroup
+        ? widget.groups?.groupUpdates.listen(_onGroupProfileUpdated)
+        : null;
+  }
+
+  void _onGroupProfileUpdated(GroupProfile profile) {
+    final GroupConversationItem? group = widget.group;
+    if (!mounted ||
+        _revoked ||
+        group == null ||
+        profile.conversation != group.conversation) {
+      return;
+    }
+    final String previousUrl = _groupAvatarUrl;
+    final String previousVersion = _groupAvatarVersion;
+    setState(() {
+      _liveGroupProfile = profile;
+    });
+    if (profile.avatarUrl != previousUrl ||
+        profile.avatarVersion != previousVersion) {
+      unawaited(_loadGroupAvatar());
+    }
+  }
+
   Future<void> _loadGroupAvatar() async {
     final GroupConversationItem? group = widget.group;
     final GroupService? groups = widget.groups;
-    if (group == null || groups == null || group.avatarUrl.isEmpty) {
+    final String avatarUrl = _groupAvatarUrl;
+    if (group == null || groups == null || avatarUrl.isEmpty) {
+      if (mounted && _groupAvatarBytes != null && avatarUrl.isEmpty) {
+        setState(() => _groupAvatarBytes = null);
+      }
       return;
     }
     try {
       final GroupAvatarImage image = await groups.loadGroupAvatar(
         groupNumber: group.groupNumber,
-        avatarUrl: group.avatarUrl,
+        avatarUrl: avatarUrl,
         thumb: true,
       );
-      if (mounted && !_revoked && _scopeId == group.conversation.id) {
+      if (mounted &&
+          !_revoked &&
+          _scopeId == group.conversation.id &&
+          _groupAvatarUrl == avatarUrl) {
         setState(() => _groupAvatarBytes = Uint8List.fromList(image.bytes));
       }
     } catch (_) {
@@ -463,12 +507,17 @@ class _ChatPageState extends State<ChatPage> {
           ..watch(widget._peer!.account);
       }
     }
+    if (oldWidget.groups != widget.groups ||
+        (oldWidget.group != null) != _isGroup) {
+      _subscribeGroupUpdates();
+    }
     if (oldScope != newScope) {
       // Requests captured for the previous conversation must never write into
       // this page. A real navigation creates a new state; this guard also
       // covers a parent that reuses the widget with another target.
       _pageEpoch += 1;
       _revoked = false;
+      _liveGroupProfile = null;
       _groupAvatarBytes = null;
       _lookupGeneration.clear();
       _lookupInFlight.clear();
@@ -495,15 +544,34 @@ class _ChatPageState extends State<ChatPage> {
         unawaited(_loadGroupAvatar());
       }
       unawaited(_loadInitial());
-    } else if (!oldWidget.active && widget.active) {
-      // The pane just became visible again: only now do the arrivals that
-      // were staged while it was hidden become display facts.
-      _flushDisplayed();
+    } else {
+      final GroupConversationItem? oldGroup = oldWidget.group;
+      final GroupConversationItem? newGroup = widget.group;
+      if (oldGroup != null &&
+          newGroup != null &&
+          (oldGroup.displayName != newGroup.displayName ||
+              oldGroup.avatarUrl != newGroup.avatarUrl ||
+              oldGroup.avatarVersion != newGroup.avatarVersion)) {
+        final String previousUrl = _groupAvatarUrl;
+        final String previousVersion = _groupAvatarVersion;
+        _liveGroupProfile = null;
+        if (newGroup.avatarUrl != previousUrl ||
+            newGroup.avatarVersion != previousVersion) {
+          unawaited(_loadGroupAvatar());
+        }
+      }
+      if (!oldWidget.active && widget.active) {
+        // The pane just became visible again: only now do the arrivals that
+        // were staged while it was hidden become display facts.
+        _flushDisplayed();
+      }
     }
   }
 
   @override
   void dispose() {
+    unawaited(_groupUpdatesSub?.cancel());
+    _groupUpdatesSub = null;
     if (widget._peer != null) {
       widget.presence
         ?..removeListener(_onPresenceChanged)
@@ -769,6 +837,17 @@ class _ChatPageState extends State<ChatPage> {
       _forgetCommittedPending();
       widget.onMessagesChanged?.call(List<ChatMessage>.unmodifiable(_messages));
       _retryUnresolvedLookups();
+      if (_isGroup &&
+          loaded.any(
+            (ChatMessage message) =>
+                arrived.contains(message.identity) && message.isSystem,
+          )) {
+        unawaited(
+          widget.groups
+              ?.findGroup(widget.group!.groupNumber)
+              .then<void>((_) {}, onError: (Object _) {}),
+        );
+      }
       if (arrived.isNotEmpty && wasNearBottom) {
         _scrollToBottom(force: true);
       }
@@ -1728,6 +1807,7 @@ class _ChatPageState extends State<ChatPage> {
         () => openGroupProfileByNumber(
           context,
           groupNumber: group.groupNumber,
+          initialProfile: _liveGroupProfile,
           groups: groups,
           chat: widget.chat,
           profile: widget.profile,
