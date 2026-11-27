@@ -15,6 +15,7 @@ import '../services/media_disk_cache.dart';
 import '../services/profile_service.dart';
 import '../models/chat_models.dart';
 import 'display_features.dart';
+import 'notifications/notification_center.dart';
 import 'chat/chat_page.dart';
 import 'chat/chat_workspace.dart';
 import 'chat/users_view.dart';
@@ -31,12 +32,8 @@ import 'space/profile/space_profile_gateway.dart';
 import 'space/profile/space_profile_page.dart';
 import 'widgets/profile_avatar.dart';
 
-/// Signed-in home surface for STEP-2.
-///
-/// Profile is the only live module in this step. The signed-in avatar is the
-/// single way into Profile: narrow message layouts replace the header BB badge
-/// with it, while wide layouts keep the rail entry. The heartbeat banner appears
-/// after three missed beats without logging the user out.
+/// Signed-in shell. General notifications remain available independently of
+/// Space; hidden chat panes keep their existing display-confirmation rules.
 class HomeView extends StatefulWidget {
   const HomeView({
     super.key,
@@ -48,6 +45,9 @@ class HomeView extends StatefulWidget {
     required this.onSessionExpired,
     this.chat,
     this.space,
+    this.notificationBuilder,
+    this.onCreateGroup,
+    this.onFindGroup,
   });
 
   final AuthUser user;
@@ -59,6 +59,9 @@ class HomeView extends StatefulWidget {
   /// user list; when null the STEP-2 profile-only home is kept.
   final ChatService? chat;
   final SpaceGateway? space;
+  final Widget Function(BuildContext context, bool active)? notificationBuilder;
+  final VoidCallback? onCreateGroup;
+  final VoidCallback? onFindGroup;
   final void Function(LogoutResult? result) onSignedOut;
   final void Function() onSessionExpired;
 
@@ -69,6 +72,8 @@ class HomeView extends StatefulWidget {
   static const Key errorKey = Key('home-profile-error');
   static const Key navChatKey = Key('home-nav-chat');
   static const Key navSpaceKey = Key('home-nav-space');
+  static const Key navNotificationsKey = Key('home-nav-notifications');
+  static const Key groupMenuKey = Key('home-group-menu');
   static const Key railAvatarKey = Key('home-rail-avatar');
   static const double railWidth = 92;
 
@@ -324,12 +329,7 @@ class _HomeViewState extends State<HomeView>
 
   @override
   Widget build(BuildContext context) {
-    final SpaceGateway? space = widget.space;
-    if (space == null) {
-      // No rail in this shell, so the header avatar is the only profile entry.
-      return _chatScaffold(context, showHeaderAvatar: true);
-    }
-    return _appScaffold(context, space);
+    return _appScaffold(context, widget.space);
   }
 
   /// The header entry that replaces the BB badge on narrow layouts.
@@ -464,6 +464,26 @@ class _HomeViewState extends State<HomeView>
               _BrandRow(
                 account: widget.user.account,
                 avatarEntry: showHeaderAvatar ? _headerAvatar() : null,
+                trailing: PopupMenuButton<String>(
+                  key: HomeView.groupMenuKey,
+                  tooltip: '添加',
+                  icon: const Icon(Icons.add_rounded),
+                  onSelected: (value) => value == 'create'
+                      ? widget.onCreateGroup?.call()
+                      : widget.onFindGroup?.call(),
+                  itemBuilder: (_) => <PopupMenuEntry<String>>[
+                    PopupMenuItem(
+                      value: 'create',
+                      enabled: widget.onCreateGroup != null,
+                      child: const Text('创建群'),
+                    ),
+                    PopupMenuItem(
+                      value: 'find',
+                      enabled: widget.onFindGroup != null,
+                      child: const Text('申请加入群'),
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(height: AppSpacing.md),
               Text(
@@ -599,14 +619,14 @@ class _HomeViewState extends State<HomeView>
     );
   }
 
-  /// Signed-in shell when Space is available. Chat keeps its existing surface;
+  /// Signed-in shell. Chat keeps its existing surface;
   /// Space is a sibling tab, so switching never rebuilds either state tree.
   ///
   /// The rail is painted beneath the page stack and the stack sits at the
   /// rail's right edge. A full-screen chat has to reach physical screen x = 0,
   /// so the fold transition slides the rail out from under the pages instead
   /// of leaving 92 px reserved; both share one controller so they never drift.
-  Widget _appScaffold(BuildContext context, SpaceGateway space) {
+  Widget _appScaffold(BuildContext context, SpaceGateway? space) {
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
         final bool compact = constraints.maxWidth < 720;
@@ -658,7 +678,15 @@ class _HomeViewState extends State<HomeView>
                       visible: _section == 0,
                       displayWidth: constraints.maxWidth,
                     ),
-                    _spacePage(context, space, active: _section == 1),
+                    space == null
+                        ? const Scaffold(
+                            body: SafeArea(
+                              child: Center(child: Text('BB空间暂不可用')),
+                            ),
+                          )
+                        : _spacePage(context, space, active: _section == 1),
+                    widget.notificationBuilder?.call(context, _section == 2) ??
+                        const NotificationCenter(available: false),
                   ],
                 ),
               ),
@@ -704,6 +732,12 @@ class _HomeViewState extends State<HomeView>
                           icon: Icon(Icons.public_outlined),
                           selectedIcon: Icon(Icons.public_rounded),
                           label: 'BB空间',
+                        ),
+                        NavigationDestination(
+                          key: HomeView.navNotificationsKey,
+                          icon: Icon(Icons.notifications_none_rounded),
+                          selectedIcon: Icon(Icons.notifications_rounded),
+                          label: '通知',
                         ),
                       ],
                     )
@@ -787,16 +821,29 @@ class _HomeViewState extends State<HomeView>
               selected: _section == 1,
               onTap: () => setState(() => _section = 1),
             ),
+            const SizedBox(height: AppSpacing.sm),
+            _RailButton(
+              key: HomeView.navNotificationsKey,
+              icon: _section == 2
+                  ? Icons.notifications_rounded
+                  : Icons.notifications_none_rounded,
+              label: '通知',
+              selected: _section == 2,
+              onTap: () => setState(() => _section = 2),
+            ),
             const Spacer(),
             Padding(
               padding: const EdgeInsets.only(bottom: AppSpacing.md),
-              child: ProfileAvatar(
-                key: HomeView.railAvatarKey,
-                bytes: _avatar,
-                size: 48,
-                loading: _loading && _avatar == null,
-                onTap: _openProfile,
-                semanticLabel: '打开个人资料',
+              child: KeyedSubtree(
+                key: widget.space == null ? HomeView.avatarEntryKey : null,
+                child: ProfileAvatar(
+                  key: HomeView.railAvatarKey,
+                  bytes: _avatar,
+                  size: 48,
+                  loading: _loading && _avatar == null,
+                  onTap: _openProfile,
+                  semanticLabel: '打开个人资料',
+                ),
               ),
             ),
           ],
@@ -823,31 +870,35 @@ class _RailButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final Color color = selected ? AppColors.accentDeep : AppColors.inkMuted;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(AppRadius.brand),
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
-          decoration: BoxDecoration(
-            color: selected ? AppColors.accentSoft : Colors.transparent,
-            borderRadius: BorderRadius.circular(AppRadius.brand),
-          ),
-          child: Column(
-            children: <Widget>[
-              Icon(icon, color: color, size: 22),
-              const SizedBox(height: 2),
-              Text(
-                label,
-                style: TextStyle(
-                  color: color,
-                  fontSize: 11.5,
-                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+    return Semantics(
+      button: true,
+      selected: selected,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(AppRadius.brand),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+            decoration: BoxDecoration(
+              color: selected ? AppColors.accentSoft : Colors.transparent,
+              borderRadius: BorderRadius.circular(AppRadius.brand),
+            ),
+            child: Column(
+              children: <Widget>[
+                Icon(icon, color: color, size: 22),
+                const SizedBox(height: 2),
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 11.5,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -892,13 +943,14 @@ class _ReconnectBanner extends StatelessWidget {
 }
 
 class _BrandRow extends StatelessWidget {
-  const _BrandRow({required this.account, this.avatarEntry});
+  const _BrandRow({required this.account, this.avatarEntry, this.trailing});
 
   final String account;
 
   /// When present, the signed-in avatar replaces the BB badge on the same row
   /// as the account, above the "消息" title.
   final Widget? avatarEntry;
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
@@ -931,6 +983,7 @@ class _BrandRow extends StatelessWidget {
             style: text.bodySmall?.copyWith(letterSpacing: 1),
           ),
         ),
+        ?trailing,
       ],
     );
   }

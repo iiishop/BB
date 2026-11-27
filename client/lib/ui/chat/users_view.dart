@@ -1,18 +1,17 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
 import '../../app.dart';
 import '../../models/auth_models.dart';
 import '../../models/chat_models.dart';
-import '../../models/profile_models.dart';
 import '../../services/chat_service.dart';
 import '../../services/presence_directory.dart';
 import '../../services/profile_service.dart';
 import 'chat_format.dart';
 import 'conversation_order.dart';
+import 'user_identity_row.dart';
 
 /// Width of the little speech tail that points from the current conversation's
 /// note back towards its avatar. It is always reserved so names start on the
@@ -799,11 +798,13 @@ class _UserRow extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: <Widget>[
-                _UserAvatar(
+                UserIdentityAvatar(
                   user: user,
                   profile: profile,
                   online: online,
                   size: avatarSize,
+                  avatarKey: UsersListView.avatarKey(user.account),
+                  presenceKey: UsersListView.presenceDotKey(user.account),
                 ),
                 SizedBox(width: avatarGap),
                 Expanded(child: note),
@@ -925,122 +926,6 @@ class _UnreadBadge extends StatelessWidget {
             height: 1,
             fontWeight: FontWeight.w700,
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _UserAvatar extends StatefulWidget {
-  const _UserAvatar({
-    required this.user,
-    required this.profile,
-    required this.online,
-    required this.size,
-  });
-
-  final ChatUser user;
-  final ProfileGateway profile;
-  final bool online;
-  final double size;
-
-  @override
-  State<_UserAvatar> createState() => _UserAvatarState();
-}
-
-class _UserAvatarState extends State<_UserAvatar> {
-  Future<Uint8List>? _future;
-
-  @override
-  void initState() {
-    super.initState();
-    _future = _load();
-  }
-
-  @override
-  void didUpdateWidget(covariant _UserAvatar oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.user.account != widget.user.account ||
-        oldWidget.user.avatarVersion != widget.user.avatarVersion) {
-      _future = _load();
-    }
-  }
-
-  Future<Uint8List> _load() async {
-    final AvatarImage image = await widget.profile.loadAvatar(
-      account: widget.user.account,
-      thumb: true,
-    );
-    return image.bytes;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      label: widget.online ? '在线' : '离线',
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: <Widget>[
-          Container(
-            key: UsersListView.avatarKey(widget.user.account),
-            width: widget.size,
-            height: widget.size,
-            decoration: BoxDecoration(
-              color: AppColors.accentSoft,
-              shape: BoxShape.circle,
-              border: Border.all(color: AppColors.border),
-            ),
-            clipBehavior: Clip.antiAlias,
-            child: FutureBuilder<Uint8List>(
-              future: _future,
-              builder:
-                  (BuildContext context, AsyncSnapshot<Uint8List> snapshot) {
-                    if (snapshot.hasData) {
-                      return Image.memory(
-                        snapshot.data!,
-                        fit: BoxFit.cover,
-                        gaplessPlayback: true,
-                        errorBuilder: (
-                          BuildContext context,
-                          Object error,
-                          StackTrace? stackTrace,
-                        ) => _initials(),
-                      );
-                    }
-                    return _initials();
-                  },
-            ),
-          ),
-          // Offline has no dot: the online dot and the note are independent
-          // states, and an offline peer must not look selected or online.
-          if (widget.online)
-            Positioned(
-              right: -1,
-              bottom: -1,
-              child: Container(
-                key: UsersListView.presenceDotKey(widget.user.account),
-                width: 13,
-                height: 13,
-                decoration: BoxDecoration(
-                  color: AppColors.success,
-                  shape: BoxShape.circle,
-                  border: Border.all(color: AppColors.paper, width: 2),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _initials() {
-    return Center(
-      child: Text(
-        initialsOf(widget.user.username),
-        style: TextStyle(
-          fontSize: widget.size * 0.36,
-          fontWeight: FontWeight.w700,
-          color: AppColors.accentDeep,
         ),
       ),
     );
