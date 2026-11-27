@@ -185,23 +185,28 @@ def read_avatar(
         ).fetchone()
         if row is None:
             raise ContractError(404, "not_found", "用户不存在")
-        if row["avatar_path"]:
-            name = row["avatar_path"]
-            version = row["avatar_version"]
-            if variant == "thumb":
-                try:
-                    data = avatar_file(directory, thumb_name(name)).read_bytes()
-                    return data, version + THUMB_SUFFIX, "image/jpeg"
-                except OSError:
-                    pass
-            return avatar_file(directory, name).read_bytes(), version, "image/png"
+        return avatar_bytes(row, directory, account, variant)
+
+
+def avatar_bytes(row, directory: Path, seed: str, variant: str) -> tuple[bytes, str, str]:
+    """Read a selected avatar or generate its PNG/thumbnail using the public seed."""
+    if row["avatar_path"]:
+        name = row["avatar_path"]
+        version = row["avatar_version"]
+        if variant == "thumb":
+            try:
+                data = avatar_file(directory, thumb_name(name)).read_bytes()
+                return data, version + THUMB_SUFFIX, "image/jpeg"
+            except OSError:
+                pass
+        return avatar_file(directory, name).read_bytes(), version, "image/png"
     if variant == "thumb":
         return (
-            thumbnail(identicon(account)),
-            default_version(account) + THUMB_SUFFIX,
+            thumbnail(identicon(seed)),
+            default_version(seed) + THUMB_SUFFIX,
             "image/jpeg",
         )
-    return identicon(account), default_version(account), "image/png"
+    return identicon(seed), default_version(seed), "image/png"
 
 
 def etag_matches(header: str | None, etag: str) -> bool:

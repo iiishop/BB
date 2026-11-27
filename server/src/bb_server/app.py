@@ -408,9 +408,8 @@ def create_app(
     install(
         app,
         path,
-        Path(media_directory)
-        if media_directory
-        else path.parent / (path.name + ".media"),
+        media_root,
+        avatars / "groups",
         current_session,
         clock,
     )

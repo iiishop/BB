@@ -259,18 +259,30 @@ def test_different_lossless_png_and_webp_keep_native_pixel_change(account_pair):
 
 @pytest.mark.parametrize(("schema_version", "fmt"), [(6, "JPEG"), (7, "PNG")])
 def test_legacy_wrong_hash_alias_is_rechecked_after_restart(
-    tmp_path, schema_version, fmt
+    tmp_path, schema_version, fmt, monkeypatch
 ):
     path = tmp_path / "legacy-cover.db"
     first, second = [
         encode(numbered_cover(room, low_contrast=schema_version == 7), fmt, quality=92)
         for room in (101, 102)
     ]
-    with TestClient(create_app(path)) as api:
-        alice, a = login(api)
-        bob, b = login(api, "Other")
-        saved = upload(api, a, first)
-        assert saved.status_code == 200
+    migrations = Path(__file__).parents[1] / "src/bb_server/migrations"
+    with closing(sqlite3.connect(path)) as db, db:
+        db.create_function(
+            "cover_source_sha256", 1, lambda source: hashlib.sha256(source).digest()
+        )
+        for file in sorted(migrations.glob("[0-9][0-9][0-9]_*.sql")):
+            if int(file.name[:3]) <= schema_version:
+                db.executescript(file.read_text())
+        db.execute(f"PRAGMA user_version={schema_version}")
+    with monkeypatch.context() as patch:
+        # Populate using the profile routes before running the real upgrade.
+        patch.setattr("bb_server.app.migrate", lambda _path: None)
+        with TestClient(create_app(path)) as api:
+            alice, a = login(api)
+            bob, b = login(api, "Other")
+            saved = upload(api, a, first)
+            assert saved.status_code == 200
     with closing(sqlite3.connect(path)) as db, db:
         cover_id = db.execute(
             "SELECT cover_id FROM account_covers WHERE account=?", (alice,)
@@ -280,7 +292,6 @@ def test_legacy_wrong_hash_alias_is_rechecked_after_restart(
             (hashlib.sha256(second).digest(), cover_id),
         )
         db.execute("INSERT INTO account_covers VALUES (?,?)", (bob, cover_id))
-        db.execute(f"PRAGMA user_version={schema_version}")
 
     with TestClient(create_app(path)) as reopened:
         assert cover_rows(path)[1] == 1

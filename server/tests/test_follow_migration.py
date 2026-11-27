@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from bb_server.storage import migrate
+from bb_server.storage import SCHEMA_VERSION, migrate
 
 
 def test_v4_upgrade_rollback_retains_posts_chat_and_accounts(tmp_path, monkeypatch):
@@ -57,10 +57,14 @@ def test_v4_upgrade_rollback_retains_posts_chat_and_accounts(tmp_path, monkeypat
     migrate(path)
     with sqlite3.connect(path) as db:
         db.execute("PRAGMA foreign_keys=ON")
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 8
-        assert {
-            t: db.execute(f"SELECT * FROM {t}").fetchall() for t in before
-        } == before
+        assert db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+        assert db.execute(
+            "SELECT id, conversation_id, position, sender, created_at, payload FROM messages"
+        ).fetchone() == ("m", "dm:12345678:12345678", 1, "12345678", "time", "payload")
+        assert all(
+            db.execute(f"SELECT * FROM {table}").fetchall() == before[table]
+            for table in ("users", "space_posts")
+        )
         assert db.execute("SELECT * FROM space_follows").fetchall() == []
         with pytest.raises(sqlite3.IntegrityError):
             db.execute("INSERT INTO space_follows VALUES ('12345678','12345678')")

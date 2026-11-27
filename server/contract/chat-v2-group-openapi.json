@@ -8021,6 +8021,11 @@
             "title": "Last Activity At",
             "type": "string"
           },
+          "group_number": {
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Group Number",
+            "type": "string"
+          },
           "avatar_url": {
             "title": "Avatar Url",
             "type": "string"
@@ -8042,6 +8047,7 @@
           "display_name",
           "last_message",
           "last_activity_at",
+          "group_number",
           "avatar_url",
           "avatar_version"
         ],
