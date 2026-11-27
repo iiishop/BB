@@ -80,6 +80,12 @@ class _UiSocialServer {
   bool mixedEventsPagePending = false;
   bool inviteNoticeAccepted = false;
   bool inviteNoticeRead = false;
+  bool paginatedNoticesMode = false;
+  bool paginatedPendingAccepted = false;
+  bool paginatedPendingTwoPages = false;
+  bool paginatedSecondPendingAccepted = false;
+  bool notificationEventPending = false;
+  bool notificationEventArrived = false;
 
   final List<Map<String, dynamic>> createdRequests = <Map<String, dynamic>>[];
   final List<Map<String, dynamic>> sentMessages = <Map<String, dynamic>>[];
@@ -294,6 +300,17 @@ class _UiSocialServer {
           'history_through': 2,
         });
         nextEventId = 7;
+      } else if (notificationEventPending) {
+        notificationEventPending = false;
+        notificationEventArrived = true;
+        events.add(<String, dynamic>{
+          'version': 1,
+          'event_id': 1,
+          'type': 'notification.available',
+          'occurred_at': '2026-11-27T11:13:00Z',
+          'notification_id': 'notice-event-added-1',
+        });
+        nextEventId = 1;
       } else if (accessRevokedEventPending) {
         accessRevokedEventPending = false;
         selfRole = null;
@@ -417,6 +434,146 @@ class _UiSocialServer {
     }
     if (request.method == 'POST' && path == '/chat/notices/list') {
       noticeListCalls += 1;
+      if (paginatedNoticesMode) {
+        final String filter = jsonBody?['filter'] as String? ?? 'all';
+        final String? cursor = jsonBody?['cursor'] as String?;
+        final Map<String, dynamic> olderInvite = <String, dynamic>{
+          'id': 'dcf091d4b3f941269deae8748a4fa894',
+          'type': 'group_invitation',
+          'title': '入群邀请',
+          'text': paginatedPendingAccepted
+              ? 'Alice 邀请你加入「old」\n处理结果：已接受'
+              : 'Alice 邀请你加入「old」',
+          'created_at': '2026-11-27T21:37:50.022Z',
+          'read': true,
+          'state': paginatedPendingAccepted ? 'processed' : 'pending',
+          'actions': paginatedPendingAccepted
+              ? const <Map<String, dynamic>>[]
+              : <Map<String, dynamic>>[
+                  <String, dynamic>{
+                    'id': 'accept',
+                    'label': '接受',
+                    'available': true,
+                  },
+                  <String, dynamic>{
+                    'id': 'reject',
+                    'label': '拒绝',
+                    'available': true,
+                  },
+                ],
+          'link': <String, dynamic>{'type': 'group', 'id': '27973482'},
+        };
+        final Map<String, dynamic> extraPending = <String, dynamic>{
+          'id': 'pending-page2-invite-2',
+          'type': 'group_invitation',
+          'title': '入群邀请',
+          'text': paginatedSecondPendingAccepted
+              ? 'Alice 邀请你加入「older-pending」\n处理结果：已接受'
+              : 'Alice 邀请你加入「older-pending」',
+          'created_at': '2026-11-27T21:37:49.000Z',
+          'read': true,
+          'state': paginatedSecondPendingAccepted ? 'processed' : 'pending',
+          'actions': paginatedSecondPendingAccepted
+              ? const <Map<String, dynamic>>[]
+              : <Map<String, dynamic>>[
+                  <String, dynamic>{
+                    'id': 'accept',
+                    'label': '接受',
+                    'available': true,
+                  },
+                  <String, dynamic>{
+                    'id': 'reject',
+                    'label': '拒绝',
+                    'available': true,
+                  },
+                ],
+          'link': <String, dynamic>{'type': 'group', 'id': '27973483'},
+        };
+        if (filter == 'pending') {
+          if (cursor == null) {
+            final List<Map<String, dynamic>> firstPending =
+                <Map<String, dynamic>>[
+                  if (!paginatedPendingAccepted) olderInvite,
+                ];
+            if (paginatedPendingTwoPages) {
+              await _json(request, 200, <String, dynamic>{
+                'items': firstPending,
+                'next_cursor': 'pending-cursor-2',
+                'unread_count': 100,
+                'pending_count':
+                    firstPending.length +
+                    (paginatedSecondPendingAccepted ? 0 : 1),
+              });
+              return;
+            }
+            await _json(request, 200, <String, dynamic>{
+              'items': firstPending,
+              'next_cursor': null,
+              'unread_count': 100,
+              'pending_count': firstPending.length,
+            });
+            return;
+          }
+          if (cursor == 'pending-cursor-2') {
+            await _json(request, 200, <String, dynamic>{
+              'items': <Map<String, dynamic>>[
+                if (!paginatedSecondPendingAccepted) extraPending,
+              ],
+              'next_cursor': null,
+              'unread_count': 100,
+              'pending_count':
+                  (paginatedPendingAccepted ? 0 : 1) +
+                  (paginatedSecondPendingAccepted ? 0 : 1),
+            });
+            return;
+          }
+        }
+        if (cursor == null) {
+          final List<Map<String, dynamic>> items = <Map<String, dynamic>>[
+            if (notificationEventArrived)
+              <String, dynamic>{
+                'id': 'notice-event-added-1',
+                'type': 'group_member_joined',
+                'title': '新通知事件',
+                'text': '服务端事件新增通知',
+                'created_at': '2026-11-27T21:38:00.000Z',
+                'read': false,
+                'state': 'informational',
+                'actions': const <Map<String, dynamic>>[],
+                'link': <String, dynamic>{'type': 'group', 'id': '90051534'},
+              },
+            for (int i = 0; i < (notificationEventArrived ? 99 : 100); i += 1)
+              <String, dynamic>{
+                'id': 'recent-processed-$i',
+                'type': 'group_invitation',
+                'title': '入群邀请',
+                'text': 'Alice 邀请你加入「recent」\n处理结果：已拒绝',
+                'created_at':
+                    '2026-11-27T21:37:50.${(999 - i).toString().padLeft(3, '0')}Z',
+                'read': false,
+                'state': 'processed',
+                'actions': const <Map<String, dynamic>>[],
+                'link': <String, dynamic>{'type': 'group', 'id': '90051534'},
+              },
+          ];
+          await _json(request, 200, <String, dynamic>{
+            'items': items,
+            'next_cursor': '4bdbf08bf02c41e89899cdd42464875a',
+            'unread_count': 100,
+            'pending_count': paginatedPendingAccepted ? 0 : 1,
+          });
+          return;
+        }
+        if (cursor == '4bdbf08bf02c41e89899cdd42464875a') {
+          await _json(request, 200, <String, dynamic>{
+            'items': <Map<String, dynamic>>[olderInvite],
+            'next_cursor': null,
+            'unread_count': 100,
+            'pending_count': paginatedPendingAccepted ? 0 : 1,
+          });
+          return;
+        }
+      }
       await _json(request, 200, <String, dynamic>{
         'items': <Map<String, dynamic>>[
           <String, dynamic>{
@@ -484,7 +641,13 @@ class _UiSocialServer {
       final String id = jsonBody!['notification_id'] as String;
       final String actionId = jsonBody['action_id'] as String;
       executeActions.add('$id:$actionId');
-      inviteNoticeAccepted = actionId == 'accept';
+      if (id == 'dcf091d4b3f941269deae8748a4fa894') {
+        paginatedPendingAccepted = actionId == 'accept';
+      } else if (id == 'pending-page2-invite-2') {
+        paginatedSecondPendingAccepted = actionId == 'accept';
+      } else {
+        inviteNoticeAccepted = actionId == 'accept';
+      }
       await _json(request, 200, <String, dynamic>{
         'id': id,
         'type': 'group_invite',
@@ -1064,6 +1227,91 @@ void main() {
         find.byKey(UsersListView.groupRowKey(server.group1Id)),
         findsNothing,
       );
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump(const Duration(seconds: 35));
+    },
+  );
+
+  testWidgets(
+    'A7: older read invitation past all page 1 remains actionable across pending filter, load more, and event refresh',
+    (WidgetTester tester) async {
+      server.paginatedNoticesMode = true;
+      const String targetId = 'dcf091d4b3f941269deae8748a4fa894';
+      await pumpHome(tester, size: const Size(1280, 900));
+
+      // Navigate to Notifications: "全部" loads page 1 (100 processed items)
+      // with next_cursor pointing to page 2 containing the older invitation.
+      await tester.tap(find.byKey(HomeView.navNotificationsKey));
+      await _settle(tester);
+      expect(find.byKey(NotificationCenter.entryKey(targetId)), findsNothing);
+
+      // Switching to "待处理" must query filter=pending and show the actionable
+      // older read invitation instead of reporting "没有待处理的通知".
+      await tester.tap(find.byKey(NotificationCenter.pendingKey));
+      await _settle(tester);
+      expect(find.text('没有待处理的通知'), findsNothing);
+      expect(find.byKey(NotificationCenter.entryKey(targetId)), findsOneWidget);
+      expect(
+        find.byKey(NotificationCenter.actionKey(targetId, 'accept')),
+        findsOneWidget,
+      );
+
+      // Pending filter itself supports subsequent pages (loadMoreKey) and acts
+      // by exact notification ID.
+      server.paginatedPendingTwoPages = true;
+      await tester.tap(find.byKey(NotificationCenter.allKey));
+      await _settle(tester);
+      await tester.tap(find.byKey(NotificationCenter.pendingKey));
+      await _settle(tester);
+      await tester.tap(find.byKey(NotificationCenter.loadMoreKey));
+      await _settle(tester);
+      expect(
+        find.byKey(NotificationCenter.entryKey('pending-page2-invite-2')),
+        findsOneWidget,
+      );
+      await tester.tap(
+        find.byKey(
+          NotificationCenter.actionKey('pending-page2-invite-2', 'accept'),
+        ),
+      );
+      await _settle(tester);
+      expect(server.executeActions, contains('pending-page2-invite-2:accept'));
+
+      // Switching back to "全部" can load page 2 via loadMoreKey, preserves
+      // page 2 across notification.available event refresh, and executes by ID.
+      await tester.tap(find.byKey(NotificationCenter.allKey));
+      await _settle(tester);
+      final Finder scrollable = find.byType(Scrollable).last;
+      await tester.scrollUntilVisible(
+        find.byKey(NotificationCenter.loadMoreKey),
+        600,
+        scrollable: scrollable,
+      );
+      await _settle(tester);
+      await tester.tap(find.byKey(NotificationCenter.loadMoreKey));
+      await _settle(tester);
+      await tester.scrollUntilVisible(
+        find.byKey(NotificationCenter.entryKey(targetId)),
+        600,
+        scrollable: scrollable,
+      );
+      expect(find.byKey(NotificationCenter.entryKey(targetId)), findsOneWidget);
+
+      // Fire notification.available while viewing "全部" page 2 -> refreshes
+      // opened pages so page-2 entry stays present & actionable by current ID.
+      server.notificationEventPending = true;
+      await tester.pump(const Duration(seconds: 3));
+      await _settle(tester);
+      expect(server.notificationEventArrived, isTrue);
+      await tester.ensureVisible(
+        find.byKey(NotificationCenter.actionKey(targetId, 'accept')),
+      );
+      await tester.tap(
+        find.byKey(NotificationCenter.actionKey(targetId, 'accept')),
+      );
+      await _settle(tester);
+      expect(server.executeActions, contains('$targetId:accept'));
 
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pump(const Duration(seconds: 35));

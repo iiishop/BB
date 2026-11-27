@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -145,14 +146,42 @@ class NotificationCenterHost extends StatefulWidget {
   State<NotificationCenterHost> createState() => NotificationCenterHostState();
 }
 
+class _NoticeFilterFeed {
+  const _NoticeFilterFeed({
+    this.items = const <Notice>[],
+    this.nextCursor,
+    this.loaded = false,
+    this.pagesLoaded = 0,
+  });
+
+  final List<Notice> items;
+  final String? nextCursor;
+  final bool loaded;
+  final int pagesLoaded;
+}
+
 class NotificationCenterHostState extends State<NotificationCenterHost> {
-  List<Notice> _notices = <Notice>[];
+  NoticeFilter _filter = NoticeFilter.all;
+  final Map<NoticeFilter, _NoticeFilterFeed> _feeds =
+      <NoticeFilter, _NoticeFilterFeed>{};
   bool _loading = true;
+  bool _loadingMore = false;
   String? _error;
+  String? _loadMoreError;
   bool _busyAction = false;
+  int _requestGeneration = 0;
+
+  _NoticeFilterFeed get _currentFeed =>
+      _feeds[_filter] ?? const _NoticeFilterFeed();
+
+  List<Notice> get _notices => _currentFeed.items;
+
+  NoticeFilter get _otherFilter =>
+      _filter == NoticeFilter.all ? NoticeFilter.pending : NoticeFilter.all;
 
   void _onRefreshSignal() {
     if (mounted) {
+      _feeds.remove(_otherFilter);
       unawaited(reload(silent: true));
     }
   }
@@ -178,32 +207,110 @@ class NotificationCenterHostState extends State<NotificationCenterHost> {
       widget.refreshTrigger?.addListener(_onRefreshSignal);
     }
     if (!oldWidget.active && widget.active) {
+      _feeds.remove(_otherFilter);
       unawaited(reload(silent: true));
     }
   }
 
+  static List<Notice> _mergeNotices(
+    List<Notice> existing,
+    List<Notice> incoming,
+  ) {
+    final List<Notice> merged = <Notice>[];
+    final Set<String> seenIds = <String>{};
+    for (final Notice item in existing) {
+      if (seenIds.add(item.id)) {
+        merged.add(item);
+      }
+    }
+    for (final Notice item in incoming) {
+      if (seenIds.add(item.id)) {
+        merged.add(item);
+      }
+    }
+    return List<Notice>.unmodifiable(merged);
+  }
+
+  void _onFilterChanged(bool pendingOnly) {
+    final NoticeFilter target = pendingOnly
+        ? NoticeFilter.pending
+        : NoticeFilter.all;
+    if (target == _filter && _error == null) {
+      return;
+    }
+    final bool hasCached = _feeds[target]?.loaded ?? false;
+    setState(() {
+      _filter = target;
+      _loading = !hasCached;
+      _loadingMore = false;
+      _error = null;
+      _loadMoreError = null;
+    });
+    unawaited(reload(silent: hasCached));
+  }
+
   Future<void> reload({bool silent = false}) async {
-    if (!silent && mounted) {
+    final NoticeFilter target = _filter;
+    final _NoticeFilterFeed previous =
+        _feeds[target] ?? const _NoticeFilterFeed();
+    final int generation = ++_requestGeneration;
+    if ((!silent || !previous.loaded) && mounted) {
       setState(() {
         _loading = true;
+        _loadingMore = false;
         _error = null;
+        _loadMoreError = null;
+      });
+    } else if (mounted && _loadingMore) {
+      setState(() {
+        _loadingMore = false;
+        _loadMoreError = null;
       });
     }
     try {
-      final NoticePage page = await widget.groups.listNotices(
-        filter: NoticeFilter.all,
-        limit: 100,
-      );
-      if (!mounted) {
-        return;
+      // Refresh as many pages as the user had already paged into for this
+      // filter so event-triggered reloads never truncate open page-2+ items.
+      final int targetPages = math.max(1, previous.pagesLoaded);
+      final List<Notice> collected = <Notice>[];
+      final Set<String> seenIds = <String>{};
+      String? cursor;
+      String? nextCursor;
+      int pagesLoaded = 0;
+      while (pagesLoaded < targetPages) {
+        final NoticePage page = await widget.groups.listNotices(
+          filter: target,
+          cursor: cursor,
+          limit: 100,
+        );
+        if (!mounted || generation != _requestGeneration || target != _filter) {
+          return;
+        }
+        for (final Notice item in page.items) {
+          if (seenIds.add(item.id)) {
+            collected.add(item);
+          }
+        }
+        pagesLoaded += 1;
+        nextCursor = page.nextCursor;
+        if (nextCursor == null || nextCursor == cursor) {
+          break;
+        }
+        cursor = nextCursor;
       }
       setState(() {
-        _notices = page.items;
+        _feeds[target] = _NoticeFilterFeed(
+          items: List<Notice>.unmodifiable(collected),
+          nextCursor: nextCursor,
+          loaded: true,
+          pagesLoaded: pagesLoaded,
+        );
         _loading = false;
+        _loadingMore = false;
         _error = null;
+        _loadMoreError = null;
       });
     } on AuthFailure catch (failure) {
-      if (!mounted) {
+      if (!mounted || generation != _requestGeneration || target != _filter) {
         return;
       }
       if (failure.status == 401) {
@@ -212,19 +319,77 @@ class NotificationCenterHostState extends State<NotificationCenterHost> {
       }
       setState(() {
         _loading = false;
+        _loadingMore = false;
         if (_notices.isEmpty) {
           _error = failure.message;
         }
       });
     } catch (_) {
-      if (!mounted) {
+      if (!mounted || generation != _requestGeneration || target != _filter) {
         return;
       }
       setState(() {
         _loading = false;
+        _loadingMore = false;
         if (_notices.isEmpty) {
           _error = '通知加载失败，请重试';
         }
+      });
+    }
+  }
+
+  Future<void> loadMore() async {
+    final NoticeFilter target = _filter;
+    final _NoticeFilterFeed feed = _feeds[target] ?? const _NoticeFilterFeed();
+    final String? cursor = feed.nextCursor;
+    if (_loading || _loadingMore || cursor == null) {
+      return;
+    }
+    final int generation = _requestGeneration;
+    setState(() {
+      _loadingMore = true;
+      _loadMoreError = null;
+    });
+    try {
+      final NoticePage page = await widget.groups.listNotices(
+        filter: target,
+        cursor: cursor,
+        limit: 100,
+      );
+      if (!mounted || generation != _requestGeneration || target != _filter) {
+        return;
+      }
+      final _NoticeFilterFeed latest =
+          _feeds[target] ?? const _NoticeFilterFeed();
+      setState(() {
+        _feeds[target] = _NoticeFilterFeed(
+          items: _mergeNotices(latest.items, page.items),
+          nextCursor: page.nextCursor,
+          loaded: true,
+          pagesLoaded: latest.pagesLoaded + 1,
+        );
+        _loadingMore = false;
+        _loadMoreError = null;
+      });
+    } on AuthFailure catch (failure) {
+      if (!mounted || generation != _requestGeneration || target != _filter) {
+        return;
+      }
+      if (failure.status == 401) {
+        widget.onSessionExpired?.call();
+        return;
+      }
+      setState(() {
+        _loadingMore = false;
+        _loadMoreError = failure.message;
+      });
+    } catch (_) {
+      if (!mounted || generation != _requestGeneration || target != _filter) {
+        return;
+      }
+      setState(() {
+        _loadingMore = false;
+        _loadMoreError = '加载更多失败，请重试';
       });
     }
   }
@@ -239,6 +404,7 @@ class NotificationCenterHostState extends State<NotificationCenterHost> {
         notificationId: notice.id,
         actionId: action.id,
       );
+      _feeds.remove(_otherFilter);
       widget.onGroupsChanged?.call();
       await reload(silent: true);
     } on AuthFailure catch (failure) {
@@ -246,10 +412,12 @@ class NotificationCenterHostState extends State<NotificationCenterHost> {
         widget.onSessionExpired?.call();
       } else {
         _snack(failure.message);
+        _feeds.remove(_otherFilter);
         await reload(silent: true);
       }
     } catch (_) {
       _snack('处理通知失败，请重试');
+      _feeds.remove(_otherFilter);
       await reload(silent: true);
     } finally {
       if (mounted) {
@@ -261,6 +429,7 @@ class NotificationCenterHostState extends State<NotificationCenterHost> {
   Future<void> _markRead(Notice notice) async {
     try {
       await widget.groups.markNoticeRead(notice.id);
+      _feeds.remove(_otherFilter);
       await reload(silent: true);
     } on AuthFailure catch (failure) {
       if (failure.status == 401) {
@@ -286,6 +455,7 @@ class NotificationCenterHostState extends State<NotificationCenterHost> {
         onSessionExpired: widget.onSessionExpired,
       );
       if (mounted) {
+        _feeds.remove(_otherFilter);
         await reload(silent: true);
       }
     }
@@ -302,8 +472,9 @@ class NotificationCenterHostState extends State<NotificationCenterHost> {
 
   @override
   Widget build(BuildContext context) {
+    final _NoticeFilterFeed feed = _currentFeed;
     final List<NotificationEntry> entries = <NotificationEntry>[
-      for (final Notice notice in _notices)
+      for (final Notice notice in feed.items)
         NotificationEntry(
           id: notice.id,
           title: notice.title,
@@ -338,9 +509,15 @@ class NotificationCenterHostState extends State<NotificationCenterHost> {
     return NotificationCenter(
       entries: entries,
       available: true,
-      loading: _loading && _notices.isEmpty,
+      loading: _loading && feed.items.isEmpty,
       error: _error,
       onRetry: reload,
+      pendingOnly: _filter == NoticeFilter.pending,
+      onFilterChanged: _onFilterChanged,
+      hasMore: feed.nextCursor != null,
+      loadingMore: _loadingMore,
+      loadMoreError: _loadMoreError,
+      onLoadMore: loadMore,
     );
   }
 }

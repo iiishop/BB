@@ -56,6 +56,12 @@ class NotificationCenter extends StatefulWidget {
     this.loading = false,
     this.error,
     this.onRetry,
+    this.pendingOnly,
+    this.onFilterChanged,
+    this.hasMore = false,
+    this.loadingMore = false,
+    this.loadMoreError,
+    this.onLoadMore,
   });
 
   final List<NotificationEntry> entries;
@@ -63,9 +69,16 @@ class NotificationCenter extends StatefulWidget {
   final bool loading;
   final String? error;
   final VoidCallback? onRetry;
+  final bool? pendingOnly;
+  final ValueChanged<bool>? onFilterChanged;
+  final bool hasMore;
+  final bool loadingMore;
+  final String? loadMoreError;
+  final VoidCallback? onLoadMore;
 
   static const Key allKey = Key('notifications-all');
   static const Key pendingKey = Key('notifications-pending');
+  static const Key loadMoreKey = Key('notifications-load-more');
   static Key entryKey(String id) => ValueKey('notification-$id');
   static Key actionKey(String id, String action) =>
       ValueKey('notification-$id-action-$action');
@@ -77,10 +90,18 @@ class NotificationCenter extends StatefulWidget {
 class _NotificationCenterState extends State<NotificationCenter> {
   bool _pendingOnly = false;
 
+  void _selectFilter(bool pendingOnly) {
+    if (widget.pendingOnly == null) {
+      setState(() => _pendingOnly = pendingOnly);
+    }
+    widget.onFilterChanged?.call(pendingOnly);
+  }
+
   @override
   Widget build(BuildContext context) {
+    final bool pendingOnly = widget.pendingOnly ?? _pendingOnly;
     final List<NotificationEntry> entries = widget.entries
-        .where((e) => !_pendingOnly || e.pending)
+        .where((e) => !pendingOnly || e.pending)
         .toList();
     final MediaQueryData media = MediaQuery.of(context);
     double? foldedWidth;
@@ -129,20 +150,20 @@ class _NotificationCenterState extends State<NotificationCenter> {
                       ChoiceChip(
                         key: NotificationCenter.allKey,
                         label: const Text('全部'),
-                        selected: !_pendingOnly,
-                        onSelected: (_) => setState(() => _pendingOnly = false),
+                        selected: !pendingOnly,
+                        onSelected: (_) => _selectFilter(false),
                       ),
                       ChoiceChip(
                         key: NotificationCenter.pendingKey,
                         label: const Text('待处理'),
-                        selected: _pendingOnly,
-                        onSelected: (_) => setState(() => _pendingOnly = true),
+                        selected: pendingOnly,
+                        onSelected: (_) => _selectFilter(true),
                       ),
                     ],
                   ),
                 ),
                 const SizedBox(height: AppSpacing.md),
-                Expanded(child: _content(entries)),
+                Expanded(child: _content(entries, pendingOnly: pendingOnly)),
               ],
             ),
           ),
@@ -151,7 +172,10 @@ class _NotificationCenterState extends State<NotificationCenter> {
     );
   }
 
-  Widget _content(List<NotificationEntry> entries) {
+  Widget _content(
+    List<NotificationEntry> entries, {
+    required bool pendingOnly,
+  }) {
     if (widget.loading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -160,7 +184,7 @@ class _NotificationCenterState extends State<NotificationCenter> {
           widget.error ??
           (!widget.available
               ? '通知暂不可用'
-              : _pendingOnly
+              : pendingOnly
               ? '没有待处理的通知'
               : '暂无通知');
       return Center(
@@ -186,6 +210,8 @@ class _NotificationCenterState extends State<NotificationCenter> {
         ),
       );
     }
+    final bool showFooter =
+        widget.hasMore || widget.loadingMore || widget.loadMoreError != null;
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.md,
@@ -193,9 +219,12 @@ class _NotificationCenterState extends State<NotificationCenter> {
         AppSpacing.md,
         AppSpacing.lg,
       ),
-      itemCount: entries.length,
+      itemCount: entries.length + (showFooter ? 1 : 0),
       separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.sm),
       itemBuilder: (context, index) {
+        if (index >= entries.length) {
+          return _buildLoadMoreFooter(context);
+        }
         final NotificationEntry entry = entries[index];
         return Semantics(
           label: entry.read ? '已读' : '未读',
@@ -272,6 +301,54 @@ class _NotificationCenterState extends State<NotificationCenter> {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildLoadMoreFooter(BuildContext context) {
+    if (widget.loadingMore) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
+        child: Center(
+          child: SizedBox(
+            width: 24,
+            height: 24,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        ),
+      );
+    }
+    if (widget.loadMoreError != null) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Text(
+              widget.loadMoreError!,
+              style: Theme.of(context).textTheme.bodySmall,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            OutlinedButton(
+              key: NotificationCenter.loadMoreKey,
+              style: OutlinedButton.styleFrom(minimumSize: const Size(48, 48)),
+              onPressed: widget.onLoadMore,
+              child: const Text('重试加载更多'),
+            ),
+          ],
+        ),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+      child: Center(
+        child: TextButton(
+          key: NotificationCenter.loadMoreKey,
+          style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
+          onPressed: widget.onLoadMore,
+          child: const Text('加载更多'),
+        ),
+      ),
     );
   }
 }

@@ -211,7 +211,7 @@ Space 状态边界：
 
 | 组件 | 位置（`client/lib/`） | 调用与复用边界 |
 | --- | --- | --- |
-| `NotificationCenter` | `ui/notifications/notification_center.dart` | `HomeView.notificationBuilder(context, active)` 插入独立的第三页；默认显示“通知暂不可用”。`NotificationEntry` / `NotificationEntryAction` 仅为展示值，不是另一份线协议。宿主映射权威 DTO 并传处理回调；页面不自动标读、不假装处理完成。待处理只看当前可用动作，与 `read` 无关；`invalidated` 隐藏全部动作并移出待处理。 |
+| `NotificationCenter` | `ui/notifications/notification_center.dart` | `HomeView.notificationBuilder(context, active)` 插入独立的第三页；默认显示“通知暂不可用”。`NotificationEntry` / `NotificationEntryAction` 仅为展示值，不是另一份线协议。宿主（`NotificationCenterHost`）按当前筛选（`all` / `pending`）向服务端逐页请求并在切换筛选、事件刷新及「加载更多」（`NotificationCenter.loadMoreKey`）时保持按 `notification_id` 操作；页面不自动标读、不假装处理完成。待处理只看当前可用动作，与 `read` 无关；`invalidated` 隐藏全部动作并移出待处理。 |
 | `UserIdentityAvatar` / `UserIdentityRow` | `ui/chat/user_identity_row.dart` | 会话列表与目录共用原有头像加载；身份行只显示头像、昵称、BB号、在线状态。成员私聊为手机单击、桌面双击；宿主的 `onOpenChat` 必须接既有 Home/Workspace 入口。移除按钮作为独立 `trailing` 区域，不与私聊共享手势。 |
 | `openUserDirectoryPicker` / `UserDirectoryPicker` | `ui/chat/user_directory_picker.dart` | 使用现有 `ChatService.listUsers` 逐页读取并验证游标前进；排除自己/指定账号，多选，按账号去重，按昵称/BB号搜索。取消返回 null，跳过返回空列表；邀请场景可传 `allowEmpty: false`。不拉历史、未读、最近联系时间，不确认聊天展示。 |
 | `openProfileSurface<T>` / `ProfilePanelFrame` | `ui/profile/profile_panel.dart` | 复用原有手机路由、桌面 440×700 卡片、折叠左侧资料/右侧模糊；`GlobalKey` 保留窗口重排中的输入和选择。自己资料仍保留原 Hero/封面和编辑动作；通用外壳只负责容器。 |
