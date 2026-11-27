@@ -204,6 +204,33 @@ def context(path, account, message_id, before_limit, after_limit, association=Fa
     }
 
 
+def directory_rows(db, account, after, limit, now, *, conversation_id=None):
+    scope = "u.account!=?"
+    identity = account
+    if conversation_id is not None:
+        scope = """EXISTS(SELECT 1 FROM chat_group_members m
+            WHERE m.account=u.account AND m.conversation_id=? AND m.active=1)"""
+        identity = conversation_id
+    return db.execute(
+        f"""SELECT u.account,u.username,u.avatar_version,
+        EXISTS(SELECT 1 FROM sessions s WHERE s.account=u.account
+            AND s.status='online' AND s.last_seen_at>?) AS online
+        FROM users u WHERE {scope} AND u.account>? ORDER BY u.account LIMIT ?""",
+        (now - 90, identity, after, limit + 1),
+    ).fetchall()
+
+
+def user_card(row):
+    account = row["account"]
+    return {
+        "account": account,
+        "username": row["username"],
+        "avatar_url": f"/avatars/{account}.png",
+        "avatar_version": row["avatar_version"] or default_version(account),
+        "presence": "online" if row["online"] else "offline",
+    }
+
+
 def latest_direct_message(db, account, peer):
     row = db.execute(
         "SELECT payload FROM messages WHERE conversation_id=? ORDER BY position DESC LIMIT 1",
@@ -223,6 +250,7 @@ def event_head(db, account, *, include_groups):
 def event_page(path, account, after, limit, include_groups=False):
     group_filter = (
         """
+        OR e.notification_id IS NOT NULL
         OR (m.membership_revision=e.membership_revision
             AND (e.active=0 OR
                  (m.active=1 AND g.status='active'
@@ -258,7 +286,11 @@ def event_page(path, account, after, limit, include_groups=False):
             "event_id": row["event_id"],
             "occurred_at": row["occurred_at"],
         }
-        if row["message_id"] is not None:
+        if row["notification_id"] is not None:
+            item.update(
+                type="notification.available", notification_id=row["notification_id"]
+            )
+        elif row["message_id"] is not None:
             item.update(
                 type="message.available",
                 message_id=row["message_id"],

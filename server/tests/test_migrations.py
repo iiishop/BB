@@ -135,10 +135,18 @@ def test_space_upgrade_preserves_v3_chat_and_rollback(tmp_path, monkeypatch):
         assert db.execute("SELECT count(*) FROM space_posts").fetchone()[0] == 0
 
 
+@pytest.mark.parametrize(
+    ("version", "migration"),
+    [
+        (8, "009_shared_chat.sql"),
+        (8, "010_group_lifecycle.sql"),
+        (9, "010_group_lifecycle.sql"),
+    ],
+)
 def test_v8_chat_migration_rollback_and_retry_preserve_live_wire_state(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, version, migration
 ):
-    path = tmp_path / "v8.db"
+    path = tmp_path / f"v{version}.db"
     migrations = Path(__file__).parents[1] / "src/bb_server/migrations"
     alice, bob = "10000001", "10000002"
     timestamp = "2026-11-27T20:00:00.000Z"
@@ -205,26 +213,35 @@ def test_v8_chat_migration_rollback_and_retry_preserve_live_wire_state(
             "INSERT INTO media VALUES ('clip',?,?,'video/mp4','video','clip.mp4',9,'cover')",
             (alice, bob),
         )
+        if version == 9:
+            db.executescript((migrations / "009_shared_chat.sql").read_text())
+            db.execute("PRAGMA user_version=9")
 
     read_text = Path.read_text
     with monkeypatch.context() as patch:
 
         def break_migration(file, *args, **kwargs):
             content = read_text(file, *args, **kwargs)
-            return (
-                content + "\nINVALID SQL;"
-                if file.name == "009_shared_chat.sql"
-                else content
-            )
+            return content + "\nINVALID SQL;" if file.name == migration else content
 
         patch.setattr(Path, "read_text", break_migration)
         with pytest.raises(sqlite3.OperationalError):
             migrate(path)
     with sqlite3.connect(path) as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 8
-        assert db.execute("SELECT pair_low,pair_high FROM messages").fetchone() == (
-            alice,
-            bob,
+        assert db.execute("PRAGMA user_version").fetchone()[0] == version
+        if version == 8:
+            assert db.execute("SELECT pair_low,pair_high FROM messages").fetchone() == (
+                alice,
+                bob,
+            )
+        else:
+            assert (
+                db.execute("SELECT conversation_id FROM messages").fetchone()[0]
+                == f"dm:{alice}:{bob}"
+            )
+        assert (
+            db.execute("SELECT 1 FROM sqlite_schema WHERE name='bb_notices'").fetchone()
+            is None
         )
         assert db.execute("SELECT event_id FROM events").fetchone()[0] == 42
         assert (

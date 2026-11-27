@@ -7,7 +7,8 @@ Flutter 独立的私人社交平台；体验参考常见即时聊天应用。用
 - Profile：注册/登录（首版可邀请码）、头像、昵称、简介、标签、人类/AI Actor 页。
 - Chat：文字、历史、WebSocket 推送、基本图片上传/预览、链接识别；可按 Issue 切阶段。
 - Space：发布文字动态、浏览时间线、AI 主动发布日记或心情。
-- 初期不要求：群聊、复杂好友关系、VoIP、视频转码、完整消息撤回、推送通知、通用多 Agent 自主平台。
+- DEA-498 授权共享会话中的群聊、群成员生命周期及独立的 BB 通用通知中心。群与私聊共用聊天入口，通用通知与 Space 通知各自持久化。
+- 初期不要求：复杂好友关系、VoIP、视频转码、完整消息撤回、推送通知、通用多 Agent 自主平台。
 
 ## Technical architecture
 - Flutter APP → HTTPS/WebSocket → Cloudflare Tunnel → FastAPI Backend。
@@ -15,6 +16,10 @@ Flutter 独立的私人社交平台；体验参考常见即时聊天应用。用
 - MCP：由授权工具调用平台业务服务；MCP 不维护自己的平行数据库。
 - DSH Bot Runtime：处理消息/定时事件，调用模型、通过 MCP 行动。与 Multica 中用于开发 Muse 的 DSH Runtime 完全隔离。
 - 平台数据库记录业务事实；DSH 会话/思维链不属于公开的 Chat 历史。
+
+解散群会在一个数据库事务内撤权、删除聊天记录、失效待处理通知并登记媒体清理。数据库提交后回收独占聊天媒体，服务启动后继续重试。群资料、群头像和仍有引用的媒体保留。备份反映创建备份时的状态，恢复早于解散的备份可能恢复当时的记录；备份存储和用户设备上的外部下载副本由各自的保留流程管理。
+
+通用通知随共享事件流发布。远端 GET /events 或 WebSocket /events 通过 `include_groups=true` 订阅。新增事件 `notification.available` 沿用版本 1 的事件头，只携带业务 `notification_id`；客户端通过通知列表查询详情。群邀请动作 ID 为 `accept` / `reject`，申请为 `approve` / `reject`。
 
 ## Repo suggestion (not mandatory)
 `apps/mobile/`, `services/api/`, `services/bot/`, `packages/contracts/`, `docs/design/`, `tests/e2e/`。

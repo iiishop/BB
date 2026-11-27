@@ -1,11 +1,16 @@
 from bb_auth_contract import ContractError
 from bb_auth_contract.cover import MAX_COVER_BYTES, UPLOAD_PATH
+from bb_auth_contract.group import REMOTE
 from bb_auth_contract.profile import MAX_AVATAR_BYTES
 from starlette.responses import JSONResponse
 
+_GROUP_AVATAR_ROUTES = {REMOTE[name][0] for name in ("create_group", "update_group")}
+# Allow base64 plus JSON metadata and retain the decoder's 5 MiB binary limit.
+_GROUP_AVATAR_BODY = ((MAX_AVATAR_BYTES + 2) // 3) * 4 + 64 * 1024
+
 
 class UploadLimit:
-    """Bound multipart bytes before Starlette can spool an unbounded request."""
+    """Bound upload bytes before Starlette can spool an unbounded request."""
 
     def __init__(self, app):
         self.app = app
@@ -15,6 +20,7 @@ class UploadLimit:
             scope["type"] != "http"
             or (
                 scope["path"] not in ("/me/avatar", "/media", UPLOAD_PATH)
+                and scope["path"] not in _GROUP_AVATAR_ROUTES
                 and not scope["path"].startswith("/space/")
             )
             or scope["method"] != "POST"
@@ -25,7 +31,9 @@ class UploadLimit:
             UPLOAD_PATH: MAX_COVER_BYTES,
             "/media": 32 * 1024 * 1024,
         }.get(scope["path"], 0) + 64 * 1024  # bounded multipart overhead
-        if scope["path"].startswith("/space/"):
+        if scope["path"] in _GROUP_AVATAR_ROUTES:
+            limit = _GROUP_AVATAR_BODY
+        elif scope["path"].startswith("/space/"):
             limit = (
                 48 * 1024 * 1024 if scope["path"] == "/space/add_image" else 1024 * 1024
             )
