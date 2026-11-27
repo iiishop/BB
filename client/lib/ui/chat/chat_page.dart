@@ -234,6 +234,7 @@ class _ChatPageState extends State<ChatPage> {
   int? _capturedEpoch;
   GroupProfile? _liveGroupProfile;
   StreamSubscription<GroupProfile>? _groupUpdatesSub;
+  int _groupAvatarTicket = 0;
   Uint8List? _groupAvatarBytes;
   Timer? _pollTimer;
   late final ChatAvatarController _avatars;
@@ -437,6 +438,7 @@ class _ChatPageState extends State<ChatPage> {
   Future<void> _loadGroupAvatar() async {
     final GroupConversationItem? group = widget.group;
     final GroupService? groups = widget.groups;
+    final int ticket = ++_groupAvatarTicket;
     final String avatarUrl = _groupAvatarUrl;
     if (group == null || groups == null || avatarUrl.isEmpty) {
       if (mounted && _groupAvatarBytes != null && avatarUrl.isEmpty) {
@@ -453,6 +455,7 @@ class _ChatPageState extends State<ChatPage> {
       if (mounted &&
           !_revoked &&
           _scopeId == group.conversation.id &&
+          _groupAvatarTicket == ticket &&
           _groupAvatarUrl == avatarUrl) {
         setState(() => _groupAvatarBytes = Uint8List.fromList(image.bytes));
       }
@@ -518,6 +521,7 @@ class _ChatPageState extends State<ChatPage> {
       _pageEpoch += 1;
       _revoked = false;
       _liveGroupProfile = null;
+      _groupAvatarTicket += 1;
       _groupAvatarBytes = null;
       _lookupGeneration.clear();
       _lookupInFlight.clear();

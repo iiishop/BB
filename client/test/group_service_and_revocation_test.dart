@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -55,7 +56,16 @@ class _FakeGroupServer {
   int mediaStatusOverride = 200;
   bool sendAssociationHeader = false;
   int groupAvatarVersion = 1;
+  int group2AvatarVersion = 1;
+  String group1Name = 'Group Alpha';
+  String group2Name = 'Group Beta';
+  Completer<void>? holdFind;
+  Completer<void>? holdAvatar;
+  final Uint8List resetPng = base64Decode(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNQXtcDAAJVAV4On0tgAAAAAElFTkSuQmCC',
+  );
   final String groupId = 'group:${'1234abcd' * 4}';
+  final String group2Id = 'group:${'abcd1234' * 4}';
   List<Map<String, dynamic>>? sharedConversationsOverride;
   List<Map<String, dynamic>>? eventsOverride;
   List<Map<String, dynamic>> noticesOverride = <Map<String, dynamic>>[];
@@ -267,8 +277,18 @@ class _FakeGroupServer {
       return;
     }
 
-    if (request.method == 'GET' && path == '/chat/groups/10000001/avatar.png') {
-      final String etag = 'gv$groupAvatarVersion';
+    if (request.method == 'GET' &&
+        (path == '/chat/groups/10000001/avatar.png' ||
+            path == '/chat/groups/10000002/avatar.png')) {
+      final bool isFirst = path == '/chat/groups/10000001/avatar.png';
+      final int ver = isFirst ? groupAvatarVersion : group2AvatarVersion;
+      final String etag = isFirst ? 'gv$ver' : 'g2v$ver';
+      final Uint8List bodyBytes = (isFirst && ver > 1) ? resetPng : _samplePng;
+      final Completer<void>? hold = isFirst ? holdAvatar : null;
+      if (hold != null) {
+        holdAvatar = null;
+        await hold.future;
+      }
       final String? inm = request.headers.value(HttpHeaders.ifNoneMatchHeader);
       if (inm == '"$etag"') {
         request.response.statusCode = 304;
@@ -279,7 +299,7 @@ class _FakeGroupServer {
       request.response.statusCode = 200;
       request.response.headers.contentType = ContentType('image', 'png');
       request.response.headers.set('etag', '"$etag"');
-      request.response.add(_samplePng);
+      request.response.add(bodyBytes);
       await request.response.close();
       return;
     }
@@ -291,18 +311,53 @@ class _FakeGroupServer {
           path == '/chat/groups/leave' ||
           path == '/chat/groups/remove_member' ||
           path == '/chat/groups/dissolve') {
-        await _json(request, 200, <String, dynamic>{
-          'conversation': <String, dynamic>{'type': 'group', 'id': groupId},
-          'group_number': '10000001',
-          'name': jsonBody?['name'] ?? 'Group Alpha',
+        final String requestedNumber =
+            (jsonBody?['group_number'] as String?) ??
+            (jsonBody?['conversation']?['id'] == group2Id
+                ? '10000002'
+                : '10000001');
+        final bool isFirst = requestedNumber == '10000001';
+        if (path == '/chat/groups/update') {
+          if (jsonBody?['reset_avatar'] == true) {
+            if (isFirst) {
+              groupAvatarVersion += 1;
+            } else {
+              group2AvatarVersion += 1;
+            }
+          }
+          if (jsonBody?.containsKey('name') ?? false) {
+            if (isFirst) {
+              group1Name = jsonBody!['name'] as String;
+            } else {
+              group2Name = jsonBody!['name'] as String;
+            }
+          }
+        }
+        final Map<String, dynamic> payload = <String, dynamic>{
+          'conversation': <String, dynamic>{
+            'type': 'group',
+            'id': isFirst ? groupId : group2Id,
+          },
+          'group_number': requestedNumber,
+          'name': isFirst
+              ? (jsonBody?['name'] ?? group1Name)
+              : (jsonBody?['name'] ?? group2Name),
           'description': jsonBody?['description'] ?? 'Desc',
-          'avatar_url': '/chat/groups/10000001/avatar.png',
-          'avatar_version': 'gv$groupAvatarVersion',
+          'avatar_url': '/chat/groups/$requestedNumber/avatar.png',
+          'avatar_version': isFirst
+              ? 'gv$groupAvatarVersion'
+              : 'g2v$group2AvatarVersion',
           'status': path == '/chat/groups/dissolve' ? 'dissolved' : 'active',
           'role': path == '/chat/groups/leave' ? null : 'owner',
           'can_invite': path != '/chat/groups/dissolve',
           'allow_member_invites': jsonBody?['allow_member_invites'] ?? false,
-        });
+        };
+        if (path == '/chat/groups/find' && isFirst && holdFind != null) {
+          final Completer<void> hold = holdFind!;
+          holdFind = null;
+          await hold.future;
+        }
+        await _json(request, 200, payload);
         return;
       }
       if (path == '/chat/directory/list') {
@@ -1077,5 +1132,99 @@ void main() {
     expect(access.isRevoked('10000001', groupRef.id), isFalse);
     expect(access.stateFor('10000001', groupRef.id)?.membershipRevision, 3);
     expect(access.stateFor('10000001', groupRef.id)?.historyThrough, 5);
+  });
+
+  test('GroupService orders profile broadcasts and avatar cache writes while preserving same-version queries and other groups', () async {
+    final AvatarCache cache = AvatarCache(directory: tempDir);
+    final GroupService groups = GroupService(
+      api: groupApi,
+      session: session,
+      avatarCache: cache,
+      access: access,
+    );
+    final List<GroupProfile> emitted = <GroupProfile>[];
+    final StreamSubscription<GroupProfile> sub = groups.groupUpdates.listen(
+      emitted.add,
+    );
+    addTearDown(sub.cancel);
+    final ConversationRef group1Ref = ConversationRef.group(server.groupId);
+
+    // 1. Stale findGroup('10000001') completing after updateGroup must not broadcast.
+    final Completer<void> heldFind = Completer<void>();
+    server.holdFind = heldFind;
+    final Future<GroupProfile> staleFind = groups.findGroup('10000001');
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    final GroupProfile renamed = await groups.updateGroup(
+      conversation: group1Ref,
+      name: 'Renamed Alpha',
+    );
+    expect(renamed.name, 'Renamed Alpha');
+    heldFind.complete();
+    await staleFind;
+    await Future<void>.delayed(Duration.zero);
+    expect(emitted.map((GroupProfile p) => p.name).toList(), <String>[
+      'Renamed Alpha',
+    ]);
+
+    // 2. Repeated same-version findGroup('10000001') and independent group2 both emit.
+    await groups.findGroup('10000001');
+    await groups.findGroup('10000002');
+    await Future<void>.delayed(Duration.zero);
+    expect(emitted.length, 3);
+    expect(emitted[1].name, 'Renamed Alpha');
+    expect(emitted[2].groupNumber, '10000002');
+
+    // 3. Stale loadGroupAvatar('10000001') completing after resetAvatar must not
+    //    overwrite 'gv2' in cache; repeated same-version 304 and group2 still succeed.
+    final Completer<void> heldAvatar = Completer<void>();
+    server.holdAvatar = heldAvatar;
+    final Future<GroupAvatarImage> staleAvatar = groups.loadGroupAvatar(
+      groupNumber: '10000001',
+      avatarUrl: '/chat/groups/10000001/avatar.png',
+      thumb: true,
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    await groups.updateGroup(conversation: group1Ref, resetAvatar: true);
+    final GroupAvatarImage freshAvatar = await groups.loadGroupAvatar(
+      groupNumber: '10000001',
+      avatarUrl: '/chat/groups/10000001/avatar.png',
+      thumb: true,
+    );
+    expect(freshAvatar.version, 'gv2');
+    heldAvatar.complete();
+    final GroupAvatarImage resolvedStale = await staleAvatar;
+    expect(resolvedStale.version, 'gv2');
+    final CachedAvatar? diskThumb = await cache.read(
+      'group-10000001',
+      thumb: true,
+    );
+    expect(diskThumb?.version, 'gv2');
+    expect(diskThumb?.bytes, orderedEquals(server.resetPng));
+
+    // Same-version 304 repeat & other group load still work cleanly.
+    final GroupAvatarImage repeated = await groups.loadGroupAvatar(
+      groupNumber: '10000001',
+      avatarUrl: '/chat/groups/10000001/avatar.png',
+      thumb: true,
+    );
+    expect(repeated.version, 'gv2');
+    final GroupAvatarImage group2Avatar = await groups.loadGroupAvatar(
+      groupNumber: '10000002',
+      avatarUrl: '/chat/groups/10000002/avatar.png',
+      thumb: true,
+    );
+    expect(group2Avatar.version, 'g2v1');
+
+    // 4. Concurrent AvatarCache write + newer write keeps latest generation.
+    await Future.wait(<Future<void>>[
+      cache.write('group-10000003', _samplePng, 'v1', thumb: true),
+      cache.write('group-10000003', server.resetPng, 'v2', thumb: true),
+    ]);
+    final CachedAvatar? latestDirect = await cache.read(
+      'group-10000003',
+      thumb: true,
+    );
+    expect(latestDirect?.version, 'v2');
+    expect(latestDirect?.bytes, orderedEquals(server.resetPng));
   });
 }

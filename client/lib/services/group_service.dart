@@ -49,12 +49,38 @@ class GroupService {
   final ConversationAccessController? access;
   final StreamController<GroupProfile> _groupUpdates =
       StreamController<GroupProfile>.broadcast();
+  int _profileTicket = 0;
+  final Map<String, int> _latestProfileTicket = <String, int>{};
+  final Map<String, String> _knownAvatarVersions = <String, String>{};
+  int _avatarTicket = 0;
+  final Map<String, int> _latestAvatarTicket = <String, int>{};
+  final Map<String, int> _groupAvatarInvalidationTicket = <String, int>{};
 
   /// Broadcasts authoritative [GroupProfile] snapshots returned by group
   /// queries and mutations so open chat views stay synchronized.
   Stream<GroupProfile> get groupUpdates => _groupUpdates.stream;
 
-  void _emitGroupUpdate(GroupProfile profile) {
+  void _bumpAvatarInvalidation(String groupNumber) {
+    final int bump = ++_avatarTicket;
+    _groupAvatarInvalidationTicket[groupNumber] = bump;
+    final String key = _avatarKey(groupNumber);
+    _latestAvatarTicket['$key|false'] = bump;
+    _latestAvatarTicket['$key|true'] = bump;
+  }
+
+  void _emitGroupUpdate(GroupProfile profile, {required int ticket}) {
+    final String convId = profile.conversation.id;
+    final int committed = _latestProfileTicket[convId] ?? 0;
+    if (ticket < committed) {
+      return;
+    }
+    _latestProfileTicket[convId] = ticket;
+    final String? previousVersion = _knownAvatarVersions[profile.groupNumber];
+    _knownAvatarVersions[profile.groupNumber] = profile.avatarVersion;
+    if (previousVersion != null && previousVersion != profile.avatarVersion) {
+      _bumpAvatarInvalidation(profile.groupNumber);
+      unawaited(avatarCache.invalidate(_avatarKey(profile.groupNumber)));
+    }
     if (!_groupUpdates.isClosed) {
       _groupUpdates.add(profile);
     }
@@ -153,7 +179,7 @@ class GroupService {
       membershipRevision: 1,
       historyThrough: 0,
     );
-    _emitGroupUpdate(profile);
+    _emitGroupUpdate(profile, ticket: ++_profileTicket);
     return profile;
   }
 
@@ -165,12 +191,13 @@ class GroupService {
     if (!isValidGroupNumber(groupNumber)) {
       throw _validation('group_number', '群号必须是 8 位数字');
     }
+    final int requestTicket = ++_profileTicket;
     final GroupProfile profile = await api.findGroup(
       token: identity.token,
       groupNumber: groupNumber,
     );
     _ensureCurrent(identity);
-    _emitGroupUpdate(profile);
+    _emitGroupUpdate(profile, ticket: requestTicket);
     return profile;
   }
 
@@ -245,9 +272,9 @@ class GroupService {
     );
     _ensureCurrent(identity);
     if (avatarBytes != null || resetAvatar) {
-      await avatarCache.invalidate(_avatarKey(profile.groupNumber));
+      await invalidateGroupAvatar(profile.groupNumber);
     }
-    _emitGroupUpdate(profile);
+    _emitGroupUpdate(profile, ticket: ++_profileTicket);
     return profile;
   }
 
@@ -373,7 +400,7 @@ class GroupService {
     if (account == identity.account) {
       await access?.revoke(identity.account, conversation.id);
     }
-    _emitGroupUpdate(profile);
+    _emitGroupUpdate(profile, ticket: ++_profileTicket);
     return profile;
   }
 
@@ -389,7 +416,7 @@ class GroupService {
     );
     _ensureCurrent(identity);
     await access?.revoke(identity.account, conversation.id);
-    _emitGroupUpdate(profile);
+    _emitGroupUpdate(profile, ticket: ++_profileTicket);
     return profile;
   }
 
@@ -490,6 +517,20 @@ class GroupService {
     required String avatarUrl,
     AuthIdentity? captured,
     bool thumb = false,
+  }) => _loadGroupAvatar(
+    groupNumber: groupNumber,
+    avatarUrl: avatarUrl,
+    captured: captured,
+    thumb: thumb,
+    retriedAfterInvalidation: false,
+  );
+
+  Future<GroupAvatarImage> _loadGroupAvatar({
+    required String groupNumber,
+    required String avatarUrl,
+    required AuthIdentity? captured,
+    required bool thumb,
+    required bool retriedAfterInvalidation,
   }) async {
     if (!isValidGroupNumber(groupNumber)) {
       throw _validation('group_number', '群号必须是 8 位数字');
@@ -497,6 +538,10 @@ class GroupService {
     final String token = _token(captured);
     final AuthIdentity? identity = session.identity;
     final String key = _avatarKey(groupNumber);
+    final String slotKey = '$key|$thumb';
+    final int requestTicket = ++_avatarTicket;
+    final int invalidationAtStart =
+        _groupAvatarInvalidationTicket[groupNumber] ?? 0;
     final CachedAvatar? cached = await avatarCache.read(key, thumb: thumb);
     AvatarFetch fetched = await api.fetchGroupAvatar(
       token: token,
@@ -509,6 +554,21 @@ class GroupService {
     } else if (identity != null && !session.isCurrent(identity)) {
       throw staleIdentity;
     }
+    if ((_groupAvatarInvalidationTicket[groupNumber] ?? 0) !=
+            invalidationAtStart ||
+        requestTicket < (_latestAvatarTicket[slotKey] ?? 0)) {
+      return _resolveSupersededAvatar(
+        groupNumber: groupNumber,
+        avatarUrl: avatarUrl,
+        captured: captured,
+        thumb: thumb,
+        key: key,
+        invalidationAtStart: invalidationAtStart,
+        retriedAfterInvalidation: retriedAfterInvalidation,
+        cached: cached,
+        fetched: fetched,
+      );
+    }
     if (fetched.notModified) {
       if (cached == null) {
         fetched = await api.fetchGroupAvatar(
@@ -517,6 +577,9 @@ class GroupService {
           thumb: thumb,
         );
       } else {
+        if (requestTicket > (_latestAvatarTicket[slotKey] ?? 0)) {
+          _latestAvatarTicket[slotKey] = requestTicket;
+        }
         return GroupAvatarImage(
           groupNumber: groupNumber,
           bytes: cached.bytes,
@@ -527,6 +590,22 @@ class GroupService {
     if (fetched.bytes.isEmpty) {
       throw upstreamMalformed;
     }
+    if ((_groupAvatarInvalidationTicket[groupNumber] ?? 0) !=
+            invalidationAtStart ||
+        requestTicket < (_latestAvatarTicket[slotKey] ?? 0)) {
+      return _resolveSupersededAvatar(
+        groupNumber: groupNumber,
+        avatarUrl: avatarUrl,
+        captured: captured,
+        thumb: thumb,
+        key: key,
+        invalidationAtStart: invalidationAtStart,
+        retriedAfterInvalidation: retriedAfterInvalidation,
+        cached: cached,
+        fetched: fetched,
+      );
+    }
+    _latestAvatarTicket[slotKey] = requestTicket;
     await avatarCache.write(key, fetched.bytes, fetched.version, thumb: thumb);
     return GroupAvatarImage(
       groupNumber: groupNumber,
@@ -535,7 +614,58 @@ class GroupService {
     );
   }
 
+  Future<GroupAvatarImage> _resolveSupersededAvatar({
+    required String groupNumber,
+    required String avatarUrl,
+    required AuthIdentity? captured,
+    required bool thumb,
+    required String key,
+    required int invalidationAtStart,
+    required bool retriedAfterInvalidation,
+    required CachedAvatar? cached,
+    required AvatarFetch fetched,
+  }) async {
+    final CachedAvatar? latestCached = await avatarCache.read(
+      key,
+      thumb: thumb,
+    );
+    if (latestCached != null) {
+      return GroupAvatarImage(
+        groupNumber: groupNumber,
+        bytes: latestCached.bytes,
+        version: latestCached.version,
+      );
+    }
+    if (!retriedAfterInvalidation &&
+        (_groupAvatarInvalidationTicket[groupNumber] ?? 0) !=
+            invalidationAtStart) {
+      return _loadGroupAvatar(
+        groupNumber: groupNumber,
+        avatarUrl: avatarUrl,
+        captured: captured,
+        thumb: thumb,
+        retriedAfterInvalidation: true,
+      );
+    }
+    if (fetched.notModified && cached != null) {
+      return GroupAvatarImage(
+        groupNumber: groupNumber,
+        bytes: cached.bytes,
+        version: cached.version,
+      );
+    }
+    if (fetched.bytes.isEmpty) {
+      throw upstreamMalformed;
+    }
+    return GroupAvatarImage(
+      groupNumber: groupNumber,
+      bytes: fetched.bytes,
+      version: fetched.version,
+    );
+  }
+
   Future<void> invalidateGroupAvatar(String groupNumber) {
+    _bumpAvatarInvalidation(groupNumber);
     return avatarCache.invalidate(_avatarKey(groupNumber));
   }
 
