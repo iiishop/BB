@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -86,6 +87,10 @@ class _UiSocialServer {
   bool paginatedSecondPendingAccepted = false;
   bool notificationEventPending = false;
   bool notificationEventArrived = false;
+  Completer<void>? holdNoticeRefresh;
+  bool noticeRefreshHeldStarted = false;
+  Completer<void>? holdNoticeLoadMore;
+  bool noticeLoadMoreHeldStarted = false;
 
   final List<Map<String, dynamic>> createdRequests = <Map<String, dynamic>>[];
   final List<Map<String, dynamic>> sentMessages = <Map<String, dynamic>>[];
@@ -437,6 +442,14 @@ class _UiSocialServer {
       if (paginatedNoticesMode) {
         final String filter = jsonBody?['filter'] as String? ?? 'all';
         final String? cursor = jsonBody?['cursor'] as String?;
+        if (holdNoticeRefresh != null && cursor == null) {
+          noticeRefreshHeldStarted = true;
+          await holdNoticeRefresh!.future;
+        }
+        if (holdNoticeLoadMore != null && cursor != null) {
+          noticeLoadMoreHeldStarted = true;
+          await holdNoticeLoadMore!.future;
+        }
         final Map<String, dynamic> olderInvite = <String, dynamic>{
           'id': 'dcf091d4b3f941269deae8748a4fa894',
           'type': 'group_invitation',
@@ -1307,6 +1320,126 @@ void main() {
       await tester.ensureVisible(
         find.byKey(NotificationCenter.actionKey(targetId, 'accept')),
       );
+      await tester.tap(
+        find.byKey(NotificationCenter.actionKey(targetId, 'accept')),
+      );
+      await _settle(tester);
+      expect(server.executeActions, contains('$targetId:accept'));
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump(const Duration(seconds: 35));
+    },
+  );
+
+  testWidgets(
+    'A7: delayed notice refresh completing after loadMore preserves expanded page two',
+    (WidgetTester tester) async {
+      server.paginatedNoticesMode = true;
+      const String targetId = 'dcf091d4b3f941269deae8748a4fa894';
+      await pumpHome(tester, size: const Size(1280, 900));
+
+      // Navigate to Notifications ("全部" page 1) and scroll to loadMoreKey.
+      await tester.tap(find.byKey(HomeView.navNotificationsKey));
+      await _settle(tester);
+      final Finder scrollable = find.byType(Scrollable).last;
+      await tester.scrollUntilVisible(
+        find.byKey(NotificationCenter.loadMoreKey),
+        600,
+        scrollable: scrollable,
+      );
+      await _settle(tester);
+
+      // Order 1 (Sentinel qa3 reproducer): background refresh starts first and
+      // stalls; user taps loadMore; page 2 completes FIRST, then delayed
+      // first-page refresh resolves SECOND. Page 2 must stay visible and
+      // actionable without re-showing loadMoreKey.
+      server.holdNoticeRefresh = Completer<void>();
+      server.notificationEventPending = true;
+      await tester.pump(const Duration(seconds: 3));
+      await _settle(tester);
+      expect(server.noticeRefreshHeldStarted, isTrue);
+
+      await tester.tap(find.byKey(NotificationCenter.loadMoreKey));
+      await _settle(tester);
+      await tester.scrollUntilVisible(
+        find.byKey(NotificationCenter.actionKey(targetId, 'accept')),
+        300,
+        scrollable: scrollable,
+      );
+      await _settle(tester);
+      expect(
+        find.byKey(NotificationCenter.actionKey(targetId, 'accept')),
+        findsOneWidget,
+      );
+
+      server.holdNoticeRefresh!.complete();
+      server.holdNoticeRefresh = null;
+      await _settle(tester);
+      expect(
+        find.byKey(NotificationCenter.actionKey(targetId, 'accept')),
+        findsOneWidget,
+      );
+      expect(find.byKey(NotificationCenter.loadMoreKey), findsNothing);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump(const Duration(seconds: 35));
+    },
+  );
+
+  testWidgets(
+    'A7: concurrent notice refresh completing before delayed loadMore preserves page two',
+    (WidgetTester tester) async {
+      server.paginatedNoticesMode = true;
+      const String targetId = 'dcf091d4b3f941269deae8748a4fa894';
+      await pumpHome(tester, size: const Size(1280, 900));
+
+      await tester.tap(find.byKey(HomeView.navNotificationsKey));
+      await _settle(tester);
+      final Finder scrollable = find.byType(Scrollable).last;
+      await tester.scrollUntilVisible(
+        find.byKey(NotificationCenter.loadMoreKey),
+        600,
+        scrollable: scrollable,
+      );
+      await _settle(tester);
+
+      // Background refresh AND user loadMore overlap; refresh completes FIRST
+      // (prepending a new event notice on page 1), then delayed loadMore
+      // resolves SECOND. Both page 1 refresh and page 2 invitation must remain
+      // visible and actionable by current ID.
+      server.holdNoticeRefresh = Completer<void>();
+      server.holdNoticeLoadMore = Completer<void>();
+      server.notificationEventPending = true;
+      await tester.pump(const Duration(seconds: 3));
+      await _settle(tester);
+      expect(server.noticeRefreshHeldStarted, isTrue);
+
+      await tester.tap(find.byKey(NotificationCenter.loadMoreKey));
+      await _settle(tester);
+      expect(server.noticeLoadMoreHeldStarted, isTrue);
+
+      // Release refresh FIRST while loadMore is still in flight.
+      server.holdNoticeRefresh!.complete();
+      server.holdNoticeRefresh = null;
+      await _settle(tester);
+      expect(server.notificationEventArrived, isTrue);
+
+      // Now release loadMore SECOND.
+      server.holdNoticeLoadMore!.complete();
+      server.holdNoticeLoadMore = null;
+      await _settle(tester);
+
+      await tester.drag(scrollable, const Offset(0, -400));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(NotificationCenter.actionKey(targetId, 'accept')),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(NotificationCenter.actionKey(targetId, 'accept')),
+        findsOneWidget,
+      );
+      expect(find.byKey(NotificationCenter.loadMoreKey), findsNothing);
       await tester.tap(
         find.byKey(NotificationCenter.actionKey(targetId, 'accept')),
       );
