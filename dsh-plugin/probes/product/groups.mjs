@@ -19,7 +19,7 @@ export async function probeGroups({client, ctx, tool, executeTool, settings, unt
     const result = await executeTool("mcp__bb__" + name, input);
     assert.ok(result.isError || result.value?.isError, name);
     const code = result.value?.structuredContent?.error?.code ??
-      JSON.parse(result.content[0].text).error?.code;
+      JSON.parse(result.content[0].text.replace(/^Error:\s*/, "")).error?.code;
     assert.ok(codes.includes(code), name + " " + code);
   }
   await settings({
