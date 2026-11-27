@@ -6,6 +6,10 @@
 /// layer maps to `upstream_unavailable`.
 library;
 
+import 'conversation_models.dart';
+
+export 'conversation_models.dart';
+
 /// Who may read a message pair. Accounts are the eight-digit social identity.
 const int chatMaxMessageBytes = 64 * 1024;
 
@@ -17,17 +21,94 @@ const int localEventVersion = 1;
 
 enum ChatMessageKind {
   body,
-  attachment;
+  attachment,
+  system;
 
   static ChatMessageKind? tryParse(Object? value) {
     return switch (value) {
       'body' => ChatMessageKind.body,
       'attachment' => ChatMessageKind.attachment,
+      'system' => ChatMessageKind.system,
       _ => null,
     };
   }
 
   String get wire => name;
+}
+
+/// Structured system event carried inside a [ChatMessageKind.system] entry.
+sealed class SystemMessageEvent {
+  const SystemMessageEvent();
+
+  String get type;
+
+  Map<String, dynamic> toJson();
+
+  static SystemMessageEvent fromJson(Object? json) {
+    if (json is! Map<String, dynamic>) {
+      throw const FormatException('system event must be an object');
+    }
+    return switch (json['type']) {
+      'member.joined' => _parseMemberJoined(json),
+      'group.renamed' => _parseGroupRenamed(json),
+      _ => throw const FormatException('unsupported system event type'),
+    };
+  }
+
+  static MemberJoinedSystemEvent _parseMemberJoined(Map<String, dynamic> json) {
+    final Object? account = json['account'];
+    final Object? username = json['username'];
+    if (account is! String || !isValidAccount(account) || username is! String) {
+      throw const FormatException('member.joined has invalid fields');
+    }
+    return MemberJoinedSystemEvent(account: account, username: username);
+  }
+
+  static GroupRenamedSystemEvent _parseGroupRenamed(Map<String, dynamic> json) {
+    final Object? oldName = json['old_name'];
+    final Object? newName = json['new_name'];
+    if (oldName is! String || newName is! String) {
+      throw const FormatException('group.renamed has invalid fields');
+    }
+    return GroupRenamedSystemEvent(oldName: oldName, newName: newName);
+  }
+}
+
+class MemberJoinedSystemEvent extends SystemMessageEvent {
+  const MemberJoinedSystemEvent({
+    required this.account,
+    required this.username,
+  });
+
+  final String account;
+  final String username;
+
+  @override
+  String get type => 'member.joined';
+
+  @override
+  Map<String, dynamic> toJson() => <String, dynamic>{
+    'type': type,
+    'account': account,
+    'username': username,
+  };
+}
+
+class GroupRenamedSystemEvent extends SystemMessageEvent {
+  const GroupRenamedSystemEvent({required this.oldName, required this.newName});
+
+  final String oldName;
+  final String newName;
+
+  @override
+  String get type => 'group.renamed';
+
+  @override
+  Map<String, dynamic> toJson() => <String, dynamic>{
+    'type': type,
+    'old_name': oldName,
+    'new_name': newName,
+  };
 }
 
 enum AttachmentKind {
@@ -194,18 +275,22 @@ class Attachment {
   };
 }
 
-/// A committed server message.
+/// A committed server message (direct, group, or system entry).
 class ChatMessage {
   const ChatMessage({
     required this.id,
     required this.position,
-    required this.senderAccount,
-    required this.targetAccount,
+    this.senderAccount = '',
+    this.targetAccount = '',
     required this.createdAt,
     required this.kind,
     this.parts = const <MessagePart>[],
     this.attachment,
     this.operationId,
+    this.senderUsername,
+    this.conversation,
+    this.system,
+    this.systemText,
   });
 
   final String id;
@@ -217,11 +302,53 @@ class ChatMessage {
   final List<MessagePart> parts;
   final Attachment? attachment;
 
+  /// Sender display name supplied on group messages.
+  final String? senderUsername;
+
+  /// Stable conversation reference for group and system messages.
+  final ConversationRef? conversation;
+
+  /// Structured payload for `kind == ChatMessageKind.system`.
+  final SystemMessageEvent? system;
+
+  /// Directly displayable server text for `kind == ChatMessageKind.system`.
+  final String? systemText;
+
   /// Account-private association supplied by the negotiated server protocol
   /// or a verified send/operation response. Null is unknown, never a safe miss.
   final String? operationId;
 
-  void validateReader(String account, {String? peerAccount}) {
+  bool get isSystem => kind == ChatMessageKind.system;
+
+  bool get isGroup => conversation?.isGroup ?? false;
+
+  ConversationRef resolveConversation(String selfAccount) =>
+      conversation ?? ConversationRef.direct(senderAccount, targetAccount);
+
+  void validateReader(
+    String account, {
+    String? peerAccount,
+    ConversationRef? conversationRef,
+  }) {
+    if (conversationRef != null &&
+        conversation != null &&
+        conversation != conversationRef) {
+      throw const FormatException('message association scope mismatch');
+    }
+    if (isSystem) {
+      if (operationId != null ||
+          (conversation?.isDirect == true &&
+              !conversation!.containsDirectAccount(account))) {
+        throw const FormatException('message association scope mismatch');
+      }
+      return;
+    }
+    if (conversation?.isGroup == true) {
+      if (operationId != null && senderAccount != account) {
+        throw const FormatException('message association scope mismatch');
+      }
+      return;
+    }
     if ((senderAccount != account && targetAccount != account) ||
         (operationId != null && senderAccount != account) ||
         (peerAccount != null &&
@@ -232,7 +359,8 @@ class ChatMessage {
   }
 
   ChatMessage withOperationId(String value) {
-    if (!RegExp(r'^[A-Za-z0-9_-]{1,128}$').hasMatch(value) ||
+    if (isSystem ||
+        !RegExp(r'^[A-Za-z0-9_-]{1,128}$').hasMatch(value) ||
         (operationId != null && operationId != value)) {
       throw const FormatException('conflicting message association');
     }
@@ -246,10 +374,14 @@ class ChatMessage {
       parts: parts,
       attachment: attachment,
       operationId: value,
+      senderUsername: senderUsername,
+      conversation: conversation,
+      system: system,
+      systemText: systemText,
     );
   }
 
-  bool isMine(String selfAccount) => senderAccount == selfAccount;
+  bool isMine(String selfAccount) => !isSystem && senderAccount == selfAccount;
 
   bool isAttachmentKind(AttachmentKind kind) =>
       this.kind == ChatMessageKind.attachment && attachment?.kind == kind;
@@ -260,8 +392,6 @@ class ChatMessage {
     }
     final Object? id = json['id'];
     final Object? position = json['position'];
-    final Object? sender = json['sender_account'];
-    final Object? target = json['target_account'];
     final Object? createdAt = json['created_at'];
     final Object? operationId = json['operation_id'];
     if (operationId != null &&
@@ -272,15 +402,59 @@ class ChatMessage {
     final ChatMessageKind? kind = ChatMessageKind.tryParse(json['kind']);
     if (id is! String ||
         position is! int ||
-        sender is! String ||
-        target is! String ||
         createdAt is! String ||
         kind == null) {
       throw const FormatException('message has invalid fields');
     }
-    final DateTime timestamp = DateTime.tryParse(createdAt) != null
-        ? DateTime.parse(createdAt).toUtc()
-        : throw const FormatException('invalid created_at');
+    final DateTime? parsedTime = DateTime.tryParse(createdAt);
+    if (parsedTime == null) {
+      throw const FormatException('invalid created_at');
+    }
+    final DateTime timestamp = parsedTime.toUtc();
+
+    if (kind == ChatMessageKind.system) {
+      if (operationId != null) {
+        throw const FormatException('system message cannot carry operation_id');
+      }
+      final ConversationRef conversation = ConversationRef.fromJson(
+        json['conversation'],
+      );
+      final SystemMessageEvent system = SystemMessageEvent.fromJson(
+        json['system'],
+      );
+      final Object? text = json['text'];
+      if (text is! String) {
+        throw const FormatException('system message missing text');
+      }
+      return ChatMessage(
+        id: id,
+        position: position,
+        createdAt: timestamp,
+        kind: ChatMessageKind.system,
+        conversation: conversation,
+        system: system,
+        systemText: text,
+      );
+    }
+
+    final Object? sender = json['sender_account'];
+    final Object? rawConversation = json['conversation'];
+    final ConversationRef? conversation = rawConversation == null
+        ? null
+        : ConversationRef.fromJson(rawConversation, requireGroup: true);
+    final Object? senderUsername = json['sender_username'];
+    final Object? target = json['target_account'];
+    if (sender is! String) {
+      throw const FormatException('message missing sender_account');
+    }
+    if (conversation != null) {
+      if (senderUsername is! String) {
+        throw const FormatException('group message missing sender_username');
+      }
+    } else if (target is! String) {
+      throw const FormatException('message missing target_account');
+    }
+
     final List<MessagePart> parts = <MessagePart>[];
     final Object? rawContent = json['content'];
     if (rawContent != null) {
@@ -311,12 +485,14 @@ class ChatMessage {
       id: id,
       position: position,
       senderAccount: sender,
-      targetAccount: target,
+      targetAccount: conversation != null ? '' : target as String,
       createdAt: timestamp,
       kind: kind,
       parts: List<MessagePart>.unmodifiable(parts),
       attachment: attachment,
       operationId: operationId as String?,
+      senderUsername: conversation != null ? senderUsername as String : null,
+      conversation: conversation,
     );
   }
 
@@ -559,6 +735,7 @@ class MessageContextRecord {
     required this.items,
     required this.anchorMessageId,
     required this.peerAccount,
+    this.conversation,
     required this.startPosition,
     required this.endPosition,
     required this.beforeHasMore,
@@ -571,6 +748,7 @@ class MessageContextRecord {
   final List<ChatMessage> items;
   final String anchorMessageId;
   final String peerAccount;
+  final ConversationRef? conversation;
   final int startPosition;
   final int endPosition;
   final bool beforeHasMore;
@@ -583,7 +761,6 @@ class MessageContextRecord {
     if (json is! Map<String, dynamic> ||
         json['items'] is! List ||
         json['anchor_message_id'] is! String ||
-        json['peer_account'] is! String ||
         json['range'] is! Map<String, dynamic> ||
         json['before_has_more'] is! bool ||
         json['after_has_more'] is! bool ||
@@ -591,6 +768,15 @@ class MessageContextRecord {
         json['missing_truncated'] is! bool ||
         json['reply_relations'] is! String) {
       throw const FormatException('context has invalid fields');
+    }
+    final Object? rawPeer = json['peer_account'];
+    final Object? rawConversation = json['conversation'];
+    final ConversationRef? conversation = rawConversation == null
+        ? null
+        : ConversationRef.fromJson(rawConversation, requireGroup: true);
+    if ((rawPeer == null && conversation == null) ||
+        (rawPeer != null && rawPeer is! String)) {
+      throw const FormatException('context target is invalid');
     }
     final Map<String, dynamic> range = json['range'] as Map<String, dynamic>;
     if (range['start_position'] is! int || range['end_position'] is! int) {
@@ -601,7 +787,8 @@ class MessageContextRecord {
         (json['items'] as List).map(ChatMessage.fromJson),
       ),
       anchorMessageId: json['anchor_message_id'] as String,
-      peerAccount: json['peer_account'] as String,
+      peerAccount: rawPeer is String ? rawPeer : '',
+      conversation: conversation,
       startPosition: range['start_position'] as int,
       endPosition: range['end_position'] as int,
       beforeHasMore: json['before_has_more'] as bool,
@@ -1206,8 +1393,14 @@ class VisibleMessage {
     if (json is! Map<String, dynamic> || json['blocks'] is! List) {
       throw const FormatException('visible message must be an object');
     }
+    final ChatMessage message = ChatMessage.fromJson(json['message']);
+    final Map<String, dynamic> rawMessage =
+        json['message'] as Map<String, dynamic>;
+    final String peerOrConversation = rawMessage['target_account'] is String
+        ? rawMessage['target_account'] as String
+        : (message.conversation?.id ?? '');
     return VisibleMessage(
-      message: ChatMessage.fromJson(json['message']),
+      message: message,
       blocks: List<VisibleBlock>.unmodifiable(
         (json['blocks'] as List).map(VisibleBlock.fromJson),
       ),
@@ -1215,13 +1408,13 @@ class VisibleMessage {
           ? null
           : PresentationReceipt.fromJson(<String, dynamic>{
               ...(json['presentation'] as Map<String, dynamic>),
-              'account':
-                  (json['message'] as Map<String, dynamic>)['sender_account'],
+              'account': rawMessage['sender_account'] is String
+                  ? rawMessage['sender_account'] as String
+                  : '',
               'consumer_session': '',
-              'peer_account':
-                  (json['message'] as Map<String, dynamic>)['target_account'],
-              'message_id': (json['message'] as Map<String, dynamic>)['id'],
-              'position': (json['message'] as Map<String, dynamic>)['position'],
+              'peer_account': peerOrConversation,
+              'message_id': rawMessage['id'],
+              'position': rawMessage['position'],
               'confirmed': false,
             }),
     );
@@ -1237,17 +1430,48 @@ Map<String, dynamic> messageToJson(
     'operation_id': message.operationId,
 };
 
-Map<String, dynamic> _messageToJson(ChatMessage message) => <String, dynamic>{
-  'id': message.id,
-  'position': message.position,
-  'sender_account': message.senderAccount,
-  'target_account': message.targetAccount,
-  'created_at': message.createdAt.toIso8601String(),
-  'kind': message.kind.wire,
-  if (message.kind == ChatMessageKind.body)
-    'content': message.parts.map((MessagePart part) => part.toJson()).toList(),
-  'attachment': message.attachment?.toJson(),
-};
+Map<String, dynamic> _messageToJson(ChatMessage message) {
+  if (message.kind == ChatMessageKind.system) {
+    return <String, dynamic>{
+      'id': message.id,
+      'position': message.position,
+      'created_at': message.createdAt.toIso8601String(),
+      'kind': message.kind.wire,
+      'conversation': message.conversation?.toJson(),
+      'system': message.system?.toJson(),
+      'text': message.systemText ?? '',
+    };
+  }
+  if (message.conversation != null && message.conversation!.isGroup) {
+    return <String, dynamic>{
+      'id': message.id,
+      'position': message.position,
+      'created_at': message.createdAt.toIso8601String(),
+      'sender_account': message.senderAccount,
+      'sender_username': message.senderUsername ?? '',
+      'conversation': message.conversation!.toJson(),
+      'kind': message.kind.wire,
+      if (message.kind == ChatMessageKind.body)
+        'content': message.parts
+            .map((MessagePart part) => part.toJson())
+            .toList(),
+      'attachment': message.attachment?.toJson(),
+    };
+  }
+  return <String, dynamic>{
+    'id': message.id,
+    'position': message.position,
+    'sender_account': message.senderAccount,
+    'target_account': message.targetAccount,
+    'created_at': message.createdAt.toIso8601String(),
+    'kind': message.kind.wire,
+    if (message.kind == ChatMessageKind.body)
+      'content': message.parts
+          .map((MessagePart part) => part.toJson())
+          .toList(),
+    'attachment': message.attachment?.toJson(),
+  };
+}
 
 /// Read/wait result returned by the local control API.
 class VisibleMessagePage {
