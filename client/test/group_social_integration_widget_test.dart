@@ -935,8 +935,43 @@ void main() {
       });
       expect(find.text('hello group ui'), findsOneWidget);
 
-      // Tap group header avatar -> GroupProfilePanel as owner -> toggle invite
-      // checkbox -> open members -> tap Bob to enter 1:1 DM.
+      // Tap group header avatar -> GroupProfilePanel as owner -> edit group name
+      // -> close profile -> verify ChatPage header updates immediately on phone,
+      // then pop to UsersListView and verify list updates before re-entering.
+      await tester.tap(find.byKey(ChatPage.headerProfileKey));
+      await _settle(tester);
+      expect(find.byType(GroupProfilePanel), findsOneWidget);
+      await tester.tap(find.text('编辑群资料'));
+      await _settle(tester);
+      await tester.enterText(find.byType(TextFormField).first, 'Renamed group');
+      await tester.tap(find.text('保存群资料'));
+      await _settle(tester);
+      expect(server.group1Name, 'Renamed group');
+      expect(find.text('Renamed group'), findsOneWidget);
+      await tester.binding.handlePopRoute();
+      await _settle(tester);
+      expect(
+        tester.widget<Text>(find.byKey(ChatPage.headerNameKey)).data,
+        'Renamed group',
+      );
+
+      // Pop back to Home list -> updated name is shown -> re-open chat & profile.
+      await tester.binding.handlePopRoute();
+      await _settle(tester);
+      expect(
+        find.descendant(
+          of: find.byKey(UsersListView.groupRowKey(server.group1Id)),
+          matching: find.text('Renamed group'),
+        ),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(UsersListView.groupRowKey(server.group1Id)));
+      await _settle(tester);
+      expect(
+        tester.widget<Text>(find.byKey(ChatPage.headerNameKey)).data,
+        'Renamed group',
+      );
+
       await tester.tap(find.byKey(ChatPage.headerProfileKey));
       await _settle(tester);
       expect(find.byType(GroupProfilePanel), findsOneWidget);
@@ -1523,6 +1558,50 @@ void main() {
         findsNothing,
       );
       expect(find.byKey(NotificationCenter.loadMoreKey), findsNothing);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump(const Duration(seconds: 35));
+    },
+  );
+
+  testWidgets(
+    'A6: split desktop layout updates both ChatPage header and UsersListView row after group rename',
+    (WidgetTester tester) async {
+      server.createdGroup1 = true;
+      await pumpHome(tester, size: const Size(1280, 900));
+
+      await tester.tap(find.byKey(UsersListView.groupRowKey(server.group1Id)));
+      await _settle(tester);
+      expect(
+        tester.widget<Text>(find.byKey(ChatPage.headerNameKey)).data,
+        'Alpha群',
+      );
+
+      await tester.tap(find.byKey(ChatPage.headerProfileKey));
+      await _settle(tester);
+      await tester.tap(find.text('编辑群资料'));
+      await _settle(tester);
+      await tester.enterText(
+        find.byType(TextFormField).first,
+        'Renamed desktop group',
+      );
+      await tester.tap(find.text('保存群资料'));
+      await _settle(tester);
+      expect(server.group1Name, 'Renamed desktop group');
+
+      await tester.binding.handlePopRoute();
+      await _settle(tester);
+      expect(
+        tester.widget<Text>(find.byKey(ChatPage.headerNameKey)).data,
+        'Renamed desktop group',
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(UsersListView.groupRowKey(server.group1Id)),
+          matching: find.text('Renamed desktop group'),
+        ),
+        findsOneWidget,
+      );
 
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pump(const Duration(seconds: 35));

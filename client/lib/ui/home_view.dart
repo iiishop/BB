@@ -680,6 +680,7 @@ class _HomeViewState extends State<HomeView>
                   shared: widget.shared,
                   groups: widget.groups,
                   refreshTrigger: _groupsRefresh,
+                  onGroupsChanged: _bumpGroupsRefresh,
                   presence: _presence,
                   onlineFilter: _onlineFilter,
                   onSessionExpired: widget.onSessionExpired,

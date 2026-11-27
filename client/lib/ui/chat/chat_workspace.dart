@@ -29,6 +29,7 @@ class ChatWorkspace extends StatefulWidget {
     this.shared,
     this.groups,
     this.refreshTrigger,
+    this.onGroupsChanged,
     this.presence,
     this.onlineFilter,
     this.onSessionExpired,
@@ -42,6 +43,7 @@ class ChatWorkspace extends StatefulWidget {
   final SharedConversationService? shared;
   final GroupService? groups;
   final Listenable? refreshTrigger;
+  final VoidCallback? onGroupsChanged;
 
   /// Brand/「消息」header shown above the conversation list only.
   final Widget listHeader;
@@ -178,6 +180,7 @@ class _ChatWorkspaceState extends State<ChatWorkspace>
   final Map<String, ChatUser> _peers = <String, ChatUser>{};
   final Map<String, GroupConversationItem> _groups =
       <String, GroupConversationItem>{};
+  final ValueNotifier<int> _groupsRefresh = ValueNotifier<int>(0);
   bool _autoSelected = false;
   bool _resetScheduled = false;
 
@@ -195,7 +198,36 @@ class _ChatWorkspaceState extends State<ChatWorkspace>
       ));
 
   @override
+  void initState() {
+    super.initState();
+    widget.refreshTrigger?.addListener(_bumpLocalGroupsRefresh);
+  }
+
+  @override
+  void didUpdateWidget(covariant ChatWorkspace oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.refreshTrigger != widget.refreshTrigger) {
+      oldWidget.refreshTrigger?.removeListener(_bumpLocalGroupsRefresh);
+      widget.refreshTrigger?.addListener(_bumpLocalGroupsRefresh);
+    }
+  }
+
+  void _bumpLocalGroupsRefresh() {
+    _groupsRefresh.value += 1;
+  }
+
+  void _notifyGroupsChanged() {
+    if (widget.onGroupsChanged != null) {
+      widget.onGroupsChanged!.call();
+    } else {
+      _bumpLocalGroupsRefresh();
+    }
+  }
+
+  @override
   void dispose() {
+    widget.refreshTrigger?.removeListener(_bumpLocalGroupsRefresh);
+    _groupsRefresh.dispose();
     _ownedFoldController?.dispose();
     super.dispose();
   }
@@ -240,8 +272,20 @@ class _ChatWorkspaceState extends State<ChatWorkspace>
     if (!mounted) {
       return;
     }
+    bool openedGroupChanged = false;
     for (final GroupConversationItem group in groups) {
+      final GroupConversationItem? previous = _groups[group.conversation.id];
       _groups[group.conversation.id] = group;
+      if (previous != null &&
+          _opened.contains(group.conversation.id) &&
+          (previous.displayName != group.displayName ||
+              previous.avatarUrl != group.avatarUrl ||
+              previous.avatarVersion != group.avatarVersion ||
+              previous.historyThrough != group.historyThrough ||
+              previous.membershipRevision != group.membershipRevision ||
+              previous.latestPosition != group.latestPosition)) {
+        openedGroupChanged = true;
+      }
     }
     final Set<String> activeGroupIds = <String>{
       for (final GroupConversationItem group in groups) group.conversation.id,
@@ -252,7 +296,7 @@ class _ChatWorkspaceState extends State<ChatWorkspace>
               id.startsWith('group:') && !activeGroupIds.contains(id),
         )
         .toList();
-    if (revokedOpened.isNotEmpty) {
+    if (openedGroupChanged || revokedOpened.isNotEmpty) {
       setState(() {
         for (final String id in revokedOpened) {
           _opened.remove(id);
@@ -471,7 +515,7 @@ class _ChatWorkspaceState extends State<ChatWorkspace>
               profile: widget.profile,
               shared: widget.shared,
               groups: widget.groups,
-              refreshTrigger: widget.refreshTrigger,
+              refreshTrigger: _groupsRefresh,
               presence: widget.presence,
               onlineFilter: widget.onlineFilter,
               selectedAccount:
@@ -528,6 +572,7 @@ class _ChatWorkspaceState extends State<ChatWorkspace>
               embedded: true,
               active: widget.visible && keyId == _selected,
               onOpenDirectChat: (ChatUser user) async => _select(user),
+              onGroupsChanged: _notifyGroupsChanged,
               onGroupRevoked: _onGroupRevoked,
             )
           else
