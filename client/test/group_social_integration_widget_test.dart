@@ -93,6 +93,7 @@ class _UiSocialServer {
   Completer<void>? holdNoticeLoadMore;
   bool clearNoticeLoadMoreHoldOnHit = false;
   bool noticeLoadMoreHeldStarted = false;
+  int allNoticePageTwoResponses = 0;
 
   final List<Map<String, dynamic>> createdRequests = <Map<String, dynamic>>[];
   final List<Map<String, dynamic>> sentMessages = <Map<String, dynamic>>[];
@@ -444,6 +445,8 @@ class _UiSocialServer {
       if (paginatedNoticesMode) {
         final String filter = jsonBody?['filter'] as String? ?? 'all';
         final String? cursor = jsonBody?['cursor'] as String?;
+        // The blocked response represents the request's pre-invalidation data.
+        final bool inviteInvalidatedAtRequest = paginatedPendingInvalidated;
         if (holdNoticeRefresh != null && cursor == null) {
           noticeRefreshHeldStarted = true;
           await holdNoticeRefresh!.future;
@@ -456,7 +459,7 @@ class _UiSocialServer {
           }
           await blocker.future;
         }
-        final String inviteState = paginatedPendingInvalidated
+        final String inviteState = inviteInvalidatedAtRequest
             ? 'invalidated'
             : paginatedPendingAccepted
             ? 'processed'
@@ -592,6 +595,7 @@ class _UiSocialServer {
           return;
         }
         if (cursor == '4bdbf08bf02c41e89899cdd42464875a') {
+          allNoticePageTwoResponses += 1;
           await _json(request, 200, <String, dynamic>{
             'items': <Map<String, dynamic>>[olderInvite],
             'next_cursor': null,
@@ -1522,6 +1526,7 @@ void main() {
         find.byKey(NotificationCenter.actionKey(targetId, 'accept')),
         findsNothing,
       );
+      expect(server.allNoticePageTwoResponses, 2);
       expect(find.byKey(NotificationCenter.loadMoreKey), findsNothing);
 
       await tester.pumpWidget(const SizedBox.shrink());
