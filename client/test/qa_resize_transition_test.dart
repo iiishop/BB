@@ -4,6 +4,7 @@ import 'dart:ui' show DisplayFeature, DisplayFeatureState, DisplayFeatureType;
 import 'package:bb_client/app.dart';
 import 'package:bb_client/models/auth_models.dart';
 import 'package:bb_client/ui/profile/profile_panel.dart';
+import 'package:bb_client/ui/profile/profile_artwork.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -223,7 +224,13 @@ void main() {
     expect(gateway.loadProfileCalls, 1);
     expect(gateway.loadAvatarCalls, 1);
     // The avatar bytes are rendered, never an invented default.
-    expect(find.byType(Image), findsOneWidget);
+    final Image avatar = tester.widget<Image>(
+      find.descendant(
+        of: find.byKey(ScallopedAvatar.photoKey),
+        matching: find.byType(Image),
+      ),
+    );
+    expect((avatar.image as MemoryImage).bytes, gateway.avatar);
     expect(gateway.avatar, isNotEmpty);
     expect(Uint8List.fromList(gateway.avatar).isNotEmpty, isTrue);
   });

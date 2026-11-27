@@ -448,14 +448,15 @@ class _UsersListViewState extends State<UsersListView> {
           padding: EdgeInsets.fromLTRB(gutter, AppSpacing.xs, gutter, 0),
           child: Row(
             children: <Widget>[
-              Text(
-                '只看在线',
-                style: text.labelLarge?.copyWith(
-                  color: AppColors.inkMuted,
-                  fontWeight: FontWeight.w600,
+              Expanded(
+                child: Text(
+                  '只看在线',
+                  style: text.labelLarge?.copyWith(
+                    color: AppColors.inkMuted,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
-              const Spacer(),
               Semantics(
                 label: '只看在线',
                 child: Switch(
@@ -673,6 +674,7 @@ class _UserRow extends StatelessWidget {
         children: <Widget>[
           Row(
             crossAxisAlignment: CrossAxisAlignment.center,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: <Widget>[
               Expanded(
                 child: Row(
@@ -716,40 +718,52 @@ class _UserRow extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: AppSpacing.sm),
-              Text(
-                formatContactTime(user.lastContactAt),
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: AppColors.inkMuted,
-                  fontWeight: FontWeight.w500,
+              Flexible(
+                child: Text(
+                  formatContactTime(user.lastContactAt),
+                  textAlign: TextAlign.right,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppColors.inkMuted,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 5),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: <Widget>[
-              Expanded(
-                child: Text(
-                  previewText,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: text.bodyMedium?.copyWith(
-                    fontSize: 14,
-                    color: AppColors.inkMuted,
+          LayoutBuilder(
+            builder: (BuildContext context, BoxConstraints constraints) => Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: <Widget>[
+                Expanded(
+                  child: Padding(
+                    padding: EdgeInsets.only(
+                      right: unreadLabel == null ? 0 : AppSpacing.sm,
+                    ),
+                    child: Text(
+                      previewText,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: text.bodyMedium?.copyWith(
+                        fontSize: 14,
+                        color: AppColors.inkMuted,
+                      ),
+                    ),
                   ),
                 ),
-              ),
-              if (unreadLabel != null) ...<Widget>[
-                const SizedBox(width: AppSpacing.sm),
-                _UnreadBadge(
-                  count: unread,
-                  label: unreadLabel,
-                  account: user.account,
-                ),
+                if (unreadLabel != null) ...<Widget>[
+                  ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: constraints.maxWidth),
+                    child: _UnreadBadge(
+                      count: unread,
+                      label: unreadLabel,
+                      account: user.account,
+                    ),
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
         ],
       ),

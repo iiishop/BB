@@ -9,6 +9,7 @@ import '../../models/chat_models.dart';
 import '../../services/chat_service.dart';
 import '../../services/presence_directory.dart';
 import '../../services/profile_service.dart';
+import '../display_features.dart';
 import 'chat_page.dart';
 import 'users_view.dart';
 
@@ -135,10 +136,7 @@ class ChatWorkspace extends StatefulWidget {
     for (final DisplayFeature feature in MediaQuery.displayFeaturesOf(
       context,
     )) {
-      final bool divider =
-          feature.type == DisplayFeatureType.hinge ||
-          feature.type == DisplayFeatureType.fold;
-      if (divider && feature.bounds.width <= feature.bounds.height) {
+      if (isFoldFeature(feature) && isVerticalFeature(feature)) {
         return feature;
       }
     }
