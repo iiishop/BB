@@ -162,6 +162,47 @@ void main() {
     await capture('profile-panel-folded.png');
     expect(tester.takeException(), isNull);
 
+    await pumpAt(
+      const Size(1024, 768),
+      features: <DisplayFeature>[
+        DisplayFeature(
+          bounds: const Rect.fromLTWH(492, 0, 40, 768),
+          type: DisplayFeatureType.hinge,
+          state: DisplayFeatureState.postureFlat,
+        ),
+      ],
+    );
+    await tester.tap(find.byKey(HomeView.avatarEntryKey));
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<ProfilePanel>(find.byType(ProfilePanel)).mode,
+      ProfilePanelMode.folded,
+    );
+    await capture('profile-panel-hinge-40.png');
+
+    await pumpAt(
+      const Size(1024, 768),
+      textScale: 2,
+      features: <DisplayFeature>[
+        DisplayFeature(
+          bounds: const Rect.fromLTWH(280, 0, 8, 768),
+          type: DisplayFeatureType.hinge,
+          state: DisplayFeatureState.postureFlat,
+        ),
+      ],
+    );
+    await tester.tap(find.byKey(HomeView.avatarEntryKey));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(ProfilePanel.editProfileKey));
+    await tester.tap(find.byKey(ProfilePanel.editProfileKey));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(ProfilePanel.removeAvatarKey).hitTestable(),
+      findsOneWidget,
+    );
+    await capture('profile-menu-narrow-280-200.png');
+    expect(tester.takeException(), isNull);
+
     await pumpAt(const Size(1024, 480), textScale: 2);
     await tester.tap(find.byKey(HomeView.avatarEntryKey));
     await tester.pumpAndSettle();
@@ -187,6 +228,8 @@ void main() {
       'profile-home-wide.png',
       'profile-panel-wide.png',
       'profile-panel-folded.png',
+      'profile-panel-hinge-40.png',
+      'profile-menu-narrow-280-200.png',
       'profile-menu-short-200.png',
       'profile-editor-short-200.png',
     ]) {

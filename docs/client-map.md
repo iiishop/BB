@@ -190,12 +190,12 @@ Space 状态边界：
 
 | 组件 | 位置 | 契约 | 调用方 | 生效条件 / 需保留差异 |
 | --- | --- | --- | --- | --- |
-| `openProfilePanel` | `client/lib/ui/profile/profile_panel.dart:94` | 返回 `ProfilePanelResult{changed, signedOut, logout, openSettings, openHomeAccount}`（`:67`）；根据 `resolveProfilePanelMode` 选择整屏路由或 dialog | `HomeView._openProfile`（`ui/home_view.dart:203`） | 手机走 `_PhoneProfileRoute`（`:163`），折叠/桌面走 `showGeneralDialog`；模式在打开时定路由类型，但 dialog 内部每帧重算模式/宽度 |
+| `openProfilePanel` | `client/lib/ui/profile/profile_panel.dart:88` | 返回 `ProfilePanelResult{changed, signedOut, logout, openSettings, openHomeAccount}`（`:61`）；根据 `resolveProfilePanelMode` 选择整屏路由或 dialog | `HomeView._openProfile`（`ui/home_view.dart:203`） | 手机走 `_PhoneProfileRoute`（`:178`），折叠/桌面走 `_ProfileDialogRoute`（`:128`）；打开时定路由类型，内部按实时模式/宽度重排 |
 | `resolveProfilePanelMode` | `client/lib/ui/profile/profile_panel.dart:33` | 有 flat 折叠 → folded；否则宽度 <600 → mobile，否则 desktop | 面板打开、frame、转场 | 当前判据：`fold/hinge` + `postureFlat`（`display_features.dart` 的 `isFlatFoldFeature`），**不看方向**；宽度 600 是第二条判据。策略见 §4.1 |
-| `foldedPanelWidth` | `client/lib/ui/profile/profile_panel.dart:52` | 折叠时左半宽：取折叠特征 bounds.left，clamp 280…width-1；否则 width/2 | `_ResponsiveProfileFrame`（`:323`） | 这里又单独要求 `height >= width && left > 0`（`:58`），用于定位左面板边缘 |
-| `ProfilePanel` / `_ProfilePanelState` | `client/lib/ui/profile/profile_panel.dart:408`、`:498` | 共享资料状态与动作：加载资料/头像/封面、改昵称/签名、上传/移除头像、上传封面、查看其他账号、打开自己的主页、设置、退出；`_changed` 回传宿主 | 三种 frame | 三个外壳共用 `_buildContent`（§4.3） |
-| `_ResponsiveProfileFrame` | `client/lib/ui/profile/profile_panel.dart:277` | 按当前模式套外壳：mobile 自己的 `Scaffold`+`ScaffoldMessenger`；folded 左栏+右侧模糊；desktop 居中的 440×700 卡片 | 手机路由/dialog | 三种外壳共用同一个 `ProfilePanel` 实例树；不要为折叠/桌面复制动作 |
-| `_PhoneProfileRoute` | `client/lib/ui/profile/profile_panel.dart:163` | 360ms 淡入 + Hero 头像飞入 | 仅手机 | Hero 只在 PageRoute 间工作；dialog 里没有 Hero |
+| `foldedPanelWidth` | `client/lib/ui/profile/profile_panel.dart:46` | 折叠时左半宽：取折叠特征 bounds.left，clamp 280…width-1；否则 width/2 | `_ResponsiveProfileFrame`（`:292`） | 单独要求 `isVerticalFeature && left > 0`，用于定位左面板边缘 |
+| `ProfilePanel` / `_ProfilePanelState` | `client/lib/ui/profile/profile_panel.dart:426`、`:516` | 共享资料状态与动作：加载资料/头像/封面、改昵称/签名、上传/移除头像、上传封面、查看其他账号、打开自己的主页、设置、退出；`_changed` 回传宿主 | 三种 frame | 三个外壳共用 `_buildContent`（§4.3），一次打开的内容 GlobalKey 保留在途菜单/编辑结果 |
+| `_ResponsiveProfileFrame` | `client/lib/ui/profile/profile_panel.dart:292` | 按当前模式套外壳：mobile 自己的 `Scaffold`+`ScaffoldMessenger`；folded 左栏+右侧模糊；desktop 居中的 440×700 卡片 | 手机路由/dialog | flat 时弹层保留完整视口与 displayFeatures，由 frame 切分；非 flat 保留对话框子屏策略 |
+| `_PhoneProfileRoute` | `client/lib/ui/profile/profile_panel.dart:178` | 360ms 淡入 + Hero 头像飞入 | 仅手机 | Hero 只在 PageRoute 间工作；PopupRoute dialog 里没有 Hero |
 | `AvatarImagePicker` / `AvatarSourceReader` | `client/lib/ui/profile/avatar_picker.dart:35`、`services/avatar_source.dart:19` | 选择器返回 path/bytes；读取器统一处理 path/url/base64，5 MiB（封面 8 MiB）上限，校验 magic bytes | `ProfilePanel` 的头像/封面对话框 | 平台差异在 picker；上传/预览复用同一读取器 |
 
 ### 2.7 设计 token
@@ -273,7 +273,7 @@ client/lib/main.dart:31  main()
 窄屏消息页头头像（HomeView._headerAvatar, ui/home_view.dart:339-350）
 宽屏 rail 头像（HomeView._rail, ui/home_view.dart:786）
   └─ HomeView._openProfile (:203)
-      └─ openProfilePanel (ui/profile/profile_panel.dart:94)
+      └─ openProfilePanel (ui/profile/profile_panel.dart:88)
           ├─ mobile  → Navigator.push(_PhoneProfileRoute) → _buildContent
           ├─ folded  → showGeneralDialog → _FoldedFrame → _buildContent
           └─ desktop → showGeneralDialog → _DesktopFrame → _buildContent
@@ -366,13 +366,15 @@ client/lib/main.dart:31  main()
 
 `profile_panel.dart` 中的 `ProfilePanel.build` 用 LayoutBuilder 取得当前面板约束并调用 `_buildContent`。封面、花边头像、昵称、签名和编辑操作随面板尺寸排列。手机保留 Hero 路由，展开屏保留左面板及右侧模糊，桌面保留居中卡片与关闭入口。
 
+`_ProfileDialogRoute` 在 flat 姿态保留根视口，避免 Flutter 通用对话框先截成子屏并移除 4/8/40px 物理铰链后误判 desktop。菜单的头像分组由 OverflowBar/Wrap 适配实际侧屏宽度；菜单与文本编辑框可滚动。280px 左屏、200% 字号的实际首页入口同时覆盖账号、在线筛选、会话时间与未读数的有界布局；不改变 Chat 的双栏判据、选择或消息事实。
+
 ### 4.4 尺寸判定
 
 | 实际位置 | 处数 | 现状/差异 | 目标实现 |
 | --- | --- | --- | --- |
 | `client/lib/ui/chat/message_bubble.dart:202-205`、`:331-332` | 2 套气泡宽度 | 文本 `min(340, width*0.74)`；图片 `min(width*0.66, 420)`；正文内嵌图再固定 `maxWidth: 220`（`:458`） | 在 `ui/chat/chat_format.dart` 或新 `chat_metrics.dart` 提供 `chatBubbleMaxWidth(context, {photo, inlinePhoto})`；保留图片列更宽、内嵌图 220 的差异 |
 | `client/lib/ui/chat/message_bubble.dart:913-914`、`:946` | 2 个占位尺寸默认值 | `_MediaImage` 默认 220×120；`_BodyPhoto` 按比例/4:3（`:1155`） | 合并进 §4.5 的缩略图组件；占位尺寸随模式给默认，不散落 |
-| `client/lib/ui/profile/profile_panel.dart:933` | 头像与动作 | 面板宽 <360 时头像为 92，否则为 104；宽 <340 或文字缩放 >1.35 时动作堆叠 | 三种外壳共用 |
+| `client/lib/ui/profile/profile_panel.dart:947` | 头像与动作 | 面板宽 <360 时头像为 92，否则为 104；宽 <340 或文字缩放 >1.35 时动作堆叠 | 三种外壳共用 |
 | `client/lib/ui/profile/profile_artwork.dart:15` | 封面高度 | 面板高度的 25%，限制在 168–260 | 由共享内容传入实际面板尺寸 |
 
 | `client/lib/ui/chat/users_view.dart:409` | 1 条 | <520 只收紧 gutter | 保留局部并命名；不要提升为全局断点 |

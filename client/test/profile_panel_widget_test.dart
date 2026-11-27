@@ -32,18 +32,17 @@ void main() {
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
+    tester.view.displayFeatures = features;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetDisplayFeatures);
 
     await tester.pumpWidget(
       MaterialApp(
         theme: buildAppTheme(),
         builder: (BuildContext context, Widget? child) => MediaQuery(
-          data: MediaQuery.of(context).copyWith(
-            size: size,
-            displayFeatures: features,
-            textScaler: TextScaler.linear(textScale),
-          ),
+          data: MediaQuery.of(context)
+              .copyWith(textScaler: TextScaler.linear(textScale)),
           child: child!,
         ),
         home: Scaffold(
@@ -135,6 +134,92 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  for (final double gap in <double>[0, 4, 8, 40]) {
+    testWidgets(
+      'physical flat divider $gap keeps the full folded Profile route',
+      (WidgetTester tester) async {
+        final double left = (1024 - gap) / 2;
+        await pumpHost(
+          tester,
+          size: const Size(1024, 768),
+          features: <DisplayFeature>[
+            DisplayFeature(
+              bounds: Rect.fromLTWH(left, 0, gap, 768),
+              type: gap == 0
+                  ? DisplayFeatureType.fold
+                  : DisplayFeatureType.hinge,
+              state: DisplayFeatureState.postureFlat,
+            ),
+          ],
+        );
+        expect(
+          tester.widget<ProfilePanel>(find.byType(ProfilePanel)).mode,
+          ProfilePanelMode.folded,
+        );
+        expect(
+          tester.getRect(find.byKey(ProfilePanel.panelKey)),
+          Rect.fromLTWH(0, 0, left, 768),
+        );
+        expect(find.byType(BackdropFilter), findsOneWidget);
+        await tester.tap(find.byKey(ProfilePanel.closeButtonKey));
+        await tester.pumpAndSettle();
+        expect(find.byType(ProfilePanel), findsNothing);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  for (final double width in <double>[280, 360, 480]) {
+    testWidgets(
+      'physical hinge $width at 200% keeps both avatar actions usable',
+      (WidgetTester tester) async {
+        await pumpHost(
+          tester,
+          size: const Size(1024, 768),
+          textScale: 2,
+          features: <DisplayFeature>[
+            DisplayFeature(
+              bounds: Rect.fromLTWH(width, 0, 8, 768),
+              type: DisplayFeatureType.hinge,
+              state: DisplayFeatureState.postureFlat,
+            ),
+          ],
+        );
+        await openProfileEditSheet(tester);
+        final Finder remove = find.byKey(ProfilePanel.removeAvatarKey);
+        await tester.ensureVisible(remove);
+        await tester.pumpAndSettle();
+        expect(remove.hitTestable(), findsOneWidget);
+        expect(tester.getRect(remove).right, lessThanOrEqualTo(width));
+        await tester.tap(remove);
+        await tester.pumpAndSettle();
+        expect(gateway.profile.avatarVersion, 'v-identicon');
+        expect(gateway.loadAvatarCalls, 2);
+        expect(find.byKey(ProfilePanel.editSheetKey), findsNothing);
+        await openProfileEditSheet(tester);
+        final Finder change = find.text('更换头像');
+        await tester.ensureVisible(change);
+        await tester.pumpAndSettle();
+        expect(change.hitTestable(), findsOneWidget);
+        expect(tester.getRect(change).right, lessThanOrEqualTo(width));
+        await tester.tap(change);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Base64'));
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          find.byKey(const Key('avatar-source-field')),
+          base64Encode(gateway.avatar),
+        );
+        await tester.tap(find.byKey(const Key('avatar-source-apply')));
+        await tester.pumpAndSettle();
+        expect(gateway.avatarSources.single, startsWith('base64:'));
+        expect(gateway.loadAvatarCalls, 3);
+        expect(find.byKey(ProfilePanel.editSheetKey), findsNothing);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
   testWidgets('a non-flat hinge does not select the folded layout', (
     WidgetTester tester,
   ) async {
@@ -153,6 +238,31 @@ void main() {
       find.byType(ProfilePanel),
     );
     expect(panel.mode, ProfilePanelMode.desktop);
+  });
+
+  testWidgets('a non-flat physical hinge retains the dialog sub-screen', (
+    WidgetTester tester,
+  ) async {
+    await pumpHost(
+      tester,
+      size: const Size(1024, 768),
+      features: <DisplayFeature>[
+        DisplayFeature(
+          bounds: const Rect.fromLTWH(508, 0, 8, 768),
+          type: DisplayFeatureType.hinge,
+          state: DisplayFeatureState.postureHalfOpened,
+        ),
+      ],
+    );
+    expect(
+      tester.widget<ProfilePanel>(find.byType(ProfilePanel)).mode,
+      ProfilePanelMode.desktop,
+    );
+    expect(
+      tester.getRect(find.byKey(ProfilePanel.panelKey)),
+      const Rect.fromLTWH(34, 34, 440, 700),
+    );
+    expect(tester.takeException(), isNull);
   });
 
   for (final bool folded in <bool>[false, true]) {

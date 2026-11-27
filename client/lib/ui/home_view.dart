@@ -923,8 +923,14 @@ class _BrandRow extends StatelessWidget {
                 ),
               ),
             ),
-        const Spacer(),
-        Text(account, style: text.bodySmall?.copyWith(letterSpacing: 1)),
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(
+          child: Text(
+            account,
+            textAlign: TextAlign.right,
+            style: text.bodySmall?.copyWith(letterSpacing: 1),
+          ),
+        ),
       ],
     );
   }

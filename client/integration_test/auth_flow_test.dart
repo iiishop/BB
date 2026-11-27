@@ -652,11 +652,49 @@ void main() {
       await tester.pump(const Duration(seconds: 4));
       await tester.pumpAndSettle();
       expect(find.byType(ChatWorkspace), findsOneWidget);
-      tester.view.displayFeatures = <DisplayFeature>[];
+      tester.view.displayFeatures = <DisplayFeature>[
+        DisplayFeature(
+          bounds: const Rect.fromLTWH(280, 0, 8, 768),
+          type: DisplayFeatureType.hinge,
+          state: DisplayFeatureState.postureFlat,
+        ),
+      ];
       tester.view.padding = FakeViewPadding.zero;
-      tester.view.physicalSize = const Size(1024, 480);
+      tester.view.physicalSize = const Size(1024, 768);
       tester.platformDispatcher.textScaleFactorTestValue = 2;
       addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(HomeView.railAvatarKey));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<ProfilePanel>(find.byType(ProfilePanel)).mode,
+        ProfilePanelMode.folded,
+      );
+      expect(
+        tester.getRect(find.byKey(ProfilePanel.panelKey)),
+        const Rect.fromLTWH(0, 0, 280, 768),
+      );
+      await tester.ensureVisible(find.byKey(ProfilePanel.editProfileKey));
+      await tester.tap(find.byKey(ProfilePanel.editProfileKey));
+      await tester.pumpAndSettle();
+      final String avatarBefore = backend.avatarVersion;
+      final Finder remove = find.byKey(ProfilePanel.removeAvatarKey);
+      await tester.ensureVisible(remove);
+      await tester.pumpAndSettle();
+      expect(remove.hitTestable(), findsOneWidget);
+      expect(tester.getRect(remove).right, lessThanOrEqualTo(280));
+      await tester.tap(remove);
+      await tester.pumpAndSettle();
+      expect(backend.avatarVersion, isNot(avatarBefore));
+      expect(backend.avatarUploaded, isFalse);
+      expect(find.text('已恢复默认头像'), findsOneWidget);
+      await tester.ensureVisible(find.byKey(ProfilePanel.closeButtonKey));
+      await tester.tap(find.byKey(ProfilePanel.closeButtonKey));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 4));
+      await tester.pumpAndSettle();
+      tester.view.displayFeatures = <DisplayFeature>[];
+      tester.view.physicalSize = const Size(1024, 480);
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(HomeView.railAvatarKey));
       await tester.pumpAndSettle();

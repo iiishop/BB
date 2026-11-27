@@ -117,36 +117,54 @@ Future<ProfilePanelResult?> openProfilePanel(
     return Navigator.of(context)
         .push<ProfilePanelResult>(_PhoneProfileRoute(builder: (_) => frame()));
   }
-  return showGeneralDialog<ProfilePanelResult>(
-    context: context,
-    barrierDismissible: true,
-    barrierLabel: '个人资料',
-    // Desktop must not dim the whole app; the other two presentations are
-    // covered by the panel/blur itself.
-    barrierColor: Colors.transparent,
-    // One duration for every presentation: the route must not cache an
-    // open-time mode for its exit timing (QA-465-05).
-    transitionDuration: const Duration(milliseconds: 300),
-    pageBuilder:
-        (BuildContext context, Animation<double> a1, Animation<double> a2) {
-          // Recompute the presentation on every MediaQuery/metrics change while
-          // the dialog stays open; mode and fold width are never frozen at open
-          // time (QA-465-03).
-          return frame();
-        },
-    transitionBuilder:
-        (
-          BuildContext context,
-          Animation<double> animation,
-          Animation<double> secondary,
-          Widget child,
-        ) {
-          return _ResponsiveProfileTransition(
-            animation: animation,
-            child: child,
-          );
-        },
-  );
+  return Navigator.of(
+    context,
+    rootNavigator: true,
+  ).push<ProfilePanelResult>(_ProfileDialogRoute(builder: (_) => frame()));
+}
+
+/// In flat posture the frame owns both panes, so the route retains the full view
+/// instead of a dialog's default DisplayFeatureSubScreen removing its hinge.
+class _ProfileDialogRoute extends PopupRoute<ProfilePanelResult> {
+  _ProfileDialogRoute({required this.builder});
+
+  final WidgetBuilder builder;
+
+  @override
+  bool get barrierDismissible => true;
+
+  @override
+  Color get barrierColor => Colors.transparent;
+
+  @override
+  String get barrierLabel => '个人资料';
+
+  @override
+  Duration get transitionDuration => const Duration(milliseconds: 300);
+
+  @override
+  Widget buildPage(
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+  ) {
+    final Widget content = builder(context);
+    final bool folded = MediaQuery.displayFeaturesOf(context)
+        .any(isFlatFoldFeature);
+    return Semantics(
+      scopesRoute: true,
+      explicitChildNodes: true,
+      child: folded ? content : DisplayFeatureSubScreen(child: content),
+    );
+  }
+
+  @override
+  Widget buildTransitions(
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) => _ResponsiveProfileTransition(animation: animation, child: child);
 }
 
 /// Key for the phone page's route fade; the exit is a cross-fade while the
@@ -189,7 +207,7 @@ class _PhoneProfileRoute extends PageRouteBuilder<ProfilePanelResult> {
 
 /// Rebuilds the Profile presentation from the live MediaQuery.
 ///
-/// `showGeneralDialog`'s page builder runs once, so the old code kept the
+/// The dialog's page builder runs once, so the old code kept the
 /// desktop/folded mode until the panel closed. This frame depends on
 /// `MediaQuery.sizeOf`/`displayFeaturesOf` and therefore reflows immediately
 /// when the window is resized or a flat hinge appears/disappears/moves.
@@ -1280,32 +1298,45 @@ class _ProfilePanelState extends State<ProfilePanel> {
                     ),
                   ),
                   const SizedBox(height: AppSpacing.md),
-                  Row(
+                  OverflowBar(
+                    alignment: MainAxisAlignment.spaceBetween,
+                    spacing: AppSpacing.md,
+                    overflowSpacing: AppSpacing.sm,
                     children: <Widget>[
-                      ProfileAvatar(
-                        bytes: _avatar,
-                        size: 48,
-                        showBorder: false,
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          ProfileAvatar(
+                            bytes: _avatar,
+                            size: 48,
+                            showBorder: false,
+                          ),
+                          const SizedBox(width: AppSpacing.md),
+                          Text(
+                            '头像',
+                            style: text.bodyLarge?.copyWith(
+                              color: AppColors.ink,
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: AppSpacing.md),
-                      Expanded(
-                        child: Text(
-                          '头像',
-                          style: text.bodyLarge?.copyWith(color: AppColors.ink),
-                        ),
-                      ),
-                      TextButton(
-                        onPressed: () =>
-                            Navigator.of(sheetContext)
-                                .pop(_ProfileEditAction.changeAvatar),
-                        child: const Text('更换头像'),
-                      ),
-                      TextButton(
-                        key: ProfilePanel.removeAvatarKey,
-                        onPressed: () =>
-                            Navigator.of(sheetContext)
-                                .pop(_ProfileEditAction.removeAvatar),
-                        child: const Text('移除'),
+                      Wrap(
+                        runSpacing: AppSpacing.xs,
+                        children: <Widget>[
+                          TextButton(
+                            onPressed: () =>
+                                Navigator.of(sheetContext)
+                                    .pop(_ProfileEditAction.changeAvatar),
+                            child: const Text('更换头像'),
+                          ),
+                          TextButton(
+                            key: ProfilePanel.removeAvatarKey,
+                            onPressed: () =>
+                                Navigator.of(sheetContext)
+                                    .pop(_ProfileEditAction.removeAvatar),
+                            child: const Text('移除'),
+                          ),
+                        ],
                       ),
                     ],
                   ),
