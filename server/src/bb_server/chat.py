@@ -7,8 +7,10 @@ import json
 import os
 import re
 import uuid
+from contextlib import asynccontextmanager
 from typing import Annotated
 
+import anyio
 import regex
 from bb_auth_contract import ContractError, ErrorResponse
 from bb_auth_contract.chat import (
@@ -62,7 +64,7 @@ from PIL import UnidentifiedImageError
 from starlette.concurrency import run_in_threadpool
 
 from . import chat_queries, chat_store
-from .avatars import avatar_bytes, default_version, etag_matches
+from .avatars import avatar_bytes, etag_matches
 from .media_thumbnails import thumbnail
 from .storage import connection, find_session
 
@@ -79,6 +81,32 @@ MIMES = {
     "text/plain": "document",
     "application/octet-stream": "other",
 }
+
+
+class AuthorizedGroupFile(FileResponse):
+    """Pin the file while the membership snapshot still protects its path."""
+
+    def __init__(self, path, **kwargs):
+        self.file = path.open("rb")
+        try:
+            super().__init__(path, stat_result=os.fstat(self.file.fileno()), **kwargs)
+        except BaseException:
+            self.file.close()
+            raise
+
+    @asynccontextmanager
+    async def _open_file(self):
+        yield anyio.wrap_file(self.file)
+
+    async def __call__(self, scope, receive, send):
+        # The ASGI server must stream the authorized handle rather than reopen
+        # the name after a concurrent dissolve has unlinked it.
+        extensions = dict(scope.get("extensions", {}))
+        extensions.pop("http.response.pathsend", None)
+        try:
+            await super().__call__({**scope, "extensions": extensions}, receive, send)
+        finally:
+            self.file.close()
 
 
 def fail(status, code):
@@ -381,6 +409,7 @@ def install(app, path, directory, group_avatar_directory, current_session, clock
         headers = {
             "ETag": etag,
             "Cache-Control": "private, no-cache",
+            "Vary": "Authorization",
             "X-Content-Type-Options": "nosniff",
         }
         if etag_matches(request.headers.get("if-none-match"), etag):
@@ -425,10 +454,9 @@ def install(app, path, directory, group_avatar_directory, current_session, clock
         identity=identity_dep,
     ):
         with connection(path) as db:
-            rows = db.execute(
-                "SELECT *, EXISTS(SELECT 1 FROM sessions s WHERE s.account=users.account AND s.status='online' AND s.last_seen_at>?) AS online FROM users WHERE account!=? AND account>? ORDER BY account LIMIT ?",
-                (clock() - 90, identity["account"], after_account, limit + 1),
-            ).fetchall()
+            rows = chat_queries.directory_rows(
+                db, identity["account"], after_account, limit, clock()
+            )
             items = []
             for row in rows[:limit]:
                 m = chat_queries.latest_direct_message(
@@ -444,12 +472,7 @@ def install(app, path, directory, group_avatar_directory, current_session, clock
                 )
                 items.append(
                     {
-                        "account": row["account"],
-                        "username": row["username"],
-                        "avatar_url": f"/avatars/{row['account']}.png",
-                        "avatar_version": row["avatar_version"]
-                        or default_version(row["account"]),
-                        "presence": "online" if row["online"] else "offline",
+                        **chat_queries.user_card(row),
                         "last_contact_at": m["created_at"] if m else None,
                         "last_message": {
                             "id": m["id"],
@@ -659,6 +682,15 @@ def install(app, path, directory, group_avatar_directory, current_session, clock
     ):
         with connection(path) as db:
             row = readable_media(db, media_id, identity["account"])
+        if row["group_id"] is None:
+            return download_file(row, request, variant, FileResponse)
+        # The writer lock also serializes file lookup with GC on databases
+        # opened in WAL mode. Release it as soon as the authorized file is open.
+        with connection(path, write=True) as db:
+            row = readable_media(db, media_id, identity["account"])
+            return download_file(row, request, variant, AuthorizedGroupFile)
+
+    def download_file(row, request, variant, response_type):
         if variant == "thumb":
             if row["kind"] != "image":
                 fail(415, "unsupported_media_type")
@@ -672,8 +704,8 @@ def install(app, path, directory, group_avatar_directory, current_session, clock
             }
             if etag_matches(request.headers.get("if-none-match"), etag):
                 return Response(status_code=304, headers=headers)
-            return FileResponse(derivative, media_type=THUMB_MIME, headers=headers)
-        return FileResponse(
+            return response_type(derivative, media_type=THUMB_MIME, headers=headers)
+        return response_type(
             directory / row["id"],
             media_type=row["mime"],
             filename=row["filename"],

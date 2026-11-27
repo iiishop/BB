@@ -42,7 +42,7 @@ def identicon(account: str) -> bytes:
     return output.getvalue()
 
 
-def normalize_image(data: bytes) -> bytes:
+def normalize_image(data: bytes, *, mime_type: str | None = None) -> bytes:
     if len(data) > MAX_AVATAR_BYTES:
         raise ContractError(413, "payload_too_large", "头像不能超过 5 MiB")
     magic = (
@@ -60,7 +60,9 @@ def normalize_image(data: bytes) -> bytes:
         with warnings.catch_warnings():
             warnings.simplefilter("error", Image.DecompressionBombWarning)
             with Image.open(io.BytesIO(data)) as image:
-                if image.format != magic:
+                if image.format != magic or (
+                    mime_type is not None and Image.MIME[image.format] != mime_type
+                ):
                     raise ValueError("format")
                 image.verify()
             with Image.open(io.BytesIO(data)) as image:
@@ -125,42 +127,46 @@ def remove_file(directory: Path, name: str | None):
                 logger.warning("avatar_orphan_cleanup_failed")
 
 
-def replace_avatar(database: Path, directory: Path, account: str, png: bytes | None):
-    name = uuid.uuid4().hex + ".png" if png is not None else None
-    version = "sha256-" + hashlib.sha256(png).hexdigest() if png is not None else None
+def write_avatar_files(directory: Path, png: bytes) -> tuple[str, str]:
+    name = uuid.uuid4().hex + ".png"
+    version = "sha256-" + hashlib.sha256(png).hexdigest()
+    directory.mkdir(parents=True, exist_ok=True)
     created = False
+    try:
+        for filename, data in ((name, png), (thumb_name(name), thumbnail(png))):
+            with avatar_file(directory, filename).open("xb") as file:
+                created = True
+                file.write(data)
+                file.flush()
+                os.fsync(file.fileno())
+        if os.name != "nt":
+            descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+    except BaseException:
+        if created:
+            remove_file(directory, name)
+        raise
+    return name, version
+
+
+def replace_avatar(database: Path, directory: Path, account: str, png: bytes | None):
+    name = version = None
     try:
         with connection(database, write=True) as db:
             old = db.execute(
                 "SELECT avatar_path FROM users WHERE account=?", (account,)
             ).fetchone()[0]
-            if name and png is not None:
-                directory.mkdir(parents=True, exist_ok=True)
-                with avatar_file(directory, name).open("xb") as file:
-                    created = True
-                    file.write(png)
-                    file.flush()
-                    os.fsync(file.fileno())
-                # Derivative written next to the original: lists and bubbles ask
-                # for this one, profile detail keeps the original.
-                with avatar_file(directory, thumb_name(name)).open("xb") as file:
-                    created = True
-                    file.write(thumbnail(png))
-                    file.flush()
-                    os.fsync(file.fileno())
-                if os.name != "nt":
-                    descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
-                    try:
-                        os.fsync(descriptor)
-                    finally:
-                        os.close(descriptor)
+            if png is not None:
+                name, version = write_avatar_files(directory, png)
             db.execute(
                 "UPDATE users SET avatar_path=?,avatar_version=? WHERE account=?",
                 (name, version, account),
             )
-    except Exception:
-        if created:
-            remove_file(directory, name)
+    except BaseException:
+        remove_file(directory, name)
         raise
     remove_file(directory, old)
     return {
@@ -188,7 +194,9 @@ def read_avatar(
         return avatar_bytes(row, directory, account, variant)
 
 
-def avatar_bytes(row, directory: Path, seed: str, variant: str) -> tuple[bytes, str, str]:
+def avatar_bytes(
+    row, directory: Path, seed: str, variant: str
+) -> tuple[bytes, str, str]:
     """Read a selected avatar or generate its PNG/thumbnail using the public seed."""
     if row["avatar_path"]:
         name = row["avatar_path"]

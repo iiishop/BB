@@ -9,6 +9,7 @@ from .wire import Wire
 
 Account = Annotated[str, Field(pattern=r"^[1-9][0-9]{7}$")]
 OperationId = Annotated[str, Field(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
+OpaqueId = Annotated[str, Field(pattern=r"^[A-Za-z0-9_-]{1,200}$")]
 
 
 class SendTarget(Wire):
@@ -144,8 +145,16 @@ class ConversationAccessEvent(Wire):
     history_through: int
 
 
+class NotificationEvent(Wire):
+    version: Literal[1] = 1
+    event_id: int
+    type: Literal["notification.available"] = "notification.available"
+    occurred_at: str
+    notification_id: OpaqueId
+
+
 class EventPage(Wire):
-    items: list[Event | GroupMessageEvent | ConversationAccessEvent]
+    items: list[Event | GroupMessageEvent | ConversationAccessEvent | NotificationEvent]
     next_event_id: int
     has_more: bool
 
