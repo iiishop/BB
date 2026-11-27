@@ -130,6 +130,7 @@ class GroupMessageEvent(Wire):
     message_id: str
     conversation: GroupConversationRef
     position: int
+    membership_revision: int
 
 
 class ConversationAccessEvent(Wire):

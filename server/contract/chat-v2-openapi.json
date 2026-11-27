@@ -5845,6 +5845,11 @@
             "title": "Last Activity At",
             "type": "string"
           },
+          "group_number": {
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Group Number",
+            "type": "string"
+          },
           "avatar_url": {
             "title": "Avatar Url",
             "type": "string"
@@ -5866,6 +5871,7 @@
           "display_name",
           "last_message",
           "last_activity_at",
+          "group_number",
           "avatar_url",
           "avatar_version"
         ],
@@ -8123,6 +8129,12 @@
             "title": "Type",
             "type": "string"
           },
+          "membership_revision": {
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "title": "Membership Revision",
+            "type": "integer"
+          },
           "position": {
             "maximum": 9007199254740991,
             "minimum": 1,
@@ -8136,6 +8148,7 @@
           "origin_identity",
           "conversation",
           "type",
+          "membership_revision",
           "position"
         ],
         "title": "GroupMessageEvent",
