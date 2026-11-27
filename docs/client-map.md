@@ -4,7 +4,7 @@
 > 这不是产品介绍，也不是验收报告；它回答“这个能力现在在哪、谁在调用、什么条件下生效、要复用该接哪里”。
 >
 > DEA-495 原始地图基线为 `609811ffdc090bd71b734dd8a1bdf674036cd870`。本次资料页、折叠判定及坐标转换按客户端候选 `f413e3d29b7c1d4a94646125b126e92f79c8e5c7` 更新。其他条目的行号沿用原始基线。
-> DEA-500 基于 main `ef4e4a8af9c113b47de48d9726dd41b1e5ca3873` 增加三级导航、目录与资料外壳；新增条目用符号定位。群聊、通知真实服务与媒体撤权接入由 DEA-502 继续，不能将这里的展示回调视为已完成端到端能力。
+> DEA-500 基于 main `ef4e4a8af9c113b47de48d9726dd41b1e5ca3873` 增加三级导航、目录与资料外壳；新增条目用符号定位。DEA-502 已补齐群会话模型、纯 Dart 共享服务（`GroupService` / `SharedConversationService` / `ConversationAccessController`）、首页与双栏/详情/通知/媒体撤权及磁盘缓存隔离接线；`chat_service.dart` 与 Dart 本地 API 路由（`chat_v2.dart`）由 DEA-503 独立维护。
 
 先读这三份再动手：
 
@@ -48,10 +48,10 @@ main()
                   ├─ 聊天：UsersListView（手机）或 ChatWorkspace（宽屏/展开折叠）
                   │    └─ ChatPage → ChatComposer / MessageBubble / MediaViewer
                   ├─ BB 空间：SpacePage → feed / detail / compose / notifications / drafts / profile
-                  ├─ 通用通知：NotificationCenter（独立于 Space；当前服务未接入）
+                  ├─ 通用通知：NotificationCenterHost（`ui/profile/group_profile_host.dart`）→ NotificationCenter
                   └─ 个人资料：openProfilePanel → ProfilePanel（mobile / folded / desktop）
-聊天头部头像 → openPersonProfile → PersonProfilePanel（对方个人资料，只读）
-后续群业务宿主 → openUserDirectoryPicker / openProfileSurface → GroupProfilePanel / GroupDetailsForm
+聊天头部头像 → 私聊 openPersonProfile → PersonProfilePanel；群聊 openGroupProfileByNumber → GroupProfilePanel
+首页「+」菜单 → openCreateGroupFlow / openFindGroupDialog → UserDirectoryPicker / GroupDetailsForm / GroupProfilePanel
 更新：UpdateScope 包在 BbRoot 外层，每个进程一份控制器；入口在资料页 → 设置。
 独立入口：client/bin/bb_client_api.dart → LocalAuthServer（回环本地控制接口），不启动 Flutter 界面。
 ```
@@ -219,7 +219,7 @@ Space 状态边界：
 | `GroupProfilePanel` / `GroupDetailsForm` | `ui/profile/group_profile_panel.dart` | 基础群资料、成员/群主/非成员入口可见性和名称必填表单。非成员无成员入口；普通成员无编辑/移除/解散；群主无退群；解散只保留基础资料。邀请权限/成员事实/图片字节由服务传入，UI 不生成群号或默认头像、不执行服务写入；真实动作确认、头像编辑与服务接入由 DEA-502 完成。 |
 | `ChatSystemEntry` | `ui/chat/chat_system_entry.dart` | 中央系统文案，独立于时间标签/用户气泡，无伪造发送者。仅准备共享表现；加入/改名事件的权威数据与消息适配在后续接入，不能用此组件自行生成业务事件。 |
 
-三形态与状态回归入口为 `client/test/social_shell_widget_test.dart`；原 `chat_hidden_display_test.dart` 同时覆盖 Space 和通用通知遮挡，不可只检查聊天内选中状态。`HomeView.onCreateGroup` / `onFindGroup` 是首页加号菜单回调，未接入时两个菜单项禁用；DEA-502 接真实创建、查群流程。
+三形态与状态回归入口为 `client/test/social_shell_widget_test.dart`（外壳）与 `client/test/group_social_integration_widget_test.dart`、`client/test/group_service_and_revocation_test.dart`（DEA-502 群聊、通知动作与媒体撤权/重放回归）；原 `chat_hidden_display_test.dart` 同时覆盖 Space 和通用通知遮挡，不可只检查聊天内选中状态。`HomeView` 在传入 `groups`/`shared` 后直接启用的「+」菜单完成真实建群与查群流程。
 
 ## 3. 功能清单与入口
 

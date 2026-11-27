@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../models/auth_models.dart';
 import '../services/auth_service.dart';
 import '../services/chat_service.dart';
+import '../services/group_service.dart';
 import '../services/heartbeat_controller.dart';
 import '../services/profile_service.dart';
 import 'home_view.dart';
@@ -27,6 +28,8 @@ class AuthFlow extends StatefulWidget {
     this.profile,
     this.heartbeat,
     this.chat,
+    this.groups,
+    this.shared,
     this.space,
   });
 
@@ -38,6 +41,8 @@ class AuthFlow extends StatefulWidget {
 
   /// STEP-3 chat service, forwarded to the signed-in home.
   final ChatService? chat;
+  final GroupService? groups;
+  final SharedConversationService? shared;
 
   /// Space capability; null keeps the pre-Space signed-in surface.
   final SpaceGateway? space;
@@ -291,6 +296,8 @@ class _AuthFlowState extends State<AuthFlow> {
             auth: widget.gateway,
             heartbeat: heartbeat,
             chat: widget.chat,
+            groups: widget.groups,
+            shared: widget.shared,
             space: widget.space,
             onSignedOut: _handleSignedOut,
             onSessionExpired: () => unawaited(_handleExpiredSession()),

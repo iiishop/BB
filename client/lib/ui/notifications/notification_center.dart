@@ -16,6 +16,7 @@ class NotificationEntry {
     this.invalidated = false,
     this.actions = const <NotificationEntryAction>[],
     this.onOpenDetails,
+    this.onMarkRead,
   });
 
   final String id;
@@ -27,6 +28,7 @@ class NotificationEntry {
   final bool invalidated;
   final List<NotificationEntryAction> actions;
   final VoidCallback? onOpenDetails;
+  final VoidCallback? onMarkRead;
 
   bool get pending => !invalidated && actions.any((a) => a.available);
 }
@@ -223,10 +225,26 @@ class _NotificationCenterState extends State<NotificationCenter> {
                       : ' · ${entry.statusLabel}'}',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
-                if (entry.onOpenDetails != null)
-                  TextButton(
-                    onPressed: entry.onOpenDetails,
-                    child: const Text('查看资料'),
+                if (entry.onOpenDetails != null ||
+                    (!entry.read &&
+                        !entry.invalidated &&
+                        entry.onMarkRead != null))
+                  Wrap(
+                    spacing: AppSpacing.xs,
+                    children: <Widget>[
+                      if (entry.onOpenDetails != null)
+                        TextButton(
+                          onPressed: entry.onOpenDetails,
+                          child: const Text('查看资料'),
+                        ),
+                      if (!entry.read &&
+                          !entry.invalidated &&
+                          entry.onMarkRead != null)
+                        TextButton(
+                          onPressed: entry.onMarkRead,
+                          child: const Text('标为已读'),
+                        ),
+                    ],
                   ),
                 if (!entry.invalidated)
                   Wrap(

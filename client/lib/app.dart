@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'services/auth_service.dart';
 import 'services/chat_service.dart';
+import 'services/group_service.dart';
 import 'services/heartbeat_controller.dart';
 import 'services/profile_service.dart';
 import 'ui/auth_flow.dart';
@@ -247,6 +248,8 @@ class BbClientApp extends StatelessWidget {
     this.profile,
     this.heartbeat,
     this.chat,
+    this.groups,
+    this.shared,
     this.space,
   });
 
@@ -259,6 +262,8 @@ class BbClientApp extends StatelessWidget {
 
   /// STEP-3 chat service. Null keeps the focused STEP-1/2 test surfaces.
   final ChatService? chat;
+  final GroupService? groups;
+  final SharedConversationService? shared;
 
   /// Space capability. Null keeps the pre-Space signed-in surface.
   final SpaceGateway? space;
@@ -274,6 +279,8 @@ class BbClientApp extends StatelessWidget {
         profile: profile,
         heartbeat: heartbeat,
         chat: chat,
+        groups: groups,
+        shared: shared,
         space: space,
       ),
     );

@@ -6,9 +6,13 @@ import 'package:flutter/material.dart';
 
 import '../app.dart';
 import '../models/auth_models.dart';
+import '../models/group_models.dart';
 import '../models/profile_models.dart';
 import '../services/auth_service.dart';
+import '../services/auth_session.dart';
+import '../services/chat_api_client.dart';
 import '../services/chat_service.dart';
+import '../services/group_service.dart';
 import '../services/heartbeat_controller.dart';
 import '../services/presence_directory.dart';
 import '../services/media_disk_cache.dart';
@@ -21,6 +25,8 @@ import 'chat/chat_workspace.dart';
 import 'chat/users_view.dart';
 import 'updates/update_scope.dart';
 import 'updates/update_settings_host.dart';
+import 'profile/avatar_picker.dart';
+import 'profile/group_profile_host.dart';
 import 'profile/profile_panel.dart';
 import 'space/space_follow_store.dart';
 import 'space/space_gateway.dart';
@@ -44,6 +50,9 @@ class HomeView extends StatefulWidget {
     required this.onSignedOut,
     required this.onSessionExpired,
     this.chat,
+    this.groups,
+    this.shared,
+    this.avatarPicker,
     this.space,
     this.notificationBuilder,
     this.onCreateGroup,
@@ -58,6 +67,9 @@ class HomeView extends StatefulWidget {
   /// STEP-3 chat service. When present the signed-in home is the registered
   /// user list; when null the STEP-2 profile-only home is kept.
   final ChatService? chat;
+  final GroupService? groups;
+  final SharedConversationService? shared;
+  final AvatarImagePicker? avatarPicker;
   final SpaceGateway? space;
   final Widget Function(BuildContext context, bool active)? notificationBuilder;
   final VoidCallback? onCreateGroup;
@@ -107,6 +119,11 @@ class _HomeViewState extends State<HomeView>
   /// chat itself is a pushed page, so the note is what remains after coming
   /// back; a wide two-pane shell passes the conversation shown on the right.
   String? _selectedAccount;
+  String? _selectedConversationId;
+  final ValueNotifier<int> _groupsRefresh = ValueNotifier<int>(0);
+  Timer? _groupEventsTimer;
+  int _lastGroupEventId = 0;
+  bool _groupEventsInFlight = false;
 
   /// One relationship owner for the signed-in account's feed cards and the
   /// author home page. Recreated when the server/account scope changes.
@@ -126,6 +143,14 @@ class _HomeViewState extends State<HomeView>
       _presence = PresenceDirectory(chat: chat);
     }
     _followStore = _buildFollowStore();
+    if (widget.shared != null) {
+      unawaited(_pollGroupEvents());
+      _groupEventsTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+        if (mounted && !_groupEventsInFlight) {
+          unawaited(_pollGroupEvents());
+        }
+      });
+    }
     unawaited(_load());
   }
 
@@ -142,11 +167,57 @@ class _HomeViewState extends State<HomeView>
   @override
   void dispose() {
     widget.heartbeat.removeListener(_onHeartbeatChanged);
+    _groupEventsTimer?.cancel();
     _presence?.dispose();
     _followStore?.dispose();
     _onlineFilter.dispose();
+    _groupsRefresh.dispose();
     _foldController.dispose();
     super.dispose();
+  }
+
+  void _bumpGroupsRefresh() {
+    if (mounted) {
+      _groupsRefresh.value += 1;
+    }
+  }
+
+  Future<void> _pollGroupEvents() async {
+    final SharedConversationService? shared = widget.shared;
+    if (shared == null || _groupEventsInFlight) {
+      return;
+    }
+    final AuthIdentity? identity = shared.session.identity;
+    if (identity == null) {
+      return;
+    }
+    _groupEventsInFlight = true;
+    try {
+      while (mounted && shared.session.isCurrent(identity)) {
+        final ServerEventPage page = await shared.api.events(
+          token: identity.token,
+          afterEventId: _lastGroupEventId,
+          includeGroups: true,
+        );
+        for (final ServerEvent event in page.items) {
+          await shared.applyServerEvent(identity.account, event);
+          if (event.eventId > _lastGroupEventId) {
+            _lastGroupEventId = event.eventId;
+          }
+        }
+        if (!page.hasMore || page.nextEventId <= _lastGroupEventId) {
+          if (page.nextEventId > _lastGroupEventId) {
+            _lastGroupEventId = page.nextEventId;
+          }
+          break;
+        }
+        _lastGroupEventId = page.nextEventId;
+      }
+    } catch (_) {
+      // Background event polling is best effort and resumes on next tick.
+    } finally {
+      _groupEventsInFlight = false;
+    }
   }
 
   SpaceFollowStore? _buildFollowStore() {
@@ -311,9 +382,14 @@ class _HomeViewState extends State<HomeView>
     // Selection is stored by account, not row index: after a reorder or a
     // refresh the note still marks this contact. The wide shell reuses the
     // field it passes to UsersListView when it opens the right-hand pane.
-    if (mounted && _selectedAccount != user.account) {
-      setState(() => _selectedAccount = user.account);
+    if (mounted &&
+        (_selectedAccount != user.account || _selectedConversationId != null)) {
+      setState(() {
+        _selectedAccount = user.account;
+        _selectedConversationId = null;
+      });
     }
+    ScaffoldMessenger.maybeOf(context)?.hideCurrentSnackBar();
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (BuildContext context) => ChatPage(
@@ -325,6 +401,86 @@ class _HomeViewState extends State<HomeView>
       ),
     );
     await viewed;
+  }
+
+  Future<void> _openGroup(GroupConversationItem group) async {
+    final ChatService? chat = widget.chat;
+    if (chat == null) {
+      return;
+    }
+    if (mounted && _selectedConversationId != group.conversation.id) {
+      setState(() {
+        _selectedConversationId = group.conversation.id;
+        _selectedAccount = null;
+      });
+    }
+    ScaffoldMessenger.maybeOf(context)?.hideCurrentSnackBar();
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) => ChatPage(
+          group: group,
+          chat: chat,
+          profile: widget.profile,
+          shared: widget.shared,
+          groups: widget.groups,
+          onOpenDirectChat: _openChat,
+          onGroupsChanged: _bumpGroupsRefresh,
+          onGroupRevoked: (_) => _bumpGroupsRefresh(),
+        ),
+      ),
+    );
+    _bumpGroupsRefresh();
+  }
+
+  Future<void> _handleCreateGroup() async {
+    if (widget.onCreateGroup != null) {
+      widget.onCreateGroup!.call();
+      return;
+    }
+    final GroupService? groups = widget.groups;
+    final ChatService? chat = widget.chat;
+    if (groups == null || chat == null) {
+      return;
+    }
+    final GroupProfile? created = await openCreateGroupFlow(
+      context,
+      chat: chat,
+      groups: groups,
+      profile: widget.profile,
+      avatarPicker: widget.avatarPicker,
+      onSessionExpired: widget.onSessionExpired,
+    );
+    if (created == null || !mounted) {
+      return;
+    }
+    _bumpGroupsRefresh();
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text('已创建群聊 ${created.name}（群号 ${created.groupNumber}）'),
+        ),
+      );
+  }
+
+  Future<void> _handleFindGroup() async {
+    if (widget.onFindGroup != null) {
+      widget.onFindGroup!.call();
+      return;
+    }
+    final GroupService? groups = widget.groups;
+    if (groups == null) {
+      return;
+    }
+    await openFindGroupDialog(
+      context,
+      groups: groups,
+      chat: widget.chat,
+      profile: widget.profile,
+      onOpenDirectChat: _openChat,
+      onGroupsChanged: _bumpGroupsRefresh,
+      onSessionExpired: widget.onSessionExpired,
+    );
   }
 
   @override
@@ -421,6 +577,9 @@ class _HomeViewState extends State<HomeView>
                 child: ChatWorkspace(
                   chat: chat,
                   profile: widget.profile,
+                  shared: widget.shared,
+                  groups: widget.groups,
+                  refreshTrigger: _groupsRefresh,
                   presence: _presence,
                   onlineFilter: _onlineFilter,
                   onSessionExpired: widget.onSessionExpired,
@@ -469,17 +628,20 @@ class _HomeViewState extends State<HomeView>
                   tooltip: '添加',
                   icon: const Icon(Icons.add_rounded),
                   onSelected: (value) => value == 'create'
-                      ? widget.onCreateGroup?.call()
-                      : widget.onFindGroup?.call(),
+                      ? unawaited(_handleCreateGroup())
+                      : unawaited(_handleFindGroup()),
                   itemBuilder: (_) => <PopupMenuEntry<String>>[
                     PopupMenuItem(
                       value: 'create',
-                      enabled: widget.onCreateGroup != null,
+                      enabled:
+                          widget.onCreateGroup != null ||
+                          (widget.groups != null && widget.chat != null),
                       child: const Text('创建群'),
                     ),
                     PopupMenuItem(
                       value: 'find',
-                      enabled: widget.onFindGroup != null,
+                      enabled:
+                          widget.onFindGroup != null || widget.groups != null,
                       child: const Text('申请加入群'),
                     ),
                   ],
@@ -534,10 +696,15 @@ class _HomeViewState extends State<HomeView>
                       child: UsersListView(
                         chat: widget.chat!,
                         profile: widget.profile,
+                        shared: widget.shared,
+                        groups: widget.groups,
+                        refreshTrigger: _groupsRefresh,
                         presence: _presence,
                         onlineFilter: _onlineFilter,
                         selectedAccount: _selectedAccount,
+                        selectedConversationId: _selectedConversationId,
                         onOpenChat: _openChat,
+                        onOpenGroup: _openGroup,
                         onSessionExpired: widget.onSessionExpired,
                       ),
                     ),
@@ -686,7 +853,17 @@ class _HomeViewState extends State<HomeView>
                           )
                         : _spacePage(context, space, active: _section == 1),
                     widget.notificationBuilder?.call(context, _section == 2) ??
-                        const NotificationCenter(available: false),
+                        (widget.groups != null
+                            ? NotificationCenterHost(
+                                groups: widget.groups!,
+                                chat: widget.chat,
+                                profile: widget.profile,
+                                active: _section == 2,
+                                onOpenDirectChat: _openChat,
+                                onGroupsChanged: _bumpGroupsRefresh,
+                                onSessionExpired: widget.onSessionExpired,
+                              )
+                            : const NotificationCenter(available: false)),
                   ],
                 ),
               ),
