@@ -79,6 +79,81 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
   }
 
+  Future<void> reflow(
+    WidgetTester tester,
+    ValueNotifier<List<DisplayFeature>> features,
+    ProfilePanelMode mode,
+  ) async {
+    tester.view.physicalSize = mode == ProfilePanelMode.mobile
+        ? const Size(390, 844)
+        : const Size(1024, 768);
+    features.value = mode == ProfilePanelMode.folded
+        ? <DisplayFeature>[
+            DisplayFeature(
+              bounds: const Rect.fromLTWH(512, 0, 0, 768),
+              type: DisplayFeatureType.fold,
+              state: DisplayFeatureState.postureFlat,
+            ),
+          ]
+        : const <DisplayFeature>[];
+    await tester.pumpAndSettle();
+    expect(panel(tester).mode, mode);
+  }
+
+  for (final ProfilePanelMode from in ProfilePanelMode.values) {
+    for (final ProfilePanelMode to in ProfilePanelMode.values) {
+      if (from == to) continue;
+      testWidgets('edit menu selection survives $from to $to', (
+        WidgetTester tester,
+      ) async {
+        final features = await pumpHost(tester);
+        await reflow(tester, features, from);
+        final Object originalState = tester.state(find.byType(ProfilePanel));
+        final int profileReads = gateway.loadProfileCalls;
+        final int avatarReads = gateway.loadAvatarCalls;
+        final int coverReads = gateway.loadCoverCalls;
+        await openProfileEditSheet(tester);
+        await reflow(tester, features, to);
+        await tester.ensureVisible(find.byKey(ProfilePanel.editSignatureKey));
+        await tester.tap(find.byKey(ProfilePanel.editSignatureKey));
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('profile-edit-field')), findsOneWidget);
+        await tester.enterText(
+          find.byKey(const Key('profile-edit-field')),
+          '菜单跨形态保存',
+        );
+        await tester.tap(find.byKey(const Key('profile-edit-save')));
+        await tester.pumpAndSettle();
+        expect(gateway.patches.single.signature, '菜单跨形态保存');
+        expect(find.text('菜单跨形态保存'), findsOneWidget);
+        expect(tester.state(find.byType(ProfilePanel)), same(originalState));
+        expect(gateway.loadProfileCalls, profileReads);
+        expect(gateway.loadAvatarCalls, avatarReads);
+        expect(gateway.loadCoverCalls, coverReads);
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
+
+  testWidgets('an open signature editor saves after switching presentation', (
+    WidgetTester tester,
+  ) async {
+    final features = await pumpHost(tester);
+    await openProfileEditSheet(tester);
+    await tester.tap(find.byKey(ProfilePanel.editSignatureKey));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('profile-edit-field')),
+      '编辑中展开',
+    );
+    await reflow(tester, features, ProfilePanelMode.folded);
+    await tester.tap(find.byKey(const Key('profile-edit-save')));
+    await tester.pumpAndSettle();
+    expect(gateway.patches.single.signature, '编辑中展开');
+    expect(find.text('编辑中展开'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('flat hinge appears then closes with a left slide', (
     WidgetTester tester,
   ) async {

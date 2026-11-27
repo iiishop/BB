@@ -96,7 +96,10 @@ Future<ProfilePanelResult?> openProfilePanel(
   AvatarDecodeCheck? avatarDecodeCheck,
   AvatarSourceReader? avatarSourceReader,
 }) {
+  // Reparent the same content State when a live resize replaces its shell.
+  final GlobalKey contentKey = GlobalKey(debugLabel: 'profile-content');
   Widget frame() => _ResponsiveProfileFrame(
+    contentKey: contentKey,
     gateway: gateway,
     user: user,
     initialProfile: initialProfile,
@@ -270,6 +273,7 @@ class _ResponsiveProfileTransitionState
 
 class _ResponsiveProfileFrame extends StatelessWidget {
   const _ResponsiveProfileFrame({
+    required this.contentKey,
     required this.gateway,
     required this.user,
     required this.initialProfile,
@@ -280,6 +284,7 @@ class _ResponsiveProfileFrame extends StatelessWidget {
     this.avatarSourceReader,
   });
 
+  final GlobalKey contentKey;
   final ProfileGateway gateway;
   final AuthUser user;
   final Profile? initialProfile;
@@ -293,6 +298,7 @@ class _ResponsiveProfileFrame extends StatelessWidget {
   Widget build(BuildContext context) {
     final ProfilePanelMode mode = resolveProfilePanelMode(context);
     final Widget panel = ProfilePanel(
+      key: contentKey,
       mode: mode,
       gateway: gateway,
       user: user,
@@ -1254,98 +1260,105 @@ class _ProfilePanelState extends State<ProfilePanel> {
       builder: (BuildContext sheetContext) {
         final TextTheme text = Theme.of(sheetContext).textTheme;
         return SafeArea(
-          child: Padding(
-            key: ProfilePanel.editSheetKey,
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.lg,
-              0,
-              AppSpacing.lg,
-              AppSpacing.lg,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                Text(
-                  '编辑资料',
-                  style: text.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
+          child: SingleChildScrollView(
+            child: Padding(
+              key: ProfilePanel.editSheetKey,
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.lg,
+                0,
+                AppSpacing.lg,
+                AppSpacing.lg,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  Text(
+                    '编辑资料',
+                    style: text.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-                ),
-                const SizedBox(height: AppSpacing.md),
-                Row(
-                  children: <Widget>[
-                    ProfileAvatar(bytes: _avatar, size: 48, showBorder: false),
-                    const SizedBox(width: AppSpacing.md),
-                    Expanded(
-                      child: Text(
-                        '头像',
-                        style: text.bodyLarge?.copyWith(color: AppColors.ink),
+                  const SizedBox(height: AppSpacing.md),
+                  Row(
+                    children: <Widget>[
+                      ProfileAvatar(
+                        bytes: _avatar,
+                        size: 48,
+                        showBorder: false,
                       ),
-                    ),
-                    TextButton(
-                      onPressed: () =>
-                          Navigator.of(sheetContext)
-                              .pop(_ProfileEditAction.changeAvatar),
-                      child: const Text('更换头像'),
-                    ),
-                    TextButton(
-                      key: ProfilePanel.removeAvatarKey,
-                      onPressed: () =>
-                          Navigator.of(sheetContext)
-                              .pop(_ProfileEditAction.removeAvatar),
-                      child: const Text('移除'),
-                    ),
-                  ],
-                ),
-                const Divider(height: AppSpacing.lg, color: AppColors.border),
-                ListTile(
-                  key: ProfilePanel.changeCoverKey,
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.landscape_outlined, size: 20),
-                  title: const Text('封面'),
-                  subtitle: Text(
-                    _cover?.isDefault ?? true
-                        ? '当前为默认海浪，点按上传替换'
-                        : '已使用自己的封面，点按替换',
+                      const SizedBox(width: AppSpacing.md),
+                      Expanded(
+                        child: Text(
+                          '头像',
+                          style: text.bodyLarge?.copyWith(color: AppColors.ink),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () =>
+                            Navigator.of(sheetContext)
+                                .pop(_ProfileEditAction.changeAvatar),
+                        child: const Text('更换头像'),
+                      ),
+                      TextButton(
+                        key: ProfilePanel.removeAvatarKey,
+                        onPressed: () =>
+                            Navigator.of(sheetContext)
+                                .pop(_ProfileEditAction.removeAvatar),
+                        child: const Text('移除'),
+                      ),
+                    ],
                   ),
-                  trailing: const Icon(Icons.edit_outlined, size: 18),
-                  onTap: () =>
-                      Navigator.of(sheetContext).pop(_ProfileEditAction.cover),
-                ),
-                const Divider(height: AppSpacing.lg, color: AppColors.border),
-                ListTile(
-                  key: ProfilePanel.editNicknameKey,
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.badge_outlined, size: 20),
-                  title: const Text('昵称'),
-                  subtitle: Text(
-                    nickname,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+                  const Divider(height: AppSpacing.lg, color: AppColors.border),
+                  ListTile(
+                    key: ProfilePanel.changeCoverKey,
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.landscape_outlined, size: 20),
+                    title: const Text('封面'),
+                    subtitle: Text(
+                      _cover?.isDefault ?? true
+                          ? '当前为默认海浪，点按上传替换'
+                          : '已使用自己的封面，点按替换',
+                    ),
+                    trailing: const Icon(Icons.edit_outlined, size: 18),
+                    onTap: () =>
+                        Navigator.of(sheetContext)
+                            .pop(_ProfileEditAction.cover),
                   ),
-                  trailing: const Icon(Icons.edit_outlined, size: 18),
-                  onTap: () =>
-                      Navigator.of(sheetContext)
-                          .pop(_ProfileEditAction.nickname),
-                ),
-                const Divider(height: AppSpacing.lg, color: AppColors.border),
-                ListTile(
-                  key: ProfilePanel.editSignatureKey,
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.notes_rounded, size: 20),
-                  title: const Text('签名'),
-                  subtitle: Text(
-                    signatureText,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+                  const Divider(height: AppSpacing.lg, color: AppColors.border),
+                  ListTile(
+                    key: ProfilePanel.editNicknameKey,
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.badge_outlined, size: 20),
+                    title: const Text('昵称'),
+                    subtitle: Text(
+                      nickname,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    trailing: const Icon(Icons.edit_outlined, size: 18),
+                    onTap: () =>
+                        Navigator.of(sheetContext)
+                            .pop(_ProfileEditAction.nickname),
                   ),
-                  trailing: const Icon(Icons.edit_outlined, size: 18),
-                  onTap: () =>
-                      Navigator.of(sheetContext)
-                          .pop(_ProfileEditAction.signature),
-                ),
-              ],
+                  const Divider(height: AppSpacing.lg, color: AppColors.border),
+                  ListTile(
+                    key: ProfilePanel.editSignatureKey,
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.notes_rounded, size: 20),
+                    title: const Text('签名'),
+                    subtitle: Text(
+                      signatureText,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    trailing: const Icon(Icons.edit_outlined, size: 18),
+                    onTap: () =>
+                        Navigator.of(sheetContext)
+                            .pop(_ProfileEditAction.signature),
+                  ),
+                ],
+              ),
             ),
           ),
         );
@@ -1502,6 +1515,7 @@ class _TextEditDialogState extends State<_TextEditDialog> {
   Widget build(BuildContext context) {
     final TextTheme text = Theme.of(context).textTheme;
     return AlertDialog(
+      scrollable: true,
       backgroundColor: AppColors.surface,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(AppRadius.card),

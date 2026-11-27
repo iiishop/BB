@@ -553,6 +553,42 @@ void main() {
       await tester.tap(find.byKey(LoginPage.submitButtonKey));
       await tester.pumpAndSettle();
       expect(find.byType(HomeView), findsOneWidget);
+      tester.view.physicalSize = const Size(1024, 768);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(HomeView.railAvatarKey));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<ProfilePanel>(find.byType(ProfilePanel)).mode,
+        ProfilePanelMode.desktop,
+      );
+      await tester.tap(find.byKey(ProfilePanel.editProfileKey));
+      await tester.pumpAndSettle();
+      tester.view.displayFeatures = <DisplayFeature>[
+        DisplayFeature(
+          bounds: const Rect.fromLTWH(512, 0, 0, 768),
+          type: DisplayFeatureType.fold,
+          state: DisplayFeatureState.postureFlat,
+        ),
+      ];
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<ProfilePanel>(find.byType(ProfilePanel)).mode,
+        ProfilePanelMode.folded,
+      );
+      await tester.tap(find.byKey(ProfilePanel.editSignatureKey));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('profile-edit-field')),
+        '菜单展开后保存',
+      );
+      await tester.tap(find.byKey(const Key('profile-edit-save')));
+      await tester.pumpAndSettle();
+      expect(backend.signature, '菜单展开后保存');
+      expect(find.text('菜单展开后保存'), findsOneWidget);
+      await tester.tap(find.byKey(ProfilePanel.closeButtonKey));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 4));
+      await tester.pumpAndSettle();
       tester.view.physicalSize = const Size(800, 840);
       tester.view.displayFeatures = <DisplayFeature>[
         DisplayFeature(
@@ -613,7 +649,36 @@ void main() {
       expect(backend.coverIsDefault, isFalse);
       await tester.tap(find.byKey(ProfilePanel.closeButtonKey));
       await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 4));
+      await tester.pumpAndSettle();
       expect(find.byType(ChatWorkspace), findsOneWidget);
+      tester.view.displayFeatures = <DisplayFeature>[];
+      tester.view.padding = FakeViewPadding.zero;
+      tester.view.physicalSize = const Size(1024, 480);
+      tester.platformDispatcher.textScaleFactorTestValue = 2;
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(HomeView.railAvatarKey));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(ProfilePanel.editProfileKey));
+      await tester.tap(find.byKey(ProfilePanel.editProfileKey));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(ProfilePanel.editSignatureKey));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(ProfilePanel.editSignatureKey).hitTestable(),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(ProfilePanel.editSignatureKey));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('profile-edit-field')),
+        '矮窗口保存',
+      );
+      await tester.tap(find.byKey(const Key('profile-edit-save')));
+      await tester.pumpAndSettle();
+      expect(backend.signature, '矮窗口保存');
+      expect(find.text('矮窗口保存'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );

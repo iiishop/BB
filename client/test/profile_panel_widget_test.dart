@@ -271,6 +271,48 @@ void main() {
     );
   }
 
+  for (final ProfilePanelMode mode in ProfilePanelMode.values) {
+    testWidgets('$mode short edit menu scrolls at 200% text', (
+      WidgetTester tester,
+    ) async {
+      await pumpHost(
+        tester,
+        size: mode == ProfilePanelMode.mobile
+            ? const Size(390, 480)
+            : const Size(1024, 480),
+        textScale: 2,
+        features: mode == ProfilePanelMode.folded
+            ? <DisplayFeature>[
+                DisplayFeature(
+                  bounds: const Rect.fromLTWH(512, 0, 0, 480),
+                  type: DisplayFeatureType.fold,
+                  state: DisplayFeatureState.postureFlat,
+                ),
+              ]
+            : const <DisplayFeature>[],
+      );
+      await openProfileEditSheet(tester);
+      expect(tester.takeException(), isNull);
+      final Finder signature = find.byKey(ProfilePanel.editSignatureKey);
+      await tester.ensureVisible(signature);
+      await tester.pumpAndSettle();
+      expect(signature.hitTestable(), findsOneWidget);
+      expect(tester.getCenter(signature).dy, lessThan(480));
+      await tester.tap(signature);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('profile-edit-field')), findsOneWidget);
+      await tester.enterText(
+        find.byKey(const Key('profile-edit-field')),
+        '矮窗口签名',
+      );
+      await tester.tap(find.byKey(const Key('profile-edit-save')));
+      await tester.pumpAndSettle();
+      expect(gateway.patches.single.signature, '矮窗口签名');
+      expect(find.text('矮窗口签名'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('nickname edit trims, saves and updates the panel', (
     WidgetTester tester,
   ) async {
