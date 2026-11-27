@@ -26,6 +26,7 @@ INTERNAL = {
     "events_read",
     "events_wait",
 }
+GUARDED_OPERATIONS = v2.BUSINESS | v2.GROUP_BUSINESS
 TOOL_MODELS = {
     name: create_model(
         "Tool_" + name,
@@ -36,7 +37,7 @@ TOOL_MODELS = {
             if key != "expected_identity"
         },
     )
-    for name, (_, request, _, _, _) in v2.BUSINESS.items()
+    for name, (_, request, _, _, _) in GUARDED_OPERATIONS.items()
     if name not in INTERNAL
 }
 TOOL_MODELS.update(PROFILE_TOOLS)
@@ -67,7 +68,7 @@ class GuardedTransport:
         elif operation.startswith("space_"):
             raise ContractError(404, "unknown_tool", "Unknown Space tool")
         else:
-            path, request, response_model, status, _ = v2.BUSINESS[operation]
+            path, request, response_model, status, _ = GUARDED_OPERATIONS[operation]
         try:
             body = request.model_validate(
                 {**payload, "expected_identity": self.identity}
@@ -113,7 +114,7 @@ class GuardedTransport:
                 return result
             error = v2.ErrorEnvelope.model_validate(response.json()).error
             expected_status = (SPACE_ERRORS.get(error.code) if operation in SPACE_TOOLS
-                               else v2.ERRORS.get(error.code, (None,))[0])
+                               else (v2.ERRORS | v2.GROUP_ERRORS).get(error.code, (None,))[0])
             if expected_status != response.status_code:
                 raise ValueError("unexpected error status")
             # No upstream text/field echo: it may contain local capabilities or credentials.

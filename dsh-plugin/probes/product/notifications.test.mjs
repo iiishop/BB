@@ -186,3 +186,63 @@ for(const committed of [0,2]) for(const enabled of [true,false]) test(`existing 
  assert.equal(JSON.parse(f.sent[1].content[0].text).conversations[0].new_count,committed?2:1,'both old failure and forward event survive repair');
  await f.n.tick();assert.equal(f.sent.length,2);
 });
+
+test('group and business notices use one recovered batch with membership and action state independent', async t => {
+  const f = await fixture(t);
+  const group = {type: 'group', id: 'group:' + 'a'.repeat(32)};
+  const groupSummary = (revision, position) => ({
+    conversation: group, display_name: 'Synthetic group',
+    membership_revision: revision, new_count: 1, incoming_unread: 1,
+    last_message: {position, text: 'sender content'},
+  });
+  let membership = 1;
+  let page = {
+    items: [groupSummary(1, 2)],
+    business_notices: {
+      new_count: 1, unread_count: 3, pending_count: 2,
+      last_notice: {notification_id: 'invite-1', type: 'group_invitation', text: 'invited', truncated: false},
+    },
+    cursor: 1,
+  };
+  f.bridge.client.call = async (path, args) => {
+    if (path === 'notifications/get') return {...f.settings};
+    if (path === 'chat/list_conversations') {
+      return {items: membership === null ? [] : [{conversation: group, membership_revision: membership}],
+        next_cursor: null};
+    }
+    assert.equal(path, 'notifications/changes', 'delivery never executes or marks a notice');
+    const fresh = args.after_cursor < page.cursor;
+    return {
+      settings: {...f.settings}, items: fresh ? page.items : [],
+      ...(fresh ? {business_notices: page.business_notices} : {}),
+      next_cursor: page.cursor, through_cursor: page.cursor, has_more: false, deferred: [],
+    };
+  };
+  await f.n.tick();
+  await f.open();
+  membership = 3;
+  page = {
+    items: [groupSummary(3, 5)],
+    business_notices: {
+      new_count: 1, unread_count: 2, pending_count: 2,
+      last_notice: {notification_id: 'invite-2', type: 'group_invitation', text: 'new', truncated: false},
+    },
+    cursor: 2,
+  };
+  f.now = 1000;
+  await f.n.tick();
+  assert.equal(f.sent.length, 1);
+  const summary = JSON.parse(f.sent[0].content[0].text);
+  assert.notEqual(summary.notification_id, 'invite-2');
+  assert.deepEqual(summary.conversations, [groupSummary(3, 5)]);
+  assert.deepEqual(summary.business_notices, {...page.business_notices, new_count: 2});
+  membership = null;
+  const projected = {messages: [...f.sent]};
+  await f.n.beforeModel(projected);
+  const safe = JSON.parse(projected.messages[0].content[0].text);
+  assert.deepEqual(safe.conversations, []);
+  assert.equal(safe.business_notices.pending_count, 2);
+  await f.open();
+  await f.n.tick();
+  assert.equal(f.sent.length, 1);
+});

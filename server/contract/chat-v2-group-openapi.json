@@ -10299,6 +10299,12 @@
             "title": "Type",
             "type": "string"
           },
+          "membership_revision": {
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "title": "Membership Revision",
+            "type": "integer"
+          },
           "position": {
             "maximum": 9007199254740991,
             "minimum": 1,
@@ -10312,6 +10318,7 @@
           "origin_identity",
           "conversation",
           "type",
+          "membership_revision",
           "position"
         ],
         "title": "GroupMessageEvent",

@@ -825,12 +825,16 @@ class DownloadTask {
 
 enum LocalEventType {
   messageAvailable,
+  conversationAccessChanged,
+  notificationAvailable,
   downloadSucceeded,
   downloadFailed;
 
   static LocalEventType? tryParse(Object? value) {
     return switch (value) {
       'message.available' => messageAvailable,
+      'conversation.access_changed' => conversationAccessChanged,
+      'notification.available' => notificationAvailable,
       'download.succeeded' => downloadSucceeded,
       'download.failed' => downloadFailed,
       _ => null,
@@ -839,6 +843,8 @@ enum LocalEventType {
 
   String get wire => switch (this) {
     messageAvailable => 'message.available',
+    conversationAccessChanged => 'conversation.access_changed',
+    notificationAvailable => 'notification.available',
     downloadSucceeded => 'download.succeeded',
     downloadFailed => 'download.failed',
   };
@@ -852,6 +858,11 @@ class LocalEvent {
     required this.consumerSession,
     required this.type,
     this.peerAccount,
+    this.groupId,
+    this.membershipRevision,
+    this.historyThrough,
+    this.active,
+    this.notificationId,
     this.position,
     this.messageId,
     this.taskId,
@@ -869,6 +880,11 @@ class LocalEvent {
   /// ExpectedIdentity JSON snapshot of the binding that admitted the event.
   final Map<String, dynamic>? originIdentity;
   final String? peerAccount;
+  final String? groupId;
+  final int? membershipRevision;
+  final int? historyThrough;
+  final bool? active;
+  final String? notificationId;
   final int? position;
   final String? messageId;
   final String? taskId;
@@ -884,6 +900,12 @@ class LocalEvent {
     'type': type.wire,
     if (peerAccount != null) 'peer_account': peerAccount,
     if (position != null) 'position': position,
+    if (messageId != null && groupId != null) 'message_id': messageId,
+    if (groupId != null) 'group_id': groupId,
+    if (membershipRevision != null) 'membership_revision': membershipRevision,
+    if (historyThrough != null) 'history_through': historyThrough,
+    if (active != null) 'active': active,
+    if (notificationId != null) 'notification_id': notificationId,
     if (taskId != null) 'task_id': taskId,
     if (operationId != null) 'operation_id': operationId,
     if (actualPath != null) 'actual_path': actualPath,
@@ -913,6 +935,11 @@ class LocalEvent {
       peerAccount: json['peer_account'] is String
           ? json['peer_account'] as String
           : null,
+      groupId: json['group_id'] as String?,
+      membershipRevision: json['membership_revision'] as int?,
+      historyThrough: json['history_through'] as int?,
+      active: json['active'] as bool?,
+      notificationId: json['notification_id'] as String?,
       position: json['position'] is int ? json['position'] as int : null,
       messageId: json['message_id'] is String
           ? json['message_id'] as String

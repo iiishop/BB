@@ -31,8 +31,8 @@ RETIRED_ROUTES = [
 ]
 
 
-def schema(*, include_groups=False):
-    operations = v2.OPERATIONS | v2.GROUP_BUSINESS if include_groups else v2.OPERATIONS
+def schema(*, include_groups=True):
+    operations = v2.OPERATIONS if include_groups else v2.BOOTSTRAP | v2.BUSINESS
     errors = v2.ERRORS | v2.GROUP_ERRORS if include_groups else v2.ERRORS
     components = {}
 
@@ -331,6 +331,60 @@ def fixtures():
         "events_read": event_page,
         "events_wait": {**event_page, "reason": "events"},
     }
+    target = {"conversation": {"type": "group", "id": "group:" + "a" * 32}}
+    profile = {
+        **target,
+        "group_number": "10000002",
+        "name": "Synthetic group",
+        "description": "",
+        "avatar_url": "/avatars/group.png",
+        "avatar_version": "v1",
+        "status": "active",
+    }
+    notice = {
+        "id": "notice-1",
+        "type": "group_invitation",
+        "title": "Join group",
+        "text": "A synthetic invitation",
+        "created_at": "2026-01-01T00:00:00Z",
+        "read": False,
+        "state": "pending",
+        "actions": [{"id": "accept", "label": "Accept", "available": True}],
+        "link": {"type": "group", "id": "10000002"},
+    }
+    group_inputs = {
+        "create_group": {"operation_id": "create-example", "name": profile["name"]},
+        "find_group": {"group_number": profile["group_number"]},
+        "update_group": {**target, "allow_member_invites": True},
+        "list_directory": {},
+        "list_group_members": target,
+        "invite_to_group": {**target, "accounts": ["10000002"]},
+        "apply_to_group": target,
+        "leave_group": target,
+        "remove_group_member": {**target, "account": "10000002"},
+        "dissolve_group": target,
+        "list_notices": {"filter": "pending"},
+        "mark_notice_read": {"notification_id": notice["id"]},
+        "execute_notice_action": {"notification_id": notice["id"], "action_id": "accept"},
+    }
+    inputs.update({name: {**body, "expected_identity": IDENTITY}
+                   for name, body in group_inputs.items()})
+    results.update({
+        "create_group": {**profile, "role": "owner", "can_invite": True},
+        "find_group": profile,
+        "update_group": {**profile, "allow_member_invites": True},
+        "list_directory": {"items": [], "next_cursor": None},
+        "list_group_members": {"items": [], "next_cursor": None},
+        "invite_to_group": {"request_ids": ["request-1"]},
+        "apply_to_group": {"request_ids": ["request-1"]},
+        "leave_group": profile,
+        "remove_group_member": profile,
+        "dissolve_group": {**profile, "status": "dissolved"},
+        "list_notices": {"items": [notice], "next_cursor": None, "unread_count": 1,
+                         "pending_count": 1},
+        "mark_notice_read": {**notice, "read": True},
+        "execute_notice_action": {**notice, "state": "processed", "actions": []},
+    })
     outputs = {
         name: {"identity": IDENTITY, "result": value} for name, value in results.items()
     }
@@ -352,7 +406,7 @@ def fixtures():
         }
     )
     invalid = []
-    for name in v2.BUSINESS:
+    for name in v2.BUSINESS | v2.GROUP_BUSINESS:
         body = copy.deepcopy(inputs[name])
         body.pop("expected_identity")
         invalid.append(
@@ -526,7 +580,7 @@ def fixtures():
                     }
                 },
             }
-            for n, (s, _) in v2.ERRORS.items()
+            for n, (s, _) in (v2.ERRORS | v2.GROUP_ERRORS).items()
         },
         "semantic_cases": [
             {

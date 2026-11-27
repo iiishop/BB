@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import '../models/auth_models.dart';
 import '../models/chat_models.dart';
+import '../models/conversation_models.dart';
 import 'auth_session.dart';
 import 'chat_api_client.dart';
 import 'chat_ledger.dart';
@@ -239,6 +240,7 @@ class ChatQueryService {
       items: record.items,
       anchorMessageId: record.anchorMessageId,
       peerAccount: record.peerAccount,
+      conversation: record.conversation,
       startPosition: record.startPosition,
       endPosition: record.endPosition,
       beforeHasMore: record.beforeHasMore,
@@ -386,6 +388,7 @@ class ContextResult {
     required this.items,
     required this.anchorMessageId,
     required this.peerAccount,
+    this.conversation,
     required this.startPosition,
     required this.endPosition,
     required this.beforeHasMore,
@@ -398,6 +401,7 @@ class ContextResult {
   final List<ChatMessage> items;
   final String anchorMessageId;
   final String peerAccount;
+  final ConversationRef? conversation;
   final int startPosition;
   final int endPosition;
   final bool beforeHasMore;

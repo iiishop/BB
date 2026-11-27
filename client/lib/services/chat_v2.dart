@@ -3,14 +3,19 @@ import 'dart:typed_data';
 
 import '../models/auth_models.dart';
 import '../models/chat_models.dart';
+import '../models/conversation_models.dart';
+import '../models/group_models.dart';
 import '../models/profile_models.dart';
 import 'auth_session.dart';
 import 'chat_query.dart';
+import 'chat_delivery_remote.dart';
 import 'chat_service.dart';
 import 'client_identity.dart';
 import '../validation/profile_rules.dart';
 import 'media_source.dart';
 import 'profile_service.dart';
+
+part 'chat_v2_group_routes.dart';
 
 /// Local-client v2 protocol (shared contract `dea467-local-v2`).
 ///
@@ -30,6 +35,7 @@ class ChatV2Router {
   static const String _ownerHeader = v2OwnerHeader;
 
   static const Map<String, Set<String>> _fields = <String, Set<String>>{
+    ..._groupFields,
     '/v2/protocol/negotiate': <String>{'supported_versions'},
     '/v2/status': <String>{},
     '/v2/consumers/create': <String>{'expected_auth', 'session_id'},
@@ -76,12 +82,14 @@ class ChatV2Router {
     '/v2/chat/send_message': <String>{
       'expected_identity',
       'target_account',
+      'conversation',
       'operation_id',
       'content',
     },
     '/v2/chat/send_attachment': <String>{
       'expected_identity',
       'target_account',
+      'conversation',
       'operation_id',
       'source',
       'cover',
@@ -90,6 +98,7 @@ class ChatV2Router {
       'expected_identity',
       'unread_only',
       'account',
+      'conversation',
       'after_position',
       'before_position',
       'limit',
@@ -97,15 +106,17 @@ class ChatV2Router {
     '/v2/chat/wait_messages': <String>{
       'expected_identity',
       'account',
+      'conversation',
       'seen_position',
       'timeout',
     },
     '/v2/chat/ack_messages': <String>{
       'expected_identity',
       'account',
+      'conversation',
       'through_position',
     },
-    '/v2/chat/consumption': <String>{'expected_identity', 'account'},
+    '/v2/chat/consumption': <String>{'expected_identity', 'account', 'conversation'},
     '/v2/chat/confirm_presentation': <String>{
       'expected_identity',
       'attempt_id',
@@ -146,6 +157,9 @@ class ChatV2Router {
     'consumption_gap': 409,
     'idempotency_conflict': 409,
     'not_found': 404,
+    'forbidden': 403,
+    'action_unavailable': 409,
+    'group_unavailable': 409,
     'storage_unavailable': 503,
     'upstream_unavailable': 502,
     'upstream_timeout': 504,
@@ -162,6 +176,9 @@ class ChatV2Router {
     'consumption_gap': '该消费者缺少连续展示确认',
     'idempotency_conflict': '同一操作 ID 的意图已改变',
     'not_found': '当前范围内不存在',
+    'forbidden': '当前角色无权执行该操作',
+    'action_unavailable': '该通知操作已不可用',
+    'group_unavailable': '该群已不可用',
     'storage_unavailable': '客户端存储不可用',
     'upstream_unavailable': '上游结果不确定，请先对账',
     'upstream_timeout': '上游超时，结果不确定',
@@ -311,6 +328,12 @@ class ChatV2Router {
       throw staleBinding('消费者能力或归属不匹配');
     }
 
+    if (_groupFields.containsKey(path)) {
+      return _queryReply(expected, service, context.identity, context.binding,
+        (_) => _dispatchGroup(path, service, context.identity, args),
+      );
+    }
+
     switch (path) {
       case '/v2/profile/view_avatar':
         return _queryReply(expected, service, context.identity, context.binding, (
@@ -437,19 +460,15 @@ class ChatV2Router {
           };
         });
       case '/v2/chat/list_conversations':
-        return _queryReply(expected, service, context.identity, context.binding, (
-          Set<String> created,
-        ) async {
-          final ConversationPage page = await service.query.listConversations(
+        return _queryReply(expected, service, context.identity, context.binding,
+          (_) => service.listConversationsFor(
+            context.identity, expected,
             afterAccount: (args.values['after_account'] as String?) ?? '',
             limit: (args.values['limit'] as int?) ?? 50,
-            consumerId: context.binding.consumerId,
             order: args.values['order'] as String,
             unreadOnly: args.values['unread_only'] as bool,
             cursor: args.values['cursor'] as String?,
-          );
-          return page.toJson();
-        });
+          ));
       case '/v2/chat/get_message':
         return _queryReply(expected, service, context.identity, context.binding, (
           Set<String> created,
@@ -460,14 +479,18 @@ class ChatV2Router {
           if (message == null) {
             throw _V2Error(404, 'not_found', _messageByCode['not_found']!);
           }
-          final QueryVisibleMessage visible =
-              await service.visibleMessageForQuery(
-                captured: context.identity,
-                binding: context.binding,
-                peerAccount: _peerOf(message, context.identity.account),
-                message: message,
-                createdReceiptIds: created,
-              );
+          final group = message.isGroup ? await service.requireGroup(
+            context.identity, message.conversation!.id) : null;
+          final QueryVisibleMessage visible = await service.visibleMessageForQuery(
+            captured: context.identity,
+            binding: context.binding,
+            peerAccount: group == null ? _peerOf(message, context.identity.account) :
+                ChatService.groupConsumptionKey(group.conversation.id, group.membershipRevision),
+            message: message,
+            createdReceiptIds: created,
+            groupMembership: group,
+          );
+          await service.requireSameGroupMembership(context.identity, group);
           return <String, dynamic>{
             'item': visible.item.toJson(),
             'missing_media_ids': visible.missingMediaIds,
@@ -487,20 +510,27 @@ class ChatV2Router {
           }
           final List<Map<String, dynamic>> items = <Map<String, dynamic>>[];
           final Set<String> missing = <String>{};
+          final group = contextResult.conversation?.isGroup == true ? await service.requireGroup(
+            context.identity, contextResult.conversation!.id) : null;
+          final peer = group == null ? contextResult.peerAccount :
+              ChatService.groupConsumptionKey(group.conversation.id, group.membershipRevision);
           for (final ChatMessage message in contextResult.items) {
             final QueryVisibleMessage visible =
                 await service.visibleMessageForQuery(
                   captured: context.identity,
                   binding: context.binding,
-                  peerAccount: contextResult.peerAccount,
+                  peerAccount: peer,
                   message: message,
+                  groupMembership: group,
                   createdReceiptIds: created,
                 );
             items.add(visible.item.toJson());
             missing.addAll(visible.missingMediaIds);
           }
+          await service.requireSameGroupMembership(context.identity, group);
           return <String, dynamic>{
-            'peer_account': contextResult.peerAccount,
+            if (group == null) 'peer_account': contextResult.peerAccount
+            else 'conversation': group.conversation.toJson(),
             'anchor_message_id': contextResult.anchorMessageId,
             'range': <String, dynamic>{
               'start_position': contextResult.startPosition,
@@ -530,6 +560,7 @@ class ChatV2Router {
           expectedIdentity: expected,
         );
         final ChatMessage message = outcome.message ?? (throw upstreamMalformed);
+        await _ensureBindingCurrent(service, context.identity, context.binding);
         return _reply(expected, messageToJson(message));
       case '/v2/chat/send_attachment':
         final SendOutcome outcome = await service.sendAttachment(
@@ -539,12 +570,23 @@ class ChatV2Router {
           expectedIdentity: expected,
         );
         final ChatMessage message = outcome.message ?? (throw upstreamMalformed);
+        await _ensureBindingCurrent(service, context.identity, context.binding);
         return _reply(expected, messageToJson(message));
       case '/v2/chat/read_messages':
         final String peer = args.values['account'] as String;
         return _queryReply(expected, service, context.identity, context.binding, (
           Set<String> created,
         ) async {
+          if (isGroupId(peer)) {
+            return service.groupHistoryFor(
+              expected: expected, group: peer,
+              after: args.values['after_position'] as int?,
+              before: args.values['before_position'] as int?,
+              limit: (args.values['limit'] as int?) ?? 50,
+              unreadOnly: args.values['unread_only'] == true,
+              createdReceiptIds: created,
+            );
+          }
           final HistoryPage history = await service.query.readHistory(
             peerAccount: peer,
             afterPosition: args.values['after_position'] as int?,
@@ -573,6 +615,16 @@ class ChatV2Router {
           };
         });
       case '/v2/chat/wait_messages':
+        final target = args.values['account'] as String;
+        if (isGroupId(target)) {
+          return _queryReply(expected, service, context.identity, context.binding,
+            (created) => service.waitGroupHistory(
+              expected: expected, group: target,
+              after: args.values['seen_position'] as int,
+              timeout: (args.values['timeout'] as int?) ?? 60,
+              createdReceiptIds: created,
+            ));
+        }
         final VisibleMessagePage page = await service.waitMessages(
           peerAccount: args.values['account'] as String,
           consumerSession: context.binding.sessionId,
@@ -645,7 +697,7 @@ class ChatV2Router {
         final settings = await service.ledger.setNotificationSettings(
           identity: expected, enabled: args.values['enabled'] as bool,
           stillCurrent: () => session.isCurrent(context.identity),
-          sourceHead: () => service.api.eventHead(token: context.identity.token));
+          sourceHead: () => service.deliveryRemote.eventHead(context.identity.token));
         await service.requireIdentity(expected);
         return _reply(expected, settings);
       case '/v2/notifications/changes':
@@ -663,8 +715,9 @@ class ChatV2Router {
           discover: args.values['discover'] as bool,
         );
         return _reply(expected, <String, dynamic>{
-          'peer_account': peer,
-          'conversation': peer == null ? null : directConversation(expected.account, peer),
+          'peer_account': peer != null && !isGroupId(peer) ? peer : null,
+          'conversation': peer == null ? null :
+              isGroupId(peer) ? groupRef(peer) : directConversation(expected.account, peer),
           'discover': args.values['discover'],
         });
       case '/v2/events/read':
@@ -740,6 +793,10 @@ class ChatV2Router {
     }
 
     args.expectedIdentity = _expectedIdentity(request);
+    if (_groupFields.containsKey(path)) {
+      _parseGroupRequest(path, request, args);
+      return args;
+    }
     switch (path) {
       case '/v2/profile/view_avatar':
       case '/v2/profile/view_cover':
@@ -810,16 +867,16 @@ class ChatV2Router {
         );
         args.values['limit'] = request.optionalInteger('limit', 1, 100);
       case '/v2/chat/send_message':
-        args.values['target_account'] = request.account('target_account');
+        args.values['target_account'] = _chatTarget(request, args.expectedIdentity!.account, 'target_account');
         args.values['operation_id'] = request.operationId('operation_id');
         args.content = _content(request);
       case '/v2/chat/send_attachment':
-        args.values['target_account'] = request.account('target_account');
+        args.values['target_account'] = _chatTarget(request, args.expectedIdentity!.account, 'target_account');
         args.values['operation_id'] = request.operationId('operation_id');
         args.attachment = _attachment(request);
       case '/v2/chat/read_messages':
         args.values['unread_only'] = request.boolean('unread_only', false);
-        args.values['account'] = request.account('account');
+        args.values['account'] = _chatTarget(request, args.expectedIdentity!.account, 'account');
         final int? after = request.nullableInteger(
           'after_position',
           0,
@@ -837,7 +894,7 @@ class ChatV2Router {
         args.values['before_position'] = before;
         args.values['limit'] = request.optionalInteger('limit', 1, 100);
       case '/v2/chat/wait_messages':
-        args.values['account'] = request.account('account');
+        args.values['account'] = _chatTarget(request, args.expectedIdentity!.account, 'account');
         args.values['seen_position'] = request.integer(
           'seen_position',
           0,
@@ -845,14 +902,14 @@ class ChatV2Router {
         );
         args.values['timeout'] = request.timeout();
       case '/v2/chat/ack_messages':
-        args.values['account'] = request.account('account');
+        args.values['account'] = _chatTarget(request, args.expectedIdentity!.account, 'account');
         args.values['through_position'] = request.integer(
           'through_position',
           0,
           maxBindingRevision,
         );
       case '/v2/chat/consumption':
-        args.values['account'] = request.account('account');
+        args.values['account'] = _chatTarget(request, args.expectedIdentity!.account, 'account');
       case '/v2/chat/confirm_presentation':
         args.values['attempt_id'] = request.opaque('attempt_id');
         args.values['request_digest'] = request.pattern(
@@ -888,21 +945,14 @@ class ChatV2Router {
         args.values['through_cursor'] = request.nullableInteger('through_cursor', 0, maxBindingRevision);
         args.values['limit'] = request.optionalInteger('limit', 1, 100);
       case '/v2/events/subscribe':
-        String? peer = request.raw['peer_account'] == null ? null : request.account('peer_account');
-        final bool discover = request.boolean('discover', false);
-        final Object? conversation = request.raw['conversation'];
-        if ((peer != null ? 1 : 0) + (conversation != null ? 1 : 0) + (discover ? 1 : 0) != 1) throw _validation('conversation');
-        if (conversation != null) {
-          final Map<String, dynamic> ref = request.object('conversation', <String>{'id', 'type'});
-          final Object? id = ref['id'];
-          if ((ref.containsKey('type') && ref['type'] != 'direct') || id is! String || !RegExp(r'^dm:[1-9][0-9]{7}:[1-9][0-9]{7}$').hasMatch(id)) throw _validation('conversation');
-          final List<String> members = id.split(':').sublist(1);
-          final String account = args.expectedIdentity!.account;
-          if (members[0].compareTo(members[1]) >= 0 || !members.contains(account)) throw _validation('conversation');
-          peer = members.firstWhere((member) => member != account);
+        final discover = request.boolean('discover', false);
+        if (discover && (request.raw['peer_account'] != null || request.raw['conversation'] != null)) {
+          throw _validation('conversation');
         }
-        if (peer == args.expectedIdentity!.account) throw _validation('peer_account');
-        args.values['peer_account'] = peer;
+        final target = discover ? null :
+            _chatTarget(request, args.expectedIdentity!.account, 'peer_account');
+        if (target == args.expectedIdentity!.account) throw _validation('peer_account');
+        args.values['peer_account'] = target;
         args.values['discover'] = discover;
       case '/v2/events/read':
         args.values['after_cursor'] = request.optionalInteger(
@@ -1079,6 +1129,22 @@ class ChatV2Router {
     }
   }
 
+  String _chatTarget(_Request request, String self, String legacy) {
+    final account = request.raw[legacy];
+    final conversation = request.raw['conversation'];
+    if ((account == null) == (conversation == null)) throw _validation('conversation');
+    if (account != null) return request.account(legacy);
+    final ref = request.object('conversation', {'type', 'id'});
+    final id = ref['id'];
+    if (id is! String) throw _validation('conversation');
+    final parsed = ConversationRef.parseId(id);
+    final type = ref.containsKey('type') ? ref['type'] : 'direct';
+    if (type != parsed.type.wire) throw _validation('conversation');
+    if (parsed.isGroup) return parsed.id;
+    if (!parsed.containsDirectAccount(self)) throw _validation('conversation');
+    return parsed.id.split(':').skip(1).firstWhere((member) => member != self);
+  }
+
   String _peerOf(ChatMessage message, String selfAccount) {
     return message.senderAccount == selfAccount
         ? message.targetAccount
@@ -1165,7 +1231,27 @@ class ChatV2Router {
       'origin_identity': origin.toJson(),
     };
     switch (event.type) {
+      case LocalEventType.conversationAccessChanged:
+        return {
+          ...base,
+          'type': event.type.wire,
+          'conversation': groupRef(event.groupId!),
+          'active': event.active!,
+          'membership_revision': event.membershipRevision!,
+          'history_through': event.historyThrough!,
+        };
+      case LocalEventType.notificationAvailable:
+        return {...base, 'type': event.type.wire, 'notification_id': event.notificationId!};
       case LocalEventType.messageAvailable:
+        if (event.groupId case final id?) {
+          return {
+            ...base,
+            'type': event.type.wire,
+            'conversation': groupRef(id),
+            'membership_revision': event.membershipRevision!,
+            'position': event.position!,
+          };
+        }
         final String? peer = event.peerAccount;
         final int? position = event.position;
         if (peer == null || position == null) {
@@ -1401,6 +1487,7 @@ class _Args {
   final Map<String, Object?> values = <String, Object?>{};
   List<OutgoingPart>? content;
   OutgoingAttachment? attachment;
+  MediaSource? avatar;
 }
 
 class _ExpectedAuth {

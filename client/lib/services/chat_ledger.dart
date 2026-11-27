@@ -461,6 +461,51 @@ class ChatLedger {
     });
   }
 
+  /// Group and notification source progress is additive to the legacy pair
+  /// cursors. Each page and its source position commit in the same flush.
+  Future<int> sharedEventCursor(String account, String consumer) {
+    return _locked(() async {
+      final feeds = _account(account)['events'] as Map<String, dynamic>;
+      return (feeds[consumer] as Map<String, dynamic>?)?['shared_source_cursor']
+          as int? ?? 0;
+    });
+  }
+
+  Future<int> appendSharedEventPage({
+    required String account,
+    required ExpectedIdentity origin,
+    required int cursor,
+    required List<LocalEvent> events,
+    required void Function() requireCurrent,
+  }) {
+    return _mutate(() async {
+      requireCurrent();
+      _requireEventBindingLocked(account, origin.consumerId, origin);
+      final feeds = _account(account)['events'] as Map<String, dynamic>;
+      final feed = feeds.putIfAbsent(origin.consumerId, () => <String, dynamic>{
+        'next_cursor': 1,
+        'entries': <dynamic>[],
+        'source_event_ids': <String>[],
+        'server_cursor': 0,
+      }) as Map<String, dynamic>;
+      if ((feed['shared_source_cursor'] as int? ?? 0) >= cursor) return 0;
+      final sourceIds = (feed['source_event_ids'] as List).cast<String>();
+      final known = sourceIds.toSet();
+      final entries = feed['entries'] as List;
+      var next = feed['next_cursor'] as int;
+      final start = next;
+      for (final event in events) {
+        if (!known.add(event.eventId)) continue;
+        entries.add(LocalEventEntry(cursor: next++, event: event).toJson());
+        sourceIds.add(event.eventId);
+      }
+      feed['next_cursor'] = next;
+      feed['shared_source_cursor'] = cursor;
+      await _flush();
+      return next - start;
+    });
+  }
+
   // ----------------------------------------------------------- subscription --
 
   void _migrateSubscriptions() {
@@ -736,7 +781,7 @@ class ChatLedger {
       if (record.state == 'succeeded' &&
           (message == null ||
               message.senderAccount != account ||
-              message.targetAccount != record.targetAccount ||
+              (message.isGroup ? message.conversation!.id : message.targetAccount) != record.targetAccount ||
               message.kind !=
                   (record.kind == 'attachment'
                       ? ChatMessageKind.attachment
@@ -1315,6 +1360,7 @@ class ChatLedger {
     required String consumerId,
     required String peerAccount,
     required int throughPosition,
+    int historyThrough = 0,
     required ExpectedIdentity expectedIdentity,
     required bool Function() stillCurrent,
     Future<void> Function()? beforeCommit,
@@ -1329,7 +1375,8 @@ class ChatLedger {
       if (!stillCurrent()) {
         throw staleIdentity;
       }
-      final int consumed = _consumedLocked(account, consumerId, peerAccount);
+      final int stored = _consumedLocked(account, consumerId, peerAccount);
+      final int consumed = stored > historyThrough ? stored : historyThrough;
       if (throughPosition <= consumed) {
         if (!stillCurrent()) {
           throw staleIdentity;

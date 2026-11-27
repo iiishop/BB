@@ -6,6 +6,7 @@ import '../models/auth_models.dart';
 import '../models/chat_models.dart';
 import 'auth_session.dart';
 import 'chat_api_client.dart';
+import 'chat_delivery_remote.dart';
 import 'chat_ledger.dart';
 import 'client_identity.dart';
 
@@ -19,11 +20,13 @@ class EventFeed {
     required this.api,
     required this.session,
     required this.ledger,
+    ChatDeliveryRemote? deliveryRemote,
     this.pollInterval = const Duration(seconds: 2),
     this.webSocketHints = true,
-  });
+  }) : deliveryRemote = deliveryRemote ?? ChatDeliveryRemote(api);
 
   final ChatApiClient api;
+  final ChatDeliveryRemote deliveryRemote;
   final AuthSession session;
   final ChatLedger ledger;
   final Duration pollInterval;
@@ -230,7 +233,9 @@ class EventFeed {
           after = page.nextCursor!;
         } while (true);
       }
+      await _pollShared(captured, subscription.key, requireCurrentReplay);
       for (final String peer in peers) {
+        if (isGroupId(peer)) continue;
         requireCurrentReplay();
         try {
           await _pollConsumer(
@@ -252,6 +257,103 @@ class EventFeed {
           }
         }
       }
+    }
+  }
+
+  Future<void> _pollShared(
+    AuthIdentity captured,
+    String consumer,
+    void Function() requireCurrent,
+  ) async {
+    final origin = await ledger.originIdentityForFeed(captured.account, consumer);
+    // Legacy consumers keep their original direct-only feed contract.
+    if (origin == null) return;
+    var cursor = await ledger.sharedEventCursor(captured.account, consumer);
+    for (;;) {
+      requireCurrent();
+      final page = await deliveryRemote.request(captured.token, '/events', query: {
+        'include_groups': 'true',
+        'after_event_id': '$cursor',
+        'limit': '100',
+      });
+      requireCurrent();
+      final next = page['next_event_id'];
+      final hasMore = page['has_more'];
+      if (next is! int || hasMore is! bool ||
+          next < cursor || (hasMore && next == cursor)) {
+        throw upstreamMalformed;
+      }
+      final events = <LocalEvent>[];
+      var last = cursor;
+      for (final event in ChatDeliveryRemote.jsonItems(page)) {
+        final id = event['event_id'];
+        if (id is! int || id <= last || id > next) throw upstreamMalformed;
+        last = id;
+        final type = event['type'];
+        final ref = event['conversation'];
+        final group = ref is Map<String, dynamic> && ref['type'] == 'group'
+            ? ref['id'] : null;
+        if (group != null && (group is! String || !isGroupId(group))) {
+          throw upstreamMalformed;
+        }
+        final groupId = group as String?;
+        final position = event['position'];
+        final messageId = event['message_id'];
+        final revision = event['membership_revision'];
+        final historyThrough = event['history_through'];
+        final active = event['active'];
+        final noticeId = event['notification_id'];
+        final LocalEventType kind;
+        switch (type) {
+          case 'message.available' when groupId == null:
+            continue; // Direct subscriptions retain their own replay progress.
+          case 'message.available':
+            if (position is! int || position < 1 || messageId is! String ||
+                revision is! int || revision < 1) {
+              throw upstreamMalformed;
+            }
+            kind = LocalEventType.messageAvailable;
+          case 'conversation.access_changed':
+            if (groupId == null || revision is! int || revision < 1 ||
+                historyThrough is! int || historyThrough < 0 || active is! bool) {
+              throw upstreamMalformed;
+            }
+            kind = LocalEventType.conversationAccessChanged;
+          case 'notification.available':
+            if (noticeId is! String || !RegExp(r'^[A-Za-z0-9_-]{1,200}$').hasMatch(noticeId)) {
+              throw upstreamMalformed;
+            }
+            kind = LocalEventType.notificationAvailable;
+          default:
+            continue;
+        }
+        events.add(LocalEvent(
+          eventId: 'server:$id',
+          account: captured.account,
+          consumerSession: consumer,
+          type: kind,
+          groupId: groupId,
+          position: kind == LocalEventType.messageAvailable ? position as int : null,
+          messageId: kind == LocalEventType.messageAvailable ? messageId as String : null,
+          membershipRevision: groupId != null ? revision as int : null,
+          historyThrough: kind == LocalEventType.conversationAccessChanged ? historyThrough as int : null,
+          active: kind == LocalEventType.conversationAccessChanged ? active as bool : null,
+          notificationId: kind == LocalEventType.notificationAvailable ? noticeId as String : null,
+          originIdentity: origin.toJson(),
+        ));
+      }
+      if (next > cursor) {
+        final count = await _commitReplay(ledger.appendSharedEventPage(
+          account: captured.account,
+          origin: origin,
+          cursor: next,
+          events: events,
+          requireCurrent: requireCurrent,
+        ));
+        if (count > 0) _revision++;
+      }
+      if (!hasMore) return;
+      cursor = next;
     }
   }
 
