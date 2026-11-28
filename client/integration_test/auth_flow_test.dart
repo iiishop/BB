@@ -13,6 +13,7 @@ import 'package:bb_client/services/avatar_cache.dart';
 import 'package:bb_client/services/chat_api_client.dart';
 import 'package:bb_client/services/chat_ledger.dart';
 import 'package:bb_client/services/chat_service.dart';
+import 'package:bb_client/services/group_mention_controller.dart';
 import 'package:bb_client/services/heartbeat_controller.dart';
 import 'package:bb_client/services/profile_api_client.dart';
 import 'package:bb_client/services/profile_service.dart';
@@ -25,6 +26,7 @@ import 'package:bb_client/ui/chat/media_save.dart';
 import 'package:bb_client/ui/chat/media_viewer.dart';
 import 'package:bb_client/ui/chat/chat_page.dart';
 import 'package:bb_client/ui/chat/chat_workspace.dart';
+import 'package:bb_client/ui/chat/message_bubble.dart';
 import 'package:bb_client/ui/chat/users_view.dart';
 import 'package:bb_client/ui/home_view.dart';
 import 'package:bb_client/ui/profile/profile_panel.dart';
@@ -32,6 +34,7 @@ import 'package:bb_client/ui/profile/profile_artwork.dart';
 import 'package:bb_client/ui/login_page.dart';
 import 'package:bb_client/ui/register_page.dart';
 import 'package:bb_client/ui/signed_in_view.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -904,6 +907,184 @@ void main() {
     expect(note.left, greaterThan(avatar.right));
     expect(tester.takeException(), isNull);
   });
+
+  // The opt-in server must use a fresh database. This case seeds synthetic accounts.
+  const replyTestApi = String.fromEnvironment('BB_REPLY_TEST_API');
+  testWidgets('DEA-519 real FastAPI: mixed alert, historical quote and reply', (
+    WidgetTester tester,
+  ) async {
+    final Uri base = Uri.parse(replyTestApi);
+    expect(base.scheme, 'http');
+    expect(base.host, '127.0.0.1');
+    final HttpClient http = HttpClient();
+    addTearDown(() => http.close(force: true));
+    Future<Map<String, dynamic>> post(
+      String path,
+      Map<String, dynamic> body, {
+      String? token,
+      int code = 200,
+    }) async {
+      final HttpClientRequest request = await http.postUrl(base.resolve(path));
+      request.headers.contentType = ContentType.json;
+      if (token != null) request.headers.set('Authorization', 'Bearer $token');
+      request.write(jsonEncode(body));
+      final HttpClientResponse response = await request.close();
+      final value = jsonDecode(
+        await utf8.decoder.bind(response).join(),
+      ) as Map<String, dynamic>;
+      expect(
+        response.statusCode,
+        code,
+        reason: '$path ${value['error']?['code']}',
+      );
+      return value;
+    }
+
+    Future<({String account, String token})> register(String name) async {
+      final user = await post('/auth/register', {
+        'username': name,
+        'password': 'Abc123',
+      }, code: 201);
+      final String account = user['account'] as String;
+      final login = await post('/auth/login', {
+        'account': account,
+        'password': 'Abc123',
+      });
+      return (account: account, token: login['token'] as String);
+    }
+
+    final alice = await register('Reply Alice');
+    final bob = await register('Reply Bob');
+    final created = await post('/chat/groups/create', {
+      'name': 'Reply integration',
+      'operation_id': 'reply-group',
+      'invitees': [bob.account],
+    }, token: alice.token);
+    final conversation = created['conversation'] as Map<String, dynamic>;
+    final String groupId = conversation['id'] as String;
+    final notices = await post('/chat/notices/list', {
+      'filter': 'pending',
+    }, token: bob.token);
+    final invitation =
+        (notices['items'] as List).single as Map<String, dynamic>;
+    await post('/chat/notices/execute_action', {
+      'notification_id': invitation['id'],
+      'action_id': 'accept',
+    }, token: bob.token);
+    Future<Map<String, dynamic>> send(
+      String text,
+      String token, [
+      Map<String, dynamic> extras = const {},
+    ]) => post('/messages', {
+      'conversation': conversation,
+      'client_nonce': text,
+      'content': [
+        {'type': 'text', 'text': text},
+      ],
+      ...extras,
+    }, token: token);
+    final original = await send('old-authored-anchor', alice.token);
+    final olderReply = await send('older-sibling-reply', bob.token, {
+      'reply_to_message_id': original['id'],
+    });
+    for (int i = 0; i < 35; i += 1) {
+      await send('between-anchor-and-reply-$i', bob.token);
+    }
+    final mixed = await send('mixed-inbound-reply', bob.token, {
+      'reply_to_message_id': original['id'],
+      'mentioned_accounts': [alice.account],
+    });
+    for (int i = 0; i < 105; i += 1) {
+      await send('plain-entry-$i', bob.token);
+    }
+    Future<List<dynamic>> unread() async =>
+        (await post('/chat/alerts/list', {
+              'conversation_id': groupId,
+            }, token: alice.token))['items']
+            as List<dynamic>;
+
+    final AuthSession auth = AuthSession()
+      ..establish(
+        token: alice.token,
+        user: AuthUser(account: alice.account, username: 'Reply Alice'),
+      );
+    final ChatService chat = ChatService(
+      api: ChatApiClient(baseUri: base),
+      session: auth,
+      ledger: ChatLedger.atPath('${directory.path}/reply-ledger.json'),
+      cacheRoot: Directory('${directory.path}/reply-cache'),
+      webSocketHints: false,
+    );
+    final shared = chat.sharedConversations;
+    final MentionRecipientController alerts = MentionRecipientController(
+      shared: shared,
+    );
+    addTearDown(chat.dispose);
+    addTearDown(alerts.dispose);
+    final group = (await shared.listSharedConversations()).items
+        .whereType<GroupConversationItem>()
+        .single;
+    await alerts.refreshSummary();
+    tester.view.physicalSize = const Size(1000, 620);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(),
+        home: ChatPage(
+          group: group,
+          chat: chat,
+          shared: shared,
+          groups: chat.groups,
+          profile: FakeProfileGateway(),
+          alerts: alerts,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect((await unread()).map((row) => row['message_id']), [
+      mixed['id'],
+      olderReply['id'],
+    ]);
+    final Finder originalBubble = find.byKey(
+      MessageBubble.avatarKeyFor(ChatMessage.fromJson(original).identity),
+    );
+    expect(originalBubble, findsNothing);
+    expect(find.text('跳到回复 + @'), findsOneWidget);
+    await tester.tap(find.byKey(ChatPage.alertJumpKey));
+    await tester.pumpAndSettle();
+    final Finder received = find.text('mixed-inbound-reply');
+    expect(received.hitTestable(), findsOneWidget);
+    expect((await unread()).single['message_id'], olderReply['id']);
+    expect(find.text('跳到回复'), findsOneWidget);
+    await tester.tapAt(
+      tester.getCenter(received),
+      buttons: kSecondaryMouseButton,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(MessageBubble.replyActionKey));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(ChatComposer.inputKey), 'linux-ui-reply');
+    expect(originalBubble, findsNothing);
+    final Finder quote = find.byKey(
+      MessageBubble.quoteKeyFor(ChatMessage.fromJson(mixed).identity),
+    );
+    await tester.tap(quote);
+    await tester.pumpAndSettle();
+    expect(originalBubble.hitTestable(), findsOneWidget);
+    expect((await unread()).single['message_id'], olderReply['id']);
+    await tester.tap(find.byKey(ChatComposer.sendKey));
+    await tester.pumpAndSettle();
+    final direct = await post('/chat/replies/direct', {
+      'original_message_id': mixed['id'],
+    }, token: bob.token);
+    expect(
+      (direct['items'] as List).single['content'].single['text'],
+      'linux-ui-reply',
+    );
+    await tester.pumpWidget(const SizedBox.shrink());
+  }, skip: replyTestApi.isEmpty);
 
   testWidgets(
     'real ffmpeg: pasted video gets a real cover and mixes with text',

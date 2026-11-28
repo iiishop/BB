@@ -167,7 +167,7 @@ class ChatPage extends StatefulWidget {
   State<ChatPage> createState() => _ChatPageState();
 }
 
-class _ChatPageState extends State<ChatPage> {
+class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   final ScrollController _scrollController = ScrollController();
   final GlobalKey _listViewportKey = GlobalKey();
   final Map<String, GlobalKey> _rowKeys = <String, GlobalKey>{};
@@ -188,6 +188,9 @@ class _ChatPageState extends State<ChatPage> {
   Timer? _quoteSuppressTimer;
   bool _jumpingToMessage = false;
   bool _suppressViewportAlerts = false;
+  ({String conversation, int mentions, int replies, String? latest})?
+  _mixedBadgeKey;
+  Future<int?>? _mixedBadgeCount;
 
   /// Immutable page-level keys for the media thumbnails, so the viewer route
   /// can capture the tapped tile and expand it from its real position.
@@ -342,6 +345,7 @@ class _ChatPageState extends State<ChatPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // Both sides are requested once when the conversation opens. The AppBar and
     // every bubble read this same controller, so scrolling cannot add requests.
     final Iterable<String> initialAccounts = _isGroup
@@ -352,6 +356,7 @@ class _ChatPageState extends State<ChatPage> {
       accounts: initialAccounts,
     )..addListener(_onAvatarsChanged);
     widget.alerts?.addListener(_onAlertsChanged);
+    _refreshMixedBadge();
     _scrollController.addListener(_onScrolled);
     if (!_isGroup) {
       widget.presence?.addListener(_onPresenceChanged);
@@ -524,6 +529,8 @@ class _ChatPageState extends State<ChatPage> {
       if (current) {
         _flushDisplayed();
         _scheduleViewportAlertCheck();
+      } else {
+        _clearAlertViewport();
       }
     }
   }
@@ -534,7 +541,9 @@ class _ChatPageState extends State<ChatPage> {
     if (oldWidget.alerts != widget.alerts) {
       oldWidget.alerts?.removeListener(_onAlertsChanged);
       widget.alerts?.addListener(_onAlertsChanged);
+      _mixedBadgeKey = null;
     }
+    _refreshMixedBadge();
     final String oldScope =
         oldWidget.group?.conversation.id ?? oldWidget._peer!.account;
     final String newScope = _scopeId;
@@ -637,6 +646,8 @@ class _ChatPageState extends State<ChatPage> {
         // were staged while it was hidden become display facts.
         _flushDisplayed();
         _scheduleViewportAlertCheck();
+      } else if (oldWidget.active && !widget.active) {
+        _clearAlertViewport();
       }
       if (_isGroup &&
           (becameActive || membershipChanged || groupsServiceChanged)) {
@@ -647,6 +658,8 @@ class _ChatPageState extends State<ChatPage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _clearAlertViewport();
     widget.alerts?.removeListener(_onAlertsChanged);
     _highlightTimer?.cancel();
     _viewportAlertTimer?.cancel();
@@ -681,7 +694,65 @@ class _ChatPageState extends State<ChatPage> {
 
   void _onAlertsChanged() {
     if (mounted) {
+      _refreshMixedBadge();
       setState(() {});
+    }
+  }
+
+  void _refreshMixedBadge() {
+    final MentionRecipientController? alerts = widget.alerts;
+    final ConversationRef? conversation = _alertConversation;
+    if (alerts == null || conversation == null || !widget.active) {
+      _mixedBadgeKey = null;
+      _mixedBadgeCount = null;
+      return;
+    }
+    final AlertCounts counts = alerts.countsFor(conversation.id);
+    final UnreadAlert? latest = alerts.latestAlertFor(conversation.id);
+    if (counts.unreadMentionCount == 0 || counts.unreadReplyCount == 0) {
+      _mixedBadgeKey = null;
+      _mixedBadgeCount = null;
+      return;
+    }
+    final key = (
+      conversation: conversation.id,
+      mentions: counts.unreadMentionCount,
+      replies: counts.unreadReplyCount,
+      latest: latest?.messageId,
+    );
+    if (_mixedBadgeKey != key) {
+      _mixedBadgeKey = key;
+      _mixedBadgeCount = _countMixedAlerts(alerts.shared, conversation);
+    }
+  }
+
+  Future<int?> _countMixedAlerts(
+    SharedConversationService shared,
+    ConversationRef conversation,
+  ) async {
+    final identity = shared.session.identity;
+    if (identity == null) return null;
+    int count = 0;
+    int? before;
+    try {
+      do {
+        final AlertPage page = await shared.listConversationAlerts(
+          conversation: conversation,
+          beforePosition: before,
+          limit: 100,
+          captured: identity,
+        );
+        count += page.items.length;
+        final int? next = page.nextCursor;
+        if (next != null && before != null && next >= before) return null;
+        before = next;
+      } while (before != null &&
+          mounted &&
+          widget.active &&
+          _alertConversation == conversation);
+      return before == null ? count : null;
+    } on AuthFailure {
+      return null;
     }
   }
 
@@ -1220,14 +1291,44 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   bool get _canConfirmDisplayed {
+    final AppLifecycleState? lifecycle = WidgetsBinding.instance.lifecycleState;
     if (!mounted || !widget.active || _revoked || _modalCovers > 0) {
+      return false;
+    }
+    if (lifecycle != null && lifecycle != AppLifecycleState.resumed) {
       return false;
     }
     return _modalRoute?.isCurrent ?? true;
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _flushDisplayed();
+      _scheduleViewportAlertCheck();
+    } else {
+      _clearAlertViewport();
+    }
+  }
+
+  void _clearAlertViewport() {
+    _viewportAlertTimer?.cancel();
+    final MentionRecipientController? alerts = widget.alerts;
+    final ConversationRef? conversation = _alertConversation;
+    if (alerts != null && conversation != null) {
+      unawaited(
+        alerts.reportVisibleMessages(
+          conversation: conversation,
+          visibleMessages: const <ChatMessage>[],
+          isForegroundActive: false,
+        ),
+      );
+    }
+  }
+
   Future<T> _runCoveringRoute<T>(Future<T> Function() action) async {
     _modalCovers += 1;
+    _clearAlertViewport();
     try {
       return await action();
     } finally {
@@ -1680,6 +1781,7 @@ class _ChatPageState extends State<ChatPage> {
         completer.complete();
       }
     });
+    WidgetsBinding.instance.ensureVisualUpdate();
     return completer.future;
   }
 
@@ -1687,6 +1789,26 @@ class _ChatPageState extends State<ChatPage> {
     String messageId, {
     required MessageHighlightKind highlightKind,
   }) async {
+    final int epoch = _pageEpoch;
+    final double? previousOffset = _scrollController.hasClients
+        ? _scrollController.offset
+        : null;
+    bool onSamePage() => mounted && _pageEpoch == epoch && !_revoked;
+    bool restoreAfterFailure() {
+      if (onSamePage() &&
+          previousOffset != null &&
+          _scrollController.hasClients) {
+        final ScrollPosition position = _scrollController.position;
+        _scrollController.jumpTo(
+          previousOffset.clamp(
+            position.minScrollExtent,
+            position.maxScrollExtent,
+          ),
+        );
+      }
+      return false;
+    }
+
     final ChatMessage? target = _messages.cast<ChatMessage?>().firstWhere(
       (ChatMessage? m) => m?.id == messageId,
       orElse: () => null,
@@ -1696,7 +1818,7 @@ class _ChatPageState extends State<ChatPage> {
     }
     final GlobalKey key = _rowKeyFor(target.identity);
     await _nextFrame();
-    if (!mounted) {
+    if (!mounted || !onSamePage()) {
       return false;
     }
     final bool reducedMotion =
@@ -1716,7 +1838,7 @@ class _ChatPageState extends State<ChatPage> {
       );
       await _nextFrame();
       for (int step = 0; step < 12; step += 1) {
-        if (!mounted || !_scrollController.hasClients) {
+        if (!onSamePage() || !_scrollController.hasClients) {
           return false;
         }
         if (key.currentContext != null) {
@@ -1750,7 +1872,7 @@ class _ChatPageState extends State<ChatPage> {
     }
     final BuildContext? rowContext = key.currentContext;
     if (rowContext == null || !rowContext.mounted) {
-      return false;
+      return restoreAfterFailure();
     }
     await Scrollable.ensureVisible(
       rowContext,
@@ -1760,15 +1882,18 @@ class _ChatPageState extends State<ChatPage> {
           : const Duration(milliseconds: 220),
       curve: Curves.easeOutCubic,
     );
-    if (!mounted) {
+    if (!onSamePage()) {
       return false;
     }
     await _nextFrame();
-    if (!mounted) {
+    if (!onSamePage()) {
       return false;
     }
+    if (!_isMessageInForegroundViewport(target)) {
+      return restoreAfterFailure();
+    }
     _setMessageHighlight(target.id, highlightKind);
-    return _isMessageInForegroundViewport(target);
+    return true;
   }
 
   List<String> _timelineEntryIdentities() {
@@ -1967,6 +2092,7 @@ class _ChatPageState extends State<ChatPage> {
           .resolveNextJumpTarget(
             conversation: conversation,
             loadedMessageIds: loadedIds,
+            resetCursor: true,
           );
       if (!mounted || epoch != _pageEpoch || scope != _scopeId) {
         return;
@@ -2896,12 +3022,18 @@ class _ChatPageState extends State<ChatPage> {
     final String label = showReply && showMention
         ? '跳到回复 + @'
         : (showReply ? '跳到回复' : '跳到 @');
-    final int total = counts.unreadMentionCount + counts.unreadReplyCount;
-    return _AlertJumpPill(
-      label: label,
-      count: total,
-      hasReply: showReply,
-      onTap: _jumpToNextAlert,
+    return FutureBuilder<int?>(
+      future: _mixedBadgeCount,
+      builder: (_, snapshot) => _AlertJumpPill(
+        label: label,
+        count: counts.unreadMentionCount == 0 || counts.unreadReplyCount == 0
+            ? counts.unreadMentionCount + counts.unreadReplyCount
+            : snapshot.connectionState == ConnectionState.done
+            ? snapshot.data ?? 0
+            : 0,
+        hasReply: showReply,
+        onTap: _jumpToNextAlert,
+      ),
     );
   }
 }
@@ -2926,6 +3058,34 @@ class _AlertJumpPill extends StatelessWidget {
     final Color fg = hasReply ? AppColors.warning : AppColors.accentDeep;
     final Color bg = hasReply ? AppColors.warningSurface : AppColors.surface;
     final Color border = hasReply ? AppColors.warningBorder : AppColors.border;
+    final Icon icon = Icon(
+      hasReply ? Icons.reply_rounded : Icons.alternate_email_rounded,
+      size: 16,
+      color: fg,
+    );
+    if (MediaQuery.sizeOf(context).width < 600) {
+      final CircleBorder shape = CircleBorder(side: BorderSide(color: border));
+      return Tooltip(
+        message: label,
+        child: Material(
+          color: bg,
+          elevation: 3,
+          shape: shape,
+          child: InkWell(
+            key: ChatPage.alertJumpKey,
+            onTap: onTap,
+            customBorder: shape,
+            child: Badge(
+              label: Text('$count'),
+              isLabelVisible: count > 0,
+              backgroundColor: AppColors.accentDeep,
+              textColor: AppColors.surface,
+              child: SizedBox.square(dimension: 44, child: Center(child: icon)),
+            ),
+          ),
+        ),
+      );
+    }
     return Material(
       color: bg,
       elevation: 3,
@@ -2941,13 +3101,7 @@ class _AlertJumpPill extends StatelessWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
-                Icon(
-                  hasReply
-                      ? Icons.reply_rounded
-                      : Icons.alternate_email_rounded,
-                  size: 16,
-                  color: fg,
-                ),
+                icon,
                 const SizedBox(width: 5),
                 Text(
                   label,

@@ -882,6 +882,13 @@ void main() {
       expect(find.byKey(ChatPage.alertJumpKey), findsOneWidget);
       expect(find.text('跳到回复 + @'), findsOneWidget);
       expect(
+        find.descendant(
+          of: find.byKey(ChatPage.alertJumpKey),
+          matching: find.text('2'),
+        ),
+        findsOneWidget,
+      );
+      expect(
         api.markSeenCalls.expand((c) => c.messageIds),
         isNot(anyOf(contains('g-12'), contains('g-30'))),
       );
@@ -931,7 +938,7 @@ void main() {
   testWidgets(
     'out-of-order manual scroll clears only the alert currently visible in foreground viewport',
     (WidgetTester tester) async {
-      tester.view.physicalSize = const Size(800, 520);
+      tester.view.physicalSize = const Size(390, 520);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
@@ -1009,13 +1016,23 @@ void main() {
 
       // Opened at bottom (around pos 60): neither m-50 nor m-2 is visible yet.
       expect(alerts.unreadReplyCountFor(dmConv.id), 2);
+      expect(find.byTooltip('跳到回复'), findsOneWidget);
+      final Finder jump = find.byKey(ChatPage.alertJumpKey);
+      expect(tester.widget<InkWell>(jump).customBorder, isA<CircleBorder>());
+      expect(tester.getSize(jump), const Size.square(44));
 
       // Manually drag/scroll up slightly so m-50 enters foreground viewport while m-2 stays far off-screen.
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
       await tester.dragUntilVisible(
         find.text('较新未读回复 C'),
         find.byKey(ChatPage.listKey),
         const Offset(0, 220),
       );
+      await tester.pump(const Duration(milliseconds: 200));
+      await tester.pumpAndSettle();
+
+      expect(alerts.unreadReplyCountFor(dmConv.id), 2);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       await tester.pump(const Duration(milliseconds: 200));
       await tester.pumpAndSettle();
 
