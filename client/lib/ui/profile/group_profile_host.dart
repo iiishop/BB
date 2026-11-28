@@ -152,12 +152,16 @@ class _NoticeFilterFeed {
     this.nextCursor,
     this.loaded = false,
     this.pagesLoaded = 0,
+    this.unreadCount,
+    this.pendingCount,
   });
 
   final List<Notice> items;
   final String? nextCursor;
   final bool loaded;
   final int pagesLoaded;
+  final int? unreadCount;
+  final int? pendingCount;
 }
 
 class NotificationCenterHostState extends State<NotificationCenterHost> {
@@ -279,6 +283,8 @@ class NotificationCenterHostState extends State<NotificationCenterHost> {
       String? cursor;
       String? nextCursor;
       int pagesLoaded = 0;
+      int? unreadCount;
+      int? pendingCount;
       while (true) {
         final NoticePage page = await widget.groups.listNotices(
           filter: target,
@@ -296,6 +302,8 @@ class NotificationCenterHostState extends State<NotificationCenterHost> {
             collected.add(item);
           }
         }
+        unreadCount = page.unreadCount;
+        pendingCount = page.pendingCount;
         pagesLoaded += 1;
         nextCursor = page.nextCursor;
         // Re-check expanded page count after each page fetch so a concurrent
@@ -318,6 +326,8 @@ class NotificationCenterHostState extends State<NotificationCenterHost> {
           nextCursor: nextCursor,
           loaded: true,
           pagesLoaded: pagesLoaded,
+          unreadCount: unreadCount,
+          pendingCount: pendingCount,
         );
         _loading = false;
         _loadingMore = _inFlightLoadMoreCursor != null;
@@ -419,6 +429,8 @@ class NotificationCenterHostState extends State<NotificationCenterHost> {
             nextCursor: page.nextCursor,
             loaded: true,
             pagesLoaded: latest.pagesLoaded + 1,
+            unreadCount: page.unreadCount,
+            pendingCount: page.pendingCount,
           );
           _loadingMore = false;
           _loadMoreError = null;
@@ -535,10 +547,12 @@ class NotificationCenterHostState extends State<NotificationCenterHost> {
   @override
   Widget build(BuildContext context) {
     final _NoticeFilterFeed feed = _currentFeed;
+    final _NoticeFilterFeed? allFeed = _feeds[NoticeFilter.all];
     final List<NotificationEntry> entries = <NotificationEntry>[
       for (final Notice notice in feed.items)
         NotificationEntry(
           id: notice.id,
+          type: notice.type,
           title: notice.title,
           body: notice.text,
           timeLabel: formatContactTime(notice.createdAt),
@@ -546,7 +560,8 @@ class NotificationCenterHostState extends State<NotificationCenterHost> {
           statusLabel: switch (notice.state) {
             NoticeState.pending => '待处理',
             NoticeState.processed => '已处理',
-            NoticeState.invalidated || NoticeState.informational => null,
+            NoticeState.invalidated => '已失效',
+            NoticeState.informational => '仅告知',
           },
           invalidated: notice.state == NoticeState.invalidated,
           actions: <NotificationEntryAction>[
@@ -554,7 +569,7 @@ class NotificationCenterHostState extends State<NotificationCenterHost> {
               NotificationEntryAction(
                 id: action.id,
                 label: action.label,
-                available: action.available && !_busyAction,
+                available: action.available,
                 onPressed: action.available && !_busyAction
                     ? () => unawaited(_executeAction(notice, action))
                     : null,
@@ -580,6 +595,11 @@ class NotificationCenterHostState extends State<NotificationCenterHost> {
       loadingMore: _loadingMore,
       loadMoreError: _loadMoreError,
       onLoadMore: loadMore,
+      allCount: allFeed != null && allFeed.loaded && allFeed.nextCursor == null
+          ? allFeed.items.length
+          : null,
+      pendingCount: feed.loaded ? feed.pendingCount : null,
+      unreadCount: feed.loaded ? feed.unreadCount : null,
     );
   }
 }
