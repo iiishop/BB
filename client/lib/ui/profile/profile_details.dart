@@ -100,6 +100,7 @@ Future<void> openPersonProfile(
       resolveProfilePanelMode(context) == ProfilePanelMode.desktop
       ? const Color(0x3D161D1E)
       : Colors.transparent,
+  desktopPreferredSize: const Size(440, 620),
   builder: (_) => PersonProfilePanel(account: account, gateway: gateway),
 );
 
@@ -309,7 +310,7 @@ class _PersonProfilePanelState extends State<PersonProfilePanel>
             );
             final double coverHeight = isMobile
                 ? (constraints.maxHeight * 0.38).clamp(240.0, 320.0)
-                : (constraints.maxHeight * 0.36).clamp(180.0, 230.0);
+                : (constraints.maxHeight * 0.38).clamp(180.0, 230.0);
             final double effectiveCoverHeight = math.min(
               coverHeight,
               maxCoverCap,

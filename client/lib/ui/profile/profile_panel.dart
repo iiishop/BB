@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' show DisplayFeature, ImageFilter;
 
@@ -134,10 +135,12 @@ Future<T?> openProfileSurface<T>(
   Duration? dialogTransitionDuration,
   Duration? dialogReverseTransitionDuration,
   Color? dialogBarrierColor,
+  Size? desktopPreferredSize,
 }) {
   final GlobalKey contentKey = GlobalKey(debugLabel: 'profile-surface-content');
   Widget frame(BuildContext context) => ProfilePanelFrame(
     underStatusBar: underStatusBar,
+    desktopPreferredSize: desktopPreferredSize,
     child: KeyedSubtree(
       key: contentKey,
       child: Builder(builder: builder),
@@ -479,11 +482,15 @@ class ProfilePanelFrame extends StatelessWidget {
     required this.child,
     this.mode,
     this.underStatusBar = false,
+    this.desktopPreferredSize,
   });
+
+  static const Key desktopCardKey = Key('profile-desktop-card');
 
   final Widget child;
   final ProfilePanelMode? mode;
   final bool underStatusBar;
+  final Size? desktopPreferredSize;
 
   @override
   Widget build(BuildContext context) {
@@ -505,7 +512,7 @@ class ProfilePanelFrame extends StatelessWidget {
     if (mode == ProfilePanelMode.folded) {
       return _FoldedFrame(width: foldedPanelWidth(context), child: child);
     }
-    return _DesktopFrame(child: child);
+    return _DesktopFrame(preferredSize: desktopPreferredSize, child: child);
   }
 }
 
@@ -550,9 +557,10 @@ class _FoldedFrame extends StatelessWidget {
 }
 
 class _DesktopFrame extends StatelessWidget {
-  const _DesktopFrame({required this.child});
+  const _DesktopFrame({required this.child, this.preferredSize});
 
   final Widget child;
+  final Size? preferredSize;
 
   @override
   Widget build(BuildContext context) {
@@ -561,24 +569,40 @@ class _DesktopFrame extends StatelessWidget {
         padding: const EdgeInsets.all(AppSpacing.lg),
         child: Align(
           alignment: Alignment.center,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 440, maxHeight: 700),
-            child: Container(
-              decoration: BoxDecoration(
-                color: AppColors.paper,
-                borderRadius: BorderRadius.circular(AppRadius.panel),
-                boxShadow: const <BoxShadow>[
-                  BoxShadow(
-                    color: Color(0x1F161D1E),
-                    blurRadius: 40,
-                    spreadRadius: 2,
-                    offset: Offset(0, 18),
+          child: LayoutBuilder(
+            builder: (BuildContext context, BoxConstraints constraints) {
+              final Widget card = Container(
+                key: ProfilePanelFrame.desktopCardKey,
+                decoration: BoxDecoration(
+                  color: AppColors.paper,
+                  borderRadius: BorderRadius.circular(AppRadius.panel),
+                  boxShadow: const <BoxShadow>[
+                    BoxShadow(
+                      color: Color(0x1F161D1E),
+                      blurRadius: 40,
+                      spreadRadius: 2,
+                      offset: Offset(0, 18),
+                    ),
+                  ],
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: Material(type: MaterialType.transparency, child: child),
+              );
+              if (preferredSize == null) {
+                return ConstrainedBox(
+                  constraints: const BoxConstraints(
+                    maxWidth: 440,
+                    maxHeight: 700,
                   ),
-                ],
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: Material(type: MaterialType.transparency, child: child),
-            ),
+                  child: card,
+                );
+              }
+              return SizedBox(
+                width: math.min(preferredSize!.width, constraints.maxWidth),
+                height: math.min(preferredSize!.height, constraints.maxHeight),
+                child: card,
+              );
+            },
           ),
         ),
       ),

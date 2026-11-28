@@ -655,7 +655,11 @@ void main() {
           expect(coverRect.height, closeTo(320, 0.5));
           expect(find.byIcon(Icons.arrow_back_rounded), findsOneWidget);
         } else {
-          expect(coverRect.height, inInclusiveRange(180.0, 230.0));
+          expect(
+            tester.getSize(find.byKey(ProfilePanelFrame.desktopCardKey)),
+            const Size(440, 620),
+          );
+          expect(coverRect.height, closeTo(230.0, 0.5));
           expect(find.byIcon(Icons.close_rounded), findsOneWidget);
         }
 
@@ -805,6 +809,138 @@ void main() {
       expect(ring.turns.value, 0.0);
       await tester.pumpAndSettle();
       expect(tester.binding.transientCallbackCount, 0);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'desktop peer profile stays 440x620 on 1040x720 with short signature, shrinks on small windows, and scrolls long content',
+    (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(1040, 720);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+
+      final FakeProfileGateway profiles = buildProfiles();
+      profiles.profiles[_bob.account] = const Profile(
+        account: '10000002',
+        username: '林晓',
+        signature: '只潜水，偶尔冒泡。',
+        avatarUrl: '/avatars/10000002.png',
+        avatarVersion: 'v-bob',
+      );
+      profiles.profiles[_carol.account] = Profile(
+        account: '10000003',
+        username: '长签名成员',
+        signature: List<String>.filled(
+          24,
+          '这是一段用于验证桌面端固定高度卡片可正常滚动的长签名内容。',
+        ).join('\n'),
+        avatarUrl: '/avatars/10000003.png',
+        avatarVersion: 'v-carol',
+      );
+
+      Widget harness() => MaterialApp(
+        theme: buildAppTheme(),
+        home: Scaffold(
+          body: Builder(
+            builder: (BuildContext context) => Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  ElevatedButton(
+                    onPressed: () => openPersonProfile(
+                      context,
+                      account: _bob.account,
+                      gateway: profiles,
+                    ),
+                    child: const Text('open-short'),
+                  ),
+                  ElevatedButton(
+                    onPressed: () => openPersonProfile(
+                      context,
+                      account: _carol.account,
+                      gateway: profiles,
+                    ),
+                    child: const Text('open-long'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+
+      // 1. Standard 1040x720 desktop with 1.0 text scale & short signature -> 440x620.
+      await tester.pumpWidget(harness());
+      await tester.tap(find.text('open-short'));
+      await tester.pumpAndSettle();
+
+      final Rect shortCardRect = tester.getRect(
+        find.byKey(ProfilePanelFrame.desktopCardKey),
+      );
+      final Rect shortCoverRect = tester.getRect(
+        find.byKey(ProfileSeaCover.coverKey),
+      );
+      expect(shortCardRect.size, const Size(440, 620));
+      expect(shortCoverRect.height, closeTo(230, 0.5));
+      expect(shortCoverRect.top, closeTo(shortCardRect.top, 0.5));
+      expect(find.text('只潜水，偶尔冒泡。'), findsOneWidget);
+      expect(find.text('资料由对方维护，仅可查看'), findsOneWidget);
+
+      await tester.tap(find.byType(CloseButton));
+      await tester.pumpAndSettle();
+
+      // 2. Long signature on 1040x720 stays 440x620 and scrolls internally.
+      await tester.tap(find.text('open-long'));
+      await tester.pumpAndSettle();
+
+      final Rect longCardRect = tester.getRect(
+        find.byKey(ProfilePanelFrame.desktopCardKey),
+      );
+      expect(longCardRect.size, const Size(440, 620));
+      final Finder profileScrollable = find
+          .descendant(
+            of: find.byType(PersonProfilePanel),
+            matching: find.byType(Scrollable),
+          )
+          .first;
+      await tester.scrollUntilVisible(
+        find.byKey(PersonProfilePanel.readonlyNoteKey),
+        200,
+        scrollable: profileScrollable,
+      );
+      await tester.pumpAndSettle();
+      final Rect noteRect = tester.getRect(
+        find.byKey(PersonProfilePanel.readonlyNoteKey),
+      );
+      expect(noteRect.bottom, lessThanOrEqualTo(longCardRect.bottom + 0.5));
+
+      // Scroll back to the header so CloseButton is inside the viewport, then close.
+      await tester.drag(profileScrollable, const Offset(0, 1200));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(CloseButton));
+      await tester.pumpAndSettle();
+      expect(find.byType(PersonProfilePanel), findsNothing);
+
+      // 3. Small desktop window (700x480) shrinks cleanly within viewport & scrolls.
+      tester.view.physicalSize = const Size(700, 480);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('open-short'));
+      await tester.pumpAndSettle();
+
+      final Rect smallCardRect = tester.getRect(
+        find.byKey(ProfilePanelFrame.desktopCardKey),
+      );
+      expect(smallCardRect.width, 440);
+      expect(smallCardRect.height, closeTo(480 - AppSpacing.lg * 2, 0.5));
+      expect(smallCardRect.bottom, lessThanOrEqualTo(480));
+      expect(find.text('只潜水，偶尔冒泡。'), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.byKey(PersonProfilePanel.readonlyNoteKey),
+        120,
+        scrollable: profileScrollable,
+      );
+      await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
     },
   );
