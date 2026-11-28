@@ -1270,5 +1270,49 @@ void main() {
     await Future<void>.delayed(Duration.zero);
     expect(resolvedLast.name, 'First edit');
     expect(emitted.last.name, 'First edit');
+
+    // 6. Another session's edit observed via findGroup before an in-flight
+    //    local updateGroup response completes must not revert to the older write,
+    //    while an earlier-started write that commits after the read converges
+    //    to the write's newer server state.
+    emitted.clear();
+    final Completer<void> holdLocalReply = Completer<void>();
+    server.holdUpdate = holdLocalReply;
+    final Future<GroupProfile> delayedLocal = groups.updateGroup(
+      conversation: group1Ref,
+      name: 'First edit',
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    await groupApi.updateGroup(
+      token: 'token-1',
+      conversation: group1Ref,
+      name: 'Final edit',
+    );
+    final GroupProfile refreshed = await groups.findGroup('10000001');
+    expect(refreshed.name, 'Final edit');
+    holdLocalReply.complete();
+    final GroupProfile afterDelayed = await delayedLocal;
+    await Future<void>.delayed(Duration.zero);
+    expect(afterDelayed.name, 'Final edit');
+    expect(emitted.map((GroupProfile p) => p.name), <String>[
+      'Final edit',
+      'Final edit',
+    ]);
+
+    emitted.clear();
+    final Completer<void> holdCommitUntilAfterRead = Completer<void>();
+    server.beforeUpdateCommit = holdCommitUntilAfterRead;
+    final Future<GroupProfile> lateCommit = groups.updateGroup(
+      conversation: group1Ref,
+      name: 'Late server commit',
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    final GroupProfile beforeCommitRead = await groups.findGroup('10000001');
+    expect(beforeCommitRead.name, 'Final edit');
+    holdCommitUntilAfterRead.complete();
+    final GroupProfile resolvedLateCommit = await lateCommit;
+    await Future<void>.delayed(Duration.zero);
+    expect(resolvedLateCommit.name, 'Late server commit');
+    expect(emitted.last.name, 'Late server commit');
   });
 }
