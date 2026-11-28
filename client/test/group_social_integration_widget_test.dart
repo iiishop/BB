@@ -2109,4 +2109,52 @@ void main() {
       await tester.pump(const Duration(seconds: 35));
     },
   );
+
+  testWidgets(
+    'A6: the open profile keeps a fresh server read from the earlier request',
+    (WidgetTester tester) async {
+      server.createdGroup1 = true;
+      await pumpHome(tester, size: const Size(375, 812));
+      await tester.tap(find.byKey(UsersListView.groupRowKey(server.group1Id)));
+      await _settle(tester);
+
+      final firstRead = Completer<void>();
+      server.beforeRead = firstRead;
+      await tester.tap(find.byKey(ChatPage.headerProfileKey));
+      await _settle(tester);
+      expect(server.beforeRead, isNull);
+      final later = await tester.runAsync(() => groups.findGroup('10000001'));
+      expect(later?.name, server.group1Name);
+
+      final otherClient = GroupApiClient(
+        baseUri: server.baseUri,
+        transport: HttpTransport(factory: () => HttpClient()),
+      );
+      await tester.runAsync(
+        () => otherClient.updateGroup(
+          token: session.identity!.token,
+          conversation: ConversationRef.group(server.group1Id),
+          name: 'Final edit',
+        ),
+      );
+      firstRead.complete();
+      await _settle(tester);
+      expect(
+        find.descendant(
+          of: find.byType(GroupProfilePanel),
+          matching: find.text('Final edit'),
+        ),
+        findsOneWidget,
+      );
+      await tester.tap(find.byType(CloseButton));
+      await _settle(tester);
+      expect(
+        tester.widget<Text>(find.byKey(ChatPage.headerNameKey)).data,
+        'Final edit',
+      );
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump(const Duration(seconds: 35));
+    },
+  );
 }

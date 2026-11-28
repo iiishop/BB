@@ -8,8 +8,13 @@ import sqlite3
 import uuid
 
 from bb_auth_contract import ErrorResponse
-from bb_auth_contract.group import REMOTE
-from fastapi import Depends
+from bb_auth_contract.group import (
+    PROFILE_REVISION_HEADER,
+    PROFILE_REVISION_PATTERN,
+    REMOTE,
+    GroupProfile,
+)
+from fastapi import Depends, Response
 
 from . import avatars, chat_media_gc, chat_store, notices
 from .chat import fail
@@ -38,18 +43,22 @@ def require_owner(group, account):
 
 
 def profile(db, group, account):
+    membership = db.execute(
+        """SELECT active,membership_revision FROM chat_group_members
+        WHERE conversation_id=? AND account=?""",
+        (group["conversation_id"], account),
+    ).fetchone()
     role = None
-    if (
-        group["status"] == "active"
-        and db.execute(
-            "SELECT 1 FROM chat_group_members WHERE conversation_id=? AND account=? AND active=1",
-            (group["conversation_id"], account),
-        ).fetchone()
-    ):
+    if group["status"] == "active" and membership and membership["active"]:
         role = "owner" if group["owner"] == account else "member"
     number = group["group_number"]
     allow = bool(group["allow_member_invites"])
+    # Membership is viewer-relative. Neither another user's membership changes
+    # nor private invite settings advance a non-member's visible revision.
+    membership_revision = membership["membership_revision"] if membership else 0
+    invite_revision = group["invite_settings_revision"] if role is not None else 0
     return {
+        "profile_revision": f"{membership_revision}.{group['profile_revision']}.{invite_revision}",
         "conversation": chat_store.group_ref(group["conversation_id"]),
         "group_number": number,
         "name": group["name"],
@@ -158,8 +167,10 @@ def change_avatar(db, directory, conversation_id, png):
     )
     try:
         db.execute(
-            "UPDATE chat_groups SET avatar_path=?,avatar_version=? WHERE conversation_id=?",
-            (name, version, conversation_id),
+            """UPDATE chat_groups SET avatar_path=?,avatar_version=?,
+            profile_revision=profile_revision+(avatar_version IS NOT ?)
+            WHERE conversation_id=?""",
+            (name, version, version, conversation_id),
         )
     except BaseException:
         avatars.remove_file(directory, name)
@@ -292,15 +303,30 @@ class Groups:
                 group = by_id(db, conversation_id)
                 active(group)
                 require_owner(group, account)
+                profile_changed = any(
+                    value is not None and value != group[field]
+                    for field, value in (
+                        ("name", body.name),
+                        ("description", body.description),
+                    )
+                )
+                settings_changed = (
+                    body.allow_member_invites is not None
+                    and body.allow_member_invites != group["allow_member_invites"]
+                )
                 db.execute(
                     """UPDATE chat_groups SET name=COALESCE(?,name),
                     description=COALESCE(?,description),
-                    allow_member_invites=COALESCE(?,allow_member_invites)
+                    allow_member_invites=COALESCE(?,allow_member_invites),
+                    profile_revision=profile_revision+?,
+                    invite_settings_revision=invite_settings_revision+?
                     WHERE conversation_id=?""",
                     (
                         body.name,
                         body.description,
                         body.allow_member_invites,
+                        profile_changed,
+                        settings_changed,
                         conversation_id,
                     ),
                 )
@@ -451,7 +477,8 @@ class Groups:
             if group["status"] == "active":
                 now = chat_store.timestamp(self.clock)
                 db.execute(
-                    "UPDATE chat_groups SET status='dissolved' WHERE conversation_id=?",
+                    """UPDATE chat_groups SET status='dissolved',
+                    profile_revision=profile_revision+1 WHERE conversation_id=?""",
                     (conversation_id,),
                 )
                 db.execute(
@@ -511,22 +538,40 @@ def install(app, service, current_session, no_query):
     auth = Depends(current_session)
     errors = {code: {"model": ErrorResponse} for code in (401, 403, 404, 409, 422, 503)}
 
-    def bind(name, request_model):
+    def bind(name, request_model, has_profile):
         handler = getattr(service, name)
 
-        def endpoint(body: request_model, identity=auth):
-            return handler(identity["account"], body)
+        def endpoint(body: request_model, response: Response, identity=auth):
+            result = handler(identity["account"], body)
+            if has_profile:
+                response.headers[PROFILE_REVISION_HEADER] = result.pop(
+                    "profile_revision"
+                )
+            return result
 
         endpoint.__name__ = name
         return endpoint
 
     for name, (path, request_model, response_model) in REMOTE.items():
         responses = dict(errors)
+        has_profile = response_model is GroupProfile
+        if has_profile:
+            responses[200] = {
+                "headers": {
+                    PROFILE_REVISION_HEADER: {
+                        "description": "Group snapshot revision for this viewer, ordered by membership, public profile, and visible invite settings.",
+                        "schema": {
+                            "type": "string",
+                            "pattern": PROFILE_REVISION_PATTERN,
+                        },
+                    }
+                }
+            }
         if name in ("create_group", "update_group"):
             responses.update({code: {"model": ErrorResponse} for code in (413, 415)})
         app.add_api_route(
             path,
-            bind(name, request_model),
+            bind(name, request_model, has_profile),
             methods=["POST"],
             response_model=response_model,
             responses=responses,

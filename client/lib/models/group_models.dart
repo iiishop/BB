@@ -38,6 +38,37 @@ enum GroupRole {
   String get wire => name;
 }
 
+/// Transactional group snapshot order from the authenticated HTTP response.
+class GroupProfileRevision implements Comparable<GroupProfileRevision> {
+  const GroupProfileRevision._(this.membership, this.profile, this.invites);
+
+  static final _wirePattern = RegExp(r'^[0-9]+\.[1-9][0-9]*\.[0-9]+$');
+
+  factory GroupProfileRevision.parse(String header) {
+    if (!_wirePattern.hasMatch(header)) {
+      throw const FormatException('invalid group profile revision');
+    }
+    final parts = header.split('.').map(int.tryParse).toList();
+    if (parts.any((part) => part == null || part < 0)) {
+      throw const FormatException('invalid group profile revision');
+    }
+    return GroupProfileRevision._(parts[0]!, parts[1]!, parts[2]!);
+  }
+
+  final int membership;
+  final int profile;
+  final int invites;
+
+  @override
+  int compareTo(GroupProfileRevision other) {
+    final byMembership = membership.compareTo(other.membership);
+    if (byMembership != 0) return byMembership;
+    final byProfile = profile.compareTo(other.profile);
+    if (byProfile != 0) return byProfile;
+    return invites.compareTo(other.invites);
+  }
+}
+
 class GroupProfile {
   const GroupProfile({
     required this.conversation,
@@ -50,6 +81,7 @@ class GroupProfile {
     this.role,
     this.canInvite = false,
     this.allowMemberInvites,
+    this.revision,
   });
 
   final ConversationRef conversation;
@@ -59,6 +91,7 @@ class GroupProfile {
   final String avatarUrl;
   final String avatarVersion;
   final GroupStatus status;
+  final GroupProfileRevision? revision;
 
   /// Viewer-relative role: null for non-members.
   final GroupRole? role;
@@ -83,7 +116,10 @@ class GroupProfile {
 
   bool get canApply => isActive && role == null;
 
-  factory GroupProfile.fromJson(Object? json) {
+  factory GroupProfile.fromJson(
+    Object? json, {
+    GroupProfileRevision? revision,
+  }) {
     if (json is! Map<String, dynamic>) {
       throw const FormatException('group profile must be an object');
     }
@@ -127,6 +163,7 @@ class GroupProfile {
       role: role,
       canInvite: canInvite,
       allowMemberInvites: allowMemberInvites as bool?,
+      revision: revision,
     );
   }
 

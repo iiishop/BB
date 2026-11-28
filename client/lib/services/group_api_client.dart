@@ -43,25 +43,17 @@ class GroupApiClient {
       'invitees': invitees,
       if (avatar != null) 'avatar': avatar.toJson(),
     };
-    final Map<String, dynamic> json = await _postJson(
-      '/chat/groups/create',
-      token: token,
-      payload: payload,
-    );
-    return _parse(() => GroupProfile.fromJson(json));
+    return _postProfile('/chat/groups/create', token: token, payload: payload);
   }
 
   Future<GroupProfile> findGroup({
     required String token,
     required String groupNumber,
-  }) async {
-    final Map<String, dynamic> json = await _postJson(
-      '/chat/groups/find',
-      token: token,
-      payload: <String, dynamic>{'group_number': groupNumber},
-    );
-    return _parse(() => GroupProfile.fromJson(json));
-  }
+  }) => _postProfile(
+    '/chat/groups/find',
+    token: token,
+    payload: <String, dynamic>{'group_number': groupNumber},
+  );
 
   Future<GroupProfile> updateGroup({
     required String token,
@@ -80,12 +72,7 @@ class GroupApiClient {
       if (avatar != null) 'avatar': avatar.toJson(),
       if (resetAvatar) 'reset_avatar': true,
     };
-    final Map<String, dynamic> json = await _postJson(
-      '/chat/groups/update',
-      token: token,
-      payload: payload,
-    );
-    return _parse(() => GroupProfile.fromJson(json));
+    return _postProfile('/chat/groups/update', token: token, payload: payload);
   }
 
   Future<DirectoryPage> listDirectory({
@@ -150,42 +137,33 @@ class GroupApiClient {
   Future<GroupProfile> leaveGroup({
     required String token,
     required ConversationRef conversation,
-  }) async {
-    final Map<String, dynamic> json = await _postJson(
-      '/chat/groups/leave',
-      token: token,
-      payload: <String, dynamic>{'conversation': conversation.toJson()},
-    );
-    return _parse(() => GroupProfile.fromJson(json));
-  }
+  }) => _postProfile(
+    '/chat/groups/leave',
+    token: token,
+    payload: <String, dynamic>{'conversation': conversation.toJson()},
+  );
 
   Future<GroupProfile> removeGroupMember({
     required String token,
     required ConversationRef conversation,
     required String account,
-  }) async {
-    final Map<String, dynamic> json = await _postJson(
-      '/chat/groups/remove_member',
-      token: token,
-      payload: <String, dynamic>{
-        'conversation': conversation.toJson(),
-        'account': account,
-      },
-    );
-    return _parse(() => GroupProfile.fromJson(json));
-  }
+  }) => _postProfile(
+    '/chat/groups/remove_member',
+    token: token,
+    payload: <String, dynamic>{
+      'conversation': conversation.toJson(),
+      'account': account,
+    },
+  );
 
   Future<GroupProfile> dissolveGroup({
     required String token,
     required ConversationRef conversation,
-  }) async {
-    final Map<String, dynamic> json = await _postJson(
-      '/chat/groups/dissolve',
-      token: token,
-      payload: <String, dynamic>{'conversation': conversation.toJson()},
-    );
-    return _parse(() => GroupProfile.fromJson(json));
-  }
+  }) => _postProfile(
+    '/chat/groups/dissolve',
+    token: token,
+    payload: <String, dynamic>{'conversation': conversation.toJson()},
+  );
 
   Future<NoticePage> listNotices({
     required String token,
@@ -305,6 +283,27 @@ class GroupApiClient {
     String path, {
     required String token,
     required Map<String, dynamic> payload,
+  }) async => (await _post(path, token: token, payload: payload)).body;
+
+  Future<GroupProfile> _postProfile(
+    String path, {
+    required String token,
+    required Map<String, dynamic> payload,
+  }) async {
+    final response = await _post(path, token: token, payload: payload);
+    final header = response.headers['x-bb-group-profile-revision'];
+    return _parse(
+      () => GroupProfile.fromJson(
+        response.body,
+        revision: header == null ? null : GroupProfileRevision.parse(header),
+      ),
+    );
+  }
+
+  Future<({Map<String, dynamic> body, Map<String, String> headers})> _post(
+    String path, {
+    required String token,
+    required Map<String, dynamic> payload,
   }) async {
     final response = await _http.send(
       'POST',
@@ -326,7 +325,7 @@ class GroupApiClient {
     try {
       final Object? decoded = jsonDecode(rawBody);
       if (decoded is Map<String, dynamic>) {
-        return decoded;
+        return (body: decoded, headers: response.headers);
       }
     } on FormatException {
       // Fall through.

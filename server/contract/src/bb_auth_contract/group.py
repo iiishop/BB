@@ -11,6 +11,8 @@ Name = Annotated[
     str, StringConstraints(strip_whitespace=True, min_length=1, max_length=80)
 ]
 Description = Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)]
+PROFILE_REVISION_HEADER = "X-BB-Group-Profile-Revision"
+PROFILE_REVISION_PATTERN = r"^[0-9]+\.[1-9][0-9]*\.[0-9]+$"
 
 
 class GroupNumberRequest(Wire):

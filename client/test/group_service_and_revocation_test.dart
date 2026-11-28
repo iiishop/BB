@@ -1456,6 +1456,52 @@ void main() {
   });
 
   test(
+    'versioned lookups accept late fresh reads and reject late old reads',
+    () async {
+      const groupNumber = '10000001';
+      final api = _DeferredGroupReads(baseUri: server.baseUri);
+      final groups = GroupService(api: api, session: session);
+      final emitted = <String>[];
+      final sub = groups.groupUpdates.listen(
+        (profile) => emitted.add(profile.name),
+      );
+      addTearDown(sub.cancel);
+
+      final original = await groupApi.findGroup(
+        token: 'token-1',
+        groupNumber: groupNumber,
+      );
+      GroupProfile profile(int revision, String name) => GroupProfile.fromJson({
+        ...original.toJson(),
+        'name': name,
+      }, revision: GroupProfileRevision.parse('1.$revision.1'));
+      final old = profile(1, 'Initial');
+      final renamed = profile(2, 'First rename');
+      final newest = profile(3, 'Final rename');
+
+      final firstReply = api.enqueue();
+      final earlier = groups.findGroup(groupNumber);
+      final secondReply = api.enqueue();
+      final later = groups.findGroup(groupNumber);
+      secondReply.complete(old);
+      expect(await later, same(old));
+      firstReply.complete(renamed);
+      expect(await earlier, same(renamed));
+
+      final thirdReply = api.enqueue();
+      final first = groups.findGroup(groupNumber);
+      final fourthReply = api.enqueue();
+      final second = groups.findGroup(groupNumber);
+      thirdReply.complete(newest);
+      expect(await first, same(newest));
+      fourthReply.complete(renamed);
+      expect(await second, same(newest));
+      await Future<void>.delayed(Duration.zero);
+      expect(emitted, ['Initial', 'First rename', 'Final rename']);
+    },
+  );
+
+  test(
     'exhausting overlapping reads preserves the last published profile',
     () async {
       const groupNumber = '10000001';

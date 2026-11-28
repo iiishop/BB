@@ -71,11 +71,21 @@ class GroupService {
     _latestAvatarTicket['$key|true'] = bump;
   }
 
-  void _emitGroupUpdate(GroupProfile profile, {required int ticket}) {
+  GroupProfile _emitGroupUpdate(
+    GroupProfile profile, {
+    required int ticket,
+    bool invalidateAvatar = false,
+  }) {
     final String convId = profile.conversation.id;
-    final int committed = _publishedProfiles[convId]?.ticket ?? 0;
-    if (ticket < committed) {
-      return;
+    final latest = _publishedProfiles[convId];
+    if (latest != null) {
+      final revision = profile.revision;
+      final publishedRevision = latest.profile.revision;
+      if (publishedRevision != null
+          ? revision == null || revision.compareTo(publishedRevision) < 0
+          : revision == null && ticket < latest.ticket) {
+        return latest.profile;
+      }
     }
     _publishedProfiles[convId] = (
       ticket: ticket,
@@ -84,13 +94,15 @@ class GroupService {
     );
     final String? previousVersion = _knownAvatarVersions[profile.groupNumber];
     _knownAvatarVersions[profile.groupNumber] = profile.avatarVersion;
-    if (previousVersion != null && previousVersion != profile.avatarVersion) {
-      _bumpAvatarInvalidation(profile.groupNumber);
-      unawaited(avatarCache.invalidate(_avatarKey(profile.groupNumber)));
+    if (previousVersion == null
+        ? invalidateAvatar
+        : previousVersion != profile.avatarVersion) {
+      unawaited(invalidateGroupAvatar(profile.groupNumber));
     }
     if (!_groupUpdates.isClosed) {
       _groupUpdates.add(profile);
     }
+    return profile;
   }
 
   Future<GroupProfile> _finalizeMutation(
@@ -100,10 +112,19 @@ class GroupService {
     required AuthIdentity captured,
     bool invalidateAvatar = false,
   }) async {
+    _ensureCurrent(captured);
     final String convId = profile.conversation.id;
+    final int commitTicket = ++_profileTicket;
+    if (profile.revision != null ||
+        _publishedProfiles[convId]?.profile.revision != null) {
+      return _emitGroupUpdate(
+        profile,
+        ticket: commitTicket,
+        invalidateAvatar: invalidateAvatar,
+      );
+    }
     final int? priorCommit = _latestMutationCommit[convId];
     final int currentEpoch = _publishedProfiles[convId]?.epoch ?? 0;
-    final int commitTicket = ++_profileTicket;
     _latestMutationCommit[convId] = commitTicket;
     if ((priorCommit != null && startTicket < priorCommit) ||
         currentEpoch > startEpoch) {
@@ -125,8 +146,7 @@ class GroupService {
       await invalidateGroupAvatar(profile.groupNumber);
     }
     _ensureCurrent(captured);
-    _emitGroupUpdate(profile, ticket: commitTicket);
-    return profile;
+    return _emitGroupUpdate(profile, ticket: commitTicket);
   }
 
   String _token(AuthIdentity? captured) {
@@ -246,6 +266,7 @@ class GroupService {
     String groupNumber, {
     required AuthIdentity? captured,
     required int overlapRetriesRemaining,
+    bool suppressDuplicate = false,
   }) async {
     final AuthIdentity identity = _requireIdentity(captured);
     if (!isValidGroupNumber(groupNumber)) {
@@ -260,13 +281,21 @@ class GroupService {
     _ensureCurrent(identity);
     final String convId = profile.conversation.id;
     final latest = _publishedProfiles[convId];
-    if (latest != null && requestTicket < latest.ticket) {
-      return latest.profile;
+    // SQL snapshot order, unlike request start order, can establish whether a
+    // late response actually observed a newer state. Older servers omit it.
+    if (profile.revision != null || latest?.profile.revision != null) {
+      return _emitGroupUpdate(profile, ticket: requestTicket);
+    }
+    if (latest != null) {
+      suppressDuplicate = suppressDuplicate || requestTicket < latest.ticket;
+      if (suppressDuplicate &&
+          jsonEncode(profile.toJson()) == jsonEncode(latest.profile.toJson())) {
+        return latest.profile;
+      }
     }
     if (latest != null && latest.epoch > startEpoch) {
-      // An earlier-started query published a snapshot for this group while
-      // this query was in flight; re-query so an overlapping query that read
-      // stale pre-update data earlier cannot overtake it.
+      // With older servers a conflicting response could have read either side
+      // of the publication. Resolve it with a bounded new read in either order.
       if (overlapRetriesRemaining == 0) {
         return latest.profile;
       }
@@ -275,6 +304,7 @@ class GroupService {
           groupNumber,
           captured: identity,
           overlapRetriesRemaining: overlapRetriesRemaining - 1,
+          suppressDuplicate: suppressDuplicate,
         );
       } on AuthFailure catch (failure) {
         if (failure == staleIdentity ||
@@ -285,8 +315,7 @@ class GroupService {
         return _publishedProfiles[convId]!.profile;
       }
     }
-    _emitGroupUpdate(profile, ticket: requestTicket);
-    return profile;
+    return _emitGroupUpdate(profile, ticket: requestTicket);
   }
 
   /// Resolves a group profile from a [GroupConversationItem] returned by
@@ -470,6 +499,10 @@ class GroupService {
     );
     _ensureCurrent(identity);
     await access?.revoke(identity.account, conversation.id);
+    _ensureCurrent(identity);
+    if (profile.revision != null) {
+      return _emitGroupUpdate(profile, ticket: ++_profileTicket);
+    }
     return profile;
   }
 

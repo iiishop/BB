@@ -5,10 +5,10 @@ import time
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
-
 from bb_server.app import create_app
-from bb_server.storage import SCHEMA_VERSION, migrate
+from bb_server.chat_store import create_group_conversation
+from bb_server.storage import SCHEMA_VERSION, connection, migrate
+from fastapi.testclient import TestClient
 
 
 def test_failed_migration_rolls_back_entire_schema(tmp_path, monkeypatch):
@@ -36,6 +36,52 @@ def test_newer_schema_is_never_downgraded(tmp_path):
         migrate(path)
     with sqlite3.connect(path) as db:
         assert db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION + 1
+
+
+def test_group_profile_migration_preserves_existing_v10_group(tmp_path, monkeypatch):
+    path = tmp_path / "v10-group.db"
+    owner = "10000001"
+    read_text = Path.read_text
+    with monkeypatch.context() as old_schema:
+        old_schema.setattr(
+            Path,
+            "read_text",
+            lambda p, **kwargs: (
+                ""
+                if p.name == "011_group_profile_revision.sql"
+                else read_text(p, **kwargs)
+            ),
+        )
+        migrate(path)
+    with connection(path, write=True) as db:
+        db.execute("PRAGMA user_version=10")
+        db.execute(
+            "INSERT INTO users(account,username,password) VALUES (?,'Owner','$argon2id$fixture')",
+            (owner,),
+        )
+        group = create_group_conversation(
+            db, owner, "10000002", "Existing", "Original description", "2026-11-27"
+        )
+    migrate(path)
+    with connection(path, write=True) as db:
+        db.execute(
+            "UPDATE chat_groups SET profile_revision=2 WHERE conversation_id=?",
+            (group,),
+        )
+    migrate(path)
+    with connection(path) as db:
+        row = db.execute(
+            """SELECT name,description,profile_revision,invite_settings_revision
+            FROM chat_groups WHERE conversation_id=?""",
+            (group,),
+        ).fetchone()
+        assert tuple(row) == ("Existing", "Original description", 2, 1)
+        membership = db.execute(
+            "SELECT active,membership_revision FROM chat_group_members WHERE account=?",
+            (owner,),
+        ).fetchone()
+        assert tuple(membership) == (1, 1)
+        assert db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
 
 
 def test_upgrade_step1_preserves_old_accounts_and_sessions(tmp_path):
@@ -141,6 +187,7 @@ def test_space_upgrade_preserves_v3_chat_and_rollback(tmp_path, monkeypatch):
         (8, "009_shared_chat.sql"),
         (8, "010_group_lifecycle.sql"),
         (9, "010_group_lifecycle.sql"),
+        (8, "011_group_profile_revision.sql"),
     ],
 )
 def test_v8_chat_migration_rollback_and_retry_preserve_live_wire_state(

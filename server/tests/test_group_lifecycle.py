@@ -5,17 +5,16 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier, Event
 
 import test_chat
-from bb_auth_contract.group import REMOTE
+from bb_auth_contract.group import PROFILE_REVISION_HEADER, REMOTE
+from bb_server.avatars import default_version, identicon
+from bb_server.chat import AuthorizedGroupFile
+from bb_server.storage import connection
 from PIL import Image
 from space_support import call as space_call
 from space_support import register
 from starlette.concurrency import run_in_threadpool
 from test_admin_http import free_port, running
 from test_shared_chat import group_send, shared_list
-
-from bb_server.avatars import default_version, identicon
-from bb_server.chat import AuthorizedGroupFile
-from bb_server.storage import connection
 
 chat = test_chat.chat
 
@@ -170,6 +169,69 @@ def test_empty_group_profile_directory_avatar_and_permissions(chat, monkeypatch)
     assert [entry["system"] for entry in history["items"]] == [
         {"type": "group.renamed", "old_name": "Solo", "new_name": "Renamed"}
     ]
+
+
+def test_group_profile_revision_orders_visible_state_and_preserves_the_body(chat):
+    api, _, (owner, peer, stranger) = chat
+
+    def snapshot(who, operation="find_group", **body):
+        reply = post(api, who, operation, **body)
+        assert reply.status_code == 200, reply.text
+        revision = tuple(map(int, reply.headers[PROFILE_REVISION_HEADER].split(".")))
+        payload = reply.json()
+        REMOTE[operation][2].model_validate(payload)
+        assert "profile_revision" not in payload
+        return revision, payload
+
+    creation = {
+        "operation_id": "profile-order",
+        "name": "Initial",
+        "invitees": [peer[0]],
+    }
+    before, group = snapshot(owner, "create_group", **creation)
+    target = {"conversation": group["conversation"]}
+    lookup = {"group_number": group["group_number"]}
+    peer_initial, _ = snapshot(peer, **lookup)
+    public_initial, _ = snapshot(stranger, **lookup)
+
+    settings, _ = snapshot(owner, "update_group", allow_member_invites=True, **target)
+    assert settings > before
+    assert snapshot(stranger, **lookup)[0] == public_initial
+    assert snapshot(peer, **lookup)[0] == peer_initial
+    act(api, peer, notice(api, peer, "group_invitation"), "accept")
+    joined, peer_profile = snapshot(peer, **lookup)
+    assert joined > peer_initial and peer_profile["can_invite"]
+    assert snapshot(stranger, **lookup)[0] == public_initial
+
+    renamed, _ = snapshot(
+        owner, "update_group", name="Final", description="new", **target
+    )
+    assert renamed > settings
+    assert snapshot(owner, "update_group", name="Final", **target)[0] == renamed
+    replay, replayed = snapshot(owner, "create_group", **creation)
+    assert replay == renamed and replayed["name"] == "Final"
+    with_avatar, _ = snapshot(owner, "update_group", avatar=avatar(), **target)
+    reset, _ = snapshot(owner, "update_group", reset_avatar=True, **target)
+    assert reset > with_avatar > renamed
+
+    peer_renamed, _ = snapshot(peer, **lookup)
+    left, left_profile = snapshot(peer, "leave_group", **target)
+    assert left > peer_renamed and left_profile["role"] is None
+    call(api, owner, "invite_to_group", accounts=[peer[0]], **target)
+    invitation = next(
+        item
+        for item in call(api, peer, "list_notices", filter="pending")["items"]
+        if item["type"] == "group_invitation"
+    )
+    act(api, peer, invitation, "accept")
+    rejoined, _ = snapshot(peer, **lookup)
+    assert rejoined > left
+    assert snapshot(owner, "remove_group_member", account=peer[0], **target)[0] == reset
+    assert snapshot(peer, **lookup)[0] > rejoined
+
+    dissolved, _ = snapshot(owner, "dissolve_group", **target)
+    assert dissolved > reset
+    assert snapshot(owner, "dissolve_group", **target)[0] == dissolved
 
 
 def test_crossed_actions_are_atomic_and_authorized(chat):
