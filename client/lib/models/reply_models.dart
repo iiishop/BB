@@ -1,4 +1,33 @@
 import 'chat_models.dart';
+import 'mention_models.dart';
+
+class ReplyPage<T> {
+  const ReplyPage({required this.items, required this.nextCursor});
+
+  final List<T> items;
+  final int? nextCursor;
+
+  factory ReplyPage.fromJson(Object? json, T Function(Object?) decode) {
+    if (json is! Map<String, dynamic> || json['items'] is! List) {
+      throw const FormatException('invalid reply page');
+    }
+    final Object? cursor = json['next_cursor'];
+    if (!json.containsKey('next_cursor') ||
+        (cursor != null &&
+            (cursor is! int || !isValidPositivePosition(cursor)))) {
+      throw const FormatException('invalid reply cursor');
+    }
+    return ReplyPage(
+      items: List<T>.unmodifiable((json['items'] as List).map(decode)),
+      nextCursor: cursor as int?,
+    );
+  }
+
+  Map<String, dynamic> toJson(Map<String, dynamic> Function(T) encode) => {
+    'items': items.map(encode).toList(),
+    'next_cursor': nextCursor,
+  };
+}
 
 /// A direct reply item returned by `/chat/replies/unread` and `/chat/replies/direct`.
 ///

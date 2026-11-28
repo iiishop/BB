@@ -721,11 +721,13 @@ class _ChatComposerState extends State<ChatComposer> {
             ? await widget.shared!.sendGroupBodyOutcome(
                 conversation: widget.conversation!,
                 content: outcome.part!,
+                mentionedAccounts: outcome.mentionedAccounts,
                 operationId: operationId,
               )
             : await widget.chat.sendBody(
                 targetAccount: widget.peerAccount,
                 content: outcome.part!,
+                mentionedAccounts: outcome.mentionedAccounts,
                 operationId: operationId,
               );
       } else if (outcome.attachment != null) {
@@ -750,6 +752,7 @@ class _ChatComposerState extends State<ChatComposer> {
                   failure: error,
                   part: outcome.part,
                   attachment: outcome.attachment,
+                  mentionedAccounts: outcome.mentionedAccounts,
                 )
               : outcome,
         );

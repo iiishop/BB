@@ -7,6 +7,7 @@ import 'dart:typed_data' show Uint8List;
 import '../config/media_policy.dart';
 import '../models/auth_models.dart';
 import '../models/chat_models.dart';
+import '../models/mention_models.dart';
 import 'auth_session.dart';
 import 'install_safety_gate.dart';
 import 'chat_api_client.dart';
@@ -67,6 +68,7 @@ class SendOutcome {
     this.failure,
     this.part,
     this.attachment,
+    this.mentionedAccounts = const <String>[],
   });
 
   final String operationId;
@@ -78,6 +80,9 @@ class SendOutcome {
 
   /// Original attachment (attachment sends only) for a retry.
   final OutgoingAttachment? attachment;
+
+  /// Original unique group mention accounts (body sends only) for a retry.
+  final List<String> mentionedAccounts;
 
   bool get succeeded => message != null;
 }
@@ -1578,13 +1583,13 @@ class ChatService {
     String? operationId,
     ExpectedIdentity? expectedIdentity,
   }) async {
-    final recipients = mentionedAccounts.toSet().toList()..sort();
-    if (recipients.isNotEmpty &&
-        (!isGroupId(targetAccount) ||
-            recipients.length > 100 ||
-            !recipients.every(isValidAccount))) {
-      throw _validation('提及需要有效的群成员账号');
-    }
+    validateMentionAccounts(
+      mentionedAccounts,
+      isGroup: isGroupId(targetAccount),
+    );
+    final List<String> frozenMentions = List<String>.unmodifiable(
+      mentionedAccounts.toList()..sort(),
+    );
     if (replyToMessageId != null && !isValidMessageId(replyToMessageId)) {
       throw _validation('reply_to_message_id 必须是有效的消息 ID');
     }
@@ -1614,7 +1619,7 @@ class ChatService {
     final String sourceDigest = _digestOfBody(
       targetAccount,
       cleaned,
-      recipients,
+      mentionedAccounts: frozenMentions,
       replyToMessageId: replyToMessageId,
     );
     ChatOperationRecord? record = await ledger.operation(account, opId);
@@ -1635,6 +1640,7 @@ class ChatService {
           operationId: opId,
           message: record.message,
           part: cleaned,
+          mentionedAccounts: frozenMentions,
         );
       }
       if (record.state == 'failed' && record.errorStatus == 409) {
@@ -1690,7 +1696,7 @@ class ChatService {
           state: 'prepared',
           sourceDigest: sourceDigest,
           parts: _storedParts(cleaned, mediaIds),
-          mentionedAccounts: recipients,
+          mentionedAccounts: frozenMentions,
           replyToMessageId: replyToMessageId,
           resolvedMediaIds: List<String>.from(mediaIds),
           attempts: (record?.attempts ?? 0) + 1,
@@ -1709,7 +1715,7 @@ class ChatService {
       state: 'prepared',
       sourceDigest: sourceDigest,
       parts: _storedParts(cleaned, mediaIds),
-      mentionedAccounts: recipients,
+      mentionedAccounts: frozenMentions,
       replyToMessageId: replyToMessageId,
       resolvedMediaIds: mediaIds,
       attempts: (record?.attempts ?? 0) + 1,
@@ -1727,6 +1733,7 @@ class ChatService {
       record,
       () => _submitBody(captured, account, record!, cleaned, mediaIds),
       parts: cleaned,
+      mentionedAccounts: frozenMentions,
     );
     await requireSameGroupMembership(captured, member);
     return outcome;
@@ -1755,6 +1762,7 @@ class ChatService {
     Future<SendOutcome> Function() submit, {
     List<OutgoingPart>? parts,
     OutgoingAttachment? attachment,
+    List<String> mentionedAccounts = const <String>[],
   }) async {
     try {
       return await submit();
@@ -1771,6 +1779,7 @@ class ChatService {
           message: latest!.message!.withOperationId(record.operationId),
           part: parts,
           attachment: attachment,
+          mentionedAccounts: mentionedAccounts,
         );
       }
       rethrow;
@@ -1784,7 +1793,7 @@ class ChatService {
     required String targetAccount,
     required String clientNonce,
     required List<MessagePart> content,
-    required List<String> mentionedAccounts,
+    List<String> mentionedAccounts = const <String>[],
     String? replyToMessageId,
   }) async {
     for (int attempt = 0; ; attempt++) {
@@ -1938,6 +1947,7 @@ class ChatService {
           operationId: record.operationId,
           message: resolved.message,
           part: content,
+          mentionedAccounts: record.mentionedAccounts,
         );
       }
     }
@@ -1965,6 +1975,7 @@ class ChatService {
         operationId: record.operationId,
         message: message,
         part: content,
+        mentionedAccounts: record.mentionedAccounts,
       );
     } on AuthFailure catch (failure) {
       if (_isUncertain(failure)) {
@@ -1985,6 +1996,7 @@ class ChatService {
             operationId: record.operationId,
             message: resolved.message,
             part: content,
+            mentionedAccounts: record.mentionedAccounts,
           );
         }
         // Identical retry with the same nonce: at most one message commits.
@@ -2005,6 +2017,7 @@ class ChatService {
             operationId: record.operationId,
             message: message,
             part: content,
+            mentionedAccounts: record.mentionedAccounts,
           );
         } on AuthFailure catch (again) {
           if (_isUncertain(again)) {
@@ -2356,6 +2369,13 @@ class ChatService {
     String? replyToMessageId,
     String? operationSeed,
   }) async {
+    validateMentionAccounts(
+      mentionedAccounts,
+      isGroup: isGroupId(targetAccount),
+    );
+    final List<String> frozenMentions = List<String>.unmodifiable(
+      mentionedAccounts,
+    );
     final AuthIdentity? captured = session.identity;
     if (captured == null) {
       throw unauthenticated;
@@ -2373,13 +2393,14 @@ class ChatService {
           operationId: '$seed-b',
           failure: unauthenticated,
           part: cleaned,
+          mentionedAccounts: frozenMentions,
         );
       } else {
         try {
           bodyOutcome = await sendBody(
             targetAccount: targetAccount,
             content: cleaned,
-            mentionedAccounts: mentionedAccounts,
+            mentionedAccounts: frozenMentions,
             replyToMessageId: replyToMessageId,
             operationId: '$seed-b',
           );
@@ -2388,6 +2409,7 @@ class ChatService {
             operationId: '$seed-b',
             failure: failure,
             part: cleaned,
+            mentionedAccounts: frozenMentions,
           );
         }
       }
@@ -2456,6 +2478,7 @@ class ChatService {
         operationId: record.operationId,
         message: resolved.message,
         part: content,
+        mentionedAccounts: record.mentionedAccounts,
       );
     }
     await _markUncertain(account, record);
@@ -3269,8 +3292,8 @@ class ChatService {
 
   String _digestOfBody(
     String targetAccount,
-    List<OutgoingPart> content,
-    List<String> mentionedAccounts, {
+    List<OutgoingPart> content, {
+    List<String> mentionedAccounts = const <String>[],
     String? replyToMessageId,
   }) {
     final List<Map<String, dynamic>> canonical = <Map<String, dynamic>>[

@@ -516,13 +516,23 @@ class ChatV2Router {
           context.identity,
           context.binding,
           (_) async {
-            final page = await service.sharedConversations.listUnreadChatAlerts(
+            final page = await service.sharedConversations.listAlertSummary(
               afterConversationId:
                   args.values['after_conversation_id'] as String?,
               limit: args.values['limit'] as int,
               captured: context.identity,
             );
-            return page.toJson((ChatAlertSummary item) => item.toToolJson());
+            return <String, dynamic>{
+              'items': [
+                for (final item in page.items)
+                  <String, dynamic>{
+                    'conversation_id': item.conversationId,
+                    'display_name': item.displayName,
+                    ...item.counts.toJson(),
+                  },
+              ],
+              'next_cursor': page.nextCursor,
+            };
           },
         );
       case '/v2/chat/list_unread_mentions':
@@ -532,13 +542,13 @@ class ChatV2Router {
           context.identity,
           context.binding,
           (_) async {
-            final page = await service.sharedConversations.listUnreadMentions(
-              conversationId: args.values['conversation_id'] as String,
+            final page = await service.sharedConversations.listGroupMentions(
+              conversation: ConversationRef.group(args.values['conversation_id'] as String),
               beforePosition: args.values['before_position'] as int?,
               limit: args.values['limit'] as int,
               captured: context.identity,
             );
-            return page.toJson((MentionMessage item) => item.toJson());
+            return page.toJson();
           },
         );
       case '/v2/chat/list_unread_replies':
@@ -956,7 +966,7 @@ class ChatV2Router {
           nullable: true,
         );
         final cursor = args.values['after_conversation_id'] as String?;
-        if (cursor != null && !isValidAlertConversationId(cursor)) {
+        if (cursor != null && !isValidConversationId(cursor)) {
           throw _validation('after_conversation_id');
         }
         args.values['limit'] = request.optionalInteger('limit', 1, 100) ?? 50;
@@ -973,7 +983,7 @@ class ChatV2Router {
         args.values['limit'] = request.optionalInteger('limit', 1, 100) ?? 50;
       case '/v2/chat/list_unread_replies':
         final String conversationId = request.string('conversation_id')!;
-        if (!isValidAlertConversationId(conversationId)) {
+        if (!isValidConversationId(conversationId)) {
           throw _validation('conversation_id');
         }
         args.values['conversation_id'] = conversationId;

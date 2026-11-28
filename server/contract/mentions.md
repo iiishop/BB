@@ -60,8 +60,8 @@ identity/result 回执。两个查询工具没有读状态副作用。可视确�
 
 ## Dart 接线
 
-`SharedConversationService` 提供 `listUnreadChatAlerts`、`listConversationAlerts`、
-`markChatAlertsSeen` 和 `listUnreadMentions`。调用方可传入捕获的 `AuthIdentity` 来约束
+`SharedConversationService` 提供 `listAlertSummary`、`listConversationAlerts`、
+`markConversationAlertsSeen` 和 `listGroupMentions`。调用方可传入捕获的 `AuthIdentity` 来约束
 批量可视确认只在原账号下提交。群聊发送使用 `ChatService.sendBody` 或
 `ChatService.sendComposed`，`targetAccount` 使用群会话 ID，`mentionedAccounts` 传所选账号。
 失败重试时保留原 operation ID 和同一账号集合。

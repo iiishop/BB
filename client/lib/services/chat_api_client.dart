@@ -113,6 +113,10 @@ class ChatApiClient {
         message: '正文不能为空',
       );
     }
+    validateMentionAccounts(
+      mentionedAccounts,
+      isGroup: conversation?.isGroup ?? false,
+    );
     final _RawResponse response = await _send(
       'POST',
       _query('/messages'),
@@ -123,138 +127,57 @@ class ChatApiClient {
         'client_nonce': clientNonce,
         'reply_to_message_id': ?replyToMessageId,
         'content': content.map((MessagePart p) => p.toJson()).toList(),
-        if (mentionedAccounts.isNotEmpty) 'mentioned_accounts': mentionedAccounts,
+        if (mentionedAccounts.isNotEmpty)
+          'mentioned_accounts': mentionedAccounts,
       },
     );
     _requireSuccess(response, const <int>{200});
     return ChatMessage.fromJson(_decodeMessages(response));
   }
 
-  Future<ChatAlertPage<ChatAlertSummary, String>> listUnreadChatAlerts({
-    required String token,
-    String? afterConversationId,
-    int limit = 50,
-  }) async {
-    final data = await _alertRequest('/chat/alerts/summary', token, {
-      'after_conversation_id': ?afterConversationId,
-      'limit': limit,
-    });
-    try {
-      return ChatAlertPage.fromJson(
-        data,
-        ChatAlertSummary.fromJson,
-        isValidAlertConversationId,
-      );
-    } on FormatException {
-      throw upstreamMalformed;
-    }
-  }
-
-  Future<ChatAlertPage<MentionMessage, int>> listUnreadMentions({
+  Future<ReplyPage<UnreadReply>> listUnreadReplies({
     required String token,
     required String conversationId,
     int? beforePosition,
     int limit = 50,
   }) async {
-    final data = await _alertRequest('/chat/mentions/list', token, {
+    final data = await _replyRequest('/chat/replies/unread', token, {
       'conversation_id': conversationId,
       'before_position': ?beforePosition,
       'limit': limit,
     });
     try {
-      return ChatAlertPage.fromJson(
-        data,
-        MentionMessage.fromJson,
-        (position) => position > 0,
-      );
-    } on FormatException {
-      throw upstreamMalformed;
-    }
-  }
-
-  Future<ChatAlertPage<UnreadChatAlert, int>> listConversationAlerts({
-    required String token,
-    required String conversationId,
-    int? beforePosition,
-    int limit = 50,
-  }) async {
-    final data = await _alertRequest('/chat/alerts/list', token, {
-      'conversation_id': conversationId,
-      'before_position': ?beforePosition,
-      'limit': limit,
-    });
-    try {
-      return ChatAlertPage.fromJson(
-        data,
-        UnreadChatAlert.fromJson,
-        (position) => position > 0,
-      );
-    } on FormatException {
-      throw upstreamMalformed;
-    }
-  }
-
-  Future<AlertCounts> markChatAlertsSeen({
-    required String token,
-    required String conversationId,
-    required List<String> messageIds,
-  }) async {
-    final data = await _alertRequest('/chat/alerts/mark_seen', token, {
-      'conversation_id': conversationId,
-      'message_ids': messageIds,
-    });
-    try {
-      return AlertCounts.fromJson(data);
-    } on FormatException {
-      throw upstreamMalformed;
-    }
-  }
-
-  Future<ChatAlertPage<UnreadReply, int>> listUnreadReplies({
-    required String token,
-    required String conversationId,
-    int? beforePosition,
-    int limit = 50,
-  }) async {
-    final data = await _alertRequest('/chat/replies/unread', token, {
-      'conversation_id': conversationId,
-      'before_position': ?beforePosition,
-      'limit': limit,
-    });
-    try {
-      return ChatAlertPage.fromJson(
+      return ReplyPage.fromJson(
         data,
         UnreadReply.fromJson,
-        (position) => position > 0,
       );
     } on FormatException {
       throw upstreamMalformed;
     }
   }
 
-  Future<ChatAlertPage<ReplyMessage, int>> listDirectReplies({
+  Future<ReplyPage<ReplyMessage>> listDirectReplies({
     required String token,
     required String originalMessageId,
     int? beforePosition,
     int limit = 50,
   }) async {
-    final data = await _alertRequest('/chat/replies/direct', token, {
+    final data = await _replyRequest('/chat/replies/direct', token, {
       'original_message_id': originalMessageId,
       'before_position': ?beforePosition,
       'limit': limit,
     });
     try {
-      return ChatAlertPage.fromJson(
+      return ReplyPage.fromJson(
         data,
         ReplyMessage.fromJson,
-        (position) => position > 0,
       );
     } on FormatException {
       throw upstreamMalformed;
     }
   }
 
-  Future<Map<String, dynamic>> _alertRequest(
+  Future<Map<String, dynamic>> _replyRequest(
     String path,
     String token,
     Map<String, dynamic> payload,
@@ -368,6 +291,152 @@ class ChatApiClient {
     final _RawResponse response = await _send('GET', url, token: token);
     _requireSuccess(response, const <int>{200});
     return SharedConversationPage.fromJson(_decodeMessages(response));
+  }
+
+  /// Summary of direct and group conversations that currently have unread
+  /// alerts for the viewer (`POST /chat/alerts/summary`).
+  Future<ClientAlertSummaryPage> alertSummary({
+    required String token,
+    String? afterConversationId,
+    int limit = mentionDefaultPageLimit,
+  }) async {
+    if (afterConversationId != null &&
+        afterConversationId.isNotEmpty &&
+        !isValidConversationId(afterConversationId)) {
+      throw const AuthFailure(
+        status: 422,
+        code: 'validation_error',
+        message: '无效的会话游标',
+      );
+    }
+    if (limit < 1 || limit > mentionMaxPageLimit) {
+      throw const AuthFailure(
+        status: 422,
+        code: 'validation_error',
+        message: 'limit 必须在 1 到 100 之间',
+      );
+    }
+    final _RawResponse response = await _send(
+      'POST',
+      _query(alertSummaryPath),
+      token: token,
+      payload: <String, dynamic>{
+        if (afterConversationId != null && afterConversationId.isNotEmpty)
+          'after_conversation_id': afterConversationId,
+        if (limit != mentionDefaultPageLimit) 'limit': limit,
+      },
+    );
+    _requireSuccess(response, const <int>{200});
+    return ClientAlertSummaryPage.fromJson(_decode(response.body));
+  }
+
+  /// Reverse-ordered page of unread alerts in one direct or group
+  /// conversation (`POST /chat/alerts/list`).
+  Future<AlertPage> listAlerts({
+    required String token,
+    required ConversationRef conversation,
+    int? beforePosition,
+    int limit = mentionDefaultPageLimit,
+  }) async {
+    if (beforePosition != null && !isValidPositivePosition(beforePosition)) {
+      throw const AuthFailure(
+        status: 422,
+        code: 'validation_error',
+        message: 'before_position 无效',
+      );
+    }
+    if (limit < 1 || limit > mentionMaxPageLimit) {
+      throw const AuthFailure(
+        status: 422,
+        code: 'validation_error',
+        message: 'limit 必须在 1 到 100 之间',
+      );
+    }
+    final _RawResponse response = await _send(
+      'POST',
+      _query(alertListPath),
+      token: token,
+      payload: <String, dynamic>{
+        'conversation_id': conversation.id,
+        'before_position': ?beforePosition,
+        if (limit != mentionDefaultPageLimit) 'limit': limit,
+      },
+    );
+    _requireSuccess(response, const <int>{200});
+    return AlertPage.fromJson(_decode(response.body));
+  }
+
+  /// Explicitly marks foreground-visible alert messages as seen by ID
+  /// (`POST /chat/alerts/mark_seen`), clearing both mention and reply alerts
+  /// on each submitted message ID.
+  Future<AlertCounts> markAlertsSeen({
+    required String token,
+    required ConversationRef conversation,
+    required List<String> messageIds,
+  }) async {
+    if (messageIds.isEmpty ||
+        messageIds.length > mentionMaxPageLimit ||
+        messageIds.any((String id) => !isValidMentionMessageId(id))) {
+      throw const AuthFailure(
+        status: 422,
+        code: 'validation_error',
+        message: 'message_ids 必须包含 1 到 100 个有效消息 ID',
+      );
+    }
+    final _RawResponse response = await _send(
+      'POST',
+      _query(alertMarkSeenPath),
+      token: token,
+      payload: <String, dynamic>{
+        'conversation_id': conversation.id,
+        'message_ids': messageIds,
+      },
+    );
+    _requireSuccess(response, const <int>{200});
+    return AlertCounts.fromJson(_decode(response.body));
+  }
+
+  /// Reverse-ordered page of unread mentions in one active group
+  /// (`POST /chat/mentions/list`).
+  Future<MentionPage> listMentions({
+    required String token,
+    required ConversationRef conversation,
+    int? beforePosition,
+    int limit = mentionDefaultPageLimit,
+  }) async {
+    if (!conversation.isGroup) {
+      throw const AuthFailure(
+        status: 422,
+        code: 'validation_error',
+        message: '需要群会话 ID',
+      );
+    }
+    if (beforePosition != null && !isValidPositivePosition(beforePosition)) {
+      throw const AuthFailure(
+        status: 422,
+        code: 'validation_error',
+        message: 'before_position 无效',
+      );
+    }
+    if (limit < 1 || limit > mentionMaxPageLimit) {
+      throw const AuthFailure(
+        status: 422,
+        code: 'validation_error',
+        message: 'limit 必须在 1 到 100 之间',
+      );
+    }
+    final _RawResponse response = await _send(
+      'POST',
+      _query(mentionListPath),
+      token: token,
+      payload: <String, dynamic>{
+        'conversation_id': conversation.id,
+        'before_position': ?beforePosition,
+        if (limit != mentionDefaultPageLimit) 'limit': limit,
+      },
+    );
+    _requireSuccess(response, const <int>{200});
+    return MentionPage.fromJson(_decode(response.body));
   }
 
   /// One page of a pair's history.

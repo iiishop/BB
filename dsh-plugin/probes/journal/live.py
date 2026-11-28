@@ -163,7 +163,7 @@ def record_sources():
     paths += [repo / "dsh-plugin/build_bundle.py", repo / "dsh-plugin/uv.lock"]
     paths += list((repo / "dsh-plugin/probes/product").glob("*.mjs"))
     paths += [repo / "server/uv.lock", repo / "server/contract/chat-v2-openapi.json"]
-    if os.environ.get("BB_PRODUCT_CASES") == "groups":
+    if os.environ.get("BB_PRODUCT_CASES") in {"groups", "replies"}:
         paths += [
             repo / relative
             for relative in (
@@ -177,6 +177,17 @@ def record_sources():
                 "server/contract/src/bb_auth_contract/chat_alerts.py",
                 "server/contract/src/bb_auth_contract/mentions.py",
                 "client/lib/models/mention_models.dart",
+            )
+        ]
+    if os.environ.get("BB_PRODUCT_CASES") == "replies":
+        paths += [
+            repo / relative
+            for relative in (
+                "client/lib/models/chat_models.dart",
+                "client/lib/models/reply_models.dart",
+                "server/src/bb_server/chat_replies.py",
+                "server/src/bb_server/migrations/013_chat_replies.sql",
+                "server/contract/src/bb_auth_contract/replies.py",
             )
         ]
     if os.environ.get("BB_PRODUCT_CASES") == "profile-cover":
