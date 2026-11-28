@@ -765,4 +765,33 @@ void main() {
     );
     expect(tester.takeException(), isNull);
   });
+
+  /// 2026-11-28 现场反馈：预览还没刷出来的那一行，未读数字的胶囊被拉成整行宽。
+  /// 胶囊只该按标签撑开；把整行宽度当 maxWidth 交给它，`Container` 的
+  /// `alignment: center` 会把胶囊铺满可用宽度。
+  testWidgets('badge keeps the pill width instead of the row width', (
+    WidgetTester tester,
+  ) async {
+    chat = buildChat(<String, List<ChatMessage>>{
+      bob.account: <ChatMessage>[
+        _message(
+          id: 'b1',
+          position: 1,
+          sender: bob.account,
+          target: _self.account,
+        ),
+      ],
+    });
+    await pumpAt(tester);
+
+    final Finder label = find.byKey(UsersListView.unreadKey(bob.account));
+    final Finder pill = find
+        .ancestor(of: label, matching: find.byType(Container))
+        .first;
+    expect(
+      tester.getSize(pill).width,
+      lessThan(60),
+      reason: '一条未读的胶囊应当只有标签那么宽，不该铺满整行',
+    );
+  });
 }

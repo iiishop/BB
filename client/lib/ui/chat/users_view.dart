@@ -1339,10 +1339,12 @@ class _UnreadBadge extends StatelessWidget {
     return Semantics(
       label: '$count 条未读',
       excludeSemantics: true,
+      // 不要把 `alignment` 交给 Container：那会让它撑满父级给的 maxWidth，
+      // 未读胶囊就会被拉成整行宽（2026-11-28 现场）。靠对称 padding + minWidth
+      // 撑出胶囊，宽度只跟着标签走，被外层限宽时收紧而不是溢出。
       child: Container(
         constraints: const BoxConstraints(minWidth: 20, minHeight: 20),
-        padding: const EdgeInsets.symmetric(horizontal: 6),
-        alignment: Alignment.center,
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
         decoration: BoxDecoration(
           color: AppColors.accentDeep,
           borderRadius: BorderRadius.circular(10),
@@ -1350,6 +1352,8 @@ class _UnreadBadge extends StatelessWidget {
         child: Text(
           label,
           key: UsersListView.unreadKey(account),
+          maxLines: 1,
+          overflow: TextOverflow.clip,
           style: const TextStyle(
             color: AppColors.surface,
             fontSize: 11,
