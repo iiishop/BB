@@ -1760,13 +1760,23 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     final Duration duration = reducedMotion
         ? Duration.zero
         : const Duration(milliseconds: 220);
-    final double? startPixels = _scrollController.hasClients
-        ? _scrollController.position.pixels
-        : null;
+    if (!_scrollController.hasClients) {
+      return false;
+    }
+    final int? targetPosition = _messages
+        .where((message) => message.id == messageId)
+        .firstOrNull
+        ?.position;
+    if (targetPosition == null) {
+      return false;
+    }
+    final double startPixels = _scrollController.position.pixels;
     _suppressViewportAlertCheck = true;
+    double? lower;
+    double? upper;
     bool landed = false;
     try {
-      for (int attempt = 0; attempt < 8; attempt += 1) {
+      for (int attempt = 0; attempt < 24; attempt += 1) {
         if (!mounted || epoch != _pageEpoch || _scopeId != scope) {
           return false;
         }
@@ -1797,24 +1807,38 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
         if (!_scrollController.hasClients) {
           return false;
         }
-        final int idx = _messages.indexWhere(
-          (ChatMessage m) => m.id == messageId,
-        );
-        if (idx < 0) {
+        final int? visiblePosition = _messages
+            .where((message) => _messageIsInViewport(message.id))
+            .firstOrNull
+            ?.position;
+        if (visiblePosition == null) {
           return false;
         }
-        final double maxExtent = _scrollController.position.maxScrollExtent;
-        final double fraction = _messages.length <= 1
-            ? 0.0
-            : (idx / (_messages.length - 1)).clamp(0.0, 1.0);
+        final ScrollPosition position = _scrollController.position;
+        // The rows have different heights and the lazy viewport estimates its
+        // extent. Use a measured visible row to eliminate half the remaining
+        // range instead of repeatedly guessing by the target's list index.
+        if (visiblePosition < targetPosition) {
+          lower = position.pixels;
+        } else {
+          upper = position.pixels;
+        }
+        final double minOffset = position.minScrollExtent;
+        final double maxOffset = position.maxScrollExtent;
+        final double low = (lower ?? minOffset).clamp(minOffset, maxOffset);
+        final double high = (upper ?? maxOffset).clamp(minOffset, maxOffset);
+        final double next = (low + high) / 2;
+        if (high - low <= 1 || (next - position.pixels).abs() <= 0.5) {
+          return false;
+        }
         _scrollEpoch += 1;
         _pinBottomOnKeyboard = false;
-        _scrollController.jumpTo(maxExtent * fraction);
+        _scrollController.jumpTo(next);
       }
       return false;
     } finally {
       if (mounted && epoch == _pageEpoch && _scopeId == scope) {
-        if (!landed && startPixels != null && _scrollController.hasClients) {
+        if (!landed && _scrollController.hasClients) {
           final ScrollPosition position = _scrollController.position;
           _scrollController.jumpTo(
             startPixels.clamp(
@@ -1854,7 +1878,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     }
     // The list is chronological, so the top edge is where the past lives.
     // `_loadOlder` guards itself against repeat entry.
-    if (notification is ScrollUpdateNotification &&
+    if (!_jumpingToAlert &&
+        notification is ScrollUpdateNotification &&
         notification.depth == 0 &&
         notification.metrics.pixels <= 240) {
       unawaited(_loadOlder());
