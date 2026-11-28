@@ -1080,7 +1080,7 @@ void main() {
       await _settle(tester);
       expect(server.group1AllowMemberInvites, isTrue);
 
-      await tester.tap(find.text('查看成员'));
+      await tester.tap(find.byKey(GroupProfilePanel.membersCardKey));
       await _settle(tester);
       expect(
         find.byKey(const ValueKey<String>('remove-member-10000002')),
