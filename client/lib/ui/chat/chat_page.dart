@@ -19,12 +19,12 @@ import '../../services/group_service.dart';
 import '../../services/media_stream_proxy.dart';
 import '../../services/presence_directory.dart';
 import '../../services/profile_service.dart';
-import '../widgets/profile_avatar.dart';
 import '../profile/group_profile_host.dart';
 import '../profile/profile_details.dart';
 import 'chat_avatars.dart';
 import 'chat_composer.dart';
 import 'chat_format.dart';
+import 'chat_header.dart';
 import 'chat_system_entry.dart';
 import 'clipboard_paste.dart';
 import 'media_actions.dart';
@@ -139,17 +139,18 @@ class ChatPage extends StatefulWidget {
   static const Key listKey = Key('chat-message-list');
   static const Key errorKey = Key('chat-error');
   static const Key emptyKey = Key('chat-empty');
-  static const Key refreshKey = Key('chat-refresh');
+  static const Key refreshKey = ChatHeader.refreshKey;
   static const Key newMessagesKey = Key('chat-new-messages');
   static const Key groupTimeKey = Key('chat-group-time');
-  static const Key headerNameKey = Key('chat-header-name');
-  static const Key headerStatusKey = Key('chat-header-status');
-  static const Key headerProfileKey = Key('chat-header-profile');
+  static const Key headerNameKey = ChatHeader.headerNameKey;
+  static const Key headerStatusKey = ChatHeader.headerStatusKey;
+  static const Key headerProfileKey = ChatHeader.headerProfileKey;
+  static const Key headerGroupCountKey = ChatHeader.headerGroupCountKey;
 
   /// Header metrics taken from the annotated reference: a 48 px avatar with
   /// the name over the live presence, inside a 72 px tall bar.
-  static const double headerHeight = 72;
-  static const double headerAvatarSize = 48;
+  static const double headerHeight = ChatHeader.headerHeight;
+  static const double headerAvatarSize = ChatHeader.headerAvatarSize;
   static const Key keyboardBodyKey = Key('chat-keyboard-body');
   static const Key mediaTransitionKey = Key('chat-media-transition');
 
@@ -233,6 +234,11 @@ class _ChatPageState extends State<ChatPage> {
   bool _revoked = false;
   int? _capturedEpoch;
   GroupProfile? _liveGroupProfile;
+  GroupMemberCounts? _groupCounts;
+  int _groupCountsTicket = 0;
+  int _groupCountsChangeTick = 0;
+  bool _groupCountsLoading = false;
+  bool _groupCountsInFlight = false;
   StreamSubscription<GroupProfile>? _groupUpdatesSub;
   int _groupAvatarTicket = 0;
   Uint8List? _groupAvatarBytes;
@@ -270,15 +276,6 @@ class _ChatPageState extends State<ChatPage> {
   /// It keeps the old 860px centred column (860 minus the list's 2x16 padding)
   /// while the scroll viewport itself stays as wide as the chat pane.
   static const double _readingColumnMaxWidth = 860 - AppSpacing.md * 2;
-
-  /// Title padding: right after the back arrow (or the fold switch), or the
-  /// page gutter when the split pane has no navigation control at all.
-  double get _titleInset {
-    if (widget.leading != null) {
-      return 8;
-    }
-    return widget.embedded ? 16 : 8;
-  }
 
   bool get _isGroup => widget.group != null;
 
@@ -383,6 +380,9 @@ class _ChatPageState extends State<ChatPage> {
       return;
     }
     _revoked = true;
+    _groupCountsTicket += 1;
+    _groupCountsLoading = false;
+    _groupCountsInFlight = false;
     _pollTimer?.cancel();
     for (final MediaStreamHandle handle in List<MediaStreamHandle>.of(
       _streamHandles,
@@ -437,6 +437,7 @@ class _ChatPageState extends State<ChatPage> {
         profile.avatarVersion != previousVersion) {
       unawaited(_loadGroupAvatar());
     }
+    unawaited(_refreshGroupCounts(showLoading: false));
   }
 
   Future<void> _loadGroupAvatar() async {
@@ -525,6 +526,11 @@ class _ChatPageState extends State<ChatPage> {
       _pageEpoch += 1;
       _revoked = false;
       _liveGroupProfile = null;
+      _groupCounts = null;
+      _groupCountsTicket += 1;
+      _groupCountsChangeTick = 0;
+      _groupCountsLoading = false;
+      _groupCountsInFlight = false;
       _groupAvatarTicket += 1;
       _groupAvatarBytes = null;
       _lookupGeneration.clear();
@@ -568,10 +574,20 @@ class _ChatPageState extends State<ChatPage> {
           unawaited(_loadGroupAvatar());
         }
       }
-      if (!oldWidget.active && widget.active) {
+      final bool becameActive = !oldWidget.active && widget.active;
+      final bool membershipChanged =
+          oldGroup != null &&
+          newGroup != null &&
+          oldGroup.membershipRevision != newGroup.membershipRevision;
+      final bool groupsServiceChanged = oldWidget.groups != widget.groups;
+      if (becameActive) {
         // The pane just became visible again: only now do the arrivals that
         // were staged while it was hidden become display facts.
         _flushDisplayed();
+      }
+      if (_isGroup &&
+          (becameActive || membershipChanged || groupsServiceChanged)) {
+        unawaited(_refreshGroupCounts(showLoading: false));
       }
     }
   }
@@ -654,9 +670,86 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
-  Future<void> _loadInitial() async {
+  bool _groupCountsRequestCurrent(int ticket, int epoch, String scope) {
+    return mounted &&
+        !_revoked &&
+        _isGroup &&
+        _pageEpoch == epoch &&
+        _scopeId == scope &&
+        _groupCountsTicket == ticket;
+  }
+
+  Future<void> _refreshGroupCounts({required bool showLoading}) async {
+    final GroupConversationItem? group = widget.group;
+    final GroupService? groups = widget.groups;
+    if (!_isGroup || group == null || groups == null || _revoked) {
+      return;
+    }
+    if (!showLoading && _groupCountsInFlight) {
+      return;
+    }
+    final int epoch = _pageEpoch;
+    final String scope = _scopeId;
+    final int ticket = ++_groupCountsTicket;
+    _groupCountsInFlight = true;
+    if (showLoading && mounted && !_groupCountsLoading) {
+      setState(() => _groupCountsLoading = true);
+    }
+    try {
+      final GroupMemberPage page = await groups.listGroupMembers(
+        conversation: group.conversation,
+        limit: 1,
+        includeCounts: true,
+      );
+      if (!_groupCountsRequestCurrent(ticket, epoch, scope)) {
+        return;
+      }
+      final GroupMemberCounts? next = page.counts;
+      if (next != null) {
+        final bool changed = _groupCounts != next;
+        setState(() {
+          _groupCounts = next;
+          if (changed) {
+            _groupCountsChangeTick += 1;
+          }
+          _groupCountsLoading = false;
+        });
+      } else if (_groupCountsLoading) {
+        setState(() => _groupCountsLoading = false);
+      }
+    } catch (_) {
+      // Preserve last confirmed counts (or unknown on first load) when refresh
+      // fails or an older server rejects include_counts.
+      if (_groupCountsRequestCurrent(ticket, epoch, scope) &&
+          _groupCountsLoading) {
+        setState(() => _groupCountsLoading = false);
+      }
+    } finally {
+      if (_groupCountsTicket == ticket) {
+        _groupCountsInFlight = false;
+        if (mounted && _groupCountsLoading) {
+          setState(() => _groupCountsLoading = false);
+        }
+      }
+    }
+  }
+
+  void _refreshFromHeader() {
+    if (_revoked) {
+      return;
+    }
+    if (_isGroup) {
+      unawaited(_refreshGroupCounts(showLoading: true));
+    }
+    unawaited(_loadInitial(refreshGroupCounts: false));
+  }
+
+  Future<void> _loadInitial({bool refreshGroupCounts = true}) async {
     if (_fetching || _revoked) {
       return;
+    }
+    if (refreshGroupCounts && _isGroup) {
+      unawaited(_refreshGroupCounts(showLoading: false));
     }
     final int epoch = _pageEpoch;
     final String scope = _scopeId;
@@ -781,6 +874,9 @@ class _ChatPageState extends State<ChatPage> {
   Future<void> _pollNew() async {
     if (_fetching || _revoked) {
       return;
+    }
+    if (_isGroup && widget.active) {
+      unawaited(_refreshGroupCounts(showLoading: false));
     }
     final int epoch = _pageEpoch;
     final String scope = _scopeId;
@@ -1836,7 +1932,6 @@ class _ChatPageState extends State<ChatPage> {
 
   @override
   Widget build(BuildContext context) {
-    final TextTheme text = Theme.of(context).textTheme;
     final double keyboardInset = MediaQuery.viewInsetsOf(context).bottom;
     final bool reducedMotion =
         MediaQuery.maybeDisableAnimationsOf(context) ?? false;
@@ -1859,88 +1954,25 @@ class _ChatPageState extends State<ChatPage> {
       // only the composer: the transcript and the input rise together while
       // the AppBar stays where it is.
       resizeToAvoidBottomInset: false,
-      appBar: AppBar(
-        // One header for the phone route and the split pane: back (phone only)
-        // → peer avatar → name over the live presence → the existing refresh.
-        toolbarHeight: ChatPage.headerHeight,
-        backgroundColor: AppColors.surface,
-        surfaceTintColor: AppColors.surface,
-        elevation: 0,
-        scrolledUnderElevation: 1,
-        automaticallyImplyLeading: !widget.embedded && widget.leading == null,
+      appBar: ChatHeader(
+        displayName: _displayName,
+        isGroup: _isGroup,
+        avatarBytes: _isGroup
+            ? _groupAvatarBytes
+            : _avatars.bytesFor(widget._peer!.account),
+        avatarLoading: !_isGroup && _avatars.isLoading(widget._peer!.account),
+        avatarSemanticLabel: _isGroup
+            ? '查看群 $_displayName 的资料'
+            : '查看 $_displayName 的资料',
+        onAvatarTap: _openHeaderProfile,
+        onRefresh: _revoked ? null : _refreshFromHeader,
+        groupNumber: widget.group?.groupNumber,
+        groupCounts: _groupCounts,
+        groupCountsLoading: _groupCountsLoading,
+        groupCountsChangeTick: _groupCountsChangeTick,
+        peerPresence: _isGroup ? null : _presenceOfPeer,
+        embedded: widget.embedded,
         leading: widget.leading,
-        leadingWidth: widget.leading != null
-            ? 56
-            : (widget.embedded ? null : 48),
-        // The back arrow sits right next to the avatar; an embedded header has
-        // no navigation control, so its avatar starts at the page padding.
-        titleSpacing: _titleInset,
-        title: Row(
-          children: <Widget>[
-            ProfileAvatar(
-              key: ChatPage.headerProfileKey,
-              bytes: _isGroup
-                  ? _groupAvatarBytes
-                  : _avatars.bytesFor(widget._peer!.account),
-              size: ChatPage.headerAvatarSize,
-              showBorder: true,
-              loading: !_isGroup && _avatars.isLoading(widget._peer!.account),
-              semanticLabel: _isGroup
-                  ? '查看群 $_displayName 的资料'
-                  : '查看 $_displayName 的资料',
-              onTap: _openHeaderProfile,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  Text(
-                    _displayName,
-                    key: ChatPage.headerNameKey,
-                    style: text.titleLarge?.copyWith(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w600,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 2),
-                  if (_isGroup)
-                    Text(
-                      '群号 ${widget.group!.groupNumber}',
-                      key: ChatPage.headerStatusKey,
-                      style: text.bodySmall?.copyWith(
-                        fontSize: 12.5,
-                        color: AppColors.inkMuted,
-                      ),
-                    )
-                  else
-                    Text(
-                      _presenceOfPeer == Presence.online ? '在线' : '离线',
-                      key: ChatPage.headerStatusKey,
-                      style: text.bodySmall?.copyWith(
-                        fontSize: 12.5,
-                        color: _presenceOfPeer == Presence.online
-                            ? AppColors.accent
-                            : AppColors.inkMuted,
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        actions: <Widget>[
-          IconButton(
-            key: ChatPage.refreshKey,
-            tooltip: '刷新消息',
-            onPressed: _revoked ? null : _loadInitial,
-            icon: const Icon(Icons.refresh_rounded),
-          ),
-        ],
       ),
       body: AnimatedPadding(
         key: ChatPage.keyboardBodyKey,
@@ -2016,7 +2048,7 @@ class _ChatPageState extends State<ChatPage> {
               ),
               const SizedBox(height: AppSpacing.md),
               OutlinedButton(
-                onPressed: _loadInitial,
+                onPressed: _refreshFromHeader,
                 child: const Text('重新加载'),
               ),
             ],

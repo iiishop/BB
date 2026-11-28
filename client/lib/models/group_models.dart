@@ -305,11 +305,45 @@ class GroupMember {
   };
 }
 
+class GroupMemberCounts {
+  const GroupMemberCounts({required this.online, required this.total});
+
+  final int online;
+  final int total;
+
+  factory GroupMemberCounts.fromJson(Object? json) {
+    if (json is! Map<String, dynamic>) {
+      throw const FormatException('group member counts must be an object');
+    }
+    final Object? online = json['online'];
+    final Object? total = json['total'];
+    if (online is! int || online < 0 || total is! int || total < 0) {
+      throw const FormatException('group member counts has invalid fields');
+    }
+    return GroupMemberCounts(online: online, total: total);
+  }
+
+  Map<String, dynamic> toJson() => <String, dynamic>{
+    'online': online,
+    'total': total,
+  };
+
+  @override
+  bool operator ==(Object other) =>
+      other is GroupMemberCounts &&
+      other.online == online &&
+      other.total == total;
+
+  @override
+  int get hashCode => Object.hash(online, total);
+}
+
 class GroupMemberPage {
-  const GroupMemberPage({required this.items, this.nextCursor});
+  const GroupMemberPage({required this.items, this.nextCursor, this.counts});
 
   final List<GroupMember> items;
   final String? nextCursor;
+  final GroupMemberCounts? counts;
 
   factory GroupMemberPage.fromJson(Object? json) {
     if (json is! Map<String, dynamic> ||
@@ -318,17 +352,20 @@ class GroupMemberPage {
       throw const FormatException('group member page has invalid fields');
     }
     final String? cursor = json['next_cursor'] as String?;
+    final Object? rawCounts = json['counts'];
     return GroupMemberPage(
       items: List<GroupMember>.unmodifiable(
         (json['items'] as List<dynamic>).map(GroupMember.fromJson),
       ),
       nextCursor: cursor == null || cursor.isEmpty ? null : cursor,
+      counts: rawCounts == null ? null : GroupMemberCounts.fromJson(rawCounts),
     );
   }
 
   Map<String, dynamic> toJson() => <String, dynamic>{
     'items': items.map((GroupMember member) => member.toJson()).toList(),
     'next_cursor': nextCursor,
+    if (counts != null) 'counts': counts!.toJson(),
   };
 }
 

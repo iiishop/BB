@@ -204,20 +204,31 @@ def context(path, account, message_id, before_limit, after_limit, association=Fa
     }
 
 
+_ACCOUNT_ONLINE = """EXISTS(SELECT 1 FROM sessions s WHERE s.account=a.account
+    AND s.status='online' AND s.last_seen_at > ? - 90)"""
+
+
 def directory_rows(db, account, after, limit, now, *, conversation_id=None):
-    scope = "u.account!=?"
+    scope = "a.account!=?"
     identity = account
     if conversation_id is not None:
         scope = """EXISTS(SELECT 1 FROM chat_group_members m
-            WHERE m.account=u.account AND m.conversation_id=? AND m.active=1)"""
+            WHERE m.account=a.account AND m.conversation_id=? AND m.active=1)"""
         identity = conversation_id
     return db.execute(
-        f"""SELECT u.account,u.username,u.avatar_version,
-        EXISTS(SELECT 1 FROM sessions s WHERE s.account=u.account
-            AND s.status='online' AND s.last_seen_at>?) AS online
-        FROM users u WHERE {scope} AND u.account>? ORDER BY u.account LIMIT ?""",
-        (now - 90, identity, after, limit + 1),
+        f"""SELECT a.account,a.username,a.avatar_version,{_ACCOUNT_ONLINE} AS online
+        FROM users a WHERE {scope} AND a.account>? ORDER BY a.account LIMIT ?""",
+        (now, identity, after, limit + 1),
     ).fetchall()
+
+
+def group_member_counts(db, conversation_id, now):
+    row = db.execute(
+        f"""SELECT COALESCE(SUM({_ACCOUNT_ONLINE}),0) AS online, COUNT(*) AS total
+        FROM chat_group_members a WHERE a.conversation_id=? AND a.active=1""",
+        (now, conversation_id),
+    ).fetchone()
+    return {"online": row["online"], "total": row["total"]}
 
 
 def user_card(row):

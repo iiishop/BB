@@ -93,6 +93,7 @@ class GroupApiClient {
     required ConversationRef conversation,
     String afterAccount = '',
     int limit = 50,
+    bool includeCounts = false,
   }) async {
     final Map<String, dynamic> json = await _postJson(
       '/chat/groups/members',
@@ -101,6 +102,7 @@ class GroupApiClient {
         'conversation': conversation.toJson(),
         'after_account': afterAccount,
         'limit': limit,
+        if (includeCounts) 'include_counts': true,
       },
     );
     return _parse(() => GroupMemberPage.fromJson(json));

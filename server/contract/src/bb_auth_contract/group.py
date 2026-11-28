@@ -157,13 +157,35 @@ class RemoteGroupUpdate(GroupUpdate):
     avatar: AvatarBytes | None = None
 
 
+class RemoteGroupMembers(GroupMembers):
+    include_counts: bool = Field(
+        default=False, description="Include counts for the entire active group."
+    )
+
+
+class GroupMemberCounts(Wire):
+    online: int = Field(ge=0, description="Active members with an online session.")
+    total: int = Field(ge=0, description="Number of active members in the group.")
+
+
+class RemoteGroupMemberPage(GroupMemberPage):
+    counts: GroupMemberCounts | None = Field(
+        default=None,
+        description="Whole-group counts from the same snapshot as the page, omitted unless requested.",
+    )
+
+
 # operation -> (JSON POST path, strict request, response). Authentication is the BB server session.
 REMOTE = {
     "create_group": ("/chat/groups/create", RemoteGroupCreate, GroupProfile),
     "find_group": ("/chat/groups/find", GroupNumberRequest, GroupProfile),
     "update_group": ("/chat/groups/update", RemoteGroupUpdate, GroupProfile),
     "list_directory": ("/chat/directory/list", DirectoryQuery, DirectoryPage),
-    "list_group_members": ("/chat/groups/members", GroupMembers, GroupMemberPage),
+    "list_group_members": (
+        "/chat/groups/members",
+        RemoteGroupMembers,
+        RemoteGroupMemberPage,
+    ),
     "invite_to_group": ("/chat/groups/invite", GroupInvite, GroupRequests),
     "apply_to_group": ("/chat/groups/apply", GroupTarget, GroupRequests),
     "leave_group": ("/chat/groups/leave", GroupTarget, GroupProfile),

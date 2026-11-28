@@ -7109,7 +7109,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/GroupMembers"
+                "$ref": "#/components/schemas/RemoteGroupMembers"
               }
             }
           },
@@ -7121,7 +7121,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GroupMemberPage"
+                  "$ref": "#/components/schemas/RemoteGroupMemberPage"
                 }
               }
             }
@@ -10035,61 +10035,28 @@
         ],
         "title": "GroupMember"
       },
-      "GroupMemberPage": {
+      "GroupMemberCounts": {
         "properties": {
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/GroupMember"
-            },
-            "type": "array",
-            "title": "Items"
-          },
-          "next_cursor": {
-            "anyOf": [
-              {
-                "type": "string",
-                "pattern": "^[1-9][0-9]{7}$"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Next Cursor"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "items",
-          "next_cursor"
-        ],
-        "title": "GroupMemberPage"
-      },
-      "GroupMembers": {
-        "properties": {
-          "after_account": {
-            "type": "string",
-            "pattern": "^([1-9][0-9]{7})?$",
-            "title": "After Account",
-            "default": ""
-          },
-          "limit": {
+          "online": {
             "type": "integer",
-            "maximum": 100.0,
-            "minimum": 1.0,
-            "title": "Limit",
-            "default": 50
+            "minimum": 0.0,
+            "title": "Online",
+            "description": "Active members with an online session."
           },
-          "conversation": {
-            "$ref": "#/components/schemas/GroupConversationRef"
+          "total": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total",
+            "description": "Number of active members in the group."
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "conversation"
+          "online",
+          "total"
         ],
-        "title": "GroupMembers"
+        "title": "GroupMemberCounts"
       },
       "GroupMessage": {
         "properties": {
@@ -12118,6 +12085,79 @@
           "name"
         ],
         "title": "RemoteGroupCreate"
+      },
+      "RemoteGroupMemberPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/GroupMember"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[1-9][0-9]{7}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "counts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GroupMemberCounts"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whole-group counts from the same snapshot as the page, omitted unless requested."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "RemoteGroupMemberPage"
+      },
+      "RemoteGroupMembers": {
+        "properties": {
+          "after_account": {
+            "type": "string",
+            "pattern": "^([1-9][0-9]{7})?$",
+            "title": "After Account",
+            "default": ""
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "default": 50
+          },
+          "conversation": {
+            "$ref": "#/components/schemas/GroupConversationRef"
+          },
+          "include_counts": {
+            "type": "boolean",
+            "title": "Include Counts",
+            "description": "Include counts for the entire active group.",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "conversation"
+        ],
+        "title": "RemoteGroupMembers"
       },
       "RemoteGroupUpdate": {
         "properties": {
