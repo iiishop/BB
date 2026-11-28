@@ -1316,6 +1316,21 @@ void main() {
             .data,
         '1',
       );
+      // 群聊行与私聊行共用同一条胶囊排版：它只按标签撑开，不铺满整行。
+      expect(
+        tester
+            .getSize(
+              find
+                  .ancestor(
+                    of: find.byKey(UsersListView.unreadKey(server.group1Id)),
+                    matching: find.byType(Container),
+                  )
+                  .first,
+            )
+            .width,
+        lessThan(60),
+        reason: '群聊行的未读胶囊不该被拉成整行宽',
+      );
       Set<String> displayed =
           await tester.runAsync(
             () => chat.ledger.displayedMessageIds('10000001'),
