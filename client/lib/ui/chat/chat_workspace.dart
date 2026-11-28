@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import '../../app.dart';
 import '../../models/chat_models.dart';
 import '../../services/chat_service.dart';
+import '../../services/group_mention_controller.dart';
 import '../../services/group_service.dart';
 import '../../services/presence_directory.dart';
 import '../../services/profile_service.dart';
@@ -28,6 +29,7 @@ class ChatWorkspace extends StatefulWidget {
     required this.listHeader,
     this.shared,
     this.groups,
+    this.alerts,
     this.refreshTrigger,
     this.onGroupsChanged,
     this.presence,
@@ -42,6 +44,7 @@ class ChatWorkspace extends StatefulWidget {
   final ProfileGateway profile;
   final SharedConversationService? shared;
   final GroupService? groups;
+  final MentionRecipientController? alerts;
   final Listenable? refreshTrigger;
   final VoidCallback? onGroupsChanged;
 
@@ -181,8 +184,22 @@ class _ChatWorkspaceState extends State<ChatWorkspace>
   final Map<String, GroupConversationItem> _groups =
       <String, GroupConversationItem>{};
   final ValueNotifier<int> _groupsRefresh = ValueNotifier<int>(0);
+  MentionRecipientController? _ownedAlerts;
   bool _autoSelected = false;
   bool _resetScheduled = false;
+
+  MentionRecipientController? get _alerts => widget.alerts ?? _ownedAlerts;
+
+  void _syncAlertsController() {
+    if (widget.alerts != null || widget.shared == null) {
+      _ownedAlerts?.dispose();
+      _ownedAlerts = null;
+    } else if (_ownedAlerts == null ||
+        !identical(_ownedAlerts!.shared, widget.shared)) {
+      _ownedAlerts?.dispose();
+      _ownedAlerts = MentionRecipientController(shared: widget.shared!);
+    }
+  }
 
   late bool _expanded = _fold.value > 0;
 
@@ -200,12 +217,17 @@ class _ChatWorkspaceState extends State<ChatWorkspace>
   @override
   void initState() {
     super.initState();
+    _syncAlertsController();
     widget.refreshTrigger?.addListener(_bumpLocalGroupsRefresh);
   }
 
   @override
   void didUpdateWidget(covariant ChatWorkspace oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.alerts != widget.alerts ||
+        oldWidget.shared != widget.shared) {
+      _syncAlertsController();
+    }
     if (oldWidget.refreshTrigger != widget.refreshTrigger) {
       oldWidget.refreshTrigger?.removeListener(_bumpLocalGroupsRefresh);
       widget.refreshTrigger?.addListener(_bumpLocalGroupsRefresh);
@@ -227,6 +249,8 @@ class _ChatWorkspaceState extends State<ChatWorkspace>
   @override
   void dispose() {
     widget.refreshTrigger?.removeListener(_bumpLocalGroupsRefresh);
+    _ownedAlerts?.dispose();
+    _ownedAlerts = null;
     _groupsRefresh.dispose();
     _ownedFoldController?.dispose();
     super.dispose();
@@ -520,6 +544,7 @@ class _ChatWorkspaceState extends State<ChatWorkspace>
               profile: widget.profile,
               shared: widget.shared,
               groups: widget.groups,
+              alerts: _alerts,
               refreshTrigger: _groupsRefresh,
               presence: widget.presence,
               onlineFilter: widget.onlineFilter,
@@ -574,6 +599,7 @@ class _ChatWorkspaceState extends State<ChatWorkspace>
               profile: widget.profile,
               shared: widget.shared,
               groups: widget.groups,
+              alerts: _alerts,
               embedded: true,
               active: widget.visible && keyId == _selected,
               onOpenDirectChat: (ChatUser user) async => _select(user),
@@ -586,6 +612,8 @@ class _ChatWorkspaceState extends State<ChatWorkspace>
               peer: _peers[keyId]!,
               chat: widget.chat,
               profile: widget.profile,
+              shared: widget.shared,
+              alerts: _alerts,
               presence: widget.presence,
               embedded: true,
               // Only the visible conversation may confirm display facts; the

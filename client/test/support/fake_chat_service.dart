@@ -25,6 +25,7 @@ class FakeChatService extends ChatService {
     required List<ChatUser> users,
     Map<String, List<ChatMessage>>? conversations,
     Uint8List? png,
+    ChatApiClient? api,
     this.pageSize,
     this.userPageSize,
     this.gateAtPosition,
@@ -33,7 +34,7 @@ class FakeChatService extends ChatService {
        conversations = conversations ?? <String, List<ChatMessage>>{},
        pngBytes = png ?? base64Decode(_pngBase64),
        super(
-         api: ChatApiClient(baseUri: Uri.parse('http://127.0.0.1:1')),
+         api: api ?? ChatApiClient(baseUri: Uri.parse('http://127.0.0.1:1')),
          session: AuthSession()
            ..establish(
              token: 'widget-token',
@@ -44,7 +45,7 @@ class FakeChatService extends ChatService {
          webSocketHints: false,
        ) {
     downloads = FakeDownloads(
-      api: api,
+      api: super.api,
       session: session,
       ledger: ledger,
       cacheRoot: Directory.systemTemp,
@@ -127,6 +128,8 @@ class FakeChatService extends ChatService {
   FakeMediaStreamHandle? lastStreamHandle;
   final List<OutgoingPart> lastSentBody = <OutgoingPart>[];
   final List<OutgoingAttachment> lastSentAttachments = <OutgoingAttachment>[];
+  String? lastReplyToMessageId;
+  final List<String?> sentReplyToMessageIds = <String?>[];
   final int? pageSize;
 
   /// Test-only directory page cap so two-page list paths stay cheap.
@@ -340,10 +343,13 @@ class FakeChatService extends ChatService {
     lastSentAttachments
       ..clear()
       ..addAll(attachments);
+    lastReplyToMessageId = replyToMessageId;
+    sentReplyToMessageIds.add(replyToMessageId);
     final List<ChatMessage> target = conversations.putIfAbsent(
       targetAccount,
       () => <ChatMessage>[],
     );
+    final ReplyQuote? quote = _resolveQuote(target, replyToMessageId);
     SendOutcome? bodyOutcome;
     if (body.isNotEmpty && failBody) {
       bodyOutcome = SendOutcome(
@@ -372,6 +378,7 @@ class FakeChatService extends ChatService {
           ChatMessageKind.body,
           parts: parts,
           operationId: '$seed-b',
+          replyTo: quote,
         );
         bodyOutcome = SendOutcome(
           operationId: '$seed-b',
@@ -403,6 +410,7 @@ class FakeChatService extends ChatService {
         targetAccount,
         ChatMessageKind.attachment,
         operationId: '$seed-a$i',
+        replyTo: body.isEmpty && i == 0 ? quote : null,
         attachment: Attachment(
           mediaId: 'fake-media-${++_seq}',
           kind: mime.startsWith('video/')
@@ -438,6 +446,43 @@ class FakeChatService extends ChatService {
     );
   }
 
+  ReplyQuote? _resolveQuote(List<ChatMessage> list, String? replyToMessageId) {
+    if (replyToMessageId == null) {
+      return null;
+    }
+    for (final ChatMessage m in list) {
+      if (m.id == replyToMessageId) {
+        final String preview = m.kind == ChatMessageKind.body
+            ? m.parts
+                  .whereType<TextPart>()
+                  .map((TextPart p) => p.text)
+                  .join(' ')
+            : (m.attachment?.filename ?? '[附件]');
+        final ChatUser? user = users.cast<ChatUser?>().firstWhere(
+          (ChatUser? u) => u?.account == m.senderAccount,
+          orElse: () => null,
+        );
+        return ReplyQuote(
+          messageId: m.id,
+          senderAccount: m.isSystem ? null : m.senderAccount,
+          senderUsername: m.isSystem
+              ? null
+              : (m.senderUsername ??
+                    (m.senderAccount == self.account
+                        ? self.username
+                        : user?.username)),
+          preview: preview.isEmpty ? '[消息]' : preview,
+        );
+      }
+    }
+    return ReplyQuote(
+      messageId: replyToMessageId,
+      senderAccount: null,
+      senderUsername: null,
+      preview: '[消息]',
+    );
+  }
+
   ChatMessage _append(
     List<ChatMessage> list,
     String target,
@@ -445,6 +490,7 @@ class FakeChatService extends ChatService {
     List<MessagePart> parts = const <MessagePart>[],
     Attachment? attachment,
     String? operationId,
+    ReplyQuote? replyTo,
   }) {
     final ChatMessage message = ChatMessage(
       id: 'fake-${++_seq}',
@@ -456,6 +502,7 @@ class FakeChatService extends ChatService {
       parts: parts,
       attachment: attachment,
       operationId: operationId,
+      replyTo: replyTo,
     );
     list.add(message);
     // Mirror the server fact `GET /users` derives its directory row from: a
@@ -520,6 +567,8 @@ class FakeChatService extends ChatService {
     String? replyToMessageId,
   }) async {
     bodyOperationIds.add(operationId ?? '');
+    lastReplyToMessageId = replyToMessageId;
+    sentReplyToMessageIds.add(replyToMessageId);
     if (failBodyRetry) {
       return SendOutcome(
         operationId: operationId ?? 'retry',
@@ -548,6 +597,7 @@ class FakeChatService extends ChatService {
       ChatMessageKind.body,
       parts: parts,
       operationId: operationId,
+      replyTo: _resolveQuote(target, replyToMessageId),
     );
     return SendOutcome(
       operationId: operationId ?? 'retry',

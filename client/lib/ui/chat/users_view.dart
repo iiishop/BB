@@ -8,7 +8,9 @@ import '../../app.dart';
 import '../../models/auth_models.dart';
 import '../../models/chat_models.dart';
 import '../../models/group_models.dart';
+import '../../models/mention_models.dart';
 import '../../services/chat_service.dart';
+import '../../services/group_mention_controller.dart';
 import '../../services/group_service.dart';
 import '../../services/presence_directory.dart';
 import '../../services/profile_service.dart';
@@ -36,6 +38,7 @@ class UsersListView extends StatefulWidget {
     required this.onOpenChat,
     this.shared,
     this.groups,
+    this.alerts,
     this.selectedConversationId,
     this.onOpenGroup,
     this.onSelectGroup,
@@ -53,6 +56,7 @@ class UsersListView extends StatefulWidget {
   final ProfileGateway profile;
   final SharedConversationService? shared;
   final GroupService? groups;
+  final MentionRecipientController? alerts;
   final String? selectedConversationId;
   final Future<void> Function(GroupConversationItem group)? onOpenGroup;
   final void Function(GroupConversationItem group)? onSelectGroup;
@@ -102,6 +106,10 @@ class UsersListView extends StatefulWidget {
   static Key groupRowKey(String conversationId) =>
       Key('group-row-$conversationId');
   static Key unreadKey(String account) => Key('user-unread-$account');
+  static Key replyAlertKey(String conversationId) =>
+      Key('user-reply-alert-$conversationId');
+  static Key mentionAlertKey(String conversationId) =>
+      Key('user-mention-alert-$conversationId');
   static Key selectedKey(String account) => Key('user-selected-$account');
 
   /// The light-teal note around the current conversation. It exists only for
@@ -180,6 +188,7 @@ class _UsersListViewState extends State<UsersListView> {
     super.initState();
     widget.presence?.addListener(_onPresenceChanged);
     widget.onlineFilter?.addListener(_onFilterChanged);
+    widget.alerts?.addListener(_onAlertsChanged);
     widget.shared?.access.addListener(_onAccessOrRefreshTriggered);
     _displayedSub = widget.shared?.displayedChanges.listen((_) {
       _onDisplayedChanged();
@@ -199,6 +208,10 @@ class _UsersListViewState extends State<UsersListView> {
     if (oldWidget.onlineFilter != widget.onlineFilter) {
       oldWidget.onlineFilter?.removeListener(_onFilterChanged);
       widget.onlineFilter?.addListener(_onFilterChanged);
+    }
+    if (oldWidget.alerts != widget.alerts) {
+      oldWidget.alerts?.removeListener(_onAlertsChanged);
+      widget.alerts?.addListener(_onAlertsChanged);
     }
     if (oldWidget.shared?.access != widget.shared?.access) {
       oldWidget.shared?.access.removeListener(_onAccessOrRefreshTriggered);
@@ -220,6 +233,7 @@ class _UsersListViewState extends State<UsersListView> {
   void dispose() {
     widget.presence?.removeListener(_onPresenceChanged);
     widget.onlineFilter?.removeListener(_onFilterChanged);
+    widget.alerts?.removeListener(_onAlertsChanged);
     widget.shared?.access.removeListener(_onAccessOrRefreshTriggered);
     unawaited(_displayedSub?.cancel());
     _displayedSub = null;
@@ -249,6 +263,12 @@ class _UsersListViewState extends State<UsersListView> {
   }
 
   void _onFilterChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  void _onAlertsChanged() {
     if (mounted) {
       setState(() {});
     }
@@ -463,6 +483,12 @@ class _UsersListViewState extends State<UsersListView> {
         };
         if (_unreadDirty || _previewsDifferFromCovered()) {
           unawaited(_refreshUnread());
+        }
+        final MentionRecipientController? alerts = widget.alerts;
+        if (alerts != null) {
+          unawaited(
+            alerts.refreshSummary().then<void>((_) {}, onError: (Object _) {}),
+          );
         }
         break;
       }
@@ -704,14 +730,16 @@ class _UsersListViewState extends State<UsersListView> {
               }
               final Object entry = rows[index];
               if (entry is GroupConversationItem) {
+                final String convId = entry.conversation.id;
                 return _GroupRow(
-                  key: UsersListView.groupRowKey(entry.conversation.id),
+                  key: UsersListView.groupRowKey(convId),
                   group: entry,
-                  unread: _unread[entry.conversation.id] ?? 0,
+                  unread: _unread[convId] ?? 0,
+                  alertConversationId: convId,
+                  alertCounts: widget.alerts?.countsFor(convId),
                   groups: widget.groups,
                   selfAccount: widget.chat.selfAccount,
-                  current:
-                      entry.conversation.id == widget.selectedConversationId,
+                  current: convId == widget.selectedConversationId,
                   compact: compact,
                   onTap: widget.onSelectGroup != null
                       ? () => widget.onSelectGroup!(entry)
@@ -719,13 +747,25 @@ class _UsersListViewState extends State<UsersListView> {
                 );
               }
               final ChatUser user = entry as ChatUser;
+              final String selfAccount = widget.chat.selfAccount;
+              final String? dmConvId =
+                  selfAccount.isNotEmpty &&
+                      user.account != selfAccount &&
+                      isValidAccount(selfAccount) &&
+                      isValidAccount(user.account)
+                  ? ConversationRef.direct(selfAccount, user.account).id
+                  : null;
               return _UserRow(
                 key: UsersListView.rowKey(user.account),
                 user: user,
                 presence: _presenceOf(user),
                 unread: _unread[user.account] ?? 0,
+                alertConversationId: dmConvId,
+                alertCounts: dmConvId == null
+                    ? null
+                    : widget.alerts?.countsFor(dmConvId),
                 profile: widget.profile,
-                selfAccount: widget.chat.selfAccount,
+                selfAccount: selfAccount,
                 current:
                     widget.selectedConversationId == null &&
                     user.account == widget.selectedAccount,
@@ -792,6 +832,8 @@ class _UserRow extends StatelessWidget {
     required this.user,
     required this.presence,
     required this.unread,
+    this.alertConversationId,
+    this.alertCounts,
     required this.profile,
     required this.selfAccount,
     required this.current,
@@ -804,6 +846,8 @@ class _UserRow extends StatelessWidget {
 
   /// Server-derived incoming unread for this conversation; zero means no badge.
   final int unread;
+  final String? alertConversationId;
+  final AlertCounts? alertCounts;
   final ProfileGateway profile;
   final String selfAccount;
 
@@ -939,6 +983,16 @@ class _UserRow extends StatelessWidget {
               ],
             ),
           ),
+          if (alertConversationId != null &&
+              alertCounts != null &&
+              alertCounts!.hasAny)
+            Padding(
+              padding: const EdgeInsets.only(top: 5),
+              child: _AlertNotesBar(
+                conversationId: alertConversationId!,
+                counts: alertCounts!,
+              ),
+            ),
         ],
       ),
     );
@@ -1073,6 +1127,8 @@ class _GroupRow extends StatefulWidget {
     super.key,
     required this.group,
     required this.unread,
+    this.alertConversationId,
+    this.alertCounts,
     required this.selfAccount,
     required this.current,
     required this.compact,
@@ -1082,6 +1138,8 @@ class _GroupRow extends StatefulWidget {
 
   final GroupConversationItem group;
   final int unread;
+  final String? alertConversationId;
+  final AlertCounts? alertCounts;
   final GroupService? groups;
   final String selfAccount;
   final bool current;
@@ -1276,6 +1334,16 @@ class _GroupRowState extends State<_GroupRow> {
               ],
             ),
           ),
+          if (widget.alertConversationId != null &&
+              widget.alertCounts != null &&
+              widget.alertCounts!.hasAny)
+            Padding(
+              padding: const EdgeInsets.only(top: 5),
+              child: _AlertNotesBar(
+                conversationId: widget.alertConversationId!,
+                counts: widget.alertCounts!,
+              ),
+            ),
         ],
       ),
     );
@@ -1362,6 +1430,61 @@ class _UnreadBadge extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _AlertNotesBar extends StatelessWidget {
+  const _AlertNotesBar({required this.conversationId, required this.counts});
+
+  final String conversationId;
+  final AlertCounts counts;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 6,
+      runSpacing: 4,
+      children: <Widget>[
+        if (counts.unreadReplyCount > 0)
+          Container(
+            key: UsersListView.replyAlertKey(conversationId),
+            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+            decoration: BoxDecoration(
+              color: AppColors.warningSurface,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: AppColors.warningBorder),
+            ),
+            child: const Text(
+              '有人回复你',
+              style: TextStyle(
+                fontSize: 11,
+                height: 1.25,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF7A5100),
+              ),
+            ),
+          ),
+        if (counts.unreadMentionCount > 0)
+          Container(
+            key: UsersListView.mentionAlertKey(conversationId),
+            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+            decoration: BoxDecoration(
+              color: AppColors.accentSoft,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: const Color(0xFFC7DEDA)),
+            ),
+            child: const Text(
+              '有人 @ 你',
+              style: TextStyle(
+                fontSize: 11,
+                height: 1.25,
+                fontWeight: FontWeight.w700,
+                color: AppColors.accentDeep,
+              ),
+            ),
+          ),
+      ],
     );
   }
 }
