@@ -1,3 +1,5 @@
+import AppKit
+import ApplicationServices
 import XCTest
 
 final class MacOSAuthSmokeTests: XCTestCase {
@@ -15,6 +17,15 @@ final class MacOSAuthSmokeTests: XCTestCase {
         let app = XCUIApplication(url: appURL)
         app.launch()
         defer { app.terminate() }
+
+        // Flutter exposes its macOS semantics when enhanced accessibility is requested.
+        let bundleID = try XCTUnwrap(Bundle(url: appURL)?.bundleIdentifier)
+        let process = try XCTUnwrap(NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first)
+        let accessibility = AXUIElementCreateApplication(process.processIdentifier)
+        let accessibilityStatus = AXUIElementSetAttributeValue(
+            accessibility, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue
+        )
+        print("AXEnhancedUserInterface request: \(accessibilityStatus.rawValue)")
 
         let address = app.textFields.firstMatch
         XCTAssertTrue(address.waitForExistence(timeout: 25), app.debugDescription)

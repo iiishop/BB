@@ -16,10 +16,11 @@ codesign --verify --deep --strict --verbose=2 "$signed_app" 2>&1 \
   | tee "$evidence/codesign-verify.log"
 
 executable="$(plutil -extract CFBundleExecutable raw "$signed_app/Contents/Info.plist")"
-architectures="$(lipo -archs "$signed_app/Contents/MacOS/$executable")"
-test -n "$architectures"
+binary="$signed_app/Contents/MacOS/$executable"
+lipo -verify_arch x86_64 arm64 "$binary"
+architectures="$(lipo -archs "$binary")"
 for arch in $architectures; do
-  codesign --display --arch "$arch" --verbose=4 --entitlements - "$signed_app" \
+  codesign --display --arch "$arch" --verbose=4 --entitlements - --xml "$signed_app" \
     > "$evidence/entitlements-$arch.plist" 2> "$evidence/codesign-$arch.log"
   cat "$evidence/codesign-$arch.log" "$evidence/entitlements-$arch.plist"
   python3 "$script_dir/verify_macos_entitlements.py" "$evidence/entitlements-$arch.plist"
