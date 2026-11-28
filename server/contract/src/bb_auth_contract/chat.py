@@ -35,6 +35,9 @@ class Image(Wire):
 
 class SendMessage(SendTarget):
     client_nonce: OperationId
+    reply_to_message_id: OpaqueId | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     content: list[Annotated[Text | Image, Field(discriminator="type")]] = Field(
         min_length=1, max_length=100
     )
@@ -54,6 +57,9 @@ class SendMessage(SendTarget):
 class SendAttachment(SendTarget):
     client_nonce: OperationId
     media_id: str
+    reply_to_message_id: OpaqueId | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 class Media(Wire):
@@ -71,11 +77,21 @@ class MessageEntry(Wire):
     created_at: str
 
 
+class ReplyQuote(Wire):
+    message_id: OpaqueId
+    sender_account: Account | None
+    sender_username: str | None
+    preview: str
+
+
 class UserMessage(MessageEntry):
     sender_account: Account
     kind: Literal["body", "attachment"]
     content: list[Annotated[Text | Image, Field(discriminator="type")]] | None = None
     attachment: Media | None = None
+    reply_to: ReplyQuote | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 class Message(UserMessage):
