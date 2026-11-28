@@ -265,6 +265,7 @@ class _AppServices {
       api: chat.api,
       session: session,
       access: access,
+      durableChat: chat,
     );
     final SpaceService space = SpaceService(
       api: SpaceApiClient(baseUri: baseUri),

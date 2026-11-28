@@ -51,6 +51,8 @@ class ChatOperationRecord {
 
   /// Persisted ordered content for body operations.
   final List<Map<String, dynamic>> parts;
+
+  /// Persisted unique group mention accounts for body operations.
   final List<String> mentionedAccounts;
 
   /// Persisted original source for attachment operations.

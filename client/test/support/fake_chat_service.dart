@@ -319,8 +319,8 @@ class FakeChatService extends ChatService {
     required String targetAccount,
     required List<OutgoingPart> body,
     required List<OutgoingAttachment> attachments,
-    String? operationSeed,
     List<String> mentionedAccounts = const <String>[],
+    String? operationSeed,
   }) async {
     final String seed = operationSeed ?? 'fake-${++_seq}';
     sendCalls += 1;
@@ -513,9 +513,9 @@ class FakeChatService extends ChatService {
   Future<SendOutcome> sendBody({
     required String targetAccount,
     required List<OutgoingPart> content,
+    List<String> mentionedAccounts = const <String>[],
     String? operationId,
     ExpectedIdentity? expectedIdentity,
-    List<String> mentionedAccounts = const <String>[],
   }) async {
     bodyOperationIds.add(operationId ?? '');
     if (failBodyRetry) {

@@ -87,13 +87,14 @@ class _CommitThenFailService extends FakeChatService {
     required String targetAccount,
     required List<OutgoingPart> body,
     required List<OutgoingAttachment> attachments,
-    String? operationSeed,
     List<String> mentionedAccounts = const <String>[],
+    String? operationSeed,
   }) async {
     committed = await super.sendComposed(
       targetAccount: targetAccount,
       body: body,
       attachments: attachments,
+      mentionedAccounts: mentionedAccounts,
       operationSeed: operationSeed,
     );
     throw const AuthFailure(
@@ -133,9 +134,9 @@ class _CommitThenFailService extends FakeChatService {
   Future<SendOutcome> sendBody({
     required String targetAccount,
     required List<OutgoingPart> content,
+    List<String> mentionedAccounts = const <String>[],
     String? operationId,
     ExpectedIdentity? expectedIdentity,
-    List<String> mentionedAccounts = const <String>[],
   }) async {
     final ChatMessage? message = committed?.body?.message;
     if (retryReturnsCommitted && message != null) {
@@ -143,11 +144,13 @@ class _CommitThenFailService extends FakeChatService {
         operationId: operationId ?? 'retry',
         message: message,
         part: content,
+        mentionedAccounts: mentionedAccounts,
       );
     }
     return super.sendBody(
       targetAccount: targetAccount,
       content: content,
+      mentionedAccounts: mentionedAccounts,
       operationId: operationId,
       expectedIdentity: expectedIdentity,
     );
@@ -250,8 +253,8 @@ class _TwoLookupService extends FakeChatService {
     required String targetAccount,
     required List<OutgoingPart> body,
     required List<OutgoingAttachment> attachments,
-    String? operationSeed,
     List<String> mentionedAccounts = const <String>[],
+    String? operationSeed,
   }) async {
     throw const AuthFailure(
       status: 502,
@@ -264,9 +267,9 @@ class _TwoLookupService extends FakeChatService {
   Future<SendOutcome> sendBody({
     required String targetAccount,
     required List<OutgoingPart> content,
+    List<String> mentionedAccounts = const <String>[],
     String? operationId,
     ExpectedIdentity? expectedIdentity,
-    List<String> mentionedAccounts = const <String>[],
   }) async {
     throw const AuthFailure(
       status: 502,
@@ -325,8 +328,8 @@ class _PendingThenCommittedService extends FakeChatService {
     required String targetAccount,
     required List<OutgoingPart> body,
     required List<OutgoingAttachment> attachments,
-    String? operationSeed,
     List<String> mentionedAccounts = const <String>[],
+    String? operationSeed,
   }) async {
     seed = operationSeed;
     this.body = body;

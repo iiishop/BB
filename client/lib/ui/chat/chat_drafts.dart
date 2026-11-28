@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../models/chat_models.dart';
 import '../../services/chat_service.dart';
+import '../../services/group_mention_controller.dart';
 import '../../services/install_safety_gate.dart';
 import 'pending_send.dart';
 
@@ -39,6 +40,7 @@ class ChatDraft {
     this.text = '',
     this.parts = const <ChatDraftPart>[],
     this.attachments = const <ChatDraftAttachment>[],
+    this.mentionSpans = const <MentionSpan>[],
     this.pending = const <PendingSend>[],
     this.failed = const <SendOutcome>[],
   });
@@ -48,11 +50,13 @@ class ChatDraft {
   final String text;
   final List<ChatDraftPart> parts;
   final List<ChatDraftAttachment> attachments;
+  final List<MentionSpan> mentionSpans;
 
   bool get isEmpty =>
       text.isEmpty &&
       parts.isEmpty &&
       attachments.isEmpty &&
+      mentionSpans.isEmpty &&
       pending.isEmpty &&
       failed.isEmpty;
 
