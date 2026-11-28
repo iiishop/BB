@@ -50,9 +50,18 @@ identity/result 回执。两个查询工具没有读状态副作用。可视确�
 
 ## DEA-519 服务端接入
 
-回复发送事务在消息入库后、提交前调用
+新回复的发送事务在消息入库后、提交前调用
 `bb_server.chat_alerts.record_reply(db, conversation_id, position, sender, original_author)`。
-提交失败会同时回滚提醒。共享表 `chat_unread_alerts` 以 `(account, conversation_id, position)`
+发送重放直接返回已有消息。提交失败会同时回滚提醒，已退出群的原作者不会获得提醒。共享表 `chat_unread_alerts` 以 `(account, conversation_id, position)`
 作主键，`mention` 与 `reply` 分别表示两个未读类型。回复明细可按当前账号、
 已授权会话和 `reply=1` 查该表，再按会话与位置关联回复消息。引用关联与全部直接回复列表
 由 DEA-519 持久化和查询。
+
+
+## Dart 接线
+
+`SharedConversationService` 提供 `listUnreadChatAlerts`、`listConversationAlerts`、
+`markChatAlertsSeen` 和 `listUnreadMentions`。调用方可传入捕获的 `AuthIdentity` 来约束
+批量可视确认只在原账号下提交。群聊发送使用 `ChatService.sendBody` 或
+`ChatService.sendComposed`，`targetAccount` 使用群会话 ID，`mentionedAccounts` 传所选账号。
+失败重试时保留原 operation ID 和同一账号集合。

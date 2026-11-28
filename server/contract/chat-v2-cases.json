@@ -478,6 +478,49 @@
       "limit": 50,
       "timeout": 120
     },
+    "list_unread_mention_groups": {
+      "after_conversation_id": null,
+      "limit": 50,
+      "expected_identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      }
+    },
+    "list_unread_mentions": {
+      "conversation_id": "group:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "before_position": 10,
+      "limit": 1,
+      "expected_identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      }
+    },
+    "send_group_mention": {
+      "conversation": {
+        "type": "group",
+        "id": "group:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "operation_id": "example-group-mention",
+      "mentioned_accounts": [
+        "10000002"
+      ],
+      "content": [
+        {
+          "type": "text",
+          "text": "@ Example"
+        }
+      ],
+      "expected_identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      }
+    },
     "negotiate": {
       "supported_versions": [
         2
@@ -1578,6 +1621,78 @@
         }
       }
     },
+    "list_unread_mention_groups": {
+      "identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      },
+      "result": {
+        "items": [
+          {
+            "unread_mention_count": 2,
+            "unread_reply_count": 1,
+            "conversation_id": "group:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "display_name": "Synthetic group"
+          }
+        ],
+        "next_cursor": null
+      }
+    },
+    "list_unread_mentions": {
+      "identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      },
+      "result": {
+        "items": [
+          {
+            "message_id": "mention-message-9",
+            "position": 9,
+            "sender_account": "10000002",
+            "sender_username": "Example",
+            "created_at": "2026-01-01T00:00:00Z",
+            "content": [
+              {
+                "type": "text",
+                "text": "@ Example"
+              }
+            ]
+          }
+        ],
+        "next_cursor": 9
+      }
+    },
+    "send_group_mention": {
+      "identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      },
+      "result": {
+        "id": "example-mention",
+        "position": 11,
+        "created_at": "2026-01-01T00:00:00Z",
+        "sender_account": "10000001",
+        "kind": "body",
+        "content": [
+          {
+            "type": "text",
+            "text": "@ Example"
+          }
+        ],
+        "attachment": null,
+        "conversation": {
+          "type": "group",
+          "id": "group:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "sender_username": "Example sender"
+      }
+    },
     "negotiate": {
       "selected_version": 2,
       "contract": "dea467-local-v2",
@@ -1852,6 +1967,40 @@
         "after_cursor": 0,
         "limit": 50,
         "timeout": 120
+      }
+    },
+    {
+      "id": "list_unread_mention_groups-missing-identity",
+      "operation": "list_unread_mention_groups",
+      "input": {}
+    },
+    {
+      "id": "list_unread_mentions-missing-identity",
+      "operation": "list_unread_mentions",
+      "input": {
+        "conversation_id": "group:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "before_position": 10,
+        "limit": 1
+      }
+    },
+    {
+      "id": "send_group_mention-missing-identity",
+      "operation": "send_group_mention",
+      "input": {
+        "conversation": {
+          "type": "group",
+          "id": "group:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "operation_id": "example-group-mention",
+        "mentioned_accounts": [
+          "10000002"
+        ],
+        "content": [
+          {
+            "type": "text",
+            "text": "@ Example"
+          }
+        ]
       }
     },
     {
@@ -2158,6 +2307,83 @@
           "binding_revision": 1
         },
         "expected_account": "synthetic-rejected"
+      }
+    },
+    {
+      "id": "mention-needs-account",
+      "operation": "send_group_mention",
+      "input": {
+        "conversation": {
+          "type": "group",
+          "id": "group:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "operation_id": "example-group-mention",
+        "mentioned_accounts": [],
+        "content": [
+          {
+            "type": "text",
+            "text": "@ Example"
+          }
+        ],
+        "expected_identity": {
+          "account": "10000001",
+          "auth_generation": "generation-A-1",
+          "consumer_id": "consumer-A",
+          "binding_revision": 1
+        }
+      }
+    },
+    {
+      "id": "mention-duplicate-account",
+      "operation": "send_group_mention",
+      "input": {
+        "conversation": {
+          "type": "group",
+          "id": "group:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "operation_id": "example-group-mention",
+        "mentioned_accounts": [
+          "10000002",
+          "10000002"
+        ],
+        "content": [
+          {
+            "type": "text",
+            "text": "@ Example"
+          }
+        ],
+        "expected_identity": {
+          "account": "10000001",
+          "auth_generation": "generation-A-1",
+          "consumer_id": "consumer-A",
+          "binding_revision": 1
+        }
+      }
+    },
+    {
+      "id": "mention-group-only",
+      "operation": "send_group_mention",
+      "input": {
+        "conversation": {
+          "type": "direct",
+          "id": "dm:10000001:10000002"
+        },
+        "operation_id": "example-group-mention",
+        "mentioned_accounts": [
+          "10000002"
+        ],
+        "content": [
+          {
+            "type": "text",
+            "text": "@ Example"
+          }
+        ],
+        "expected_identity": {
+          "account": "10000001",
+          "auth_generation": "generation-A-1",
+          "consumer_id": "consumer-A",
+          "binding_revision": 1
+        }
       }
     },
     {

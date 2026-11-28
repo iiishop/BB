@@ -38,7 +38,9 @@ class SendMessage(SendTarget):
     content: list[Annotated[Text | Image, Field(discriminator="type")]] = Field(
         min_length=1, max_length=100
     )
-    mentioned_accounts: list[Account] = Field(default_factory=list, max_length=100)
+    mentioned_accounts: list[Account] = Field(
+        default_factory=list, max_length=100, json_schema_extra={"uniqueItems": True}
+    )
 
     @model_validator(mode="after")
     def group_mentions(self):
