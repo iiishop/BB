@@ -39,7 +39,7 @@ if ! xcodebuild test -project "$work/AuthSmoke.xcodeproj" -scheme AuthSmoke \
   -destination 'platform=macOS' -parallel-testing-enabled NO \
   -derivedDataPath "$work/DerivedData" -resultBundlePath "$work/AuthSmoke.xcresult" \
   2>&1 | tee "$evidence/auth-ui.log"; then
-  xcrun xcresulttool export attachments --only-failures \
+  xcrun xcresulttool export attachments \
     --path "$work/AuthSmoke.xcresult" --output-path "$evidence/auth-ui-failures" || true
   exit 1
 fi
