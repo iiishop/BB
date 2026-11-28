@@ -26,6 +26,24 @@ final Uint8List _samplePng = base64Decode(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC',
 );
 
+class _DeferredGroupReads extends GroupApiClient {
+  _DeferredGroupReads({required super.baseUri});
+
+  final _replies = <Completer<GroupProfile>>[];
+
+  Completer<GroupProfile> enqueue() {
+    final reply = Completer<GroupProfile>();
+    _replies.add(reply);
+    return reply;
+  }
+
+  @override
+  Future<GroupProfile> findGroup({
+    required String token,
+    required String groupNumber,
+  }) => _replies.removeAt(0).future;
+}
+
 class _FakeGroupServer {
   _FakeGroupServer._(this._server);
 
@@ -1200,7 +1218,7 @@ void main() {
     );
     expect(renamed.name, 'Renamed Alpha');
     heldFind.complete();
-    await staleFind;
+    expect((await staleFind).name, 'Renamed Alpha');
     await Future<void>.delayed(Duration.zero);
     expect(emitted.map((GroupProfile p) => p.name).toList(), <String>[
       'Renamed Alpha',
@@ -1436,4 +1454,98 @@ void main() {
       'Overlap Two Reads',
     ]);
   });
+
+  test(
+    'exhausting overlapping reads preserves the last published profile',
+    () async {
+      const groupNumber = '10000001';
+      final api = _DeferredGroupReads(baseUri: server.baseUri);
+      final groups = GroupService(api: api, session: session);
+      final emitted = <String>[];
+      final sub = groups.groupUpdates.listen(
+        (profile) => emitted.add(profile.name),
+      );
+      addTearDown(sub.cancel);
+      final conversation = ConversationRef.group(server.groupId);
+
+      var profile = await groupApi.findGroup(
+        token: 'token-1',
+        groupNumber: groupNumber,
+      );
+      var earlierReply = api.enqueue();
+      var earlier = groups.findGroup(groupNumber);
+      var delayedReply = api.enqueue();
+      final delayed = groups.findGroup(groupNumber);
+
+      for (var index = 1; index <= 3; index++) {
+        final oldProfile = profile;
+        profile = await groupApi.updateGroup(
+          token: 'token-1',
+          conversation: conversation,
+          name: 'Rename $index',
+        );
+        earlierReply.complete(profile);
+        expect(await earlier, same(profile));
+        if (index == 3) {
+          delayedReply.complete(oldProfile);
+          break;
+        }
+        earlierReply = api.enqueue();
+        earlier = groups.findGroup(groupNumber);
+        final retry = api.enqueue();
+        delayedReply.complete(oldProfile);
+        delayedReply = retry;
+      }
+
+      expect(await delayed, same(profile));
+      await Future<void>.delayed(Duration.zero);
+      expect(emitted, ['Rename 1', 'Rename 2', 'Rename 3']);
+    },
+  );
+
+  for (final status in [503, 403]) {
+    test(
+      'overlap retry failure $status cannot reintroduce an old profile',
+      () async {
+        const groupNumber = '10000001';
+        final api = _DeferredGroupReads(baseUri: server.baseUri);
+        final groups = GroupService(api: api, session: session);
+        final emitted = <String>[];
+        final sub = groups.groupUpdates.listen(
+          (profile) => emitted.add(profile.name),
+        );
+        addTearDown(sub.cancel);
+        final oldProfile = await groupApi.findGroup(
+          token: 'token-1',
+          groupNumber: groupNumber,
+        );
+        final earlierReply = api.enqueue();
+        final earlier = groups.findGroup(groupNumber);
+        final delayedReply = api.enqueue();
+        final delayed = groups.findGroup(groupNumber);
+        final newest = await groupApi.updateGroup(
+          token: 'token-1',
+          conversation: oldProfile.conversation,
+          name: 'Newer profile',
+        );
+        earlierReply.complete(newest);
+        await earlier;
+
+        final retry = api.enqueue();
+        final failure = AuthFailure(
+          status: status,
+          code: 'probe',
+          message: 'failed retry',
+        );
+        final check = status == 403
+            ? expectLater(delayed, throwsA(same(failure)))
+            : expectLater(delayed, completion(same(newest)));
+        delayedReply.complete(oldProfile);
+        await Future<void>.delayed(Duration.zero);
+        retry.completeError(failure);
+        await check;
+        expect(emitted, ['Newer profile']);
+      },
+    );
+  }
 }

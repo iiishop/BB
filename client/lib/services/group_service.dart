@@ -50,8 +50,9 @@ class GroupService {
       StreamController<GroupProfile>.broadcast();
   int _profileTicket = 0;
   int _publishEpoch = 0;
-  final Map<String, int> _latestProfileTicket = <String, int>{};
-  final Map<String, int> _latestPublishedEpoch = <String, int>{};
+  String? _profileAuthGeneration;
+  final _publishedProfiles =
+      <String, ({int ticket, int epoch, GroupProfile profile})>{};
   final Map<String, int> _latestMutationCommit = <String, int>{};
   final Map<String, String> _knownAvatarVersions = <String, String>{};
   int _avatarTicket = 0;
@@ -72,12 +73,15 @@ class GroupService {
 
   void _emitGroupUpdate(GroupProfile profile, {required int ticket}) {
     final String convId = profile.conversation.id;
-    final int committed = _latestProfileTicket[convId] ?? 0;
+    final int committed = _publishedProfiles[convId]?.ticket ?? 0;
     if (ticket < committed) {
       return;
     }
-    _latestProfileTicket[convId] = ticket;
-    _latestPublishedEpoch[convId] = ++_publishEpoch;
+    _publishedProfiles[convId] = (
+      ticket: ticket,
+      epoch: ++_publishEpoch,
+      profile: profile,
+    );
     final String? previousVersion = _knownAvatarVersions[profile.groupNumber];
     _knownAvatarVersions[profile.groupNumber] = profile.avatarVersion;
     if (previousVersion != null && previousVersion != profile.avatarVersion) {
@@ -98,7 +102,7 @@ class GroupService {
   }) async {
     final String convId = profile.conversation.id;
     final int? priorCommit = _latestMutationCommit[convId];
-    final int currentEpoch = _latestPublishedEpoch[convId] ?? 0;
+    final int currentEpoch = _publishedProfiles[convId]?.epoch ?? 0;
     final int commitTicket = ++_profileTicket;
     _latestMutationCommit[convId] = commitTicket;
     if ((priorCommit != null && startTicket < priorCommit) ||
@@ -120,6 +124,7 @@ class GroupService {
     if (invalidateAvatar) {
       await invalidateGroupAvatar(profile.groupNumber);
     }
+    _ensureCurrent(captured);
     _emitGroupUpdate(profile, ticket: commitTicket);
     return profile;
   }
@@ -140,16 +145,18 @@ class GroupService {
 
   AuthIdentity _requireIdentity(AuthIdentity? captured) {
     final AuthIdentity? current = session.identity;
-    if (captured != null) {
-      if (current == null || !captured.sameAs(current)) {
-        throw staleIdentity;
-      }
-      return captured;
+    if (captured != null && !captured.sameAs(current)) {
+      throw staleIdentity;
     }
     if (current == null) {
       throw unauthenticated;
     }
-    return current;
+    if (_profileAuthGeneration != current.authGeneration) {
+      _profileAuthGeneration = current.authGeneration;
+      _publishedProfiles.clear();
+      _latestMutationCommit.clear();
+    }
+    return captured ?? current;
   }
 
   void _ensureCurrent(AuthIdentity captured) {
@@ -252,15 +259,17 @@ class GroupService {
     );
     _ensureCurrent(identity);
     final String convId = profile.conversation.id;
-    final int latestTicket = _latestProfileTicket[convId] ?? 0;
-    if (requestTicket < latestTicket) {
-      return profile;
+    final latest = _publishedProfiles[convId];
+    if (latest != null && requestTicket < latest.ticket) {
+      return latest.profile;
     }
-    if (overlapRetriesRemaining > 0 &&
-        (_latestPublishedEpoch[convId] ?? 0) > startEpoch) {
+    if (latest != null && latest.epoch > startEpoch) {
       // An earlier-started query published a snapshot for this group while
       // this query was in flight; re-query so an overlapping query that read
       // stale pre-update data earlier cannot overtake it.
+      if (overlapRetriesRemaining == 0) {
+        return latest.profile;
+      }
       try {
         return await _findGroup(
           groupNumber,
@@ -268,12 +277,12 @@ class GroupService {
           overlapRetriesRemaining: overlapRetriesRemaining - 1,
         );
       } on AuthFailure catch (failure) {
-        if (failure.status == 401 || failure == staleIdentity) {
+        if (failure == staleIdentity ||
+            (failure.status >= 400 && failure.status < 500)) {
           rethrow;
         }
-        return profile;
-      } catch (_) {
-        return profile;
+        _ensureCurrent(identity);
+        return _publishedProfiles[convId]!.profile;
       }
     }
     _emitGroupUpdate(profile, ticket: requestTicket);
@@ -341,7 +350,7 @@ class GroupService {
         : await _resolveAvatarBytes(avatar);
     _ensureCurrent(identity);
     final int startTicket = ++_profileTicket;
-    final int startEpoch = _latestPublishedEpoch[conversation.id] ?? 0;
+    final int startEpoch = _publishedProfiles[conversation.id]?.epoch ?? 0;
     final GroupProfile profile = await api.updateGroup(
       token: identity.token,
       conversation: conversation,
@@ -475,7 +484,7 @@ class GroupService {
       throw _validation('account', '账号必须是 8 位 BB 号');
     }
     final int startTicket = ++_profileTicket;
-    final int startEpoch = _latestPublishedEpoch[conversation.id] ?? 0;
+    final int startEpoch = _publishedProfiles[conversation.id]?.epoch ?? 0;
     final GroupProfile profile = await api.removeGroupMember(
       token: identity.token,
       conversation: conversation,
@@ -500,7 +509,7 @@ class GroupService {
     final AuthIdentity identity = _requireIdentity(captured);
     _requireGroupConversation(conversation);
     final int startTicket = ++_profileTicket;
-    final int startEpoch = _latestPublishedEpoch[conversation.id] ?? 0;
+    final int startEpoch = _publishedProfiles[conversation.id]?.epoch ?? 0;
     final GroupProfile profile = await api.dissolveGroup(
       token: identity.token,
       conversation: conversation,
