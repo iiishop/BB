@@ -480,6 +480,7 @@ class _NotificationCenterState extends State<NotificationCenter> {
                         pendingEntries: pendingEntries,
                         historyEntries: historyEntries,
                         allCount: allCount,
+                        totalPendingCount: pendingCount,
                       ),
                     ],
                   ),
@@ -729,6 +730,7 @@ class _NotificationCenterState extends State<NotificationCenter> {
     required List<NotificationEntry> pendingEntries,
     required List<NotificationEntry> historyEntries,
     required int? allCount,
+    required int totalPendingCount,
   }) {
     if (widget.loading) {
       return SizedBox(
@@ -755,6 +757,28 @@ class _NotificationCenterState extends State<NotificationCenter> {
 
     if (pendingOnly) {
       if (pendingEntries.isEmpty) {
+        if (totalPendingCount > 0) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              _buildEmptyCard(
+                context,
+                isNarrow: isNarrow,
+                icon: Icons.outlined_flag_rounded,
+                positive: false,
+                title: '还有 $totalPendingCount 条待处理',
+                actionLabel: widget.hasMore && widget.onLoadMore != null
+                    ? '加载更多'
+                    : null,
+                onAction: widget.hasMore ? widget.onLoadMore : null,
+              ),
+              if (showFooter) ...<Widget>[
+                const SizedBox(height: 16),
+                _buildLoadMoreFooter(context),
+              ],
+            ],
+          );
+        }
         final bool canShowAll = (allCount ?? 1) > 0;
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -775,6 +799,10 @@ class _NotificationCenterState extends State<NotificationCenter> {
           ],
         );
       }
+      final int sectionCount = math.max(
+        pendingEntries.length,
+        totalPendingCount,
+      );
       return Align(
         alignment: Alignment.topLeft,
         child: ConstrainedBox(
@@ -782,7 +810,7 @@ class _NotificationCenterState extends State<NotificationCenter> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              _buildSectionHead('需要你处理', pendingEntries.length, hot: true),
+              _buildSectionHead('需要你处理', sectionCount, hot: true),
               _buildPendingStack(
                 context,
                 pendingEntries,
@@ -799,7 +827,7 @@ class _NotificationCenterState extends State<NotificationCenter> {
       );
     }
 
-    if (entries.isEmpty) {
+    if (entries.isEmpty && totalPendingCount == 0) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
@@ -818,10 +846,18 @@ class _NotificationCenterState extends State<NotificationCenter> {
       );
     }
 
+    final int pendingSectionCount = math.max(
+      pendingEntries.length,
+      totalPendingCount,
+    );
+    final bool confirmedCleared =
+        pendingEntries.isEmpty &&
+        totalPendingCount == 0 &&
+        (widget.pendingCount != null || !widget.hasMore);
     final Widget pendingSection = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        _buildSectionHead('需要你处理', pendingEntries.length, hot: true),
+        _buildSectionHead('需要你处理', pendingSectionCount, hot: true),
         if (pendingEntries.isNotEmpty)
           _buildPendingStack(
             context,
@@ -829,8 +865,10 @@ class _NotificationCenterState extends State<NotificationCenter> {
             isMobile: isMobile,
             textScale: textScale,
           )
+        else if (confirmedCleared)
+          _buildClearedBox()
         else
-          _buildClearedBox(),
+          _buildDeferredPendingBox(context, totalPendingCount),
       ],
     );
 
@@ -1056,6 +1094,88 @@ class _NotificationCenterState extends State<NotificationCenter> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildDeferredPendingBox(BuildContext context, int totalPendingCount) {
+    final bool canSwitchToPending =
+        widget.onFilterChanged != null || widget.pendingOnly == null;
+    final String title = totalPendingCount > 0
+        ? '还有 $totalPendingCount 条待处理'
+        : '可能有更多待处理';
+    final String? actionLabel = canSwitchToPending
+        ? '查看待处理'
+        : (widget.hasMore && widget.onLoadMore != null ? '加载更多' : null);
+    final VoidCallback? onAction = canSwitchToPending
+        ? () => _selectFilter(true)
+        : (widget.hasMore ? widget.onLoadMore : null);
+    final TextStyle buttonStyle =
+        (Theme.of(context).textTheme.labelLarge ?? const TextStyle()).copyWith(
+          fontSize: 13.5,
+          fontWeight: FontWeight.w600,
+        );
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        border: Border.all(color: AppColors.border),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: <Widget>[
+          Container(
+            width: 32,
+            height: 32,
+            decoration: const BoxDecoration(
+              color: AppColors.accentSoft,
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.outlined_flag_rounded,
+              size: 16,
+              color: AppColors.accentDeep,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 12,
+              runSpacing: 10,
+              children: <Widget>[
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: AppColors.ink,
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                if (actionLabel != null && onAction != null)
+                  FilledButton(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.accentDeep,
+                      foregroundColor: AppColors.surface,
+                      minimumSize: const Size(0, 44),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      textStyle: buttonStyle,
+                    ),
+                    onPressed: onAction,
+                    child: Text(actionLabel),
+                  ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -231,14 +231,32 @@ class _FakeNoticeLoopbackServer {
       final String path = request.uri.path;
       if (path == '/chat/notices/list') {
         final String filter = (jsonBody?['filter'] as String?) ?? 'all';
+        final String? cursor = jsonBody?['cursor'] as String?;
+        final int limit = (jsonBody?['limit'] as int?) ?? 50;
         final List<Map<String, dynamic>> filtered = filter == 'pending'
             ? notices
                   .where((Map<String, dynamic> n) => n['state'] == 'pending')
                   .toList()
             : notices;
+        int start = 0;
+        if (cursor != null) {
+          final int idx = filtered.indexWhere(
+            (Map<String, dynamic> n) => n['id'] == cursor,
+          );
+          if (idx >= 0) {
+            start = idx + 1;
+          }
+        }
+        final List<Map<String, dynamic>> pageItems = filtered
+            .skip(start)
+            .take(limit)
+            .toList();
+        final String? nextCursor = start + pageItems.length < filtered.length
+            ? pageItems.last['id'] as String
+            : null;
         await _writeJson(request, 200, <String, dynamic>{
-          'items': filtered,
-          'next_cursor': null,
+          'items': pageItems,
+          'next_cursor': nextCursor,
           'unread_count': notices
               .where((Map<String, dynamic> n) => n['read'] == false)
               .length,
@@ -701,6 +719,198 @@ void main() {
         find.byKey(NotificationCenter.moreKey('n-result')),
         findsOneWidget,
       );
+      expect(tester.takeException(), isNull);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump(const Duration(seconds: 35));
+    },
+  );
+
+  testWidgets(
+    'paged older pending invitation does not show cleared message on page 1',
+    (WidgetTester tester) async {
+      final List<NotificationEntry> history = List<NotificationEntry>.generate(
+        100,
+        (int i) => NotificationEntry(
+          id: 'history-$i',
+          type: 'group_join_result',
+          title: '入群结果',
+          body: '入群申请已通过',
+          timeLabel: '昨天',
+          read: true,
+          statusLabel: '仅告知',
+        ),
+      );
+      await pumpNotificationCenter(
+        tester,
+        NotificationCenter(
+          entries: history,
+          hasMore: true,
+          pendingOnly: false,
+          pendingCount: 1,
+          unreadCount: 1,
+          onLoadMore: () {},
+        ),
+        size: const Size(1440, 900),
+      );
+
+      expect(find.textContaining('1 条需要你处理'), findsOneWidget);
+      expect(find.text('待处理已清空'), findsNothing);
+      expect(find.text('还有 1 条待处理'), findsOneWidget);
+
+      // Narrow 320px width also renders without horizontal overflow.
+      await pumpNotificationCenter(
+        tester,
+        NotificationCenter(
+          entries: history,
+          hasMore: true,
+          pendingOnly: false,
+          pendingCount: 1,
+          unreadCount: 1,
+          onLoadMore: () {},
+        ),
+        size: const Size(320, 568),
+      );
+      expect(find.text('待处理已清空'), findsNothing);
+      expect(find.text('还有 1 条待处理'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'HomeView paginated 101st pending notice avoids false cleared and opens via 查看待处理',
+    (WidgetTester tester) async {
+      final HttpOverrides? previousOverrides = HttpOverrides.current;
+      HttpOverrides.global = _AllowLoopbackHttpOverrides();
+      addTearDown(() {
+        HttpOverrides.global = previousOverrides;
+      });
+      final _FakeNoticeLoopbackServer server = _FakeNoticeLoopbackServer();
+      server.notices
+        ..clear()
+        ..addAll(<Map<String, dynamic>>[
+          for (int i = 0; i < 100; i += 1)
+            <String, dynamic>{
+              'id': 'hist-$i',
+              'type': 'group_join_result',
+              'title': '入群结果',
+              'text': '入群申请已通过',
+              'created_at': '2026-11-28T09:00:00Z',
+              'read': true,
+              'state': 'informational',
+              'actions': const <Map<String, dynamic>>[],
+              'link': null,
+            },
+          <String, dynamic>{
+            'id': 'invite-101',
+            'type': 'group_invitation',
+            'title': '入群邀请',
+            'text': '林小满 邀请你加入「周末跑团」',
+            'created_at': '2026-11-27T09:00:00Z',
+            'read': false,
+            'state': 'pending',
+            'actions': <Map<String, dynamic>>[
+              <String, dynamic>{
+                'id': 'accept',
+                'label': '接受',
+                'available': true,
+              },
+              <String, dynamic>{
+                'id': 'reject',
+                'label': '拒绝',
+                'available': true,
+              },
+            ],
+            'link': null,
+          },
+        ]);
+      await tester.runAsync(server.start);
+      addTearDown(() async {
+        await server.close();
+      });
+
+      final Directory tempDir = Directory.systemTemp.createTempSync(
+        'bb-notice-paged-',
+      );
+      addTearDown(() {
+        if (tempDir.existsSync()) {
+          tempDir.deleteSync(recursive: true);
+        }
+      });
+
+      const AuthUser selfUser = AuthUser(account: '10000001', username: '我');
+      final AuthSession session = AuthSession()
+        ..establish(token: 'test-token', user: selfUser);
+      final HttpTransport transport = HttpTransport(
+        factory: () => HttpClient(),
+      );
+      final GroupService groups = GroupService(
+        api: GroupApiClient(baseUri: server.baseUri, transport: transport),
+        session: session,
+        avatarCache: AvatarCache(directory: tempDir),
+      );
+      final FakeChatService chat = FakeChatService(
+        self: selfUser,
+        users: const <ChatUser>[],
+      );
+      final FakeProfileGateway profile = FakeProfileGateway();
+      final HeartbeatController heartbeat = HeartbeatController(
+        auth: AuthService(
+          api: AuthApiClient(baseUri: server.baseUri),
+          session: session,
+        ),
+      );
+      addTearDown(heartbeat.dispose);
+
+      Future<void> settleHttp() async {
+        for (int i = 0; i < 15; i += 1) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 25)),
+          );
+          await tester.pump(const Duration(milliseconds: 25));
+        }
+      }
+
+      await pumpNotificationCenter(
+        tester,
+        HomeView(
+          user: selfUser,
+          profile: profile,
+          auth: FakeAuthGateway(),
+          heartbeat: heartbeat,
+          chat: chat,
+          groups: groups,
+          onSignedOut: (_) {},
+          onSessionExpired: () {},
+        ),
+        size: const Size(1440, 900),
+      );
+      await settleHttp();
+
+      await tester.tap(find.byKey(HomeView.navNotificationsKey));
+      await settleHttp();
+
+      expect(find.textContaining('1 条需要你处理'), findsOneWidget);
+      expect(find.text('待处理已清空'), findsNothing);
+      expect(find.text('还有 1 条待处理'), findsOneWidget);
+
+      await tester.tap(find.text('查看待处理'));
+      await settleHttp();
+
+      expect(
+        find.byKey(NotificationCenter.entryKey('invite-101')),
+        findsOneWidget,
+      );
+      await tester.tap(
+        find.byKey(NotificationCenter.actionKey('invite-101', 'accept')),
+      );
+      await settleHttp();
+      expect(server.executed, contains('invite-101:accept'));
+      expect(find.text('没有待处理的通知'), findsOneWidget);
+
+      await tester.tap(find.byKey(NotificationCenter.allKey));
+      await settleHttp();
+      expect(find.text('待处理已清空'), findsAtLeastNWidgets(1));
       expect(tester.takeException(), isNull);
 
       await tester.pumpWidget(const SizedBox.shrink());
