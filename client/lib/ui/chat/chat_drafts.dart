@@ -2,16 +2,22 @@ import 'package:flutter/foundation.dart';
 
 import '../../models/chat_models.dart';
 import '../../services/chat_service.dart';
+import '../../services/group_mention_controller.dart';
 import '../../services/install_safety_gate.dart';
 import 'pending_send.dart';
 
 /// One unsaved composer part: text or an image kept in insertion order.
 @immutable
 class ChatDraftPart {
-  const ChatDraftPart(this.part, {this.bytes});
+  const ChatDraftPart(
+    this.part, {
+    this.bytes,
+    this.mentionedAccounts = const <String>[],
+  });
 
   final OutgoingPart part;
   final Uint8List? bytes;
+  final List<String> mentionedAccounts;
 }
 
 /// One unsaved attachment (video / file) with the bytes already prepared.
@@ -39,6 +45,7 @@ class ChatDraft {
     this.text = '',
     this.parts = const <ChatDraftPart>[],
     this.attachments = const <ChatDraftAttachment>[],
+    this.mentionSpans = const <MentionSpan>[],
     this.pending = const <PendingSend>[],
     this.failed = const <SendOutcome>[],
   });
@@ -48,11 +55,13 @@ class ChatDraft {
   final String text;
   final List<ChatDraftPart> parts;
   final List<ChatDraftAttachment> attachments;
+  final List<MentionSpan> mentionSpans;
 
   bool get isEmpty =>
       text.isEmpty &&
       parts.isEmpty &&
       attachments.isEmpty &&
+      mentionSpans.isEmpty &&
       pending.isEmpty &&
       failed.isEmpty;
 

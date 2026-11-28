@@ -118,6 +118,11 @@ def set_group_membership(db, conversation_id, account, active, occurred_at):
         membership_revision=excluded.membership_revision""",
         (conversation_id, account, active, boundary, revision),
     )
+    if not active:
+        db.execute(
+            "DELETE FROM chat_unread_alerts WHERE conversation_id=? AND account=?",
+            (conversation_id, account),
+        )
     db.execute(
         """INSERT INTO events(account,conversation_id,position,occurred_at,membership_revision,active)
         VALUES (?,?,?,?,?,?)""",

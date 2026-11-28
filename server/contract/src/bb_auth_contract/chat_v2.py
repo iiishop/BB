@@ -8,8 +8,8 @@ from typing import Annotated, Generic, Literal, TypeVar
 from pydantic import ConfigDict, Field, model_validator
 
 from . import chat as v1
+from . import chat_alerts, cover, group, mentions, profile
 from . import chat_query as query
-from . import cover, group, profile
 from .conversation import GroupConversationRef
 
 VERSION = "dea467-local-v2"
@@ -151,6 +151,18 @@ class Read(Peer, query.HistoryQuery):
 
 
 class Conversations(Protected, query.ConsumerConversationQuery):
+    pass
+
+
+class ListMentionGroups(Protected, chat_alerts.AlertSummaryQuery):
+    pass
+
+
+class ListMentions(Protected, mentions.MentionQuery):
+    pass
+
+
+class SendGroupMention(Protected, mentions.GroupMentionSend):
     pass
 
 
@@ -599,6 +611,27 @@ BUSINESS = {
     ),
     "events_read": ("/v2/events/read", EventsRead, Reply[EventPage], 200, True),
     "events_wait": ("/v2/events/wait", EventsWait, Reply[EventWait], 200, True),
+    "list_unread_mention_groups": (
+        "/v2/chat/list_unread_mention_groups",
+        ListMentionGroups,
+        Reply[chat_alerts.AlertSummaryPage],
+        200,
+        True,
+    ),
+    "list_unread_mentions": (
+        "/v2/chat/list_unread_mentions",
+        ListMentions,
+        Reply[mentions.MentionPage],
+        200,
+        True,
+    ),
+    "send_group_mention": (
+        "/v2/chat/send_group_mention",
+        SendGroupMention,
+        Reply[v1.GroupMessage],
+        200,
+        True,
+    ),
 }
 
 

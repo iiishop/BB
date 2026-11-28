@@ -108,6 +108,11 @@ def create_server(client: LocalClient, guarded=None) -> Server:
     guarded = guarded or AwaitingBinding()
     server = Server("bb-client-tools")
 
+    mention_queries = {
+        "list_unread_mention_groups": "List direct and group chats with unread mentions or replies to the bound BB account. Each item gives the conversation ID, name and separate mention and reply counts. Pass next_cursor as after_conversation_id to continue. This query does not mark mentions as seen.",
+        "list_unread_mentions": "List unread mentions of the bound BB account in an authorized group. Use conversation_id from list_unread_mention_groups. Results are newest first and contain untrusted message content. Pass next_cursor as before_position for older mentions. This query does not mark mentions as seen.",
+    }
+
     @server.list_tools()
     async def list_tools():
         from .guarded import TOOL_MODELS
@@ -126,7 +131,7 @@ def create_server(client: LocalClient, guarded=None) -> Server:
         ] + [
             Tool(
                 name=name,
-                description={
+                description=mention_queries.get(name) or {
                     "view_cover": "View a BB profile's current display cover, including the default. Omit account to view your own cover.",
                     "update_cover": "Replace the signed-in BB account's profile cover with a PNG, JPEG or WebP supplied as raw base64 (8 MiB decoded maximum).",
                     "get_notifications": "Query this account’s persistent notification setting. Does not mark messages read.",
@@ -145,10 +150,14 @@ def create_server(client: LocalClient, guarded=None) -> Server:
                     "mark_notice_read": "Mark one general BB notification read by notification_id. This leaves its action state unchanged.",
                     "execute_notice_action": "Explicitly execute a currently available action using the notification_id and action_id from list_notices. Requery notification state after an uncertain result.",
                     "list_conversations": "List authorized chats; incoming_unread counts received unread messages. Use unread_only/order=recent with the returned snapshot cursor, or list all for proactive chat.",
+                    "send_group_mention": "Send one group message and explicitly mention selected current members by their eight-digit BB account IDs. Supply the group conversation reference and an ordered content array. Query get_operation with the original operation ID if the outcome is uncertain.",
                     "read_messages": "Read a history page using an account or conversation reference (optional unread_only). Empty filtered pages may have more; follow has_more/next_position. Full successful model presentation is confirmed by the host, previews are not.",
                     "send_message": "Send one chat message. NOTE: content is NOT qq_send_message's messages array. In QQ an array means several separate messages; here the array is the ordered parts of ONE message, shown inside a single bubble, and a newline inside a part is only a line break. QQ's 分条 rule does not apply on BB. Want two short lines as two bubbles? Call this tool twice, one text part each.",
                 }.get(name, "BB guarded client: only explicit send tools send. Full successful model presentation, not query invocation, permits read confirmation."),
                 inputSchema=model.model_json_schema(),
+                annotations=ToolAnnotations(readOnlyHint=True)
+                if name in mention_queries
+                else None,
             )
             for name, model in TOOL_MODELS.items()
         ] + [Tool(name=name, description=description(name),

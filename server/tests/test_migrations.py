@@ -49,7 +49,7 @@ def test_group_profile_migration_preserves_existing_v10_group(tmp_path, monkeypa
             "read_text",
             lambda p, **kwargs: (
                 ""
-                if p.name == "011_group_profile_revision.sql"
+                if p.name in {"011_group_profile_revision.sql", "012_chat_alerts.sql"}
                 else read_text(p, **kwargs)
             ),
         )

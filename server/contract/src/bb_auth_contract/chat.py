@@ -38,6 +38,19 @@ class SendMessage(SendTarget):
     content: list[Annotated[Text | Image, Field(discriminator="type")]] = Field(
         min_length=1, max_length=100
     )
+    mentioned_accounts: list[Account] = Field(
+        default_factory=list, max_length=100, json_schema_extra={"uniqueItems": True}
+    )
+
+    @model_validator(mode="after")
+    def group_mentions(self):
+        if self.mentioned_accounts and (
+            self.conversation is None or self.conversation.type != "group"
+        ):
+            raise ValueError("mentions require a group conversation")
+        if len(set(self.mentioned_accounts)) != len(self.mentioned_accounts):
+            raise ValueError("mention accounts must be unique")
+        return self
 
 
 class SendAttachment(SendTarget):

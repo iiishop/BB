@@ -63,7 +63,7 @@ from PIL import Image as PILImage
 from PIL import UnidentifiedImageError
 from starlette.concurrency import run_in_threadpool
 
-from . import chat_queries, chat_store
+from . import chat_alerts, chat_mentions, chat_queries, chat_store
 from .avatars import avatar_bytes, etag_matches
 from .media_thumbnails import thumbnail
 from .storage import connection, find_session
@@ -160,6 +160,11 @@ def submit(path, account, body, clock, association=False):
             db, account, body.target_account, body.conversation
         )
         request = body.model_dump(exclude={"conversation", "target_account"})
+        if isinstance(body, SendMessage):
+            # Retain pre-mention operation digests and canonicalize the recipient set.
+            request.pop("mentioned_accounts")
+            if body.mentioned_accounts:
+                request["mentioned_accounts"] = sorted(body.mentioned_accounts)
         if peer:
             # Keep the pre-migration digest and make explicit dm sends replay it.
             request["target_account"] = peer
@@ -182,6 +187,9 @@ def submit(path, account, body, clock, association=False):
             return chat_queries.find_message(
                 db, account, prior["message_id"], association
             )[0]
+        recipients = chat_mentions.recipients(
+            db, conversation_id, account, request.get("mentioned_accounts", [])
+        )
         scope = {"peer": peer} if peer else {"group_id": conversation_id}
         created_at = chat_store.timestamp(clock)
         fields = {"sender_account": account, "content": None, "attachment": None}
@@ -221,6 +229,8 @@ def submit(path, account, body, clock, association=False):
             direct_accounts=(account, peer) if peer else None,
             media_ids=media_ids,
         )
+        if recipients:
+            chat_alerts.record_mentions(db, conversation_id, message["position"], recipients)
         db.execute(
             "INSERT INTO operations VALUES (?,?,?,?)",
             (account, body.client_nonce, digest, message["id"]),

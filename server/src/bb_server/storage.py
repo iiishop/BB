@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 LOCK_WAIT_SECONDS = 3.0
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 logger = logging.getLogger(__name__)
 
 
@@ -87,6 +87,7 @@ def migrate(path: Path):
             (9, "009_shared_chat.sql"),
             (10, "010_group_lifecycle.sql"),
             (11, "011_group_profile_revision.sql"),
+            (12, "012_chat_alerts.sql"),
         ]:
             if version >= number:
                 continue

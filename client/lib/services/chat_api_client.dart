@@ -5,6 +5,7 @@ import 'dart:typed_data' show BytesBuilder, Uint8List;
 
 import '../models/auth_models.dart';
 import '../models/chat_models.dart';
+import '../models/mention_models.dart';
 import 'http_transport.dart';
 
 /// HTTP/WebSocket client for the server's STEP-3 chat REST surface.
@@ -82,11 +83,13 @@ class ChatApiClient {
     required ConversationRef conversation,
     required String clientNonce,
     required List<MessagePart> content,
+    List<String> mentionedAccounts = const <String>[],
   }) => _sendMessageRequest(
     token: token,
     conversation: conversation,
     clientNonce: clientNonce,
     content: content,
+    mentionedAccounts: mentionedAccounts,
   );
 
   Future<ChatMessage> _sendMessageRequest({
@@ -95,6 +98,7 @@ class ChatApiClient {
     ConversationRef? conversation,
     required String clientNonce,
     required List<MessagePart> content,
+    List<String> mentionedAccounts = const <String>[],
   }) async {
     if (content.isEmpty) {
       throw const AuthFailure(
@@ -103,6 +107,10 @@ class ChatApiClient {
         message: '正文不能为空',
       );
     }
+    validateMentionAccounts(
+      mentionedAccounts,
+      isGroup: conversation?.isGroup ?? false,
+    );
     final _RawResponse response = await _send(
       'POST',
       _query('/messages'),
@@ -112,6 +120,8 @@ class ChatApiClient {
         if (conversation != null) 'conversation': conversation.toJson(),
         'client_nonce': clientNonce,
         'content': content.map((MessagePart p) => p.toJson()).toList(),
+        if (mentionedAccounts.isNotEmpty)
+          'mentioned_accounts': mentionedAccounts,
       },
     );
     _requireSuccess(response, const <int>{200});
@@ -211,6 +221,152 @@ class ChatApiClient {
     final _RawResponse response = await _send('GET', url, token: token);
     _requireSuccess(response, const <int>{200});
     return SharedConversationPage.fromJson(_decodeMessages(response));
+  }
+
+  /// Summary of direct and group conversations that currently have unread
+  /// alerts for the viewer (`POST /chat/alerts/summary`).
+  Future<ClientAlertSummaryPage> alertSummary({
+    required String token,
+    String? afterConversationId,
+    int limit = mentionDefaultPageLimit,
+  }) async {
+    if (afterConversationId != null &&
+        afterConversationId.isNotEmpty &&
+        !isValidConversationId(afterConversationId)) {
+      throw const AuthFailure(
+        status: 422,
+        code: 'validation_error',
+        message: '无效的会话游标',
+      );
+    }
+    if (limit < 1 || limit > mentionMaxPageLimit) {
+      throw const AuthFailure(
+        status: 422,
+        code: 'validation_error',
+        message: 'limit 必须在 1 到 100 之间',
+      );
+    }
+    final _RawResponse response = await _send(
+      'POST',
+      _query(alertSummaryPath),
+      token: token,
+      payload: <String, dynamic>{
+        if (afterConversationId != null && afterConversationId.isNotEmpty)
+          'after_conversation_id': afterConversationId,
+        if (limit != mentionDefaultPageLimit) 'limit': limit,
+      },
+    );
+    _requireSuccess(response, const <int>{200});
+    return ClientAlertSummaryPage.fromJson(_decode(response.body));
+  }
+
+  /// Reverse-ordered page of unread alerts in one direct or group
+  /// conversation (`POST /chat/alerts/list`).
+  Future<AlertPage> listAlerts({
+    required String token,
+    required ConversationRef conversation,
+    int? beforePosition,
+    int limit = mentionDefaultPageLimit,
+  }) async {
+    if (beforePosition != null && !isValidPositivePosition(beforePosition)) {
+      throw const AuthFailure(
+        status: 422,
+        code: 'validation_error',
+        message: 'before_position 无效',
+      );
+    }
+    if (limit < 1 || limit > mentionMaxPageLimit) {
+      throw const AuthFailure(
+        status: 422,
+        code: 'validation_error',
+        message: 'limit 必须在 1 到 100 之间',
+      );
+    }
+    final _RawResponse response = await _send(
+      'POST',
+      _query(alertListPath),
+      token: token,
+      payload: <String, dynamic>{
+        'conversation_id': conversation.id,
+        'before_position': ?beforePosition,
+        if (limit != mentionDefaultPageLimit) 'limit': limit,
+      },
+    );
+    _requireSuccess(response, const <int>{200});
+    return AlertPage.fromJson(_decode(response.body));
+  }
+
+  /// Explicitly marks foreground-visible alert messages as seen by ID
+  /// (`POST /chat/alerts/mark_seen`), clearing both mention and reply alerts
+  /// on each submitted message ID.
+  Future<AlertCounts> markAlertsSeen({
+    required String token,
+    required ConversationRef conversation,
+    required List<String> messageIds,
+  }) async {
+    if (messageIds.isEmpty ||
+        messageIds.length > mentionMaxPageLimit ||
+        messageIds.any((String id) => !isValidMentionMessageId(id))) {
+      throw const AuthFailure(
+        status: 422,
+        code: 'validation_error',
+        message: 'message_ids 必须包含 1 到 100 个有效消息 ID',
+      );
+    }
+    final _RawResponse response = await _send(
+      'POST',
+      _query(alertMarkSeenPath),
+      token: token,
+      payload: <String, dynamic>{
+        'conversation_id': conversation.id,
+        'message_ids': messageIds,
+      },
+    );
+    _requireSuccess(response, const <int>{200});
+    return AlertCounts.fromJson(_decode(response.body));
+  }
+
+  /// Reverse-ordered page of unread mentions in one active group
+  /// (`POST /chat/mentions/list`).
+  Future<MentionPage> listMentions({
+    required String token,
+    required ConversationRef conversation,
+    int? beforePosition,
+    int limit = mentionDefaultPageLimit,
+  }) async {
+    if (!conversation.isGroup) {
+      throw const AuthFailure(
+        status: 422,
+        code: 'validation_error',
+        message: '需要群会话 ID',
+      );
+    }
+    if (beforePosition != null && !isValidPositivePosition(beforePosition)) {
+      throw const AuthFailure(
+        status: 422,
+        code: 'validation_error',
+        message: 'before_position 无效',
+      );
+    }
+    if (limit < 1 || limit > mentionMaxPageLimit) {
+      throw const AuthFailure(
+        status: 422,
+        code: 'validation_error',
+        message: 'limit 必须在 1 到 100 之间',
+      );
+    }
+    final _RawResponse response = await _send(
+      'POST',
+      _query(mentionListPath),
+      token: token,
+      payload: <String, dynamic>{
+        'conversation_id': conversation.id,
+        'before_position': ?beforePosition,
+        if (limit != mentionDefaultPageLimit) 'limit': limit,
+      },
+    );
+    _requireSuccess(response, const <int>{200});
+    return MentionPage.fromJson(_decode(response.body));
   }
 
   /// One page of a pair's history.
