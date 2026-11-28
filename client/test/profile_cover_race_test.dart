@@ -8,6 +8,7 @@ import 'package:bb_client/models/auth_models.dart';
 import 'package:bb_client/models/profile_models.dart';
 import 'package:bb_client/services/auth_session.dart';
 import 'package:bb_client/ui/profile/profile_artwork.dart';
+import 'package:bb_client/ui/profile/profile_details.dart';
 import 'package:bb_client/ui/profile/profile_panel.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -119,6 +120,206 @@ void main() {
       expect(find.textContaining('封面已更新'), findsOneWidget);
     },
   );
+
+  testWidgets(
+    'switching peer while previous cover response is delayed does not leak old cover',
+    (WidgetTester tester) async {
+      const String accountA = '40218765';
+      const String accountB = '40218766';
+      final _PeerRaceGateway gateway = _PeerRaceGateway(
+        heldCoverAccount: accountA,
+        heldProfileAccount: null,
+      );
+      gateway.profiles[accountA] = const Profile(
+        account: accountA,
+        username: '重名同学',
+        signature: 'A',
+        avatarUrl: '/avatars/$accountA.png',
+        avatarVersion: 'va',
+      );
+      gateway.profiles[accountB] = const Profile(
+        account: accountB,
+        username: '重名同学',
+        signature: 'B',
+        avatarUrl: '/avatars/$accountB.png',
+        avatarVersion: 'vb',
+      );
+      gateway.covers[accountA] = CoverImage(
+        account: accountA,
+        bytes: oldCover,
+        version: 'sha256-${'a' * 64}',
+        mimeType: 'image/png',
+        isDefault: false,
+      );
+      gateway.covers[accountB] = CoverImage(
+        account: accountB,
+        bytes: newCover,
+        version: 'sha256-${'b' * 64}',
+        mimeType: 'image/png',
+        isDefault: false,
+      );
+
+      final ValueNotifier<String> account = ValueNotifier<String>(accountA);
+      addTearDown(account.dispose);
+
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildAppTheme(),
+          home: Scaffold(
+            body: ValueListenableBuilder<String>(
+              valueListenable: account,
+              builder: (BuildContext context, String value, Widget? _) =>
+                  PersonProfilePanel(account: value, gateway: gateway),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('BB号 $accountA'), findsOneWidget);
+      // Cover A is still in flight, so default sea wave stays on screen.
+      expect(find.byKey(ProfileSeaCover.defaultCoverKey), findsOneWidget);
+
+      // Switch to B (same display name, different account & custom cover).
+      account.value = accountB;
+      await tester.pumpAndSettle();
+      expect(find.text('BB号 $accountB'), findsOneWidget);
+      expect(shownCover(tester).bytes, newCover);
+
+      // Release delayed cover A; it must be discarded and never overwrite B.
+      gateway.releaseHeldCover();
+      await tester.pump();
+      await tester.pumpAndSettle();
+      expect(find.text('BB号 $accountB'), findsOneWidget);
+      expect(shownCover(tester).bytes, newCover);
+    },
+  );
+
+  testWidgets(
+    'switching peer while previous profile response is delayed keeps new peer',
+    (WidgetTester tester) async {
+      const String accountA = '40218765';
+      const String accountB = '40218766';
+      final _PeerRaceGateway gateway = _PeerRaceGateway(
+        heldCoverAccount: null,
+        heldProfileAccount: accountA,
+      );
+      gateway.profiles[accountA] = const Profile(
+        account: accountA,
+        username: '重名同学',
+        signature: 'old peer',
+        avatarUrl: '/avatars/$accountA.png',
+        avatarVersion: 'va',
+      );
+      gateway.profiles[accountB] = const Profile(
+        account: accountB,
+        username: '重名同学',
+        signature: 'new peer',
+        avatarUrl: '/avatars/$accountB.png',
+        avatarVersion: 'vb',
+      );
+      gateway.covers[accountA] = CoverImage(
+        account: accountA,
+        bytes: oldCover,
+        version: 'sha256-${'a' * 64}',
+        mimeType: 'image/png',
+        isDefault: false,
+      );
+
+      final ValueNotifier<String> account = ValueNotifier<String>(accountA);
+      addTearDown(account.dispose);
+
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildAppTheme(),
+          home: Scaffold(
+            body: ValueListenableBuilder<String>(
+              valueListenable: account,
+              builder: (BuildContext context, String value, Widget? _) =>
+                  PersonProfilePanel(account: value, gateway: gateway),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+
+      account.value = accountB;
+      await tester.pumpAndSettle();
+      expect(find.text('BB号 $accountB'), findsOneWidget);
+      expect(find.text('new peer'), findsOneWidget);
+      // Account B has no custom cover -> default sea wave.
+      expect(find.byKey(ProfileSeaCover.defaultCoverKey), findsOneWidget);
+
+      gateway.releaseHeldProfile();
+      await tester.pump();
+      await tester.pumpAndSettle();
+      expect(find.text('BB号 $accountB'), findsOneWidget);
+      expect(find.text('new peer'), findsOneWidget);
+      expect(find.text('old peer'), findsNothing);
+      expect(find.byKey(ProfileSeaCover.defaultCoverKey), findsOneWidget);
+    },
+  );
+}
+
+class _PeerRaceGateway extends FakeProfileGateway {
+  _PeerRaceGateway({
+    required this.heldCoverAccount,
+    required this.heldProfileAccount,
+  });
+
+  final String? heldCoverAccount;
+  final String? heldProfileAccount;
+  final Completer<void> _coverRelease = Completer<void>();
+  final Completer<void> _profileRelease = Completer<void>();
+
+  void releaseHeldCover() {
+    if (!_coverRelease.isCompleted) {
+      _coverRelease.complete();
+    }
+  }
+
+  void releaseHeldProfile() {
+    if (!_profileRelease.isCompleted) {
+      _profileRelease.complete();
+    }
+  }
+
+  @override
+  Future<Profile> loadProfile({String? account, AuthIdentity? captured}) async {
+    final Profile result = await super.loadProfile(
+      account: account,
+      captured: captured,
+    );
+    if (account != null && account == heldProfileAccount) {
+      await _profileRelease.future;
+    }
+    return result;
+  }
+
+  @override
+  Future<CoverImage> loadCover({
+    String? account,
+    AuthIdentity? captured,
+  }) async {
+    final CoverImage result = await super.loadCover(
+      account: account,
+      captured: captured,
+    );
+    if (account != null && account == heldCoverAccount) {
+      await _coverRelease.future;
+    }
+    return result;
+  }
 }
 
 /// Gateway double whose first [loadCover] snapshots the current cover, then

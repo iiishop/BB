@@ -98,6 +98,7 @@ class MessageBubble extends StatelessWidget {
     this.onDownload,
     this.onPlay,
     this.onOpenMedia,
+    this.onAvatarTap,
     this.localMediaPreview,
     this.busy = false,
     this.sendState,
@@ -123,6 +124,9 @@ class MessageBubble extends StatelessWidget {
 
   /// Opens the full-screen viewer at this media slot; null disables the tap.
   final void Function(ChatMessage message, int? partIndex)? onOpenMedia;
+
+  /// Opens the sender's profile when tapping a left-side message avatar.
+  final VoidCallback? onAvatarTap;
 
   /// Already-held bytes for a just-sent or still-pending image of the current
   /// account.
@@ -162,6 +166,9 @@ class MessageBubble extends StatelessWidget {
   static const Key sendingKey = Key('chat-bubble-sending');
   static const Key failedKey = Key('chat-bubble-failed');
   static const Key tailKey = Key('chat-bubble-tail');
+
+  static Key avatarKeyFor(String messageIdentity) =>
+      ValueKey<String>('chat-message-avatar-$messageIdentity');
 
   bool get mine => message.senderAccount == selfAccount;
 
@@ -452,9 +459,11 @@ class MessageBubble extends StatelessWidget {
       return const SizedBox(width: 32, height: 32);
     }
     return _MessageAvatar(
+      key: MessageBubble.avatarKeyFor(message.identity),
       avatars: avatars,
       account: message.senderAccount,
       semanticLabel: isMine ? '我的头像' : '$peerUsername 的头像',
+      onTap: !isMine && message.senderAccount.isNotEmpty ? onAvatarTap : null,
     );
   }
 
@@ -1006,24 +1015,32 @@ class _MediaImageState extends State<_MediaImage> {
 /// its explicit placeholder instead of an invented initial.
 class _MessageAvatar extends StatelessWidget {
   const _MessageAvatar({
+    super.key,
     required this.avatars,
     required this.account,
     required this.semanticLabel,
+    this.onTap,
   });
 
   final ChatAvatarController avatars;
   final String account;
   final String semanticLabel;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return ProfileAvatar(
+    final Widget avatar = ProfileAvatar(
       bytes: avatars.bytesFor(account),
       size: 32,
       showBorder: false,
       loading: avatars.isLoading(account),
       semanticLabel: semanticLabel,
+      onTap: onTap,
     );
+    if (onTap == null) {
+      return avatar;
+    }
+    return Material(type: MaterialType.transparency, child: avatar);
   }
 }
 
