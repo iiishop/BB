@@ -174,13 +174,11 @@ class GroupMentionComposerController extends ChangeNotifier {
     TextEditingValue oldValue,
     TextEditingValue newValue,
   ) {
-    if (oldValue.text != newValue.text) {
-      _spans = reconcileSpans(
-        oldText: oldValue.text,
-        newText: newValue.text,
-        spans: _spans,
-      );
-    }
+    _spans = reconcileSpans(
+      oldValue: oldValue,
+      newValue: newValue,
+      spans: _spans,
+    );
     _updateQueryFromValue(newValue);
     notifyListeners();
   }
@@ -410,34 +408,66 @@ class GroupMentionComposerController extends ChangeNotifier {
     return ni == nRunes.length ? first : null;
   }
 
-  /// Updates committed [spans] after editing [oldText] into [newText].
+  /// Updates committed [spans] after editing [oldValue] into [newValue].
   /// Overlapping edits invalidate the touched span rather than binding stale
   /// accounts to edited text.
   static List<MentionSpan> reconcileSpans({
-    required String oldText,
-    required String newText,
+    required TextEditingValue oldValue,
+    required TextEditingValue newValue,
     required List<MentionSpan> spans,
   }) {
     if (spans.isEmpty) {
       return const <MentionSpan>[];
     }
-    final int minLen = oldText.length < newText.length
-        ? oldText.length
-        : newText.length;
+    final String oldText = oldValue.text;
+    final String newText = newValue.text;
+    if (oldText == newText) {
+      return spans;
+    }
+    final int delta = newText.length - oldText.length;
+    final int minLen = math.min(oldText.length, newText.length);
     int prefix = 0;
     while (prefix < minLen &&
         oldText.codeUnitAt(prefix) == newText.codeUnitAt(prefix)) {
       prefix += 1;
     }
     int suffix = 0;
-    while (suffix < minLen - prefix &&
+    while (suffix < minLen &&
         oldText.codeUnitAt(oldText.length - 1 - suffix) ==
             newText.codeUnitAt(newText.length - 1 - suffix)) {
       suffix += 1;
     }
-    final int oldEditStart = prefix;
-    final int oldEditEnd = oldText.length - suffix;
-    final int delta = newText.length - oldText.length;
+
+    // Repeated text can make several edit ranges fit. Without a verified
+    // selection, retain only spans outside every minimal edit range.
+    final int unchanged = math.min(minLen, prefix + suffix);
+    int oldEditStart = unchanged - suffix;
+    int oldEditEnd = oldText.length - (unchanged - prefix);
+    final TextSelection before = oldValue.selection;
+    final TextSelection after = newValue.selection;
+    if (before.isValid &&
+        before.end <= oldText.length &&
+        after.isValid &&
+        after.isCollapsed &&
+        after.end <= newText.length) {
+      final int caret = after.end;
+      final int end = caret - delta;
+      final int start = before.isCollapsed
+          ? math.min(before.start, caret)
+          : before.start;
+      // Forward deletion keeps the caret at the start of the removed range.
+      final bool matchesSelection =
+          end == before.end || (before.isCollapsed && caret == before.start);
+      if (matchesSelection &&
+          start <= prefix &&
+          start <= caret &&
+          start <= end &&
+          end <= oldText.length &&
+          oldText.length - end <= suffix) {
+        oldEditStart = start;
+        oldEditEnd = end;
+      }
+    }
     final List<MentionSpan> next = <MentionSpan>[];
     for (final MentionSpan span in spans) {
       if (span.end <= oldEditStart) {

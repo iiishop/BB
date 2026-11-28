@@ -672,6 +672,96 @@ void main() {
       },
     );
 
+    for (final scenario in [
+      (first: '10000003', second: '10000004', deleteFirst: true),
+      (first: '10000003', second: '10000004', deleteFirst: false),
+      (first: '10000003', second: null, deleteFirst: true),
+      (first: '10000003', second: null, deleteFirst: false),
+      (first: null, second: '10000004', deleteFirst: true),
+      (first: null, second: '10000004', deleteFirst: false),
+    ]) {
+      testWidgets('identical token deletion $scenario', (tester) async {
+        const String label = '@张三 ';
+        final svc = _buildServices();
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: Column(
+                children: [
+                  const Spacer(),
+                  ChatComposer(
+                    chat: svc.chat,
+                    peerAccount: '',
+                    conversation: _groupItem.conversation,
+                    shared: svc.shared,
+                    groups: svc.groups,
+                    profile: FakeProfileGateway(),
+                    onSent: (_, _) {},
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+        final Finder input = find.byKey(ChatComposer.inputKey);
+        await tester.tap(input);
+        await tester.pump();
+        final EditableTextState editable = tester.state<EditableTextState>(
+          find.descendant(of: input, matching: find.byType(EditableText)),
+        );
+        for (final String? account in [scenario.first, scenario.second]) {
+          final String text =
+              editable.textEditingValue.text +
+              (account == null ? label : '@张三');
+          editable.userUpdateTextEditingValue(
+            TextEditingValue(
+              text: text,
+              selection: TextSelection.collapsed(offset: text.length),
+            ),
+            SelectionChangedCause.keyboard,
+          );
+          await tester.pumpAndSettle();
+          if (account != null) {
+            await tester.tap(
+              find.byKey(MentionMemberPickerOverlay.rowKey(account)),
+            );
+          } else {
+            await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+          }
+          await tester.pumpAndSettle();
+        }
+        expect(editable.textEditingValue.text, label * 2);
+
+        editable.userUpdateTextEditingValue(
+          editable.textEditingValue.copyWith(
+            selection: scenario.deleteFirst
+                ? const TextSelection(baseOffset: 0, extentOffset: label.length)
+                : const TextSelection(
+                    baseOffset: label.length * 2,
+                    extentOffset: label.length,
+                  ),
+          ),
+          SelectionChangedCause.keyboard,
+        );
+        await tester.sendKeyEvent(
+          scenario.deleteFirst
+              ? LogicalKeyboardKey.backspace
+              : LogicalKeyboardKey.delete,
+        );
+        await tester.pumpAndSettle();
+        expect(editable.textEditingValue.text, label);
+
+        await tester.tap(find.byKey(ChatComposer.sendKey));
+        await tester.pumpAndSettle();
+        final String? remaining = scenario.deleteFirst
+            ? scenario.second
+            : scenario.first;
+        expect(svc.backend.sentMessages.single['mentioned_accounts'], <String>[
+          ?remaining,
+        ]);
+      });
+    }
+
     testWidgets(
       'phone half-sheet search filters candidates and inserts selected member into composer',
       (WidgetTester tester) async {

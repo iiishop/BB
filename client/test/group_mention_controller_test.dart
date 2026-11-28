@@ -363,6 +363,91 @@ void main() {
       ]);
     });
 
+    test(
+      'inserting identical plain text before a mention moves its binding',
+      () {
+        const String label = '@张三 ';
+        const MentionSpan span = MentionSpan(
+          start: 0,
+          end: label.length,
+          account: '10000003',
+          label: label,
+        );
+        final List<MentionSpan> spans =
+            GroupMentionComposerController.reconcileSpans(
+              oldValue: const TextEditingValue(
+                text: label,
+                selection: TextSelection.collapsed(offset: 0),
+              ),
+              newValue: const TextEditingValue(
+                text: '$label$label',
+                selection: TextSelection.collapsed(offset: label.length),
+              ),
+              spans: const <MentionSpan>[span],
+            );
+        expect(spans, <MentionSpan>[span.shift(label.length)]);
+      },
+    );
+
+    test('backspace and forward delete distinguish identical spaces', () {
+      const String label = '@张三 ';
+      const MentionSpan span = MentionSpan(
+        start: 0,
+        end: label.length,
+        account: '10000003',
+        label: label,
+      );
+      const TextEditingValue before = TextEditingValue(
+        text: '$label end',
+        selection: TextSelection.collapsed(offset: label.length),
+      );
+      for (final bool forward in <bool>[false, true]) {
+        final List<MentionSpan> spans =
+            GroupMentionComposerController.reconcileSpans(
+              oldValue: before,
+              newValue: TextEditingValue(
+                text: '${label}end',
+                selection: TextSelection.collapsed(
+                  offset: forward ? label.length : label.length - 1,
+                ),
+              ),
+              spans: const <MentionSpan>[span],
+            );
+        expect(spans, <MentionSpan>[if (forward) span]);
+      }
+    });
+
+    test(
+      'ambiguous edits with no selection retain only unaffected mentions',
+      () {
+        const MentionSpan first = MentionSpan(
+          start: 0,
+          end: 4,
+          account: '10000003',
+          label: '@张三 ',
+        );
+        const MentionSpan second = MentionSpan(
+          start: 4,
+          end: 8,
+          account: '10000004',
+          label: '@张三 ',
+        );
+        const MentionSpan last = MentionSpan(
+          start: 10,
+          end: 15,
+          account: '10000005',
+          label: '@Bob ',
+        );
+        final List<MentionSpan> spans =
+            GroupMentionComposerController.reconcileSpans(
+              oldValue: const TextEditingValue(text: '@张三 @张三 / @Bob '),
+              newValue: const TextEditingValue(text: '@张三 / @Bob '),
+              spans: <MentionSpan>[first, second, last],
+            );
+        expect(spans, <MentionSpan>[last.shift(-4)]);
+      },
+    );
+
     test('ChatDraft preserves mentionSpans across draft restore', () {
       final Object sessionKey = Object();
       ChatDrafts.instance.resetForTest();
