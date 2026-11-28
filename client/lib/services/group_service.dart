@@ -424,6 +424,7 @@ class GroupService {
     required ConversationRef conversation,
     String afterAccount = '',
     int limit = 50,
+    bool includeCounts = false,
     AuthIdentity? captured,
   }) async {
     final AuthIdentity identity = _requireIdentity(captured);
@@ -440,6 +441,7 @@ class GroupService {
         conversation: conversation,
         afterAccount: afterAccount,
         limit: limit,
+        includeCounts: includeCounts,
       );
       _ensureCurrent(identity);
       return page;
