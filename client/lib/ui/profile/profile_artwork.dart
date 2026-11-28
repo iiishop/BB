@@ -33,19 +33,31 @@ class ProfileSeaCover extends StatelessWidget {
   const ProfileSeaCover({
     super.key,
     required this.height,
-    required this.backBar,
+    this.backBar,
     this.imageBytes,
     this.imageMimeType,
+    this.fadeDuration = Duration.zero,
+    this.topScrimHeightFactor = 0.5,
+    this.topScrimMaxAlpha = 0.45,
+    this.bottomScrimHeightFactor = 0.3,
+    this.bottomScrimMaxAlpha = 0.28,
   });
 
   final double height;
 
   /// Back button + title row, laid over the sky.
-  final Widget backBar;
+  final Widget? backBar;
 
   /// Server display bytes (custom cover or the default image).
   final Uint8List? imageBytes;
   final String? imageMimeType;
+
+  /// Crossfade duration when swapping cover images; zero skips animation.
+  final Duration fadeDuration;
+  final double topScrimHeightFactor;
+  final double topScrimMaxAlpha;
+  final double bottomScrimHeightFactor;
+  final double bottomScrimMaxAlpha;
 
   static const Key coverKey = Key('profile-cover');
   static const Key defaultCoverKey = Key('profile-cover-default');
@@ -57,6 +69,7 @@ class ProfileSeaCover extends StatelessWidget {
     if (bytes != null && bytes.isNotEmpty) {
       image = Image.memory(
         bytes,
+        key: ValueKey<Uint8List>(bytes),
         fit: BoxFit.cover,
         gaplessPlayback: true,
         alignment: Alignment.center,
@@ -73,17 +86,44 @@ class ProfileSeaCover extends StatelessWidget {
             _paintedFallback(),
       );
     }
+    final Widget art = fadeDuration > Duration.zero
+        ? AnimatedSwitcher(
+            duration: fadeDuration,
+            switchInCurve: Curves.easeOut,
+            switchOutCurve: Curves.easeIn,
+            layoutBuilder:
+                (Widget? currentChild, List<Widget> previousChildren) => Stack(
+                  fit: StackFit.expand,
+                  children: <Widget>[...previousChildren, ?currentChild],
+                ),
+            child: image,
+          )
+        : image;
     return SizedBox(
       key: coverKey,
       height: height,
       width: double.infinity,
-      child: Stack(
-        fit: StackFit.expand,
-        children: <Widget>[
-          image,
-          const _CoverScrims(),
-          Positioned(left: 4, right: AppSpacing.lg, top: 0, child: backBar),
-        ],
+      child: ColoredBox(
+        color: const Color(0xFF101A2A),
+        child: Stack(
+          fit: StackFit.expand,
+          children: <Widget>[
+            art,
+            _CoverScrims(
+              topHeightFactor: topScrimHeightFactor,
+              topMaxAlpha: topScrimMaxAlpha,
+              bottomHeightFactor: bottomScrimHeightFactor,
+              bottomMaxAlpha: bottomScrimMaxAlpha,
+            ),
+            if (backBar != null)
+              Positioned(
+                left: 4,
+                right: AppSpacing.lg,
+                top: 0,
+                child: backBar!,
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -93,7 +133,17 @@ class ProfileSeaCover extends StatelessWidget {
 
 /// Top and bottom scrims shared by the image and the painted fallback.
 class _CoverScrims extends StatelessWidget {
-  const _CoverScrims();
+  const _CoverScrims({
+    required this.topHeightFactor,
+    required this.topMaxAlpha,
+    required this.bottomHeightFactor,
+    required this.bottomMaxAlpha,
+  });
+
+  final double topHeightFactor;
+  final double topMaxAlpha;
+  final double bottomHeightFactor;
+  final double bottomMaxAlpha;
 
   @override
   Widget build(BuildContext context) {
@@ -104,14 +154,14 @@ class _CoverScrims extends StatelessWidget {
           Align(
             alignment: Alignment.topCenter,
             child: FractionallySizedBox(
-              heightFactor: 0.5,
+              heightFactor: topHeightFactor,
               child: DecoratedBox(
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                     colors: <Color>[
-                      const Color(0xFF0B1020).withValues(alpha: 0.45),
+                      const Color(0xFF0B1020).withValues(alpha: topMaxAlpha),
                       const Color(0xFF0B1020).withValues(alpha: 0),
                     ],
                   ),
@@ -122,7 +172,7 @@ class _CoverScrims extends StatelessWidget {
           Align(
             alignment: Alignment.bottomCenter,
             child: FractionallySizedBox(
-              heightFactor: 0.3,
+              heightFactor: bottomHeightFactor,
               child: DecoratedBox(
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
@@ -130,7 +180,7 @@ class _CoverScrims extends StatelessWidget {
                     end: Alignment.bottomCenter,
                     colors: <Color>[
                       const Color(0xFF101A2A).withValues(alpha: 0),
-                      const Color(0xFF101A2A).withValues(alpha: 0.28),
+                      const Color(0xFF101A2A).withValues(alpha: bottomMaxAlpha),
                     ],
                   ),
                 ),

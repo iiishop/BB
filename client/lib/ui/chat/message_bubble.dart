@@ -1040,7 +1040,61 @@ class _MessageAvatar extends StatelessWidget {
     if (onTap == null) {
       return avatar;
     }
-    return Material(type: MaterialType.transparency, child: avatar);
+    return _PressableMessageAvatar(child: avatar);
+  }
+}
+
+/// Tactile press (`0.94` over 120 ms) and hover ring for clickable message
+/// avatars, collapsing to instant feedback when reduced motion is enabled.
+class _PressableMessageAvatar extends StatefulWidget {
+  const _PressableMessageAvatar({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_PressableMessageAvatar> createState() =>
+      _PressableMessageAvatarState();
+}
+
+class _PressableMessageAvatarState extends State<_PressableMessageAvatar> {
+  bool _pressed = false;
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool reducedMotion =
+        MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    final Duration duration = reducedMotion
+        ? Duration.zero
+        : const Duration(milliseconds: 120);
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: Listener(
+        onPointerDown: (_) => setState(() => _pressed = true),
+        onPointerUp: (_) => setState(() => _pressed = false),
+        onPointerCancel: (_) => setState(() => _pressed = false),
+        child: AnimatedScale(
+          scale: _pressed && !reducedMotion ? 0.94 : 1.0,
+          duration: duration,
+          curve: Curves.easeOut,
+          child: AnimatedContainer(
+            duration: duration,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: _hovered
+                  ? Border.all(color: AppColors.accent, width: 2)
+                  : null,
+            ),
+            child: Material(
+              type: MaterialType.transparency,
+              child: widget.child,
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 

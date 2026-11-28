@@ -21,6 +21,7 @@ import 'package:bb_client/ui/profile/group_profile_panel.dart';
 import 'package:bb_client/ui/profile/profile_artwork.dart';
 import 'package:bb_client/ui/profile/profile_details.dart';
 import 'package:bb_client/ui/profile/profile_panel.dart';
+import 'package:bb_client/ui/widgets/profile_avatar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -564,6 +565,246 @@ void main() {
       expect(find.byType(PersonProfilePanel), findsOneWidget);
       expect(find.text('BB号 ${_bob.account}'), findsOneWidget);
       expect(find.byKey(ProfileSeaCover.defaultCoverKey), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  for (final Size viewport in const <Size>[Size(390, 844), Size(1280, 900)]) {
+    testWidgets(
+      'DEA-514 v3 floating nameplate has no dividers/borders, supports 200% text and read-only cues ($viewport)',
+      (WidgetTester tester) async {
+        tester.view.physicalSize = viewport;
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+
+        final FakeProfileGateway profiles = buildProfiles();
+        profiles.profiles[_carol.account] = const Profile(
+          account: '10000003',
+          username: '重名成员很长昵称测试换行',
+          signature: null,
+          avatarUrl: '/avatars/10000003.png',
+          avatarVersion: 'v-carol',
+        );
+
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: buildAppTheme(),
+            builder: (BuildContext context, Widget? child) => MediaQuery(
+              data: MediaQuery.of(context)
+                  .copyWith(textScaler: const TextScaler.linear(2.0)),
+              child: child!,
+            ),
+            home: Scaffold(
+              body: Builder(
+                builder: (BuildContext context) => Center(
+                  child: ElevatedButton(
+                    onPressed: () => openPersonProfile(
+                      context,
+                      account: _carol.account,
+                      gateway: profiles,
+                    ),
+                    child: const Text('open'),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.tap(find.text('open'));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(PersonProfilePanel), findsOneWidget);
+        expect(find.byKey(PersonProfilePanel.plateKey), findsOneWidget);
+        expect(find.byKey(PersonProfilePanel.readonlyPillKey), findsOneWidget);
+        expect(find.byKey(PersonProfilePanel.readonlyNoteKey), findsOneWidget);
+        expect(find.text('仅可查看'), findsOneWidget);
+        expect(find.text('资料由对方维护，仅可查看'), findsOneWidget);
+        expect(find.text('还没有签名'), findsOneWidget);
+
+        // No accent lines or dividers anywhere in the floating nameplate page.
+        expect(
+          find.descendant(
+            of: find.byType(PersonProfilePanel),
+            matching: find.byType(Divider),
+          ),
+          findsNothing,
+        );
+        final Container plate = tester.widget<Container>(
+          find.byKey(PersonProfilePanel.plateKey),
+        );
+        final BoxDecoration plateDecoration =
+            plate.decoration! as BoxDecoration;
+        expect(plateDecoration.border, isNull);
+
+        // Nameplate overlaps cover bottom seam, signature sits below nameplate.
+        final Rect coverRect = tester.getRect(
+          find.byKey(ProfileSeaCover.coverKey),
+        );
+        final Rect plateRect = tester.getRect(
+          find.byKey(PersonProfilePanel.plateKey),
+        );
+        final Rect sigRect = tester.getRect(
+          find.byKey(PersonProfilePanel.signatureKey),
+        );
+        expect(plateRect.top, lessThan(coverRect.bottom));
+        expect(sigRect.top, greaterThan(plateRect.bottom));
+
+        // Phone shows back arrow icon; desktop shows close icon inside CloseButton.
+        expect(find.byType(CloseButton), findsOneWidget);
+        if (viewport.width < 600) {
+          expect(coverRect.height, closeTo(320, 0.5));
+          expect(find.byIcon(Icons.arrow_back_rounded), findsOneWidget);
+        } else {
+          expect(coverRect.height, inInclusiveRange(180.0, 230.0));
+          expect(find.byIcon(Icons.close_rounded), findsOneWidget);
+        }
+
+        expect(tester.binding.transientCallbackCount, 0);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  testWidgets(
+    'v3 live motion: press scale, staggered entrance, return preserves scroll position, and reduced motion settles immediately',
+    (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+
+      final FakeProfileGateway profiles = buildProfiles();
+      final DateTime base = DateTime.utc(2026, 11, 28, 9);
+      final List<ChatMessage> thread = <ChatMessage>[
+        for (int i = 1; i <= 50; i += 1)
+          ChatMessage(
+            id: 'anim-$i',
+            position: i,
+            senderAccount: i.isOdd ? _bob.account : _self.account,
+            senderUsername: i.isOdd ? _bob.username : _self.username,
+            targetAccount: i.isOdd ? _self.account : _bob.account,
+            createdAt: base.add(Duration(minutes: i * 10)),
+            kind: ChatMessageKind.body,
+            parts: <MessagePart>[TextPart('动效历史第 $i 条消息')],
+          ),
+      ];
+      final FakeChatService chat = FakeChatService(
+        self: _self,
+        users: const <ChatUser>[_bob],
+        conversations: <String, List<ChatMessage>>{_bob.account: thread},
+      );
+
+      final ValueNotifier<bool> reduceMotion = ValueNotifier<bool>(false);
+      addTearDown(reduceMotion.dispose);
+
+      await tester.pumpWidget(
+        ValueListenableBuilder<bool>(
+          valueListenable: reduceMotion,
+          builder: (BuildContext context, bool reduced, Widget? _) =>
+              MaterialApp(
+                theme: buildAppTheme(),
+                builder: (BuildContext context, Widget? child) => MediaQuery(
+                  data: MediaQuery.of(context)
+                      .copyWith(disableAnimations: reduced),
+                  child: child!,
+                ),
+                home: ChatPage(peer: _bob, chat: chat, profile: profiles),
+              ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Scroll up into history before opening profile.
+      final ScrollController scrollController = tester
+          .widget<ListView>(find.byKey(ChatPage.listKey))
+          .controller!;
+      for (int i = 0; i < 5; i += 1) {
+        await tester.drag(find.byKey(ChatPage.listKey), const Offset(0, 400));
+        await tester.pump();
+      }
+      await tester.pumpAndSettle();
+      final double savedOffset = scrollController.position.pixels;
+
+      final Finder visibleAvatar = find
+          .byWidgetPredicate(
+            (Widget w) =>
+                w.key is ValueKey<String> &&
+                (w.key! as ValueKey<String>).value.startsWith(
+                  'chat-message-avatar-anim-',
+                ),
+          )
+          .first;
+
+      // Press feedback scales message avatar down to 0.94 over 120 ms, then back to 1.0 on release.
+      final TestGesture gesture = await tester.startGesture(
+        tester.getCenter(visibleAvatar),
+      );
+      await tester.pump(const Duration(milliseconds: 140));
+      final AnimatedScale pressedScale = tester.widget<AnimatedScale>(
+        find
+            .ancestor(
+              of: find.descendant(
+                of: visibleAvatar,
+                matching: find.byType(ProfileAvatar),
+              ),
+              matching: find.byType(AnimatedScale),
+            )
+            .first,
+      );
+      expect(pressedScale.scale, closeTo(0.94, 0.001));
+      await gesture.up();
+      await tester.pumpAndSettle();
+
+      // Open profile under live animations; settle completes within < 2s (no loops).
+      expect(find.byType(PersonProfilePanel), findsOneWidget);
+      expect(tester.binding.transientCallbackCount, 0);
+      expect(find.text('BB号 ${_bob.account}'), findsOneWidget);
+
+      // Press feedback on the profile close glass button too.
+      final Finder closeFinder = find.byType(CloseButton);
+      final TestGesture closeGesture = await tester.startGesture(
+        tester.getCenter(closeFinder),
+      );
+      await tester.pump(const Duration(milliseconds: 140));
+      final AnimatedScale closeScale = tester.widget<AnimatedScale>(
+        find
+            .ancestor(of: closeFinder, matching: find.byType(AnimatedScale))
+            .first,
+      );
+      expect(closeScale.scale, closeTo(0.94, 0.001));
+      await closeGesture.up();
+      await tester.pumpAndSettle();
+
+      // Returned to chat at the exact scroll offset.
+      expect(find.byType(PersonProfilePanel), findsNothing);
+      expect(
+        scrollController.position.pixels,
+        moreOrLessEquals(savedOffset, epsilon: 0.5),
+      );
+
+      // With system reduce-motion enabled, opening skips entrance and ring sweep
+      // immediately (plate opacity is 1.0 and ring turns is 0 without settling).
+      reduceMotion.value = true;
+      await tester.pump();
+      await tester.tap(visibleAvatar);
+      await tester.pump();
+      await tester.pump();
+      expect(find.byType(PersonProfilePanel), findsOneWidget);
+      expect(find.byKey(PersonProfilePanel.plateKey), findsOneWidget);
+      final Opacity plateOpacity = tester.widget<Opacity>(
+        find
+            .ancestor(
+              of: find.byKey(PersonProfilePanel.plateKey),
+              matching: find.byType(Opacity),
+            )
+            .first,
+      );
+      expect(plateOpacity.opacity, 1.0);
+      final RotationTransition ring = tester.widget<RotationTransition>(
+        find.byKey(ScallopedAvatar.ringRotationKey),
+      );
+      expect(ring.turns.value, 0.0);
+      await tester.pumpAndSettle();
+      expect(tester.binding.transientCallbackCount, 0);
       expect(tester.takeException(), isNull);
     },
   );

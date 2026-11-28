@@ -269,6 +269,145 @@ void main() {
       expect(find.byKey(ProfileSeaCover.defaultCoverKey), findsOneWidget);
     },
   );
+
+  testWidgets(
+    'rapidly switching A -> B -> C while animations are running keeps C and drops delayed A/B responses',
+    (WidgetTester tester) async {
+      const String accountA = '40218765';
+      const String accountB = '40218766';
+      const String accountC = '40218767';
+      final _MultiPeerRaceGateway gateway = _MultiPeerRaceGateway(
+        heldProfileAccounts: <String>{accountA, accountB},
+        heldCoverAccounts: <String>{accountA, accountB},
+      );
+      gateway.profiles[accountA] = const Profile(
+        account: accountA,
+        username: '林晓',
+        signature: '一号签名',
+        avatarUrl: '/avatars/$accountA.png',
+        avatarVersion: 'va',
+      );
+      gateway.profiles[accountB] = const Profile(
+        account: accountB,
+        username: '林晓',
+        signature: '二号签名',
+        avatarUrl: '/avatars/$accountB.png',
+        avatarVersion: 'vb',
+      );
+      gateway.profiles[accountC] = const Profile(
+        account: accountC,
+        username: '林晓',
+        signature: '三号签名',
+        avatarUrl: '/avatars/$accountC.png',
+        avatarVersion: 'vc',
+      );
+      gateway.covers[accountA] = CoverImage(
+        account: accountA,
+        bytes: oldCover,
+        version: 'sha256-${'a' * 64}',
+        mimeType: 'image/png',
+        isDefault: false,
+      );
+      gateway.covers[accountC] = CoverImage(
+        account: accountC,
+        bytes: newCover,
+        version: 'sha256-${'c' * 64}',
+        mimeType: 'image/png',
+        isDefault: false,
+      );
+
+      final ValueNotifier<String> account = ValueNotifier<String>(accountA);
+      addTearDown(account.dispose);
+
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildAppTheme(),
+          builder: (BuildContext context, Widget? child) => MediaQuery(
+            data: MediaQuery.of(context).copyWith(disableAnimations: false),
+            child: child!,
+          ),
+          home: Scaffold(
+            body: ValueListenableBuilder<String>(
+              valueListenable: account,
+              builder: (BuildContext context, String value, Widget? _) =>
+                  PersonProfilePanel(account: value, gateway: gateway),
+            ),
+          ),
+        ),
+      );
+
+      // Rapidly switch A -> B -> C mid-flight before A or B resolves.
+      await tester.pump(const Duration(milliseconds: 40));
+      account.value = accountB;
+      await tester.pump(const Duration(milliseconds: 40));
+      account.value = accountC;
+      await tester.pumpAndSettle();
+
+      expect(find.text('BB号 $accountC'), findsOneWidget);
+      expect(find.text('三号签名'), findsOneWidget);
+      expect(shownCover(tester).bytes, newCover);
+
+      // Release delayed A and B responses; neither may overwrite C.
+      gateway.releaseAll();
+      await tester.pumpAndSettle();
+      expect(find.text('BB号 $accountC'), findsOneWidget);
+      expect(find.text('三号签名'), findsOneWidget);
+      expect(find.text('一号签名'), findsNothing);
+      expect(find.text('二号签名'), findsNothing);
+      expect(shownCover(tester).bytes, newCover);
+      expect(tester.binding.transientCallbackCount, 0);
+      expect(tester.takeException(), isNull);
+    },
+  );
+}
+
+class _MultiPeerRaceGateway extends FakeProfileGateway {
+  _MultiPeerRaceGateway({
+    required this.heldProfileAccounts,
+    required this.heldCoverAccounts,
+  });
+
+  final Set<String> heldProfileAccounts;
+  final Set<String> heldCoverAccounts;
+  final Completer<void> _release = Completer<void>();
+
+  void releaseAll() {
+    if (!_release.isCompleted) {
+      _release.complete();
+    }
+  }
+
+  @override
+  Future<Profile> loadProfile({String? account, AuthIdentity? captured}) async {
+    final Profile result = await super.loadProfile(
+      account: account,
+      captured: captured,
+    );
+    if (account != null && heldProfileAccounts.contains(account)) {
+      await _release.future;
+    }
+    return result;
+  }
+
+  @override
+  Future<CoverImage> loadCover({
+    String? account,
+    AuthIdentity? captured,
+  }) async {
+    final CoverImage result = await super.loadCover(
+      account: account,
+      captured: captured,
+    );
+    if (account != null && heldCoverAccounts.contains(account)) {
+      await _release.future;
+    }
+    return result;
+  }
 }
 
 class _PeerRaceGateway extends FakeProfileGateway {

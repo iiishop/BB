@@ -129,42 +129,71 @@ Future<T?> openProfileSurface<T>(
   BuildContext context, {
   required String label,
   required WidgetBuilder builder,
+  bool underStatusBar = false,
+  bool slideFromLeftOnMobile = false,
+  Duration? dialogTransitionDuration,
+  Duration? dialogReverseTransitionDuration,
+  Color? dialogBarrierColor,
 }) {
   final GlobalKey contentKey = GlobalKey(debugLabel: 'profile-surface-content');
   Widget frame(BuildContext context) => ProfilePanelFrame(
+    underStatusBar: underStatusBar,
     child: KeyedSubtree(
       key: contentKey,
       child: Builder(builder: builder),
     ),
   );
   if (resolveProfilePanelMode(context) == ProfilePanelMode.mobile) {
-    return Navigator.of(context).push<T>(_PhoneProfileRoute<T>(builder: frame));
+    return Navigator.of(context).push<T>(
+      slideFromLeftOnMobile
+          ? _SlidePhoneProfileRoute<T>(builder: frame)
+          : _PhoneProfileRoute<T>(builder: frame),
+    );
   }
-  return Navigator.of(
-    context,
-    rootNavigator: true,
-  ).push<T>(_ProfileDialogRoute<T>(builder: frame, label: label));
+  return Navigator.of(context, rootNavigator: true).push<T>(
+    _ProfileDialogRoute<T>(
+      builder: frame,
+      label: label,
+      customTransitionDuration: dialogTransitionDuration,
+      customReverseTransitionDuration: dialogReverseTransitionDuration,
+      customBarrierColor: dialogBarrierColor,
+    ),
+  );
 }
 
 /// In flat posture the frame owns both panes, so the route retains the full view
 /// instead of a dialog's default DisplayFeatureSubScreen removing its hinge.
 class _ProfileDialogRoute<T> extends PopupRoute<T> {
-  _ProfileDialogRoute({required this.builder, this.label = '个人资料'});
+  _ProfileDialogRoute({
+    required this.builder,
+    this.label = '个人资料',
+    this.customTransitionDuration,
+    this.customReverseTransitionDuration,
+    this.customBarrierColor,
+  });
 
   final WidgetBuilder builder;
   final String label;
+  final Duration? customTransitionDuration;
+  final Duration? customReverseTransitionDuration;
+  final Color? customBarrierColor;
 
   @override
   bool get barrierDismissible => true;
 
   @override
-  Color get barrierColor => Colors.transparent;
+  Color get barrierColor => customBarrierColor ?? Colors.transparent;
 
   @override
   String get barrierLabel => label;
 
   @override
-  Duration get transitionDuration => const Duration(milliseconds: 300);
+  Duration get transitionDuration =>
+      customTransitionDuration ?? const Duration(milliseconds: 300);
+
+  @override
+  Duration get reverseTransitionDuration =>
+      customReverseTransitionDuration ?? transitionDuration;
 
   @override
   Widget buildPage(
@@ -229,6 +258,88 @@ class _PhoneProfileRoute<T> extends PageRouteBuilder<T> {
                 child: child,
               ),
       );
+}
+
+/// Full-screen phone route sliding from the left per the DEA-514 v3 spec.
+class _SlidePhoneProfileRoute<T> extends PageRouteBuilder<T> {
+  _SlidePhoneProfileRoute({required WidgetBuilder builder})
+    : super(
+        opaque: true,
+        barrierDismissible: false,
+        transitionDuration: const Duration(milliseconds: 380),
+        reverseTransitionDuration: const Duration(milliseconds: 300),
+        pageBuilder: (
+          BuildContext context,
+          Animation<double> a,
+          Animation<double> b,
+        ) => builder(context),
+        transitionsBuilder: (
+          BuildContext context,
+          Animation<double> animation,
+          Animation<double> secondary,
+          Widget child,
+        ) => _SlidePhoneProfileTransition(animation: animation, child: child),
+      );
+}
+
+class _SlidePhoneProfileTransition extends StatefulWidget {
+  const _SlidePhoneProfileTransition({
+    required this.animation,
+    required this.child,
+  });
+
+  final Animation<double> animation;
+  final Widget child;
+
+  @override
+  State<_SlidePhoneProfileTransition> createState() =>
+      _SlidePhoneProfileTransitionState();
+}
+
+class _SlidePhoneProfileTransitionState
+    extends State<_SlidePhoneProfileTransition> {
+  late CurvedAnimation _curved;
+
+  @override
+  void initState() {
+    super.initState();
+    _curved = _makeCurved(widget.animation);
+  }
+
+  @override
+  void didUpdateWidget(_SlidePhoneProfileTransition oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.animation != widget.animation) {
+      _curved.dispose();
+      _curved = _makeCurved(widget.animation);
+    }
+  }
+
+  CurvedAnimation _makeCurved(Animation<double> animation) => CurvedAnimation(
+    parent: animation,
+    curve: const Cubic(0.16, 1, 0.3, 1),
+    reverseCurve: Curves.easeInCubic,
+  );
+
+  @override
+  void dispose() {
+    _curved.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (MediaQuery.disableAnimationsOf(context)) {
+      return widget.child;
+    }
+    return SlideTransition(
+      position: Tween<Offset>(
+        begin: const Offset(-1, 0),
+        end: Offset.zero,
+      ).animate(_curved),
+      child: FadeTransition(opacity: _curved, child: widget.child),
+    );
+  }
 }
 
 /// Rebuilds the Profile presentation from the live MediaQuery.
