@@ -1,34 +1,16 @@
-"""Group mention queries and the explicit client visibility acknowledgement."""
+"""Authorized group mentions, by recipient account."""
 
 from typing import Annotated
 
 from pydantic import Field
 
-from .chat import Account, Image, Text
-from .chat_query import MessageId, Position
-from .conversation import GroupConversationId
+from .chat import Account, Image, LocalImage, OperationId, Text
+from .chat_alerts import PositivePosition
+from .chat_query import MessageId
+from .conversation import GroupConversationId, GroupConversationRef
 from .wire import Wire
 
-SUMMARY_PATH = "/chat/mentions/summary"
 DETAIL_PATH = "/chat/mentions/list"
-SEEN_PATH = "/chat/mentions/mark_seen"
-PositivePosition = Annotated[int, Field(ge=1, le=9007199254740991)]
-
-
-class MentionSummaryQuery(Wire):
-    after_conversation_id: GroupConversationId | None = None
-    limit: int = Field(default=50, ge=1, le=100)
-
-
-class MentionSummary(Wire):
-    conversation_id: GroupConversationId
-    group_name: str
-    unread_count: PositivePosition
-
-
-class MentionSummaryPage(Wire):
-    items: list[MentionSummary]
-    next_cursor: GroupConversationId | None
 
 
 class MentionQuery(Wire):
@@ -51,10 +33,12 @@ class MentionPage(Wire):
     next_cursor: PositivePosition | None
 
 
-class MarkMentionsSeen(Wire):
-    conversation_id: GroupConversationId
-    message_ids: list[MessageId] = Field(min_length=1, max_length=100)
-
-
-class MentionReadState(Wire):
-    unread_count: Position
+class GroupMentionSend(Wire):
+    conversation: GroupConversationRef
+    operation_id: OperationId
+    mentioned_accounts: list[Account] = Field(
+        min_length=1, max_length=100, json_schema_extra={"uniqueItems": True}
+    )
+    content: list[Annotated[Text | LocalImage, Field(discriminator="type")]] = Field(
+        min_length=1, max_length=100
+    )
