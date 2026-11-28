@@ -103,6 +103,11 @@ Future<void> openGroupProfileByNumber(
 }) => openProfileSurface<void>(
   context,
   label: '群资料',
+  slideFromLeftOnMobile: true,
+  dialogBarrierColor:
+      resolveProfilePanelMode(context) == ProfilePanelMode.desktop
+      ? const Color(0x42161D1E)
+      : Colors.transparent,
   builder: (_) => _GroupProfileHost(
     groupNumber: groupNumber,
     initialProfile: initialProfile,
@@ -863,7 +868,11 @@ class _GroupProfileHostState extends State<_GroupProfileHost> {
   GroupProfile? _group;
   Uint8List? _avatar;
   List<GroupMember> _members = <GroupMember>[];
+  GroupMemberCounts? _memberCounts;
   bool _loading = true;
+  bool _membersLoading = false;
+  String? _membersError;
+  bool _membersFullyLoaded = false;
   bool _busy = false;
   String? _error;
   String? _editError;
@@ -872,12 +881,22 @@ class _GroupProfileHostState extends State<_GroupProfileHost> {
   _ProfileSubPage _page = _ProfileSubPage.details;
   int _profileLoadTicket = 0;
   int _avatarLoadTicket = 0;
+  int _membersLoadTicket = 0;
+  int _membersSubpageOpenEpoch = 0;
+  String? _removingAccount;
+  Timer? _removeCollapseTimer;
 
   @override
   void initState() {
     super.initState();
     _group = widget.initialProfile;
     unawaited(_load());
+  }
+
+  @override
+  void dispose() {
+    _removeCollapseTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -893,6 +912,16 @@ class _GroupProfileHostState extends State<_GroupProfileHost> {
       );
       if (!mounted || _profileLoadTicket != profileTicket) {
         return;
+      }
+      if (loaded.role != null && !loaded.isDissolved) {
+        unawaited(_preloadMembersSummary(loaded.conversation));
+      } else {
+        _membersLoadTicket += 1;
+        _members = <GroupMember>[];
+        _memberCounts = null;
+        _membersLoading = false;
+        _membersError = null;
+        _membersFullyLoaded = false;
       }
       Uint8List? avatarBytes = _avatar;
       if (loaded.avatarUrl.isNotEmpty) {
@@ -942,6 +971,53 @@ class _GroupProfileHostState extends State<_GroupProfileHost> {
     }
   }
 
+  Future<void> _preloadMembersSummary(ConversationRef conv) async {
+    final int ticket = ++_membersLoadTicket;
+    if (mounted) {
+      setState(() {
+        _membersLoading = _members.isEmpty;
+        _membersError = null;
+      });
+    }
+    try {
+      final GroupMemberPage page = await widget.groups.listGroupMembers(
+        conversation: conv,
+        limit: 100,
+        includeCounts: true,
+      );
+      if (!mounted || ticket != _membersLoadTicket) {
+        return;
+      }
+      setState(() {
+        _members = page.items;
+        _memberCounts = page.counts ?? _memberCounts;
+        _membersFullyLoaded = page.nextCursor == null;
+        _membersLoading = false;
+        _membersError = null;
+      });
+    } on AuthFailure catch (failure) {
+      if (!mounted || ticket != _membersLoadTicket) {
+        return;
+      }
+      if (failure.status == 401) {
+        widget.onSessionExpired?.call();
+        return;
+      }
+      setState(() {
+        _membersLoading = false;
+        _membersError = failure.message;
+      });
+    } catch (_) {
+      if (!mounted || ticket != _membersLoadTicket) {
+        return;
+      }
+      setState(() {
+        _membersLoading = false;
+        _membersError = '成员状态加载失败';
+      });
+    }
+  }
+
   Future<void> _apply() async {
     final GroupProfile? current = _group;
     if (current == null || _busy) {
@@ -974,17 +1050,30 @@ class _GroupProfileHostState extends State<_GroupProfileHost> {
     if (current == null || _busy) {
       return;
     }
+    if (_membersFullyLoaded && _members.isNotEmpty) {
+      setState(() {
+        _membersSubpageOpenEpoch += 1;
+        _page = _ProfileSubPage.members;
+      });
+      unawaited(_refreshAllMembersQuietly(current.conversation));
+      return;
+    }
     setState(() => _busy = true);
     try {
-      final List<GroupMember> all = await _fetchAllMembers(
-        current.conversation,
-      );
+      final ({List<GroupMember> items, GroupMemberCounts? counts}) all =
+          await _fetchAllMembersWithCounts(current.conversation);
       if (!mounted) {
         return;
       }
+      _membersLoadTicket += 1;
       setState(() {
-        _members = all;
+        _members = all.items;
+        _memberCounts = all.counts ?? _memberCounts;
+        _membersFullyLoaded = true;
+        _membersLoading = false;
+        _membersError = null;
         _busy = false;
+        _membersSubpageOpenEpoch += 1;
         _page = _ProfileSubPage.members;
       });
     } on AuthFailure catch (failure) {
@@ -1004,22 +1093,53 @@ class _GroupProfileHostState extends State<_GroupProfileHost> {
     }
   }
 
-  Future<List<GroupMember>> _fetchAllMembers(ConversationRef conv) async {
+  Future<void> _refreshAllMembersQuietly(ConversationRef conv) async {
+    final int ticket = ++_membersLoadTicket;
+    try {
+      final ({List<GroupMember> items, GroupMemberCounts? counts}) all =
+          await _fetchAllMembersWithCounts(conv);
+      if (!mounted || ticket != _membersLoadTicket) {
+        return;
+      }
+      setState(() {
+        _members = all.items;
+        _memberCounts = all.counts ?? _memberCounts;
+        _membersFullyLoaded = true;
+        _membersLoading = false;
+        _membersError = null;
+      });
+    } on AuthFailure catch (failure) {
+      if (mounted && ticket == _membersLoadTicket && failure.status == 401) {
+        widget.onSessionExpired?.call();
+      }
+    } catch (_) {
+      // Quiet refresh preserves already loaded members.
+    }
+  }
+
+  Future<({List<GroupMember> items, GroupMemberCounts? counts})>
+  _fetchAllMembersWithCounts(ConversationRef conv) async {
     final List<GroupMember> members = <GroupMember>[];
+    GroupMemberCounts? counts;
     String after = '';
     while (true) {
       final GroupMemberPage page = await widget.groups.listGroupMembers(
         conversation: conv,
         afterAccount: after,
         limit: 100,
+        includeCounts: after.isEmpty,
       );
+      counts ??= page.counts;
       members.addAll(page.items);
       if (page.nextCursor == null || page.nextCursor!.compareTo(after) <= 0) {
-        return members;
+        return (items: members, counts: counts);
       }
       after = page.nextCursor!;
     }
   }
+
+  Future<List<GroupMember>> _fetchAllMembers(ConversationRef conv) async =>
+      (await _fetchAllMembersWithCounts(conv)).items;
 
   Future<void> _invite() async {
     final GroupProfile? current = _group;
@@ -1031,7 +1151,7 @@ class _GroupProfileHostState extends State<_GroupProfileHost> {
     Set<String> existingAccounts = <String>{
       for (final GroupMember m in _members) m.account,
     };
-    if (existingAccounts.isEmpty) {
+    if (existingAccounts.isEmpty || !_membersFullyLoaded) {
       try {
         final List<GroupMember> loaded = await _fetchAllMembers(
           current.conversation,
@@ -1063,7 +1183,7 @@ class _GroupProfileHostState extends State<_GroupProfileHost> {
         conversation: current.conversation,
         accounts: picked.map((ChatUser u) => u.account).toList(growable: false),
       );
-      _snack('已发送邀请');
+      _snack('已向 ${picked.length} 人发送邀请');
     } on AuthFailure catch (failure) {
       if (failure.status == 401) {
         widget.onSessionExpired?.call();
@@ -1093,6 +1213,7 @@ class _GroupProfileHostState extends State<_GroupProfileHost> {
     if (confirmed != true || !mounted) {
       return;
     }
+    final bool reducedMotion = MediaQuery.disableAnimationsOf(context);
     setState(() => _busy = true);
     try {
       final GroupProfile updated = await widget.groups.removeGroupMember(
@@ -1100,17 +1221,36 @@ class _GroupProfileHostState extends State<_GroupProfileHost> {
         account: member.account,
       );
       _profileLoadTicket += 1;
-      final List<GroupMember> reloaded = await _fetchAllMembers(
-        updated.conversation,
-      );
+      _membersLoadTicket += 1;
+      final ({List<GroupMember> items, GroupMemberCounts? counts}) reloaded =
+          await _fetchAllMembersWithCounts(updated.conversation);
       if (!mounted) {
         return;
       }
+      if (!reducedMotion &&
+          _members.any((GroupMember m) => m.account == member.account)) {
+        final Completer<void> collapsed = Completer<void>();
+        _removeCollapseTimer?.cancel();
+        _removeCollapseTimer = Timer(const Duration(milliseconds: 260), () {
+          if (!collapsed.isCompleted) {
+            collapsed.complete();
+          }
+        });
+        setState(() => _removingAccount = member.account);
+        await collapsed.future;
+        if (!mounted) {
+          return;
+        }
+      }
       setState(() {
+        _removingAccount = null;
         _group = updated;
-        _members = reloaded;
+        _members = reloaded.items;
+        _memberCounts = reloaded.counts;
+        _membersFullyLoaded = true;
       });
       widget.onGroupsChanged?.call();
+      _snack('已移除 ${member.username}');
     } on AuthFailure catch (failure) {
       if (failure.status == 401) {
         widget.onSessionExpired?.call();
@@ -1121,7 +1261,10 @@ class _GroupProfileHostState extends State<_GroupProfileHost> {
       _snack('移除失败，请重试');
     } finally {
       if (mounted) {
-        setState(() => _busy = false);
+        setState(() {
+          _busy = false;
+          _removingAccount = null;
+        });
       }
     }
   }
@@ -1142,6 +1285,7 @@ class _GroupProfileHostState extends State<_GroupProfileHost> {
       }
       _profileLoadTicket += 1;
       setState(() => _group = updated);
+      _snack(allow ? '已允许所有成员邀请' : '已关闭成员邀请');
     } on AuthFailure catch (failure) {
       if (failure.status == 401) {
         widget.onSessionExpired?.call();
@@ -1189,6 +1333,8 @@ class _GroupProfileHostState extends State<_GroupProfileHost> {
         _group = updated;
         if (_editResetAvatar) {
           _avatar = null;
+        } else if (_editAvatar != null) {
+          _avatar = _editAvatar!.bytes;
         }
         _editAvatar = null;
         _editResetAvatar = false;
@@ -1196,6 +1342,7 @@ class _GroupProfileHostState extends State<_GroupProfileHost> {
       });
       unawaited(_load());
       widget.onGroupsChanged?.call();
+      _snack('已保存群资料');
     } on AuthFailure catch (failure) {
       if (!mounted) {
         return;
@@ -1272,12 +1419,17 @@ class _GroupProfileHostState extends State<_GroupProfileHost> {
         conversation: current.conversation,
       );
       _profileLoadTicket += 1;
+      _membersLoadTicket += 1;
       widget.onGroupsChanged?.call();
       if (mounted) {
         setState(() {
           _group = dissolved;
+          _members = <GroupMember>[];
+          _memberCounts = null;
+          _membersFullyLoaded = false;
           _page = _ProfileSubPage.details;
         });
+        _snack('群聊已解散');
       }
     } on AuthFailure catch (failure) {
       if (failure.status == 401) {
@@ -1342,7 +1494,14 @@ class _GroupProfileHostState extends State<_GroupProfileHost> {
         color: AppColors.paper,
         child: Column(
           children: <Widget>[
-            AppBar(title: const Text('群资料'), leading: const CloseButton()),
+            AppBar(
+              title: const Text('群资料'),
+              centerTitle: true,
+              backgroundColor: AppColors.paper,
+              surfaceTintColor: Colors.transparent,
+              elevation: 0,
+              leading: const CloseButton(),
+            ),
             const Expanded(child: Center(child: CircularProgressIndicator())),
           ],
         ),
@@ -1353,7 +1512,14 @@ class _GroupProfileHostState extends State<_GroupProfileHost> {
         color: AppColors.paper,
         child: Column(
           children: <Widget>[
-            AppBar(title: const Text('群资料'), leading: const CloseButton()),
+            AppBar(
+              title: const Text('群资料'),
+              centerTitle: true,
+              backgroundColor: AppColors.paper,
+              surfaceTintColor: Colors.transparent,
+              elevation: 0,
+              leading: const CloseButton(),
+            ),
             Expanded(
               child: Center(
                 child: Column(
@@ -1370,16 +1536,36 @@ class _GroupProfileHostState extends State<_GroupProfileHost> {
       );
     }
     final GroupProfile group = _group!;
+    final bool reducedMotion = MediaQuery.disableAnimationsOf(context);
     if (_page == _ProfileSubPage.edit) {
+      final Uint8List? previewAvatar = _editResetAvatar
+          ? null
+          : (_editAvatar?.bytes ?? _avatar);
       return Material(
         color: AppColors.paper,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
             AppBar(
-              title: const Text('编辑群资料'),
+              toolbarHeight: 56,
+              title: const Text(
+                '编辑群资料',
+                style: TextStyle(
+                  fontSize: 16.5,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: -0.1,
+                  color: AppColors.ink,
+                ),
+              ),
+              centerTitle: true,
+              backgroundColor: AppColors.paper,
+              surfaceTintColor: Colors.transparent,
+              elevation: 0,
               leading: IconButton(
-                icon: const Icon(Icons.arrow_back_rounded),
+                icon: const Icon(
+                  Icons.arrow_back_rounded,
+                  color: AppColors.ink,
+                ),
                 onPressed: () =>
                     setState(() => _page = _ProfileSubPage.details),
               ),
@@ -1391,40 +1577,96 @@ class _GroupProfileHostState extends State<_GroupProfileHost> {
                 AppSpacing.lg,
                 0,
               ),
-              child: Wrap(
-                spacing: AppSpacing.xs,
-                children: <Widget>[
-                  OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size(0, 48),
-                    ),
-                    onPressed: _busy
-                        ? null
-                        : () async {
-                            final AvatarPick? picked = await widget.avatarPicker
-                                .pickImage();
-                            if (!mounted || picked == null) return;
-                            setState(() {
-                              _editAvatar = picked;
-                              _editResetAvatar = false;
-                            });
-                          },
-                    icon: const Icon(Icons.photo_outlined, size: 18),
-                    label: Text(
-                      _editAvatar == null ? '更换群头像' : _editAvatar!.name,
-                    ),
+              child: Container(
+                padding: const EdgeInsets.only(bottom: AppSpacing.md),
+                decoration: const BoxDecoration(
+                  border: Border(bottom: BorderSide(color: Color(0xFFECE7DE))),
+                ),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: Wrap(
+                    alignment: WrapAlignment.spaceBetween,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: AppSpacing.sm,
+                    runSpacing: AppSpacing.sm,
+                    children: <Widget>[
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          GroupAvatarBadge(bytes: previewAvatar, size: 52),
+                          const SizedBox(width: 13),
+                          Flexible(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: <Widget>[
+                                const Text(
+                                  '群头像',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.ink,
+                                  ),
+                                ),
+                                const SizedBox(height: 3),
+                                Text(
+                                  _editResetAvatar
+                                      ? '将恢复为默认群头像'
+                                      : (_editAvatar != null
+                                            ? '已选 ${_editAvatar!.name}'
+                                            : '沿用现有头像入口'),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 11.5,
+                                    color: Color(0xFF66716E),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      Wrap(
+                        spacing: AppSpacing.xs,
+                        runSpacing: AppSpacing.xs,
+                        children: <Widget>[
+                          OutlinedButton(
+                            style: OutlinedButton.styleFrom(
+                              minimumSize: const Size(0, 44),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 13,
+                              ),
+                            ),
+                            onPressed: _busy
+                                ? null
+                                : () async {
+                                    final AvatarPick? picked = await widget
+                                        .avatarPicker
+                                        .pickImage();
+                                    if (!mounted || picked == null) return;
+                                    setState(() {
+                                      _editAvatar = picked;
+                                      _editResetAvatar = false;
+                                    });
+                                  },
+                            child: const Text('更换群头像'),
+                          ),
+                          TextButton(
+                            key: const Key('group-edit-avatar-reset'),
+                            onPressed: _busy
+                                ? null
+                                : () => setState(() {
+                                    _editAvatar = null;
+                                    _editResetAvatar = true;
+                                  }),
+                            child: const Text('恢复默认头像'),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
-                  TextButton(
-                    key: const Key('group-edit-avatar-reset'),
-                    onPressed: _busy
-                        ? null
-                        : () => setState(() {
-                            _editAvatar = null;
-                            _editResetAvatar = true;
-                          }),
-                    child: const Text('恢复默认头像'),
-                  ),
-                ],
+                ),
               ),
             ),
             Expanded(
@@ -1443,17 +1685,75 @@ class _GroupProfileHostState extends State<_GroupProfileHost> {
     if (_page == _ProfileSubPage.members) {
       final bool isOwner = group.role == GroupRole.owner;
       final ProfileGateway? profileGateway = widget.profile;
+      final int totalCount = _memberCounts?.total ?? _members.length;
+      final int onlineCount =
+          _memberCounts?.online ??
+          _members
+              .where((GroupMember m) => m.presence == Presence.online)
+              .length;
+      String ownerName = '';
+      for (final GroupMember m in _members) {
+        if (m.role == GroupRole.owner) {
+          ownerName = m.username;
+          break;
+        }
+      }
       return Material(
         color: AppColors.paper,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
             AppBar(
-              title: Text('群成员（${_members.length}）'),
+              toolbarHeight: 56,
+              title: Text(
+                '群成员（$totalCount）',
+                style: const TextStyle(
+                  fontSize: 16.5,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: -0.1,
+                  color: AppColors.ink,
+                ),
+              ),
+              centerTitle: true,
+              backgroundColor: AppColors.paper,
+              surfaceTintColor: Colors.transparent,
+              elevation: 0,
               leading: IconButton(
-                icon: const Icon(Icons.arrow_back_rounded),
+                icon: const Icon(
+                  Icons.arrow_back_rounded,
+                  color: AppColors.ink,
+                ),
                 onPressed: () =>
                     setState(() => _page = _ProfileSubPage.details),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 6, 24, 8),
+              child: SizedBox(
+                width: double.infinity,
+                child: Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 12,
+                  runSpacing: 4,
+                  children: <Widget>[
+                    Text(
+                      '$totalCount 位成员 · $onlineCount 人在线',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.inkMuted,
+                      ),
+                    ),
+                    if (ownerName.isNotEmpty)
+                      Text(
+                        '群主 · $ownerName',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: AppColors.inkMuted,
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ),
             Expanded(
@@ -1461,6 +1761,7 @@ class _GroupProfileHostState extends State<_GroupProfileHost> {
                   ? const Center(child: Text('无法加载成员资料'))
                   : ListView.builder(
                       key: const Key('group-members-list'),
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
                       itemCount: _members.length,
                       itemBuilder: (BuildContext context, int index) {
                         final GroupMember member = _members[index];
@@ -1474,46 +1775,80 @@ class _GroupProfileHostState extends State<_GroupProfileHost> {
                         final String? self = widget.chat?.selfAccount;
                         final bool isSelf =
                             self != null && self == member.account;
-                        return UserIdentityRow(
-                          user: user,
-                          profile: profileGateway,
-                          onOpenChat: !isSelf && widget.onOpenDirectChat != null
-                              ? () async {
-                                  Navigator.of(context).pop();
-                                  await widget.onOpenDirectChat!(user);
-                                }
-                              : null,
-                          trailing:
-                              isOwner &&
-                                  !isSelf &&
-                                  member.role != GroupRole.owner
-                              ? IconButton(
-                                  key: ValueKey<String>(
-                                    'remove-member-${member.account}',
-                                  ),
-                                  tooltip: '移除成员',
-                                  icon: const Icon(
-                                    Icons.person_remove_outlined,
-                                  ),
-                                  onPressed: _busy
-                                      ? null
-                                      : () => unawaited(_removeMember(member)),
-                                )
-                              : member.role == GroupRole.owner
-                              ? const Padding(
-                                  padding: EdgeInsets.only(
-                                    right: AppSpacing.md,
-                                  ),
-                                  child: Text(
-                                    '群主',
-                                    style: TextStyle(
-                                      color: AppColors.accentDeep,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
+                        final bool canRemove =
+                            isOwner &&
+                            !isSelf &&
+                            member.role != GroupRole.owner;
+                        final bool removing =
+                            _removingAccount == member.account;
+                        final Widget row = Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: <Widget>[
+                            UserIdentityRow(
+                              user: user,
+                              profile: profileGateway,
+                              onOpenChat:
+                                  !isSelf && widget.onOpenDirectChat != null
+                                  ? () async {
+                                      Navigator.of(context).pop();
+                                      await widget.onOpenDirectChat!(user);
+                                    }
+                                  : null,
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: <Widget>[
+                                  if (member.role == GroupRole.owner)
+                                    const _MemberRoleBadge(
+                                      label: '群主',
+                                      highlight: true,
                                     ),
-                                  ),
-                                )
-                              : null,
+                                  if (isSelf) ...<Widget>[
+                                    if (member.role == GroupRole.owner)
+                                      const SizedBox(width: 4),
+                                    const _MemberRoleBadge(
+                                      label: '你',
+                                      highlight: false,
+                                    ),
+                                  ],
+                                  if (canRemove)
+                                    IconButton(
+                                      key: ValueKey<String>(
+                                        'remove-member-${member.account}',
+                                      ),
+                                      tooltip: '移除成员',
+                                      icon: const Icon(
+                                        Icons.person_remove_outlined,
+                                      ),
+                                      onPressed: _busy
+                                          ? null
+                                          : () => unawaited(
+                                              _removeMember(member),
+                                            ),
+                                    )
+                                  else
+                                    const SizedBox(width: AppSpacing.md),
+                                ],
+                              ),
+                            ),
+                            if (index < _members.length - 1)
+                              const Divider(
+                                height: 1,
+                                thickness: 1,
+                                indent: 16,
+                                endIndent: 16,
+                                color: Color(0xFFECE7DE),
+                              ),
+                          ],
+                        );
+
+                        return _MemberAnimatedItem(
+                          key: ValueKey<String>(
+                            'member-row-${member.account}-$_membersSubpageOpenEpoch',
+                          ),
+                          index: index,
+                          removing: removing,
+                          reducedMotion: reducedMotion,
+                          child: row,
                         );
                       },
                     ),
@@ -1531,6 +1866,11 @@ class _GroupProfileHostState extends State<_GroupProfileHost> {
       dissolved: group.isDissolved,
       canInvite: group.canInvite,
       allowMemberInvites: group.allowMemberInvites ?? false,
+      members: _members,
+      memberCounts: _memberCounts,
+      membersLoading: _membersLoading,
+      membersError: _membersError,
+      profileGateway: widget.profile,
       onApply: _busy ? null : _apply,
       onMembers: _busy ? null : _openMembers,
       onInvite: _busy ? null : _invite,
@@ -1545,6 +1885,128 @@ class _GroupProfileHostState extends State<_GroupProfileHost> {
       onLeave: _busy ? null : _leave,
       onDisband: _busy ? null : _disband,
       onAllowMemberInvitesChanged: _busy ? null : _toggleAllowInvites,
+      onRetryMembers: _busy
+          ? null
+          : () => unawaited(_preloadMembersSummary(group.conversation)),
+    );
+  }
+}
+
+class _MemberRoleBadge extends StatelessWidget {
+  const _MemberRoleBadge({required this.label, required this.highlight});
+
+  final String label;
+  final bool highlight;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(minHeight: 18),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: highlight ? AppColors.accentSoft : const Color(0xFFEFEAE0),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 9.5,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.2,
+          color: highlight ? AppColors.accentDeep : const Color(0xFF6D6659),
+        ),
+      ),
+    );
+  }
+}
+
+class _MemberAnimatedItem extends StatefulWidget {
+  const _MemberAnimatedItem({
+    super.key,
+    required this.index,
+    required this.removing,
+    required this.reducedMotion,
+    required this.child,
+  });
+
+  final int index;
+  final bool removing;
+  final bool reducedMotion;
+  final Widget child;
+
+  @override
+  State<_MemberAnimatedItem> createState() => _MemberAnimatedItemState();
+}
+
+class _MemberAnimatedItemState extends State<_MemberAnimatedItem>
+    with SingleTickerProviderStateMixin {
+  AnimationController? _enter;
+  Timer? _delayTimer;
+  bool _entered = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (!widget.reducedMotion) {
+      _enter = AnimationController(
+        vsync: this,
+        duration: const Duration(milliseconds: 340),
+      );
+      final int clampedIndex = math.min(widget.index, 8);
+      final Duration delay = Duration(milliseconds: 20 + clampedIndex * 30);
+      _delayTimer = Timer(delay, () {
+        if (mounted) {
+          _entered = true;
+          unawaited(_enter!.forward());
+        }
+      });
+    } else {
+      _entered = true;
+    }
+  }
+
+  @override
+  void dispose() {
+    _delayTimer?.cancel();
+    _enter?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    Widget content = widget.child;
+    if (!widget.reducedMotion && _enter != null) {
+      final Animation<double> curved = CurvedAnimation(
+        parent: _enter!,
+        curve: const Cubic(0.16, 1, 0.3, 1),
+      );
+      content = AnimatedBuilder(
+        animation: curved,
+        builder: (BuildContext context, Widget? child) {
+          final double t = _entered ? curved.value : 0.0;
+          return Opacity(
+            opacity: t,
+            child: Transform.translate(
+              offset: Offset((1 - t) * 12, 0),
+              child: child,
+            ),
+          );
+        },
+        child: content,
+      );
+    }
+
+    if (widget.reducedMotion) {
+      return widget.removing ? const SizedBox.shrink() : content;
+    }
+
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 260),
+      curve: const Cubic(0.22, 0.8, 0.24, 1),
+      alignment: Alignment.topCenter,
+      child: widget.removing
+          ? const SizedBox(width: double.infinity, height: 0)
+          : content,
     );
   }
 }
