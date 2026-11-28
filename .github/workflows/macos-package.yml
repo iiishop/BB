@@ -1,0 +1,101 @@
+name: macOS package
+
+on:
+  pull_request:
+    paths:
+      - 'client/macos/**'
+      - 'client/pubspec.*'
+      - '.github/workflows/macos-package.yml'
+      - '.github/workflows/release.yml'
+      - 'scripts/ci/*macos*'
+  workflow_call:
+    inputs:
+      package_version:
+        required: true
+        type: string
+      short_sha:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    name: Build and verify macOS ZIP
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # A hotfix based on a release tag must exclude newer main commits.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Identify the build
+        id: package
+        env:
+          RELEASE_VERSION: ${{ inputs.package_version }}
+          RELEASE_SHORT_SHA: ${{ inputs.short_sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p macos-evidence
+          sha="$(git rev-parse HEAD)"
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            version="$(GITHUB_SHA="$sha" EVENT=pull_request REF_TYPE=branch REF_NAME=pr \
+              python3 scripts/ci/release_meta.py | sed -n 's/^version=//p')"
+            test -n "$version"
+            filename="bb-$version-macos-${sha:0:12}.zip"
+          else
+            test "$RELEASE_SHORT_SHA" = "${sha:0:12}"
+            filename="bb-$RELEASE_VERSION-macos.zip"
+          fi
+          echo "zip=dist/$filename" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${sha:0:12}" >> "$GITHUB_OUTPUT"
+          {
+            printf 'commit=%s\n' "$sha"
+            sw_vers
+            uname -m
+            xcodebuild -version
+          } | tee macos-evidence/build.log
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.9'
+          channel: stable
+          cache: true
+      - name: Build Flutter release
+        working-directory: client
+        run: |
+          set -euo pipefail
+          flutter --version | tee -a ../macos-evidence/build.log
+          flutter pub get
+          flutter build macos --release
+      - name: Verify the signed bundle inside the ZIP
+        env:
+          ZIP: ${{ steps.package.outputs.zip }}
+        run: |
+          bash scripts/ci/package-macos.sh \
+            client/build/macos/Build/Products/Release/bb_client.app \
+            "$ZIP" "$RUNNER_TEMP/bb-macos-extracted" macos-evidence
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bb-macos-${{ steps.package.outputs.short_sha }}
+          path: ${{ steps.package.outputs.zip }}
+          if-no-files-found: error
+          retention-days: 14
+      - uses: astral-sh/setup-uv@v5
+        if: github.event_name == 'pull_request'
+        with:
+          python-version: '3.13'
+          enable-cache: true
+      - name: Exercise registration and login from the extracted app
+        if: github.event_name == 'pull_request'
+        run: |
+          bash scripts/ci/smoke-macos-auth.sh \
+            "$RUNNER_TEMP/bb-macos-extracted/bb_client.app" "$PWD/macos-evidence"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-evidence-${{ steps.package.outputs.short_sha }}
+          path: macos-evidence/
+          if-no-files-found: error
+          retention-days: 14

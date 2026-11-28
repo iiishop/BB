@@ -212,44 +212,13 @@ jobs:
           retention-days: 14
 
   macos:
-    name: macOS (zip)
+    name: macOS
     needs: meta
     if: needs.meta.outputs.has_client == 'true'
-    runs-on: macos-latest
-    timeout-minutes: 40
-    env:
-      VERSION: ${{ needs.meta.outputs.package_version }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.47.9'
-          channel: stable
-          cache: true
-      - name: 确保 macos 平台目录存在
-        working-directory: client
-        run: |
-          if [ ! -d macos ]; then
-            echo "::warning::client/macos 不存在，首次生成脚手架（应尽快提交进仓库）"
-            flutter create --platforms=macos --org ai.bb .
-          fi
-      - name: flutter build macos
-        working-directory: client
-        run: |
-          flutter pub get
-          flutter build macos --release
-      - name: 压缩 .app
-        run: |
-          set -euo pipefail
-          mkdir -p dist
-          app="$(find client/build/macos/Build/Products/Release -maxdepth 1 -name '*.app' | head -1)"
-          [ -n "$app" ] || { echo "::error::没有找到 .app"; exit 1; }
-          ditto -c -k --sequesterRsrc --keepParent "$app" "dist/bb-$VERSION-macos.zip"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: bb-macos-${{ needs.meta.outputs.short_sha }}
-          path: dist/*.zip
-          retention-days: 14
+    uses: ./.github/workflows/macos-package.yml
+    with:
+      package_version: ${{ needs.meta.outputs.package_version }}
+      short_sha: ${{ needs.meta.outputs.short_sha }}
 
   android:
     name: Android (apk + aab)
