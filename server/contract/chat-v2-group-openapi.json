@@ -11421,6 +11421,10 @@
       "status": 415,
       "recovery": "Use a supported media type."
     },
+    "group_receipt_expired": {
+      "status": 404,
+      "recovery": "Group membership for this presentation receipt ended; retire it without ACK."
+    },
     "forbidden": {
       "status": 403,
       "recovery": "Role lacks permission; refresh the resource."

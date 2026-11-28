@@ -2489,6 +2489,16 @@
         }
       }
     },
+    "group_receipt_expired": {
+      "status": 404,
+      "body": {
+        "error": {
+          "code": "group_receipt_expired",
+          "message": "Synthetic contract error",
+          "fields": []
+        }
+      }
+    },
     "forbidden": {
       "status": 403,
       "body": {

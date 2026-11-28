@@ -212,6 +212,17 @@ void main() {
     expect(initial['items'].single['last_message']['message_id'], 'message-1');
     expect(initial['items'].single['membership_revision'], 1);
     final firstCursor = initial['next_cursor'];
+    final read = await ok('/v2/chat/read_messages', {'conversation': ref});
+    final receiptId = read['items'].single['presentation']['receipt_id'];
+    Future<void> expectExpiredReceipt() async {
+      final response = await call('/v2/chat/confirm_presentation', {
+        'attempt_id': 'confirm-old-membership',
+        'request_digest': 'a' * 64,
+        'receipt_ids': [receiptId],
+      });
+      expect(response.status, 404);
+      expect(response.body['error']['code'], 'group_receipt_expired');
+    }
 
     active = false;
     revision = 2;
@@ -227,6 +238,7 @@ void main() {
       404,
     );
     expect((await ok('/v2/notifications/changes'))['items'], isEmpty);
+    await expectExpiredReceipt();
 
     active = true;
     revision = 3;
@@ -243,6 +255,7 @@ void main() {
     ); // A stale locator above the new boundary must still be ignored.
     event('notification.available', {'notification_id': 'invitation-1'});
     await chat.eventFeed.pollOnce();
+    await expectExpiredReceipt();
     failNoticeList = true;
     expect(
       (await call('/v2/notifications/changes', {
