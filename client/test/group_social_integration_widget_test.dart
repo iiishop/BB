@@ -792,6 +792,42 @@ class _AllowLoopbackHttpOverrides extends HttpOverrides {
       super.createHttpClient(context)..idleTimeout = Duration.zero;
 }
 
+class _LoopbackTransport extends HttpTransport {
+  _LoopbackTransport() : super(factory: () => HttpClient());
+
+  int inFlight = 0;
+
+  @override
+  Future<TransportResponse> send(
+    String method,
+    Uri url, {
+    required String service,
+    required Duration timeout,
+    required int maxBytes,
+    Map<String, String> headers = const {},
+    List<int>? body,
+    RequestCancellation? cancellation,
+    void Function(int received, int? total)? onProgress,
+  }) async {
+    inFlight += 1;
+    try {
+      return await super.send(
+        method,
+        url,
+        service: service,
+        timeout: timeout,
+        maxBytes: maxBytes,
+        headers: headers,
+        body: body,
+        cancellation: cancellation,
+        onProgress: onProgress,
+      );
+    } finally {
+      inFlight -= 1;
+    }
+  }
+}
+
 Future<void> _settle(WidgetTester tester, {int rounds = 20}) async {
   for (int i = 0; i < rounds; i += 1) {
     await tester.runAsync(
@@ -801,11 +837,27 @@ Future<void> _settle(WidgetTester tester, {int rounds = 20}) async {
   }
 }
 
+Future<void> _waitFor(
+  WidgetTester tester,
+  bool Function() ready, {
+  required String reason,
+}) async {
+  const timeout = Duration(seconds: 10);
+  final clock = Stopwatch()..start();
+  while (!ready()) {
+    if (clock.elapsed >= timeout) {
+      fail('Timed out waiting for $reason');
+    }
+    await _settle(tester, rounds: 1);
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   late _UiSocialServer server;
   late Directory tempDir;
+  late _LoopbackTransport transport;
   late AuthSession session;
   late ProfileService profile;
   late HeartbeatController heartbeat;
@@ -822,7 +874,7 @@ void main() {
   setUp(() async {
     server = await _UiSocialServer.start();
     tempDir = await Directory.systemTemp.createTemp('bb_ui_social_');
-    final HttpTransport transport = HttpTransport(factory: () => HttpClient());
+    transport = _LoopbackTransport();
     session = AuthSession()
       ..establish(
         token: 'tok-alice',
@@ -2115,46 +2167,97 @@ void main() {
     (WidgetTester tester) async {
       server.createdGroup1 = true;
       await pumpHome(tester, size: const Size(375, 812));
-      await tester.tap(find.byKey(UsersListView.groupRowKey(server.group1Id)));
-      await _settle(tester);
+      final groupRow = find.byKey(UsersListView.groupRowKey(server.group1Id));
+      await _waitFor(
+        tester,
+        () => groupRow.evaluate().isNotEmpty,
+        reason: 'the group row',
+      );
+      await tester.tap(groupRow);
+      final profileButton = find.byKey(ChatPage.headerProfileKey);
+      await _waitFor(
+        tester,
+        () => profileButton.evaluate().isNotEmpty,
+        reason: 'the chat profile button',
+      );
 
       final firstRead = Completer<void>();
+      final response = Completer<void>();
+      addTearDown(() {
+        if (!firstRead.isCompleted) firstRead.complete();
+        if (!response.isCompleted) response.complete();
+      });
       server.beforeRead = firstRead;
-      await tester.tap(find.byKey(ChatPage.headerProfileKey));
-      await _settle(tester);
-      expect(server.beforeRead, isNull);
+      await tester.tap(profileButton);
+      await _waitFor(
+        tester,
+        () => server.beforeRead == null,
+        reason: 'the first profile request to reach the read gate',
+      );
       final later = await tester.runAsync(() => groups.findGroup('10000001'));
-      expect(later?.name, server.group1Name);
+      expect(later?.name, 'Alpha群');
 
       final otherClient = GroupApiClient(
         baseUri: server.baseUri,
         transport: HttpTransport(factory: () => HttpClient()),
       );
-      await tester.runAsync(
+      final renamed = await tester.runAsync(
         () => otherClient.updateGroup(
           token: session.identity!.token,
           conversation: ConversationRef.group(server.group1Id),
           name: 'Final edit',
         ),
       );
+      expect(renamed?.name, 'Final edit');
+
+      server.holdFind = response;
       firstRead.complete();
-      await _settle(tester);
-      expect(
-        find.descendant(
-          of: find.byType(GroupProfilePanel),
-          matching: find.text('Final edit'),
-        ),
-        findsOneWidget,
+      await _waitFor(
+        tester,
+        () => server.holdFind == null,
+        reason: 'the first profile request to read the renamed snapshot',
       );
+      final panel = find.byType(GroupProfilePanel);
+      final newName = find.descendant(
+        of: panel,
+        matching: find.text('Final edit'),
+      );
+      expect(newName, findsNothing);
+      response.complete();
+      try {
+        await _waitFor(
+          tester,
+          () => newName.evaluate().isNotEmpty,
+          reason: 'the open profile to display Final edit after its response',
+        );
+      } on TestFailure {
+        final rendered = tester
+            .widgetList<GroupProfilePanel>(panel)
+            .map((widget) => widget.name);
+        fail(
+          'Expected the open profile to display Final edit; rendered panel names: ${rendered.toList()}',
+        );
+      }
+      expect(newName, findsOneWidget);
+
       await tester.tap(find.byType(CloseButton));
-      await _settle(tester);
-      expect(
-        tester.widget<Text>(find.byKey(ChatPage.headerNameKey)).data,
-        'Final edit',
+      final chatName = find.byKey(ChatPage.headerNameKey);
+      await _waitFor(
+        tester,
+        () => tester
+            .widgetList<Text>(chatName)
+            .any((text) => text.data == 'Final edit'),
+        reason:
+            'the chat title to display Final edit after closing the profile',
       );
+      expect(tester.widget<Text>(chatName).data, 'Final edit');
 
       await tester.pumpWidget(const SizedBox.shrink());
-      await tester.pump(const Duration(seconds: 35));
+      await _waitFor(
+        tester,
+        () => transport.inFlight == 0,
+        reason: 'the loopback requests to drain after removing the widgets',
+      );
     },
   );
 }
