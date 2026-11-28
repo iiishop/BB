@@ -14,6 +14,7 @@ import '../services/auth_service.dart';
 import '../services/auth_session.dart';
 import '../services/chat_api_client.dart';
 import '../services/chat_service.dart';
+import '../services/group_mention_controller.dart';
 import '../services/group_service.dart';
 import '../services/heartbeat_controller.dart';
 import '../services/presence_directory.dart';
@@ -55,6 +56,7 @@ class HomeView extends StatefulWidget {
     this.chat,
     this.groups,
     this.shared,
+    this.alerts,
     this.avatarPicker,
     this.space,
     this.notificationBuilder,
@@ -72,6 +74,7 @@ class HomeView extends StatefulWidget {
   final ChatService? chat;
   final GroupService? groups;
   final SharedConversationService? shared;
+  final MentionRecipientController? alerts;
   final AvatarImagePicker? avatarPicker;
   final SpaceGateway? space;
   final Widget Function(BuildContext context, bool active)? notificationBuilder;
@@ -170,6 +173,20 @@ class _HomeViewState extends State<HomeView>
   /// One "only online" state shared by the phone and split lists: growing the
   /// window swaps the arrangement, never the user's filter.
   final ValueNotifier<bool> _onlineFilter = ValueNotifier<bool>(false);
+  MentionRecipientController? _ownedAlerts;
+
+  MentionRecipientController? get _alerts => widget.alerts ?? _ownedAlerts;
+
+  void _syncAlertsController() {
+    if (widget.alerts != null || widget.shared == null) {
+      _ownedAlerts?.dispose();
+      _ownedAlerts = null;
+    } else if (_ownedAlerts == null ||
+        !identical(_ownedAlerts!.shared, widget.shared)) {
+      _ownedAlerts?.dispose();
+      _ownedAlerts = MentionRecipientController(shared: widget.shared!);
+    }
+  }
 
   @override
   void initState() {
@@ -179,6 +196,7 @@ class _HomeViewState extends State<HomeView>
     if (chat != null) {
       _presence = PresenceDirectory(chat: chat);
     }
+    _syncAlertsController();
     _followStore = _buildFollowStore();
     if (widget.shared != null) {
       unawaited(_pollGroupEvents());
@@ -206,6 +224,10 @@ class _HomeViewState extends State<HomeView>
       _followStore = _buildFollowStore();
       _spaceStore = null;
     }
+    if (oldWidget.alerts != widget.alerts ||
+        oldWidget.shared != widget.shared) {
+      _syncAlertsController();
+    }
   }
 
   @override
@@ -217,6 +239,8 @@ class _HomeViewState extends State<HomeView>
     _groupEventsSub = null;
     _groupEventsSocket = null;
     _presence?.dispose();
+    _ownedAlerts?.dispose();
+    _ownedAlerts = null;
     _followStore?.dispose();
     _onlineFilter.dispose();
     _groupsRefresh.dispose();
@@ -530,11 +554,16 @@ class _HomeViewState extends State<HomeView>
           peer: user,
           chat: chat,
           profile: widget.profile,
+          shared: widget.shared,
+          alerts: _alerts,
           presence: _presence,
         ),
       ),
     );
     await viewed;
+    unawaited(
+      _alerts?.refreshSummary().then<void>((_) {}, onError: (Object _) {}),
+    );
   }
 
   Future<void> _openGroup(GroupConversationItem group) async {
@@ -557,6 +586,7 @@ class _HomeViewState extends State<HomeView>
           profile: widget.profile,
           shared: widget.shared,
           groups: widget.groups,
+          alerts: _alerts,
           onOpenDirectChat: _openChat,
           onGroupsChanged: _bumpGroupsRefresh,
           onGroupRevoked: (_) => _bumpGroupsRefresh(),
@@ -564,6 +594,9 @@ class _HomeViewState extends State<HomeView>
       ),
     );
     _bumpGroupsRefresh();
+    unawaited(
+      _alerts?.refreshSummary().then<void>((_) {}, onError: (Object _) {}),
+    );
   }
 
   Future<void> _handleCreateGroup() async {
@@ -713,6 +746,7 @@ class _HomeViewState extends State<HomeView>
                   profile: widget.profile,
                   shared: widget.shared,
                   groups: widget.groups,
+                  alerts: _alerts,
                   refreshTrigger: _groupsRefresh,
                   onGroupsChanged: _bumpGroupsRefresh,
                   presence: _presence,
@@ -833,6 +867,7 @@ class _HomeViewState extends State<HomeView>
                         profile: widget.profile,
                         shared: widget.shared,
                         groups: widget.groups,
+                        alerts: _alerts,
                         refreshTrigger: _groupsRefresh,
                         presence: _presence,
                         onlineFilter: _onlineFilter,

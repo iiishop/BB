@@ -41,6 +41,7 @@ class ChatDraft {
     this.parts = const <ChatDraftPart>[],
     this.attachments = const <ChatDraftAttachment>[],
     this.mentionSpans = const <MentionSpan>[],
+    this.replyTarget,
     this.pending = const <PendingSend>[],
     this.failed = const <SendOutcome>[],
   });
@@ -51,12 +52,14 @@ class ChatDraft {
   final List<ChatDraftPart> parts;
   final List<ChatDraftAttachment> attachments;
   final List<MentionSpan> mentionSpans;
+  final ReplyQuote? replyTarget;
 
   bool get isEmpty =>
       text.isEmpty &&
       parts.isEmpty &&
       attachments.isEmpty &&
       mentionSpans.isEmpty &&
+      replyTarget == null &&
       pending.isEmpty &&
       failed.isEmpty;
 
@@ -73,6 +76,9 @@ class ChatDraft {
     if (pending.isNotEmpty || failed.isNotEmpty) items.add('待完成或待重试的发送');
     if (attachments.isNotEmpty) {
       items.add('未发送的附件');
+    }
+    if (items.isEmpty && replyTarget != null) {
+      items.add('待发送的引用回复');
     }
     return items.join('、');
   }
