@@ -2827,7 +2827,11 @@ class ChatService {
       for (final entry in groupKeys.entries) {
         final revision = groups[entry.value]?.membershipRevision;
         if (revision is! int || entry.key != groupConsumptionKey(entry.value, revision)) {
-          throw const AuthFailure(status: 404, code: 'not_found', message: '群展示凭据已失效');
+          throw const AuthFailure(
+            status: 404,
+            code: 'group_receipt_expired',
+            message: '群展示凭据已失效',
+          );
         }
       }
     }

@@ -776,6 +776,7 @@ ERRORS = {
 }
 
 GROUP_ERRORS = {
+    "group_receipt_expired": (404, "Group membership for this presentation receipt ended; retire it without ACK."),
     "forbidden": (403, "Role lacks permission; refresh the resource."),
     "action_unavailable": (
         409,
