@@ -36,6 +36,7 @@ class ProfileSeaCover extends StatelessWidget {
     this.backBar,
     this.imageBytes,
     this.imageMimeType,
+    this.loading = false,
     this.fadeDuration = Duration.zero,
     this.topScrimHeightFactor = 0.5,
     this.topScrimMaxAlpha = 0.45,
@@ -52,6 +53,10 @@ class ProfileSeaCover extends StatelessWidget {
   final Uint8List? imageBytes;
   final String? imageMimeType;
 
+  /// Shows the animated shimmer sweep while waiting for a cover response when
+  /// motion is enabled.
+  final bool loading;
+
   /// Crossfade duration when swapping cover images; zero skips animation.
   final Duration fadeDuration;
   final double topScrimHeightFactor;
@@ -61,6 +66,7 @@ class ProfileSeaCover extends StatelessWidget {
 
   static const Key coverKey = Key('profile-cover');
   static const Key defaultCoverKey = Key('profile-cover-default');
+  static const Key loadingShimmerKey = Key('profile-cover-shimmer');
 
   @override
   Widget build(BuildContext context) {
@@ -99,6 +105,8 @@ class ProfileSeaCover extends StatelessWidget {
             child: image,
           )
         : image;
+    final bool showShimmer =
+        loading && !MediaQuery.disableAnimationsOf(context);
     return SizedBox(
       key: coverKey,
       height: height,
@@ -115,6 +123,7 @@ class ProfileSeaCover extends StatelessWidget {
               bottomHeightFactor: bottomScrimHeightFactor,
               bottomMaxAlpha: bottomScrimMaxAlpha,
             ),
+            if (showShimmer) const _CoverShimmer(key: loadingShimmerKey),
             if (backBar != null)
               Positioned(
                 left: 4,
@@ -188,6 +197,56 @@ class _CoverScrims extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _CoverShimmer extends StatefulWidget {
+  const _CoverShimmer({super.key});
+
+  @override
+  State<_CoverShimmer> createState() => _CoverShimmerState();
+}
+
+class _CoverShimmerState extends State<_CoverShimmer>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1700),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return RepaintBoundary(
+      child: IgnorePointer(
+        child: AnimatedBuilder(
+          animation: _controller,
+          builder: (BuildContext context, Widget? _) {
+            final double travel = _controller.value * 4.6;
+            return DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment(-4.16 + travel, -0.20),
+                  end: Alignment(0.24 + travel, 0.20),
+                  stops: const <double>[0.16, 0.44, 0.72],
+                  colors: const <Color>[
+                    Color(0x00FFFFFF),
+                    Color(0x6BFFFFFF),
+                    Color(0x00FFFFFF),
+                  ],
+                ),
+              ),
+              child: const SizedBox.expand(),
+            );
+          },
+        ),
       ),
     );
   }

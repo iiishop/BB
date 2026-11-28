@@ -179,15 +179,18 @@ void main() {
           ),
         ),
       );
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 950));
       expect(find.text('BB号 $accountA'), findsOneWidget);
-      // Cover A is still in flight, so default sea wave stays on screen.
+      // Cover A is still in flight, so default sea wave + shimmer stay on screen.
       expect(find.byKey(ProfileSeaCover.defaultCoverKey), findsOneWidget);
+      expect(find.byKey(ProfileSeaCover.loadingShimmerKey), findsOneWidget);
 
       // Switch to B (same display name, different account & custom cover).
       account.value = accountB;
       await tester.pumpAndSettle();
       expect(find.text('BB号 $accountB'), findsOneWidget);
+      expect(find.byKey(ProfileSeaCover.loadingShimmerKey), findsNothing);
       expect(shownCover(tester).bytes, newCover);
 
       // Release delayed cover A; it must be discarded and never overwrite B.
@@ -195,6 +198,7 @@ void main() {
       await tester.pump();
       await tester.pumpAndSettle();
       expect(find.text('BB号 $accountB'), findsOneWidget);
+      expect(find.byKey(ProfileSeaCover.loadingShimmerKey), findsNothing);
       expect(shownCover(tester).bytes, newCover);
     },
   );
@@ -364,6 +368,197 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets(
+    'cover loading shimmer animates during slow response, stops on completion/failure, isolates stale responses, and hides under reduced motion',
+    (WidgetTester tester) async {
+      const String accountA = '40218771';
+      const String accountB = '40218772';
+      final ValueNotifier<bool> reduceMotion = ValueNotifier<bool>(false);
+      addTearDown(reduceMotion.dispose);
+
+      Widget harness({
+        required ValueNotifier<String> account,
+        required FakeProfileGateway gateway,
+      }) => ValueListenableBuilder<bool>(
+        valueListenable: reduceMotion,
+        builder: (BuildContext context, bool disableAnimations, Widget? _) =>
+            MaterialApp(
+              theme: buildAppTheme(),
+              builder: (BuildContext context, Widget? child) => MediaQuery(
+                data: MediaQuery.of(context)
+                    .copyWith(disableAnimations: disableAnimations),
+                child: child!,
+              ),
+              home: Scaffold(
+                body: ValueListenableBuilder<String>(
+                  valueListenable: account,
+                  builder: (BuildContext context, String value, Widget? _) =>
+                      PersonProfilePanel(account: value, gateway: gateway),
+                ),
+              ),
+            ),
+      );
+
+      // 1. Slow cover load shows animated shimmer (advances every 40ms), then stops on success.
+      final _ControllableCoverGateway slowGateway = _ControllableCoverGateway()
+        ..profiles[accountA] = const Profile(
+          account: accountA,
+          username: '林晓',
+          signature: '只潜水，偶尔冒泡。',
+          avatarUrl: '/avatars/$accountA.png',
+          avatarVersion: 'va',
+        )
+        ..profiles[accountB] = const Profile(
+          account: accountB,
+          username: '陈默',
+          signature: '海风不错',
+          avatarUrl: '/avatars/$accountB.png',
+          avatarVersion: 'vb',
+        );
+      final Completer<CoverImage> firstCover = slowGateway.holdCoverFor(
+        accountA,
+      );
+      final ValueNotifier<String> account = ValueNotifier<String>(accountA);
+      addTearDown(account.dispose);
+
+      await tester.pumpWidget(harness(account: account, gateway: slowGateway));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 1240));
+      expect(find.byKey(ProfileSeaCover.defaultCoverKey), findsOneWidget);
+      expect(find.byKey(ProfileSeaCover.loadingShimmerKey), findsOneWidget);
+      expect(tester.binding.transientCallbackCount, greaterThan(0));
+
+      Gradient shimmerGradient() {
+        final DecoratedBox box = tester.widget<DecoratedBox>(
+          find.descendant(
+            of: find.byKey(ProfileSeaCover.loadingShimmerKey),
+            matching: find.byType(DecoratedBox),
+          ),
+        );
+        return (box.decoration as BoxDecoration).gradient!;
+      }
+
+      final AlignmentGeometry beginAt1240 =
+          (shimmerGradient() as LinearGradient).begin;
+      await tester.pump(const Duration(milliseconds: 40));
+      final AlignmentGeometry beginAt1280 =
+          (shimmerGradient() as LinearGradient).begin;
+      expect(beginAt1280, isNot(equals(beginAt1240)));
+
+      // Resolve cover A (default or custom) -> shimmer disappears and ticks settle.
+      firstCover.complete(
+        CoverImage(
+          account: accountA,
+          bytes: newCover,
+          version: 'sha256-${'e' * 64}',
+          mimeType: 'image/png',
+          isDefault: false,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(ProfileSeaCover.loadingShimmerKey), findsNothing);
+      expect(shownCover(tester).bytes, newCover);
+      expect(tester.binding.transientCallbackCount, 0);
+
+      // 2. Slow cover failure ends shimmer cleanly and falls back to static default cover.
+      final Completer<CoverImage> failingCoverB = slowGateway.holdCoverFor(
+        accountB,
+      );
+      account.value = accountB;
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(find.byKey(ProfileSeaCover.loadingShimmerKey), findsOneWidget);
+
+      failingCoverB.completeError(
+        const AuthFailure(
+          status: 503,
+          code: 'cover_unavailable',
+          message: 'unavailable',
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(ProfileSeaCover.loadingShimmerKey), findsNothing);
+      expect(find.byKey(ProfileSeaCover.defaultCoverKey), findsOneWidget);
+      expect(tester.binding.transientCallbackCount, 0);
+
+      // 3. Stale cover completion from A while switching A -> B stays isolated,
+      // and reduced motion during slow cover B shows static default without shimmer.
+      final Completer<CoverImage> staleCoverA = slowGateway.holdCoverFor(
+        accountA,
+      );
+      account.value = accountA;
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 120));
+      expect(find.byKey(ProfileSeaCover.loadingShimmerKey), findsOneWidget);
+
+      final Completer<CoverImage> delayedCoverB = slowGateway.holdCoverFor(
+        accountB,
+      );
+      reduceMotion.value = true;
+      account.value = accountB;
+      await tester.pumpAndSettle();
+      expect(find.text('BB号 $accountB'), findsOneWidget);
+      expect(find.byKey(ProfileSeaCover.defaultCoverKey), findsOneWidget);
+      expect(find.byKey(ProfileSeaCover.loadingShimmerKey), findsNothing);
+      expect(tester.binding.transientCallbackCount, 0);
+
+      // Late cover from account A must be discarded without affecting B.
+      staleCoverA.complete(
+        CoverImage(
+          account: accountA,
+          bytes: oldCover,
+          version: 'sha256-${'f' * 64}',
+          mimeType: 'image/png',
+          isDefault: false,
+        ),
+      );
+      await tester.pump();
+      expect(find.byKey(ProfileSeaCover.defaultCoverKey), findsOneWidget);
+      expect(find.byKey(ProfileSeaCover.loadingShimmerKey), findsNothing);
+
+      delayedCoverB.complete(
+        CoverImage(
+          account: accountB,
+          bytes: newCover,
+          version: 'sha256-${'b' * 64}',
+          mimeType: 'image/png',
+          isDefault: false,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(ProfileSeaCover.loadingShimmerKey), findsNothing);
+      expect(shownCover(tester).bytes, newCover);
+      expect(tester.takeException(), isNull);
+    },
+  );
+}
+
+class _ControllableCoverGateway extends FakeProfileGateway {
+  final Map<String, Completer<CoverImage>> _pending =
+      <String, Completer<CoverImage>>{};
+
+  Completer<CoverImage> holdCoverFor(String account) {
+    final Completer<CoverImage> completer = Completer<CoverImage>();
+    _pending[account] = completer;
+    return completer;
+  }
+
+  @override
+  Future<CoverImage> loadCover({
+    String? account,
+    AuthIdentity? captured,
+  }) async {
+    final Completer<CoverImage>? pending = account == null
+        ? null
+        : _pending.remove(account);
+    if (pending != null) {
+      loadCoverCalls += 1;
+      coverViewAccounts.add(account);
+      return pending.future;
+    }
+    return super.loadCover(account: account, captured: captured);
+  }
 }
 
 class _MultiPeerRaceGateway extends FakeProfileGateway {

@@ -137,6 +137,7 @@ class _PersonProfilePanelState extends State<PersonProfilePanel>
   Uint8List? _avatar;
   CoverImage? _cover;
   bool _loading = true;
+  bool _coverLoading = false;
   Object? _error;
 
   late final AnimationController _entrance = AnimationController(
@@ -172,6 +173,7 @@ class _PersonProfilePanelState extends State<PersonProfilePanel>
       _avatar = null;
       _cover = null;
       _loading = true;
+      _coverLoading = false;
       _error = null;
       _entrance.reset();
       unawaited(_load(notifyStart: false));
@@ -191,6 +193,7 @@ class _PersonProfilePanelState extends State<PersonProfilePanel>
     if (notifyStart && mounted) {
       setState(() {
         _loading = true;
+        _coverLoading = false;
         _error = null;
       });
     }
@@ -221,6 +224,7 @@ class _PersonProfilePanelState extends State<PersonProfilePanel>
         _profile = profile;
         _avatar = avatar.bytes;
         _loading = false;
+        _coverLoading = true;
         _error = null;
       });
       if (MediaQuery.disableAnimationsOf(context)) {
@@ -248,19 +252,38 @@ class _PersonProfilePanelState extends State<PersonProfilePanel>
     required ProfileGateway gateway,
   }) async {
     final int generation = ++_coverGeneration;
+    if (mounted &&
+        targetAccount == widget.account &&
+        gateway == widget.gateway &&
+        !_coverLoading) {
+      setState(() => _coverLoading = true);
+    }
     try {
       final CoverImage cover = await gateway.loadCover(account: targetAccount);
       if (!mounted ||
           generation != _coverGeneration ||
           targetAccount != widget.account ||
-          gateway != widget.gateway ||
-          cover.account != targetAccount) {
+          gateway != widget.gateway) {
         return;
       }
-      setState(() => _cover = cover);
+      if (cover.account != targetAccount) {
+        setState(() => _coverLoading = false);
+        return;
+      }
+      setState(() {
+        _cover = cover;
+        _coverLoading = false;
+      });
     } catch (_) {
+      if (!mounted ||
+          generation != _coverGeneration ||
+          targetAccount != widget.account ||
+          gateway != widget.gateway) {
+        return;
+      }
       // Cover reads are supplementary: a read failure keeps the packaged
       // default sea-wave cover so the peer profile stays usable.
+      setState(() => _coverLoading = false);
     }
   }
 
@@ -357,6 +380,7 @@ class _PersonProfilePanelState extends State<PersonProfilePanel>
                         height: effectiveCoverHeight,
                         imageBytes: cover?.bytes,
                         imageMimeType: cover?.mimeType,
+                        loading: _coverLoading,
                         fadeDuration: reducedMotion
                             ? Duration.zero
                             : const Duration(milliseconds: 280),
