@@ -9,6 +9,7 @@ HTTP 发消息沿用 Bearer 鉴权。现有 `POST /messages` 和 `POST /messages
 `reply_to: {message_id, sender_account, sender_username, preview}`。发送时记录预览；
 系统消息作为原文时两个作者字段均为 null，预览为系统文本。引用只带一层。
 点引用用原消息 ID 请求既有 `GET /messages/{message_id}/context`；点提醒用回复消息 ID 定位。
+定位上下文包含带引用的消息时，`reply_relations` 为 `inline`。
 
 以下 Bearer JSON POST 均返回 HTTP 200、`{items, next_cursor}`。
 

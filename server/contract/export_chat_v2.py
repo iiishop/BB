@@ -138,6 +138,14 @@ def fixtures():
                         "before_limit": 10,
                         "after_limit": 10,
                     },
+                    "list_unread_replies": {"conversation_id": "dm:10000001:10000002"},
+                    "list_direct_replies": {"original_message_id": "m1"},
+                    "send_reply": {
+                        "conversation": {"type": "direct", "id": "dm:10000001:10000002"},
+                        "reply_to_message_id": "m1",
+                        "operation_id": "example-reply-1",
+                        "content": [{"type": "text", "text": "quoted reply"}],
+                    },
                 }
             )[name]
         )
@@ -218,6 +226,40 @@ def fixtures():
     }
     for name in ["get_message", "get_context"]:
         inputs[name]["message_id"] = message["id"]
+    for name, field in [
+        ("list_direct_replies", "original_message_id"),
+        ("send_reply", "reply_to_message_id"),
+    ]:
+        inputs[name][field] = message["id"]
+    sent_reply = {
+        **sent_message,
+        "id": "sent-reply",
+        "position": message["position"] + 1,
+        "content": inputs["send_reply"]["content"],
+        "reply_to": {
+            "message_id": message["id"],
+            "sender_account": message["sender_account"],
+            "sender_username": "Bob",
+            "preview": "Original message",
+        },
+    }
+    direct_reply = {
+        key: value for key, value in sent_reply.items() if key != "target_account"
+    } | {"sender_username": "Alice"}
+    own_original = {**message, "id": "own-example-message",
+                    "sender_account": AUTH["account"], "target_account": "10000002"}
+    incoming_reply = {
+        **direct_reply,
+        "id": "received-reply",
+        "sender_account": "10000002",
+        "sender_username": "Bob",
+        "reply_to": {
+            "message_id": own_original["id"],
+            "sender_account": AUTH["account"],
+            "sender_username": "Alice",
+            "preview": own_original["content"][0]["text"],
+        },
+    }
     cover = {
         "cover_url": f"/covers/{AUTH['account']}",
         "cover_version": "sha256-"
@@ -296,6 +338,12 @@ def fixtures():
             "missing_media_ids": [],
         },
         "list_users": {"items": [], "next_cursor": None},
+        "list_unread_replies": {
+            "items": [{"reply": incoming_reply, "original": own_original}],
+            "next_cursor": None,
+        },
+        "list_direct_replies": {"items": [direct_reply], "next_cursor": None},
+        "send_reply": sent_reply,
         "send_message": sent_message,
         "send_attachment": {
             **sent_message,

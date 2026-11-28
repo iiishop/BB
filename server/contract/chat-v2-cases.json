@@ -313,6 +313,48 @@
         "binding_revision": 1
       }
     },
+    "list_unread_replies": {
+      "before_position": null,
+      "limit": 50,
+      "conversation_id": "dm:10000001:10000002",
+      "expected_identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      }
+    },
+    "list_direct_replies": {
+      "before_position": null,
+      "limit": 50,
+      "original_message_id": "example-message",
+      "expected_identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      }
+    },
+    "send_reply": {
+      "conversation": {
+        "type": "direct",
+        "id": "dm:10000001:10000002"
+      },
+      "reply_to_message_id": "example-message",
+      "operation_id": "example-reply-1",
+      "content": [
+        {
+          "type": "text",
+          "text": "quoted reply"
+        }
+      ],
+      "expected_identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      }
+    },
     "send_message": {
       "target_account": "10000002",
       "operation_id": "example-send-1",
@@ -962,6 +1004,120 @@
       "result": {
         "items": [],
         "next_cursor": null
+      }
+    },
+    "list_unread_replies": {
+      "identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      },
+      "result": {
+        "items": [
+          {
+            "reply": {
+              "id": "received-reply",
+              "position": 2,
+              "created_at": "2026-11-11T00:00:00Z",
+              "sender_account": "10000002",
+              "kind": "body",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "quoted reply"
+                }
+              ],
+              "attachment": null,
+              "reply_to": {
+                "message_id": "own-example-message",
+                "sender_account": "10000001",
+                "sender_username": "Alice",
+                "preview": "hello"
+              },
+              "sender_username": "Bob"
+            },
+            "original": {
+              "id": "own-example-message",
+              "position": 1,
+              "created_at": "2026-11-11T00:00:00Z",
+              "sender_account": "10000001",
+              "kind": "body",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "hello"
+                }
+              ],
+              "attachment": null,
+              "target_account": "10000002"
+            }
+          }
+        ],
+        "next_cursor": null
+      }
+    },
+    "list_direct_replies": {
+      "identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      },
+      "result": {
+        "items": [
+          {
+            "id": "sent-reply",
+            "position": 2,
+            "created_at": "2026-11-11T00:00:00Z",
+            "sender_account": "10000001",
+            "kind": "body",
+            "content": [
+              {
+                "type": "text",
+                "text": "quoted reply"
+              }
+            ],
+            "attachment": null,
+            "reply_to": {
+              "message_id": "example-message",
+              "sender_account": "10000002",
+              "sender_username": "Bob",
+              "preview": "Original message"
+            },
+            "sender_username": "Alice"
+          }
+        ],
+        "next_cursor": null
+      }
+    },
+    "send_reply": {
+      "identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      },
+      "result": {
+        "id": "sent-reply",
+        "position": 2,
+        "created_at": "2026-11-11T00:00:00Z",
+        "sender_account": "10000001",
+        "kind": "body",
+        "content": [
+          {
+            "type": "text",
+            "text": "quoted reply"
+          }
+        ],
+        "attachment": null,
+        "reply_to": {
+          "message_id": "example-message",
+          "sender_account": "10000002",
+          "sender_username": "Bob",
+          "preview": "Original message"
+        },
+        "target_account": "10000002"
       }
     },
     "send_message": {
@@ -1717,6 +1873,38 @@
       "input": {
         "after_account": "",
         "limit": 50
+      }
+    },
+    {
+      "id": "list_unread_replies-missing-identity",
+      "operation": "list_unread_replies",
+      "input": {
+        "conversation_id": "dm:10000001:10000002"
+      }
+    },
+    {
+      "id": "list_direct_replies-missing-identity",
+      "operation": "list_direct_replies",
+      "input": {
+        "original_message_id": "example-message"
+      }
+    },
+    {
+      "id": "send_reply-missing-identity",
+      "operation": "send_reply",
+      "input": {
+        "conversation": {
+          "type": "direct",
+          "id": "dm:10000001:10000002"
+        },
+        "reply_to_message_id": "example-message",
+        "operation_id": "example-reply-1",
+        "content": [
+          {
+            "type": "text",
+            "text": "quoted reply"
+          }
+        ]
       }
     },
     {

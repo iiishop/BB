@@ -5,17 +5,17 @@ from typing import Annotated
 from pydantic import Field
 
 from .chat import ChatMessage, LocalImage, OperationId, Text, UserMessage
+from .chat_alerts import PositivePosition
 from .chat_query import MessageId
 from .conversation import ConversationId, ConversationRef
 from .wire import Wire
 
 UNREAD_PATH = "/chat/replies/unread"
 DIRECT_PATH = "/chat/replies/direct"
-UnreadPosition = Annotated[int, Field(ge=1, le=9007199254740991)]
 
 
 class ReplyPageQuery(Wire):
-    before_position: UnreadPosition | None = None
+    before_position: PositivePosition | None = None
     limit: int = Field(default=50, ge=1, le=100)
 
 
@@ -38,12 +38,12 @@ class UnreadReply(Wire):
 
 class UnreadReplyPage(Wire):
     items: list[UnreadReply]
-    next_cursor: UnreadPosition | None
+    next_cursor: PositivePosition | None
 
 
 class DirectReplyPage(Wire):
     items: list[ReplyMessage]
-    next_cursor: UnreadPosition | None
+    next_cursor: PositivePosition | None
 
 
 class SendReply(Wire):

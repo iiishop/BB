@@ -2,7 +2,7 @@
 
 from typing import Annotated, Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, model_serializer, model_validator
 
 from .conversation import ConversationRef, GroupConversationRef
 from .wire import Wire
@@ -35,9 +35,7 @@ class Image(Wire):
 
 class SendMessage(SendTarget):
     client_nonce: OperationId
-    reply_to_message_id: OpaqueId | None = Field(
-        default=None, exclude_if=lambda value: value is None
-    )
+    reply_to_message_id: OpaqueId | None = None
     content: list[Annotated[Text | Image, Field(discriminator="type")]] = Field(
         min_length=1, max_length=100
     )
@@ -57,9 +55,7 @@ class SendMessage(SendTarget):
 class SendAttachment(SendTarget):
     client_nonce: OperationId
     media_id: str
-    reply_to_message_id: OpaqueId | None = Field(
-        default=None, exclude_if=lambda value: value is None
-    )
+    reply_to_message_id: OpaqueId | None = None
 
 
 class Media(Wire):
@@ -89,9 +85,14 @@ class UserMessage(MessageEntry):
     kind: Literal["body", "attachment"]
     content: list[Annotated[Text | Image, Field(discriminator="type")]] | None = None
     attachment: Media | None = None
-    reply_to: ReplyQuote | None = Field(
-        default=None, exclude_if=lambda value: value is None
-    )
+    reply_to: ReplyQuote | None = None
+
+    @model_serializer(mode="wrap")
+    def omit_unused_reply(self, handler):
+        value = handler(self)
+        if self.reply_to is None:
+            value.pop("reply_to", None)
+        return value
 
 
 class Message(UserMessage):

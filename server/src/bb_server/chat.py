@@ -63,7 +63,7 @@ from PIL import Image as PILImage
 from PIL import UnidentifiedImageError
 from starlette.concurrency import run_in_threadpool
 
-from . import chat_queries, chat_store
+from . import chat_queries, chat_replies, chat_store
 from .avatars import avatar_bytes, etag_matches
 from .media_thumbnails import thumbnail
 from .storage import connection, find_session
@@ -160,6 +160,10 @@ def submit(path, account, body, clock, association=False):
             db, account, body.target_account, body.conversation
         )
         request = body.model_dump(exclude={"conversation", "target_account"})
+        if body.reply_to_message_id is None:
+            request.pop("reply_to_message_id", None)
+        if request.get("mentioned_accounts") == []:
+            request.pop("mentioned_accounts")
         if peer:
             # Keep the pre-migration digest and make explicit dm sends replay it.
             request["target_account"] = peer
@@ -185,6 +189,16 @@ def submit(path, account, body, clock, association=False):
         scope = {"peer": peer} if peer else {"group_id": conversation_id}
         created_at = chat_store.timestamp(clock)
         fields = {"sender_account": account, "content": None, "attachment": None}
+        if body.reply_to_message_id is not None:
+            original, username = chat_replies.original_for_send(
+                db, conversation_id, body.reply_to_message_id
+            )
+            fields["reply_to"] = {
+                "message_id": original["id"],
+                "sender_account": original.get("sender_account"),
+                "sender_username": username,
+                "preview": preview(original),
+            }
         if peer:
             chat_store.ensure_direct(db, account, peer, created_at)
             fields["target_account"] = peer
@@ -221,6 +235,10 @@ def submit(path, account, body, clock, association=False):
             direct_accounts=(account, peer) if peer else None,
             media_ids=media_ids,
         )
+        if body.reply_to_message_id is not None:
+            chat_replies.record_reply(
+                db, conversation_id, message, original.get("sender_account")
+            )
         db.execute(
             "INSERT INTO operations VALUES (?,?,?,?)",
             (account, body.client_nonce, digest, message["id"]),
@@ -229,7 +247,9 @@ def submit(path, account, body, clock, association=False):
 
 
 def preview(message):
-    if message["kind"] == "body":
+    if message["kind"] == "system":
+        value = message["text"]
+    elif message["kind"] == "body":
         value = "".join(
             p["text"] if p["type"] == "text" else "[图片]" for p in message["content"]
         )
@@ -245,6 +265,7 @@ def preview(message):
 def install(app, path, directory, group_avatar_directory, current_session, clock):
     identity_dep = Depends(current_session)
     errors = {s: {"model": ErrorResponse} for s in (401, 404, 409, 413, 415, 422, 503)}
+    chat_replies.install(app, path, current_session, errors)
 
     def association_format(
         response: Response,

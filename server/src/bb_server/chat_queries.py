@@ -200,7 +200,9 @@ def context(path, account, message_id, before_limit, after_limit, association=Fa
         "after_has_more": after["has_more"],
         "missing_positions": gaps,
         "missing_truncated": gap_count > len(gaps),
-        "reply_relations": "unsupported",
+        "reply_relations": (
+            "inline" if any(item.get("reply_to") for item in items) else "unsupported"
+        ),
     }
 
 

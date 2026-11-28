@@ -9,7 +9,7 @@ from pydantic import ConfigDict, Field, model_validator
 
 from . import chat as v1
 from . import chat_query as query
-from . import cover, group, profile
+from . import cover, group, profile, replies
 from .conversation import GroupConversationRef
 
 VERSION = "dea467-local-v2"
@@ -132,6 +132,18 @@ class Send(Protected, v1.LocalSend):
 
 
 class Attachment(Protected, v1.LocalAttachment):
+    pass
+
+
+class ListUnreadReplies(Protected, replies.UnreadRepliesQuery):
+    pass
+
+
+class ListDirectReplies(Protected, replies.DirectRepliesQuery):
+    pass
+
+
+class SendReply(Protected, replies.SendReply):
     pass
 
 
@@ -562,6 +574,21 @@ BUSINESS = {
         True,
     ),
     "list_users": ("/v2/chat/list_users", Users, Reply[v1.UserPage], 200, True),
+    "list_unread_replies": (
+        "/v2/chat/list_unread_replies",
+        ListUnreadReplies,
+        Reply[replies.UnreadReplyPage],
+        200,
+        True,
+    ),
+    "list_direct_replies": (
+        "/v2/chat/list_direct_replies",
+        ListDirectReplies,
+        Reply[replies.DirectReplyPage],
+        200,
+        True,
+    ),
+    "send_reply": ("/v2/chat/send_reply", SendReply, Reply[v1.ChatMessage], 200, True),
     "send_message": ("/v2/chat/send_message", Send, Reply[v1.ChatMessage], 200, True),
     "send_attachment": (
         "/v2/chat/send_attachment",
