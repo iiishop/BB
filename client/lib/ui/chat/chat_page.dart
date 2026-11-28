@@ -13,8 +13,10 @@ import '../../models/auth_models.dart';
 import '../../models/chat_media.dart';
 import '../../models/chat_models.dart';
 import '../../models/group_models.dart';
+import '../../models/mention_models.dart';
 import '../../services/chat_service.dart';
 import '../../services/conversation_access.dart';
+import '../../services/group_mention_controller.dart';
 import '../../services/group_service.dart';
 import '../../services/media_stream_proxy.dart';
 import '../../services/presence_directory.dart';
@@ -30,6 +32,7 @@ import 'clipboard_paste.dart';
 import 'media_actions.dart';
 import 'media_save.dart';
 import 'media_viewer.dart';
+import 'mention_widgets.dart';
 import 'message_bubble.dart';
 import 'pending_send.dart';
 
@@ -44,6 +47,7 @@ class ChatPage extends StatefulWidget {
     required this.profile,
     this.shared,
     this.groups,
+    this.alerts,
     this.presence,
     this.openExternalStream,
     this.onMessagesChanged,
@@ -80,6 +84,7 @@ class ChatPage extends StatefulWidget {
   final ChatService chat;
   final SharedConversationService? shared;
   final GroupService? groups;
+  final MentionRecipientController? alerts;
 
   /// Navigates to a 1:1 direct chat when tapping a member in group profile.
   final Future<void> Function(ChatUser user)? onOpenDirectChat;
@@ -158,8 +163,10 @@ class ChatPage extends StatefulWidget {
   State<ChatPage> createState() => _ChatPageState();
 }
 
-class _ChatPageState extends State<ChatPage> {
+class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   final ScrollController _scrollController = ScrollController();
+  final GlobalKey _listViewportKey = GlobalKey();
+  final Map<String, GlobalKey> _messageRowKeys = <String, GlobalKey>{};
   final List<ChatMessage> _messages = <ChatMessage>[];
   final Set<String> _busyMedia = <String>{};
   final List<MediaStreamHandle> _streamHandles = <MediaStreamHandle>[];
@@ -243,6 +250,13 @@ class _ChatPageState extends State<ChatPage> {
   int _groupAvatarTicket = 0;
   Uint8List? _groupAvatarBytes;
   Timer? _pollTimer;
+  Timer? _highlightTimer;
+  MentionRecipientController? _ownedAlerts;
+  bool _appInForeground = true;
+  bool _viewportAlertCheckScheduled = false;
+  bool _suppressViewportAlertCheck = false;
+  bool _jumpingToAlert = false;
+  String? _highlightedAlertMessageId;
   late final ChatAvatarController _avatars;
 
   /// Highest contiguous server position whose page has been fetched.
@@ -294,6 +308,33 @@ class _ChatPageState extends State<ChatPage> {
 
   ConversationRef? get _conversation => widget.group?.conversation;
 
+  ConversationRef? get _alertConversation {
+    if (widget.group != null) {
+      return widget.group!.conversation;
+    }
+    final ChatUser? peer = widget._peer;
+    final String? self = _selfAccount;
+    if (peer == null ||
+        self == null ||
+        peer.account == self ||
+        !isValidAccount(self) ||
+        !isValidAccount(peer.account)) {
+      return null;
+    }
+    return ConversationRef.direct(self, peer.account);
+  }
+
+  MentionRecipientController? get _effectiveAlerts =>
+      widget.alerts ?? _ownedAlerts;
+
+  bool get _isForegroundForAlerts =>
+      mounted &&
+      widget.active &&
+      _appInForeground &&
+      !_revoked &&
+      _modalCovers == 0 &&
+      (_modalRoute?.isCurrent ?? true);
+
   ConversationAccessController? get _access => widget.shared?.access;
 
   String get _consumerSession => 'ui:${widget.chat.selfAccount}:$_scopeId';
@@ -304,6 +345,10 @@ class _ChatPageState extends State<ChatPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    final AppLifecycleState? lifecycle = WidgetsBinding.instance.lifecycleState;
+    _appInForeground =
+        lifecycle == null || lifecycle == AppLifecycleState.resumed;
     // Both sides are requested once when the conversation opens. The AppBar and
     // every bubble read this same controller, so scrolling cannot add requests.
     final Iterable<String> initialAccounts = _isGroup
@@ -322,12 +367,84 @@ class _ChatPageState extends State<ChatPage> {
       _subscribeGroupUpdates();
       unawaited(_loadGroupAvatar());
     }
+    _attachAlerts();
     unawaited(_loadInitial());
     _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       if (mounted && !_fetching && !_revoked) {
         unawaited(_pollNew());
       }
     });
+  }
+
+  void _attachAlerts() {
+    if (widget.alerts == null && widget.shared != null) {
+      _ownedAlerts ??= MentionRecipientController(shared: widget.shared!);
+    } else if (widget.alerts != null || widget.shared == null) {
+      _ownedAlerts?.dispose();
+      _ownedAlerts = null;
+    }
+    _effectiveAlerts?.addListener(_onAlertsChanged);
+    _syncConversationAlerts();
+  }
+
+  void _onAlertsChanged() {
+    if (mounted) {
+      setState(() {});
+      _syncConversationAlerts(refreshSummaryIfNeeded: false);
+    }
+  }
+
+  void _syncConversationAlerts({bool refreshSummaryIfNeeded = true}) {
+    final MentionRecipientController? alerts = _effectiveAlerts;
+    final ConversationRef? conv = _alertConversation;
+    if (alerts == null || conv == null || _revoked) {
+      return;
+    }
+    if (refreshSummaryIfNeeded && widget.active) {
+      unawaited(
+        alerts.refreshSummary().then<void>(
+          (_) => _maybeRefreshDistinctCounts(),
+          onError: (_) {},
+        ),
+      );
+    } else {
+      _maybeRefreshDistinctCounts();
+    }
+  }
+
+  void _maybeRefreshDistinctCounts() {
+    final MentionRecipientController? alerts = _effectiveAlerts;
+    final ConversationRef? conv = _alertConversation;
+    if (!mounted ||
+        alerts == null ||
+        conv == null ||
+        !widget.active ||
+        _revoked) {
+      return;
+    }
+    final AlertCounts counts = alerts.countsFor(conv.id);
+    if (!counts.hasAny) {
+      return;
+    }
+    final Map<String, UnreadAlert> existing = alerts.alertsByMessageFor(
+      conv.id,
+    );
+    if (existing.isEmpty) {
+      unawaited(alerts.refreshConversationAlerts(conv).catchError((_) => 0));
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final bool nextForeground = state == AppLifecycleState.resumed;
+    if (nextForeground == _appInForeground) {
+      return;
+    }
+    _appInForeground = nextForeground;
+    if (nextForeground) {
+      _syncConversationAlerts();
+      _scheduleViewportAlertCheck();
+    }
   }
 
   void _attachGroupAccess() {
@@ -484,6 +601,7 @@ class _ChatPageState extends State<ChatPage> {
       _routeCurrent = current;
       if (current) {
         _flushDisplayed();
+        _scheduleViewportAlertCheck();
       }
     }
   }
@@ -519,12 +637,27 @@ class _ChatPageState extends State<ChatPage> {
         (oldWidget.group != null) != _isGroup) {
       _subscribeGroupUpdates();
     }
+    if (oldWidget.alerts != widget.alerts ||
+        oldWidget.shared != widget.shared) {
+      final MentionRecipientController? oldEffective =
+          oldWidget.alerts ?? _ownedAlerts;
+      oldEffective?.removeListener(_onAlertsChanged);
+      if (oldWidget.shared != widget.shared) {
+        _ownedAlerts?.dispose();
+        _ownedAlerts = null;
+      }
+      _attachAlerts();
+    }
     if (oldScope != newScope) {
       // Requests captured for the previous conversation must never write into
       // this page. A real navigation creates a new state; this guard also
       // covers a parent that reuses the widget with another target.
       _pageEpoch += 1;
       _revoked = false;
+      _highlightTimer?.cancel();
+      _highlightedAlertMessageId = null;
+      _jumpingToAlert = false;
+      _messageRowKeys.clear();
       _liveGroupProfile = null;
       _groupCounts = null;
       _groupCountsTicket += 1;
@@ -557,6 +690,7 @@ class _ChatPageState extends State<ChatPage> {
         _attachGroupAccess();
         unawaited(_loadGroupAvatar());
       }
+      _syncConversationAlerts();
       unawaited(_loadInitial());
     } else {
       final GroupConversationItem? oldGroup = oldWidget.group;
@@ -584,6 +718,8 @@ class _ChatPageState extends State<ChatPage> {
         // The pane just became visible again: only now do the arrivals that
         // were staged while it was hidden become display facts.
         _flushDisplayed();
+        _syncConversationAlerts();
+        _scheduleViewportAlertCheck();
       }
       if (_isGroup &&
           (becameActive || membershipChanged || groupsServiceChanged)) {
@@ -594,6 +730,7 @@ class _ChatPageState extends State<ChatPage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     unawaited(_groupUpdatesSub?.cancel());
     _groupUpdatesSub = null;
     if (widget._peer != null) {
@@ -602,6 +739,10 @@ class _ChatPageState extends State<ChatPage> {
         ..unwatch(widget._peer!.account);
     }
     _detachGroupAccess();
+    _effectiveAlerts?.removeListener(_onAlertsChanged);
+    _ownedAlerts?.dispose();
+    _ownedAlerts = null;
+    _highlightTimer?.cancel();
     _pollTimer?.cancel();
     _avatars
       ..removeListener(_onAvatarsChanged)
@@ -860,7 +1001,10 @@ class _ChatPageState extends State<ChatPage> {
           if (added > 0) {
             _scrollController.jumpTo(beforePixels + added);
           }
+          _scheduleViewportAlertCheck();
         });
+      } else {
+        _scheduleViewportAlertCheck();
       }
     } catch (_) {
       if (mounted) {
@@ -952,8 +1096,17 @@ class _ChatPageState extends State<ChatPage> {
               .then<void>((_) {}, onError: (Object _) {}),
         );
       }
-      if (arrived.isNotEmpty && wasNearBottom) {
-        _scrollToBottom(force: true);
+      if (arrived.isNotEmpty) {
+        if (wasNearBottom) {
+          _scrollToBottom(force: true);
+        } else {
+          _scheduleViewportAlertCheck();
+        }
+        if (_effectiveAlerts != null) {
+          unawaited(
+            _effectiveAlerts!.refreshSummary().catchError((Object _) {}),
+          );
+        }
       }
     } catch (_) {
       // Polling is best effort; the explicit refresh keeps the error visible.
@@ -1152,6 +1305,7 @@ class _ChatPageState extends State<ChatPage> {
       if (mounted) {
         _modalCovers = math.max(0, _modalCovers - 1);
         _flushDisplayed();
+        _scheduleViewportAlertCheck();
       }
     }
   }
@@ -1434,12 +1588,230 @@ class _ChatPageState extends State<ChatPage> {
     if (_unseenNew > 0 && _isNearBottom) {
       setState(() => _unseenNew = 0);
     }
+    _scheduleViewportAlertCheck();
+  }
+
+  GlobalKey _rowKeyForMessage(String messageId) =>
+      _messageRowKeys.putIfAbsent(messageId, GlobalKey.new);
+
+  void _scheduleViewportAlertCheck() {
+    if (!mounted ||
+        _suppressViewportAlertCheck ||
+        _viewportAlertCheckScheduled ||
+        _effectiveAlerts == null ||
+        _alertConversation == null) {
+      return;
+    }
+    _viewportAlertCheckScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _viewportAlertCheckScheduled = false;
+      _reportViewportVisibleAlerts();
+    });
+  }
+
+  void _reportViewportVisibleAlerts() {
+    final MentionRecipientController? alerts = _effectiveAlerts;
+    final ConversationRef? conv = _alertConversation;
+    if (!mounted ||
+        _suppressViewportAlertCheck ||
+        alerts == null ||
+        conv == null ||
+        !_isForegroundForAlerts ||
+        _messages.isEmpty) {
+      return;
+    }
+    final RenderObject? viewportRender = _listViewportKey.currentContext
+        ?.findRenderObject();
+    if (viewportRender is! RenderBox ||
+        !viewportRender.attached ||
+        !viewportRender.hasSize) {
+      return;
+    }
+    final double viewportHeight = viewportRender.size.height;
+    if (viewportHeight <= 0) {
+      return;
+    }
+    final List<ChatMessage> visible = <ChatMessage>[];
+    for (final ChatMessage message in _messages) {
+      if (message.isSystem || !isValidMentionMessageId(message.id)) {
+        continue;
+      }
+      final RenderObject? rowRender = _messageRowKeys[message.id]
+          ?.currentContext
+          ?.findRenderObject();
+      if (rowRender is! RenderBox ||
+          !rowRender.attached ||
+          !rowRender.hasSize) {
+        continue;
+      }
+      final Offset topLeft = rowRender.localToGlobal(
+        Offset.zero,
+        ancestor: viewportRender,
+      );
+      final double top = topLeft.dy;
+      final double bottom = top + rowRender.size.height;
+      final double overlap =
+          math.min(bottom, viewportHeight) - math.max(top, 0.0);
+      if (overlap >= math.min(20.0, rowRender.size.height * 0.5)) {
+        visible.add(message);
+      }
+    }
+    if (visible.isEmpty) {
+      return;
+    }
+    unawaited(
+      alerts
+          .reportVisibleMessages(
+            conversation: conv,
+            visibleMessages: visible,
+            isForegroundActive: _isForegroundForAlerts,
+          )
+          .then<void>((AlertCounts? counts) {
+            if (counts != null &&
+                counts.unreadMentionCount > 0 &&
+                counts.unreadReplyCount > 0 &&
+                mounted &&
+                !_revoked) {
+              unawaited(
+                alerts.refreshConversationAlerts(conv).catchError((_) => 0),
+              );
+            }
+          }, onError: (Object _) {}),
+    );
+  }
+
+  Future<void> _jumpToNextAlert() async {
+    final MentionRecipientController? alerts = _effectiveAlerts;
+    final ConversationRef? conv = _alertConversation;
+    if (_jumpingToAlert ||
+        _revoked ||
+        alerts == null ||
+        conv == null ||
+        !mounted) {
+      return;
+    }
+    final int epoch = _pageEpoch;
+    final String scope = _scopeId;
+    setState(() => _jumpingToAlert = true);
+    try {
+      final Set<String> loadedIds = <String>{
+        for (final ChatMessage message in _messages) message.id,
+      };
+      final AlertJumpResolution? resolution = await alerts
+          .resolveNextJumpTarget(
+            conversation: conv,
+            loadedMessageIds: loadedIds,
+          );
+      if (!mounted || epoch != _pageEpoch || _scopeId != scope || _revoked) {
+        return;
+      }
+      if (resolution == null) {
+        return;
+      }
+      if (resolution.context != null) {
+        _avatars.ensureAccounts(
+          resolution.context!.items.map((ChatMessage m) => m.senderAccount),
+        );
+        setState(() {
+          _mergeMessages(resolution.context!.items);
+          if (resolution.context!.beforeHasMore) {
+            _hasOlder = true;
+          }
+          _loading = false;
+        });
+        widget.onMessagesChanged?.call(
+          List<ChatMessage>.unmodifiable(_messages),
+        );
+      }
+      _setHighlightedAlert(resolution.alert.messageId);
+      await _scrollToMessageId(resolution.alert.messageId, epoch, scope);
+    } on AuthFailure catch (failure) {
+      if (mounted && epoch == _pageEpoch && _scopeId == scope) {
+        _snack(failure.message);
+      }
+    } catch (_) {
+      if (mounted && epoch == _pageEpoch && _scopeId == scope) {
+        _snack('定位未读提醒失败，请稍后重试');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _jumpingToAlert = false);
+      }
+    }
+  }
+
+  void _setHighlightedAlert(String messageId) {
+    _highlightTimer?.cancel();
+    setState(() => _highlightedAlertMessageId = messageId);
+    _highlightTimer = Timer(const Duration(milliseconds: 1200), () {
+      if (mounted && _highlightedAlertMessageId == messageId) {
+        setState(() => _highlightedAlertMessageId = null);
+      }
+    });
+  }
+
+  Future<void> _scrollToMessageId(
+    String messageId,
+    int epoch,
+    String scope,
+  ) async {
+    final bool reducedMotion =
+        MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    final Duration duration = reducedMotion
+        ? Duration.zero
+        : const Duration(milliseconds: 220);
+    _suppressViewportAlertCheck = true;
+    try {
+      for (int attempt = 0; attempt < 8; attempt += 1) {
+        if (!mounted || epoch != _pageEpoch || _scopeId != scope) {
+          return;
+        }
+        await WidgetsBinding.instance.endOfFrame;
+        if (!mounted || epoch != _pageEpoch || _scopeId != scope) {
+          return;
+        }
+        final BuildContext? targetContext =
+            _messageRowKeys[messageId]?.currentContext;
+        if (targetContext != null && targetContext.mounted) {
+          _scrollEpoch += 1;
+          _pinBottomOnKeyboard = false;
+          await Scrollable.ensureVisible(
+            targetContext,
+            alignment: 0.45,
+            duration: duration,
+            curve: Curves.easeOutCubic,
+          );
+          await WidgetsBinding.instance.endOfFrame;
+          return;
+        }
+        if (!_scrollController.hasClients) {
+          return;
+        }
+        final int idx = _messages.indexWhere(
+          (ChatMessage m) => m.id == messageId,
+        );
+        if (idx < 0) {
+          return;
+        }
+        final double maxExtent = _scrollController.position.maxScrollExtent;
+        final double fraction = _messages.length <= 1
+            ? 0.0
+            : (idx / (_messages.length - 1)).clamp(0.0, 1.0);
+        _scrollEpoch += 1;
+        _pinBottomOnKeyboard = false;
+        _scrollController.jumpTo(maxExtent * fraction);
+      }
+    } finally {
+      _suppressViewportAlertCheck = false;
+      _scheduleViewportAlertCheck();
+    }
   }
 
   void _scrollToBottom({bool animate = true, bool force = false}) {
     if (!force && !_isNearBottom) {
       return;
     }
+    _suppressViewportAlertCheck = true;
     final int epoch = _scrollEpoch;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _applyBottomScroll(animate: animate, attempt: 0, epoch: epoch);
@@ -1477,12 +1849,15 @@ class _ChatPageState extends State<ChatPage> {
     required int epoch,
   }) {
     if (!mounted || !_scrollController.hasClients || epoch != _scrollEpoch) {
+      _suppressViewportAlertCheck = false;
       return;
     }
     final ScrollPosition position = _scrollController.position;
     final double target = position.maxScrollExtent;
     final double remaining = target - position.pixels;
     if (remaining.abs() <= 1) {
+      _suppressViewportAlertCheck = false;
+      _scheduleViewportAlertCheck();
       return;
     }
     if (animate && attempt == 0) {
@@ -1497,6 +1872,8 @@ class _ChatPageState extends State<ChatPage> {
                 _scrollController.hasClients &&
                 epoch == _scrollEpoch) {
               _applyBottomScroll(animate: false, attempt: 1, epoch: epoch);
+            } else {
+              _suppressViewportAlertCheck = false;
             }
           });
       return;
@@ -1505,6 +1882,8 @@ class _ChatPageState extends State<ChatPage> {
     // over ~160ms; a short attempt budget would stop short of the bottom and
     // leave the newest message a few pixels below the fold.
     if (attempt >= 12) {
+      _suppressViewportAlertCheck = false;
+      _scheduleViewportAlertCheck();
       return;
     }
     _scrollController.jumpTo(target);
@@ -1963,6 +2342,16 @@ class _ChatPageState extends State<ChatPage> {
         _scrollToBottom(animate: false, force: true);
       }
     }
+    final MentionRecipientController? alerts = _effectiveAlerts;
+    final ConversationRef? alertConv = _alertConversation;
+    final UnreadAlert? latestAlert =
+        (alerts != null && alertConv != null && !_revoked)
+        ? alerts.latestAlertFor(alertConv.id)
+        : null;
+    final int alertJumpCount =
+        (alerts != null && alertConv != null && !_revoked)
+        ? alerts.unreadAlertMessageCountFor(alertConv.id)
+        : 0;
     return Scaffold(
       backgroundColor: AppColors.chatPaper,
       // The inset is applied to the whole chat column below, not by resizing
@@ -1999,22 +2388,44 @@ class _ChatPageState extends State<ChatPage> {
         child: Column(
           children: <Widget>[
             Expanded(
-              child: Stack(
-                children: <Widget>[
-                  Positioned.fill(child: _buildBody()),
-                  if (_unseenNew > 0)
-                    Positioned(
-                      left: 0,
-                      right: 0,
-                      bottom: AppSpacing.sm,
-                      child: Center(
-                        child: _NewMessagesPill(
-                          count: _unseenNew,
-                          onTap: _goToLatest,
+              child: LayoutBuilder(
+                builder: (BuildContext context, BoxConstraints box) {
+                  final bool compactJump =
+                      MediaQuery.sizeOf(context).width < 600;
+                  final double jumpTop = (box.maxHeight * 0.30).clamp(
+                    12.0,
+                    math.max(12.0, box.maxHeight - 56.0),
+                  );
+                  return Stack(
+                    children: <Widget>[
+                      Positioned.fill(child: _buildBody()),
+                      if (latestAlert != null && alertJumpCount > 0)
+                        Positioned(
+                          right: compactJump ? 12 : 18,
+                          top: jumpTop,
+                          child: FloatingAlertJumpButton(
+                            latestAlert: latestAlert,
+                            unreadMessageCount: alertJumpCount,
+                            compact: compactJump,
+                            loading: _jumpingToAlert,
+                            onTap: _jumpToNextAlert,
+                          ),
                         ),
-                      ),
-                    ),
-                ],
+                      if (_unseenNew > 0)
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: AppSpacing.sm,
+                          child: Center(
+                            child: _NewMessagesPill(
+                              count: _unseenNew,
+                              onTap: _goToLatest,
+                            ),
+                          ),
+                        ),
+                    ],
+                  );
+                },
               ),
             ),
             ChatComposer(
@@ -2023,6 +2434,8 @@ class _ChatPageState extends State<ChatPage> {
               peerAccount: widget._peer?.account ?? '',
               conversation: _conversation,
               shared: widget.shared,
+              groups: widget.groups,
+              profile: widget.profile,
               draftKey: _scopeId,
               enabled: !_revoked,
               clipboard: widget.clipboard,
@@ -2150,6 +2563,11 @@ class _ChatPageState extends State<ChatPage> {
               ),
             ),
         ];
+        final ConversationRef? alertConv = _alertConversation;
+        final Map<String, UnreadAlert> alertsById =
+            (_effectiveAlerts != null && alertConv != null && !_revoked)
+            ? _effectiveAlerts!.alertsByMessageFor(alertConv.id)
+            : const <String, UnreadAlert>{};
         DateTime? previous;
         for (int index = 0; index < entries.length; index += 1) {
           final _TimelineEntry entry = entries[index];
@@ -2258,7 +2676,13 @@ class _ChatPageState extends State<ChatPage> {
                 : null,
             localMediaPreview: _previewFor,
             mediaMaxWidth: mediaMaxWidth,
+            unreadAlert: committed ? alertsById[message.id] : null,
+            highlightJumpTarget:
+                committed && _highlightedAlertMessageId == message.id,
           );
+          final Widget rowChild = committed
+              ? KeyedSubtree(key: _rowKeyForMessage(message.id), child: bubble)
+              : bubble;
           timeline.add(
             _readingColumn(
               // The keyed wrapper (not the inner row) is the ListView child, so a
@@ -2273,7 +2697,7 @@ class _ChatPageState extends State<ChatPage> {
                   animate: entry.pending != null
                       ? pendingFirstFrame
                       : _animateIdentities.contains(message.identity),
-                  child: bubble,
+                  child: rowChild,
                 ),
               ),
             ),
@@ -2305,18 +2729,21 @@ class _ChatPageState extends State<ChatPage> {
             }
             return false;
           },
-          child: NotificationListener<ScrollNotification>(
-            onNotification: _onScrollNotification,
-            child: ListView(
-              key: ChatPage.listKey,
-              controller: _scrollController,
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.md,
-                AppSpacing.md,
-                AppSpacing.md,
-                AppSpacing.lg,
+          child: KeyedSubtree(
+            key: _listViewportKey,
+            child: NotificationListener<ScrollNotification>(
+              onNotification: _onScrollNotification,
+              child: ListView(
+                key: ChatPage.listKey,
+                controller: _scrollController,
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.md,
+                  AppSpacing.md,
+                  AppSpacing.md,
+                  AppSpacing.lg,
+                ),
+                children: timeline,
               ),
-              children: timeline,
             ),
           ),
         );

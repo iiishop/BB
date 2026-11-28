@@ -8,13 +8,16 @@ import '../../app.dart';
 import '../../models/auth_models.dart';
 import '../../models/chat_models.dart';
 import '../../models/group_models.dart';
+import '../../models/mention_models.dart';
 import '../../services/chat_service.dart';
+import '../../services/group_mention_controller.dart';
 import '../../services/group_service.dart';
 import '../../services/presence_directory.dart';
 import '../../services/profile_service.dart';
 import '../widgets/profile_avatar.dart';
 import 'chat_format.dart';
 import 'conversation_order.dart';
+import 'mention_widgets.dart';
 import 'user_identity_row.dart';
 
 /// Width of the little speech tail that points from the current conversation's
@@ -36,6 +39,7 @@ class UsersListView extends StatefulWidget {
     required this.onOpenChat,
     this.shared,
     this.groups,
+    this.alerts,
     this.selectedConversationId,
     this.onOpenGroup,
     this.onSelectGroup,
@@ -53,6 +57,7 @@ class UsersListView extends StatefulWidget {
   final ProfileGateway profile;
   final SharedConversationService? shared;
   final GroupService? groups;
+  final MentionRecipientController? alerts;
   final String? selectedConversationId;
   final Future<void> Function(GroupConversationItem group)? onOpenGroup;
   final void Function(GroupConversationItem group)? onSelectGroup;
@@ -129,7 +134,11 @@ class _UsersListViewState extends State<UsersListView> {
   String? _error;
   Timer? _refreshTimer;
   StreamSubscription<void>? _displayedSub;
+  MentionRecipientController? _ownedAlerts;
   bool _inFlight = false;
+
+  MentionRecipientController? get _effectiveAlerts =>
+      widget.alerts ?? _ownedAlerts;
 
   /// Set when a refresh is requested while a directory read is still running
   /// (for example, returning from a chat whose send committed meanwhile).
@@ -185,12 +194,26 @@ class _UsersListViewState extends State<UsersListView> {
       _onDisplayedChanged();
     });
     widget.refreshTrigger?.addListener(_onAccessOrRefreshTriggered);
+    _attachAlerts();
     unawaited(_load());
     _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       if (mounted && !_inFlight) {
         unawaited(_load(silent: true));
       }
     });
+  }
+
+  void _attachAlerts() {
+    if (widget.alerts == null && widget.shared != null) {
+      _ownedAlerts ??= MentionRecipientController(shared: widget.shared!);
+    } else if (widget.alerts != null || widget.shared == null) {
+      _ownedAlerts?.dispose();
+      _ownedAlerts = null;
+    }
+    _effectiveAlerts?.addListener(_onAlertsChanged);
+    if (_effectiveAlerts != null) {
+      unawaited(_effectiveAlerts!.refreshSummary().catchError((Object _) {}));
+    }
   }
 
   @override
@@ -214,6 +237,17 @@ class _UsersListViewState extends State<UsersListView> {
       oldWidget.refreshTrigger?.removeListener(_onAccessOrRefreshTriggered);
       widget.refreshTrigger?.addListener(_onAccessOrRefreshTriggered);
     }
+    if (oldWidget.alerts != widget.alerts ||
+        oldWidget.shared != widget.shared) {
+      final MentionRecipientController? oldEffective =
+          oldWidget.alerts ?? _ownedAlerts;
+      oldEffective?.removeListener(_onAlertsChanged);
+      if (oldWidget.shared != widget.shared) {
+        _ownedAlerts?.dispose();
+        _ownedAlerts = null;
+      }
+      _attachAlerts();
+    }
   }
 
   @override
@@ -224,8 +258,17 @@ class _UsersListViewState extends State<UsersListView> {
     unawaited(_displayedSub?.cancel());
     _displayedSub = null;
     widget.refreshTrigger?.removeListener(_onAccessOrRefreshTriggered);
+    _effectiveAlerts?.removeListener(_onAlertsChanged);
+    _ownedAlerts?.dispose();
+    _ownedAlerts = null;
     _refreshTimer?.cancel();
     super.dispose();
+  }
+
+  void _onAlertsChanged() {
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   void _onDisplayedChanged() {
@@ -298,6 +341,9 @@ class _UsersListViewState extends State<UsersListView> {
         _unread = Map<String, int>.unmodifiable(unread);
         _coveredPreviews = covered;
       });
+      if (_effectiveAlerts != null) {
+        unawaited(_effectiveAlerts!.refreshSummary().catchError((Object _) {}));
+      }
       _unreadRetryNow = _unreadRetryNow || _previewsDifferFromCovered();
     } catch (_) {
       // Keep the last confirmed badges; the next list trigger retries.
@@ -704,10 +750,17 @@ class _UsersListViewState extends State<UsersListView> {
               }
               final Object entry = rows[index];
               if (entry is GroupConversationItem) {
+                final AlertCounts groupAlertCounts =
+                    _effectiveAlerts?.countsFor(entry.conversation.id) ??
+                    const AlertCounts(
+                      unreadMentionCount: 0,
+                      unreadReplyCount: 0,
+                    );
                 return _GroupRow(
                   key: UsersListView.groupRowKey(entry.conversation.id),
                   group: entry,
                   unread: _unread[entry.conversation.id] ?? 0,
+                  alertCounts: groupAlertCounts,
                   groups: widget.groups,
                   selfAccount: widget.chat.selfAccount,
                   current:
@@ -719,11 +772,32 @@ class _UsersListViewState extends State<UsersListView> {
                 );
               }
               final ChatUser user = entry as ChatUser;
+              final String? directConvId =
+                  (user.account != widget.chat.selfAccount &&
+                      isValidAccount(widget.chat.selfAccount) &&
+                      isValidAccount(user.account))
+                  ? ConversationRef.direct(
+                      widget.chat.selfAccount,
+                      user.account,
+                    ).id
+                  : null;
+              final AlertCounts directAlertCounts = directConvId == null
+                  ? const AlertCounts(
+                      unreadMentionCount: 0,
+                      unreadReplyCount: 0,
+                    )
+                  : (_effectiveAlerts?.countsFor(directConvId) ??
+                        const AlertCounts(
+                          unreadMentionCount: 0,
+                          unreadReplyCount: 0,
+                        ));
               return _UserRow(
                 key: UsersListView.rowKey(user.account),
                 user: user,
                 presence: _presenceOf(user),
                 unread: _unread[user.account] ?? 0,
+                alertCounts: directAlertCounts,
+                directConversationId: directConvId,
                 profile: widget.profile,
                 selfAccount: widget.chat.selfAccount,
                 current:
@@ -797,6 +871,11 @@ class _UserRow extends StatelessWidget {
     required this.current,
     required this.compact,
     required this.onTap,
+    this.alertCounts = const AlertCounts(
+      unreadMentionCount: 0,
+      unreadReplyCount: 0,
+    ),
+    this.directConversationId,
   });
 
   final ChatUser user;
@@ -804,6 +883,8 @@ class _UserRow extends StatelessWidget {
 
   /// Server-derived incoming unread for this conversation; zero means no badge.
   final int unread;
+  final AlertCounts alertCounts;
+  final String? directConversationId;
   final ProfileGateway profile;
   final String selfAccount;
 
@@ -939,6 +1020,14 @@ class _UserRow extends StatelessWidget {
               ],
             ),
           ),
+          if (alertCounts.hasAny && directConversationId != null) ...<Widget>[
+            SizedBox(height: compact ? 3 : 4),
+            ConversationAlertNote(
+              conversationId: directConversationId!,
+              counts: alertCounts,
+              compact: compact,
+            ),
+          ],
         ],
       ),
     );
@@ -1078,10 +1167,15 @@ class _GroupRow extends StatefulWidget {
     required this.compact,
     required this.onTap,
     this.groups,
+    this.alertCounts = const AlertCounts(
+      unreadMentionCount: 0,
+      unreadReplyCount: 0,
+    ),
   });
 
   final GroupConversationItem group;
   final int unread;
+  final AlertCounts alertCounts;
   final GroupService? groups;
   final String selfAccount;
   final bool current;
@@ -1276,6 +1370,14 @@ class _GroupRowState extends State<_GroupRow> {
               ],
             ),
           ),
+          if (widget.alertCounts.hasAny) ...<Widget>[
+            SizedBox(height: widget.compact ? 3 : 4),
+            ConversationAlertNote(
+              conversationId: widget.group.conversation.id,
+              counts: widget.alertCounts,
+              compact: widget.compact,
+            ),
+          ],
         ],
       ),
     );

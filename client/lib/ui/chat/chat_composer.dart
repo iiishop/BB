@@ -9,14 +9,19 @@ import 'package:flutter/services.dart';
 import '../../app.dart';
 import '../../models/auth_models.dart';
 import '../../models/chat_models.dart';
+import '../../models/group_models.dart';
+import '../../models/mention_models.dart';
 import '../../services/chat_service.dart';
+import '../../services/group_mention_controller.dart';
 import '../../services/group_service.dart';
 import '../../services/install_safety_gate.dart';
 import '../../services/media_source.dart';
+import '../../services/profile_service.dart';
 import 'chat_format.dart';
 import 'clipboard_paste.dart';
 import 'media_actions.dart';
 import 'chat_drafts.dart';
+import 'mention_widgets.dart';
 import 'pending_send.dart';
 
 /// Lets the chat page retry one failed item from its bubble.
@@ -69,6 +74,8 @@ class ChatComposer extends StatefulWidget {
     this.coverExtractor = defaultVideoCoverExtractor,
     this.conversation,
     this.shared,
+    this.groups,
+    this.profile,
     this.draftKey,
   });
 
@@ -76,6 +83,8 @@ class ChatComposer extends StatefulWidget {
   final String peerAccount;
   final ConversationRef? conversation;
   final SharedConversationService? shared;
+  final GroupService? groups;
+  final ProfileGateway? profile;
   final String? draftKey;
 
   /// Successful messages plus the local bytes already held for body images,
@@ -118,19 +127,47 @@ class ChatComposer extends StatefulWidget {
 }
 
 class _ChatComposerState extends State<ChatComposer> {
-  final TextEditingController _controller = TextEditingController();
+  late final _MentionTextEditingController _controller =
+      _MentionTextEditingController(
+        mentionsProvider: () => _mentionController,
+        isGroupProvider: () => _isGroup,
+      );
   final FocusNode _focus = FocusNode();
+  final GroupMentionComposerController _mentionController =
+      GroupMentionComposerController();
+  final OverlayPortalController _pickerOverlay = OverlayPortalController();
+  final LayerLink _pickerLink = LayerLink();
+  final Object _mentionTapGroup = Object();
   final List<ChatDraftPart> _parts = <ChatDraftPart>[];
   final List<ChatDraftAttachment> _attachments = <ChatDraftAttachment>[];
+  final List<String> _stagedMentionedAccounts = <String>[];
   List<SendOutcome> _failed = <SendOutcome>[];
   final List<PendingSend> _pending = <PendingSend>[];
   bool _pasting = false;
   bool _hadText = false;
   late final Object _draftSession;
   final Set<String> _ownedOperations = <String>{};
+  TextEditingValue _lastControllerValue = TextEditingValue.empty;
+  bool _applyingMentionSelection = false;
+  bool _mobileSheetOpen = false;
+  bool _wasPickerOpen = false;
+  int _totalGroupMemberCount = 0;
+  int _membersTicket = 0;
+  bool _membersLoaded = false;
+  StreamSubscription<GroupProfile>? _groupUpdatesSub;
 
   bool get _isGroup =>
       widget.conversation?.isGroup == true && widget.shared != null;
+
+  bool get _useDesktopInlinePicker {
+    if (!_isDesktop || !mounted) {
+      return false;
+    }
+    return MediaQuery.sizeOf(context).width >= 600;
+  }
+
+  bool get _isDesktopMentionPickerOpen =>
+      _isGroup && _mentionController.pickerOpen && _useDesktopInlinePicker;
 
   String get _draftAccount =>
       widget.draftKey ?? widget.conversation?.id ?? widget.peerAccount;
@@ -141,6 +178,7 @@ class _ChatComposerState extends State<ChatComposer> {
     _draftSession = ChatDrafts.instance.key(widget.chat);
     _focus.onKeyEvent = _onKeyEvent;
     widget.controller?._attach(this);
+    _mentionController.addListener(_onMentionStateChanged);
     final ChatDraft? stored = ChatDrafts.instance.read(
       _draftSession,
       _draftAccount,
@@ -153,12 +191,18 @@ class _ChatComposerState extends State<ChatComposer> {
       _pending.addAll(stored.pending);
       _failed.addAll(stored.failed);
       _ownedOperations.addAll(_pending.map((p) => p.operationId));
+      _mentionController.restore(
+        value: _controller.value,
+        spans: stored.mentionSpans,
+      );
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _emitPending();
       });
     }
-    _controller.addListener(_persistDraft);
+    _lastControllerValue = _controller.value;
+    _controller.addListener(_onControllerChanged);
     InstallSafetyGate.instance.addListener(_onSafetyGateChanged);
+    _subscribeGroupMemberUpdates();
   }
 
   @override
@@ -168,6 +212,16 @@ class _ChatComposerState extends State<ChatComposer> {
       oldWidget.controller?._detach(this);
       widget.controller?._attach(this);
     }
+    if (oldWidget.conversation != widget.conversation ||
+        oldWidget.groups != widget.groups) {
+      _membersLoaded = false;
+      _totalGroupMemberCount = 0;
+      _mentionController.setMembers(const <GroupMember>[]);
+      _subscribeGroupMemberUpdates();
+      if (!_isGroup) {
+        _mentionController.clear();
+      }
+    }
   }
 
   @override
@@ -175,14 +229,190 @@ class _ChatComposerState extends State<ChatComposer> {
     _focus.onKeyEvent = null;
     widget.controller?._detach(this);
     InstallSafetyGate.instance.removeListener(_onSafetyGateChanged);
+    _mentionController.removeListener(_onMentionStateChanged);
+    unawaited(_groupUpdatesSub?.cancel());
+    _groupUpdatesSub = null;
     // Route teardown keeps unsaved content: the draft store keeps the text and
     // staged media and the safety gate stays blocked until it is sent or
     // explicitly cleared. Never clear here just to leave the page.
     _persistDraft();
-    _controller.removeListener(_persistDraft);
+    _controller.removeListener(_onControllerChanged);
     _controller.dispose();
+    _mentionController.dispose();
     _focus.dispose();
     super.dispose();
+  }
+
+  void _subscribeGroupMemberUpdates() {
+    unawaited(_groupUpdatesSub?.cancel());
+    _groupUpdatesSub = null;
+    if (!_isGroup || widget.groups == null) {
+      return;
+    }
+    _groupUpdatesSub = widget.groups!.groupUpdates.listen((
+      GroupProfile profile,
+    ) {
+      if (mounted &&
+          (_membersLoaded || _mentionController.pickerOpen) &&
+          widget.conversation != null &&
+          profile.conversation.id == widget.conversation!.id) {
+        unawaited(_loadGroupMembers());
+      }
+    });
+  }
+
+  Future<void> _loadGroupMembers() async {
+    final GroupService? groups = widget.groups;
+    final ConversationRef? conv = widget.conversation;
+    if (!_isGroup || groups == null || conv == null) {
+      return;
+    }
+    final int ticket = ++_membersTicket;
+    final String selfAccount = widget.chat.selfAccount;
+    final List<GroupMember> allMembers = <GroupMember>[];
+    String? afterAccount;
+    int? totalCount;
+    try {
+      while (true) {
+        final GroupMemberPage page = await groups.listGroupMembers(
+          conversation: conv,
+          afterAccount: afterAccount ?? '',
+          limit: 100,
+          includeCounts: totalCount == null,
+        );
+        if (!mounted ||
+            ticket != _membersTicket ||
+            widget.conversation?.id != conv.id) {
+          return;
+        }
+        totalCount ??= page.counts?.total;
+        allMembers.addAll(page.items);
+        final String? next = page.nextCursor;
+        if (next == null || next == afterAccount) {
+          break;
+        }
+        afterAccount = next;
+      }
+      final List<GroupMember> others = <GroupMember>[
+        for (final GroupMember m in allMembers)
+          if (m.account != selfAccount) m,
+      ];
+      _totalGroupMemberCount = totalCount ?? allMembers.length;
+      _membersLoaded = true;
+      _mentionController.setMembers(others);
+    } catch (_) {
+      // Keep any previously loaded member list cleanly without crashing input.
+    }
+  }
+
+  void _onControllerChanged() {
+    final TextEditingValue current = _controller.value;
+    final TextEditingValue previous = _lastControllerValue;
+    _lastControllerValue = current;
+    if (_isGroup && !_applyingMentionSelection && !current.composing.isValid) {
+      _mentionController.handleTextValueChanged(previous, current);
+    }
+    _persistDraft();
+  }
+
+  void _onMentionStateChanged() {
+    if (!mounted) {
+      return;
+    }
+    final bool nowOpen = _mentionController.pickerOpen;
+    final bool opened = nowOpen && !_wasPickerOpen;
+    _wasPickerOpen = nowOpen;
+    if (opened && _isGroup && _mentionController.members.isEmpty) {
+      unawaited(_loadGroupMembers());
+    }
+    _syncMentionOverlayAndSheet(opened: opened);
+    setState(() {});
+  }
+
+  void _syncMentionOverlayAndSheet({required bool opened}) {
+    if (!mounted) {
+      return;
+    }
+    if (!_isGroup || !_mentionController.pickerOpen) {
+      if (_pickerOverlay.isShowing) {
+        _pickerOverlay.hide();
+      }
+      return;
+    }
+    if (_useDesktopInlinePicker) {
+      if (!_pickerOverlay.isShowing && Overlay.maybeOf(context) != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted &&
+              _isGroup &&
+              _mentionController.pickerOpen &&
+              _useDesktopInlinePicker &&
+              !_pickerOverlay.isShowing &&
+              Overlay.maybeOf(context) != null) {
+            _pickerOverlay.show();
+          }
+        });
+      }
+      return;
+    }
+    if (_pickerOverlay.isShowing) {
+      _pickerOverlay.hide();
+    }
+    if (opened && !_mobileSheetOpen) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted &&
+            _isGroup &&
+            _mentionController.pickerOpen &&
+            !_useDesktopInlinePicker &&
+            !_mobileSheetOpen) {
+          unawaited(_openMobileMentionSheet());
+        }
+      });
+    }
+  }
+
+  Future<void> _openMobileMentionSheet() async {
+    if (_mobileSheetOpen || !mounted || !_isGroup) {
+      return;
+    }
+    _mobileSheetOpen = true;
+    try {
+      final GroupMember? picked = await showMentionMemberSheet(
+        context: context,
+        mentionController: _mentionController,
+        totalGroupMemberCount: () => _totalGroupMemberCount > 0
+            ? _totalGroupMemberCount
+            : _mentionController.members.length + 1,
+        initialQuery: _mentionController.activeQuery?.query ?? '',
+        profile: widget.profile,
+      );
+      if (!mounted) {
+        return;
+      }
+      if (picked != null) {
+        _selectMentionMember(picked);
+      } else {
+        _mentionController.dismissPicker();
+        _focus.requestFocus();
+      }
+    } finally {
+      _mobileSheetOpen = false;
+    }
+  }
+
+  void _selectMentionMember(GroupMember member) {
+    _applyingMentionSelection = true;
+    try {
+      final TextEditingValue nextValue = _mentionController.selectMember(
+        member,
+        _controller.value,
+      );
+      _controller.value = nextValue;
+      _lastControllerValue = nextValue;
+    } finally {
+      _applyingMentionSelection = false;
+    }
+    _persistDraft();
+    _focus.requestFocus();
   }
 
   void _persistDraft() {
@@ -204,6 +434,9 @@ class _ChatComposerState extends State<ChatComposer> {
         parts: stored?.parts ?? List<ChatDraftPart>.of(_parts),
         attachments:
             stored?.attachments ?? List<ChatDraftAttachment>.of(_attachments),
+        mentionSpans:
+            stored?.mentionSpans ??
+            List<MentionSpan>.of(_mentionController.spans),
         pending: [
           if (stored != null)
             ...stored.pending.where(
@@ -500,6 +733,16 @@ class _ChatComposerState extends State<ChatComposer> {
     final bool alt = keyboard.isAltPressed;
     final bool meta = keyboard.isMetaPressed;
     if (event is KeyRepeatEvent) {
+      if (_isDesktopMentionPickerOpen && !_controller.value.composing.isValid) {
+        if (key == LogicalKeyboardKey.arrowDown) {
+          _mentionController.moveHighlightDown();
+          return KeyEventResult.handled;
+        }
+        if (key == LogicalKeyboardKey.arrowUp) {
+          _mentionController.moveHighlightUp();
+          return KeyEventResult.handled;
+        }
+      }
       final bool isSendKey =
           key == LogicalKeyboardKey.enter ||
           key == LogicalKeyboardKey.numpadEnter;
@@ -507,6 +750,32 @@ class _ChatComposerState extends State<ChatComposer> {
       return isSendKey || isPasteKey
           ? KeyEventResult.handled
           : KeyEventResult.ignored;
+    }
+    if (_isDesktopMentionPickerOpen && !_controller.value.composing.isValid) {
+      if (key == LogicalKeyboardKey.arrowDown) {
+        _mentionController.moveHighlightDown();
+        return KeyEventResult.handled;
+      }
+      if (key == LogicalKeyboardKey.arrowUp) {
+        _mentionController.moveHighlightUp();
+        return KeyEventResult.handled;
+      }
+      if (key == LogicalKeyboardKey.escape) {
+        _mentionController.dismissPicker();
+        return KeyEventResult.handled;
+      }
+      if ((key == LogicalKeyboardKey.enter ||
+              key == LogicalKeyboardKey.numpadEnter) &&
+          !control &&
+          !alt &&
+          !meta &&
+          !keyboard.isShiftPressed) {
+        final GroupMember? hit = _mentionController.highlightedCandidate;
+        if (hit != null) {
+          _selectMentionMember(hit);
+        }
+        return KeyEventResult.handled;
+      }
     }
     if (key == LogicalKeyboardKey.keyV &&
         control &&
@@ -540,14 +809,41 @@ class _ChatComposerState extends State<ChatComposer> {
 
   bool get _usesSendShortcut => _isDesktop;
 
+  List<String> _collectMentionedAccounts() {
+    final List<String> merged = <String>[];
+    final Set<String> seen = <String>{};
+    for (final String account in _stagedMentionedAccounts) {
+      if (seen.add(account) && merged.length < mentionMaxRecipients) {
+        merged.add(account);
+      }
+    }
+    for (final String account in _mentionController.uniqueMentionedAccounts) {
+      if (seen.add(account) && merged.length < mentionMaxRecipients) {
+        merged.add(account);
+      }
+    }
+    return List<String>.unmodifiable(merged);
+  }
+
   void _commitCurrentText() {
+    if (_isGroup) {
+      for (final String account in _mentionController.uniqueMentionedAccounts) {
+        if (!_stagedMentionedAccounts.contains(account) &&
+            _stagedMentionedAccounts.length < mentionMaxRecipients) {
+          _stagedMentionedAccounts.add(account);
+        }
+      }
+    }
     final String text = _controller.text.trim();
+    _mentionController.clear();
     if (text.isEmpty) {
       _controller.clear();
+      _lastControllerValue = _controller.value;
       return;
     }
     _parts.add(ChatDraftPart(OutgoingText(text)));
     _controller.clear();
+    _lastControllerValue = _controller.value;
   }
 
   Future<void> _send() async {
@@ -556,8 +852,13 @@ class _ChatComposerState extends State<ChatComposer> {
     }
     _commitCurrentText();
     if (_parts.isEmpty && _attachments.isEmpty) {
+      _stagedMentionedAccounts.clear();
       return;
     }
+    final List<String> mentionedAccounts = _isGroup && _parts.isNotEmpty
+        ? _collectMentionedAccounts()
+        : const <String>[];
+    _stagedMentionedAccounts.clear();
     final List<ChatDraftPart> parts = List<ChatDraftPart>.of(_parts);
     final List<ChatDraftAttachment> attachments = List<ChatDraftAttachment>.of(
       _attachments,
@@ -590,6 +891,7 @@ class _ChatComposerState extends State<ChatComposer> {
           ? await widget.shared!.sendGroupComposed(
               conversation: widget.conversation!,
               body: body,
+              mentionedAccounts: mentionedAccounts,
               attachments: outgoingAttachments,
               operationSeed: seed,
             )
@@ -601,7 +903,7 @@ class _ChatComposerState extends State<ChatComposer> {
             );
       _applyResult(result);
     } on AuthFailure catch (failure) {
-      _markSeedFailed(seed, parts, attachments, failure);
+      _markSeedFailed(seed, parts, attachments, failure, mentionedAccounts);
       _snack(failure.message);
     } catch (_) {
       _markSeedFailed(
@@ -613,6 +915,7 @@ class _ChatComposerState extends State<ChatComposer> {
           code: 'send_failed',
           message: '发送失败，请稍后重试',
         ),
+        mentionedAccounts,
       );
       _snack('发送失败，请稍后重试');
     }
@@ -663,8 +966,9 @@ class _ChatComposerState extends State<ChatComposer> {
     String seed,
     List<ChatDraftPart> parts,
     List<ChatDraftAttachment> attachments,
-    AuthFailure failure,
-  ) {
+    AuthFailure failure, [
+    List<String> mentionedAccounts = const <String>[],
+  ]) {
     final List<SendOutcome> failed = <SendOutcome>[
       if (parts.isNotEmpty)
         SendOutcome(
@@ -673,6 +977,7 @@ class _ChatComposerState extends State<ChatComposer> {
           part: <OutgoingPart>[
             for (final ChatDraftPart part in parts) part.part,
           ],
+          mentionedAccounts: mentionedAccounts,
         ),
       for (int i = 0; i < attachments.length; i += 1)
         SendOutcome(
@@ -988,6 +1293,39 @@ class _ChatComposerState extends State<ChatComposer> {
         .showSnackBar(SnackBar(content: Text(message)));
   }
 
+  Widget _buildDesktopPickerOverlay(BuildContext overlayContext) {
+    final int totalCount = _totalGroupMemberCount > 0
+        ? _totalGroupMemberCount
+        : _mentionController.members.length + 1;
+    return Positioned.fill(
+      child: IgnorePointer(
+        ignoring: false,
+        child: UnconstrainedBox(
+          alignment: Alignment.topLeft,
+          child: CompositedTransformFollower(
+            link: _pickerLink,
+            showWhenUnlinked: false,
+            targetAnchor: Alignment.topLeft,
+            followerAnchor: Alignment.bottomLeft,
+            offset: const Offset(AppSpacing.md, -8),
+            child: TapRegion(
+              groupId: _mentionTapGroup,
+              child: MentionMemberPickerOverlay(
+                candidates: _mentionController.candidates,
+                totalGroupMemberCount: totalCount,
+                otherMemberCount: _mentionController.members.length,
+                query: _mentionController.activeQuery?.query ?? '',
+                highlightedIndex: _mentionController.highlightedIndex,
+                profile: widget.profile,
+                onSelect: _selectMentionMember,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     // The send key is emphasised for any sendable content, including plain
@@ -999,107 +1337,125 @@ class _ChatComposerState extends State<ChatComposer> {
         _parts.isNotEmpty ||
         _attachments.isNotEmpty;
     final bool hasStaged = _parts.isNotEmpty || _attachments.isNotEmpty;
+    final String hint = _isGroup
+        ? (_usesSendShortcut ? '输入消息… Enter 发送 · 输入 @ 点名' : '输入消息… 输入 @ 点名')
+        : (_usesSendShortcut ? '输入消息… Enter 发送' : '输入消息…');
     return IgnorePointer(
       key: ChatComposer.safetyGateKey,
       ignoring: InstallSafetyGate.instance.installing,
-      child: Container(
-        decoration: const BoxDecoration(
-          color: AppColors.surface,
-          border: Border(top: BorderSide(color: AppColors.border)),
-        ),
-        child: SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.md,
-              AppSpacing.sm,
-              AppSpacing.sm,
-              AppSpacing.sm,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                if (hasStaged) _draftStrip(),
-                if (_failed.isNotEmpty)
-                  TextButton(
-                    onPressed: _discardFailed,
-                    child: const Text('清除失败项'),
+      child: CompositedTransformTarget(
+        link: _pickerLink,
+        child: OverlayPortal(
+          controller: _pickerOverlay,
+          overlayChildBuilder: _buildDesktopPickerOverlay,
+          child: TapRegion(
+            groupId: _mentionTapGroup,
+            onTapOutside: (_) {
+              if (_isDesktopMentionPickerOpen) {
+                _mentionController.dismissPicker();
+              }
+            },
+            child: Container(
+              decoration: const BoxDecoration(
+                color: AppColors.surface,
+                border: Border(top: BorderSide(color: AppColors.border)),
+              ),
+              child: SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.md,
+                    AppSpacing.sm,
+                    AppSpacing.sm,
+                    AppSpacing.sm,
                   ),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: <Widget>[
-                    // One round "+" collects the existing image and file
-                    // entries; there is no separate paperclip in the bar.
-                    _CircleButton(
-                      key: ChatComposer.attachMenuKey,
-                      tooltip: '添加',
-                      icon: Icons.add_rounded,
-                      iconColor: AppColors.accentDeep,
-                      background: AppColors.accentSoft,
-                      onTap: widget.enabled ? _openAttachSheet : null,
-                    ),
-                    const SizedBox(width: AppSpacing.sm),
-                    Expanded(
-                      child: Container(
-                        // Same height as the round + and send buttons on one
-                        // line; it still grows with a multi-line draft.
-                        constraints: const BoxConstraints(minHeight: 44),
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          color: AppColors.surface,
-                          borderRadius: BorderRadius.circular(999),
-                          border: Border.all(color: AppColors.border),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      if (hasStaged) _draftStrip(),
+                      if (_failed.isNotEmpty)
+                        TextButton(
+                          onPressed: _discardFailed,
+                          child: const Text('清除失败项'),
                         ),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: AppSpacing.md,
-                        ),
-                        child: TextField(
-                          key: ChatComposer.inputKey,
-                          controller: _controller,
-                          focusNode: _focus,
-                          enabled:
-                              widget.enabled &&
-                              !InstallSafetyGate.instance.installing,
-                          minLines: 1,
-                          maxLines: 5,
-                          textInputAction: TextInputAction.newline,
-                          // The pill is the field's own outline; the theme's
-                          // focus border must not draw a second one inside it.
-                          decoration: InputDecoration(
-                            hintText: _usesSendShortcut
-                                ? '输入消息… Enter 发送'
-                                : '输入消息…',
-                            isDense: true,
-                            border: InputBorder.none,
-                            enabledBorder: InputBorder.none,
-                            focusedBorder: InputBorder.none,
-                            disabledBorder: InputBorder.none,
-                            contentPadding: EdgeInsets.zero,
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: <Widget>[
+                          // One round "+" collects the existing image and file
+                          // entries; there is no separate paperclip in the bar.
+                          _CircleButton(
+                            key: ChatComposer.attachMenuKey,
+                            tooltip: '添加',
+                            icon: Icons.add_rounded,
+                            iconColor: AppColors.accentDeep,
+                            background: AppColors.accentSoft,
+                            onTap: widget.enabled ? _openAttachSheet : null,
                           ),
-                        ),
+                          const SizedBox(width: AppSpacing.sm),
+                          Expanded(
+                            child: Container(
+                              // Same height as the round + and send buttons on
+                              // one line; it still grows with a multi-line
+                              // draft.
+                              constraints: const BoxConstraints(minHeight: 44),
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                color: AppColors.surface,
+                                borderRadius: BorderRadius.circular(999),
+                                border: Border.all(color: AppColors.border),
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: AppSpacing.md,
+                              ),
+                              child: TextField(
+                                key: ChatComposer.inputKey,
+                                controller: _controller,
+                                focusNode: _focus,
+                                enabled:
+                                    widget.enabled &&
+                                    !InstallSafetyGate.instance.installing,
+                                minLines: 1,
+                                maxLines: 5,
+                                textInputAction: TextInputAction.newline,
+                                // The pill is the field's own outline; the
+                                // theme's focus border must not draw a second
+                                // one inside it.
+                                decoration: InputDecoration(
+                                  hintText: hint,
+                                  isDense: true,
+                                  border: InputBorder.none,
+                                  enabledBorder: InputBorder.none,
+                                  focusedBorder: InputBorder.none,
+                                  disabledBorder: InputBorder.none,
+                                  contentPadding: EdgeInsets.zero,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: AppSpacing.sm),
+                          Tooltip(
+                            message: _usesSendShortcut ? '发送（Enter）' : '发送',
+                            child: _CircleButton(
+                              key: ChatComposer.sendKey,
+                              icon: Icons.arrow_forward_rounded,
+                              iconColor: hasSendable
+                                  ? AppColors.surface
+                                  : AppColors.inkMuted,
+                              background: hasSendable
+                                  ? AppColors.accentDeep
+                                  : AppColors.surface,
+                              border: hasSendable
+                                  ? AppColors.accentDeep
+                                  : AppColors.border,
+                              onTap: widget.enabled ? _send : null,
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
-                    const SizedBox(width: AppSpacing.sm),
-                    Tooltip(
-                      message: _usesSendShortcut ? '发送（Enter）' : '发送',
-                      child: _CircleButton(
-                        key: ChatComposer.sendKey,
-                        icon: Icons.arrow_forward_rounded,
-                        iconColor: hasSendable
-                            ? AppColors.surface
-                            : AppColors.inkMuted,
-                        background: hasSendable
-                            ? AppColors.accentDeep
-                            : AppColors.surface,
-                        border: hasSendable
-                            ? AppColors.accentDeep
-                            : AppColors.border,
-                        onTap: widget.enabled ? _send : null,
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ],
+              ),
             ),
           ),
         ),
@@ -1324,5 +1680,85 @@ class _CircleButton extends StatelessWidget {
       return button;
     }
     return Tooltip(message: tooltip!, child: button);
+  }
+}
+
+class _MentionTextEditingController extends TextEditingController {
+  _MentionTextEditingController({
+    required this.mentionsProvider,
+    required this.isGroupProvider,
+  });
+
+  final GroupMentionComposerController Function() mentionsProvider;
+  final bool Function() isGroupProvider;
+
+  @override
+  TextSpan buildTextSpan({
+    required BuildContext context,
+    TextStyle? style,
+    required bool withComposing,
+  }) {
+    if (!isGroupProvider()) {
+      return super.buildTextSpan(
+        context: context,
+        style: style,
+        withComposing: withComposing,
+      );
+    }
+    final List<MentionSpan> spans = mentionsProvider().spans;
+    final String text = value.text;
+    final bool hasComposing =
+        withComposing &&
+        value.composing.isValid &&
+        !value.composing.isCollapsed &&
+        value.composing.start >= 0 &&
+        value.composing.end <= text.length;
+    if (spans.isEmpty || hasComposing) {
+      return super.buildTextSpan(
+        context: context,
+        style: style,
+        withComposing: withComposing,
+      );
+    }
+    final List<MentionSpan> validSpans = <MentionSpan>[
+      for (final MentionSpan span in spans)
+        if (span.start >= 0 &&
+            span.end <= text.length &&
+            span.start < span.end &&
+            text.substring(span.start, span.end) == span.label)
+          span,
+    ]..sort((MentionSpan a, MentionSpan b) => a.start.compareTo(b.start));
+    if (validSpans.isEmpty) {
+      return super.buildTextSpan(
+        context: context,
+        style: style,
+        withComposing: withComposing,
+      );
+    }
+    final TextStyle tokenStyle = (style ?? const TextStyle()).copyWith(
+      color: AppColors.accentDeep,
+      backgroundColor: AppColors.accentSoft,
+      fontWeight: FontWeight.w700,
+    );
+    final List<InlineSpan> children = <InlineSpan>[];
+    int cursor = 0;
+    for (final MentionSpan span in validSpans) {
+      if (span.start < cursor) {
+        continue;
+      }
+      if (span.start > cursor) {
+        children.add(
+          TextSpan(text: text.substring(cursor, span.start), style: style),
+        );
+      }
+      children.add(
+        TextSpan(text: text.substring(span.start, span.end), style: tokenStyle),
+      );
+      cursor = span.end;
+    }
+    if (cursor < text.length) {
+      children.add(TextSpan(text: text.substring(cursor), style: style));
+    }
+    return TextSpan(style: style, children: children);
   }
 }
