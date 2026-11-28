@@ -5,6 +5,7 @@
 library;
 
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -486,6 +487,10 @@ class MentionRecipientController extends ChangeNotifier {
 
   final Map<String, ClientAlertSummary> _summaries =
       <String, ClientAlertSummary>{};
+  final Map<String, int> _distinctMessageCounts = <String, int>{};
+  final Map<String, Map<String, UnreadAlert>> _alertsByMessage =
+      <String, Map<String, UnreadAlert>>{};
+  final Set<(int, String)> _refreshingAlertDetails = <(int, String)>{};
   final Map<String, int> _jumpCursors = <String, int>{};
   final Map<String, Set<String>> _submittedSeenIds = <String, Set<String>>{};
   final Map<String, Set<String>> _inFlightSeenIds = <String, Set<String>>{};
@@ -519,6 +524,38 @@ class MentionRecipientController extends ChangeNotifier {
 
   bool hasUnreadAlerts(String conversationId) =>
       countsFor(conversationId).hasAny;
+
+  /// Distinct unread alert message count for [conversationId] (one message with
+  /// both mention and reply counts as `1`). Falls back cleanly until
+  /// [refreshConversationAlerts] loads overlap details when both counts > 0.
+  int unreadAlertMessageCountFor(String conversationId) {
+    final AlertCounts counts = countsFor(conversationId);
+    if (!counts.hasAny) {
+      return 0;
+    }
+    if (counts.unreadMentionCount == 0) {
+      return counts.unreadReplyCount;
+    }
+    if (counts.unreadReplyCount == 0) {
+      return counts.unreadMentionCount;
+    }
+    return _distinctMessageCounts[conversationId] ??
+        math.max(counts.unreadMentionCount, counts.unreadReplyCount);
+  }
+
+  bool hasConversationAlertSnapshot(String conversationId) {
+    _syncIdentity();
+    return _alertsByMessage.containsKey(conversationId);
+  }
+
+  /// Cached unread alerts keyed by message ID for an open conversation.
+  Map<String, UnreadAlert> alertsByMessageFor(String conversationId) {
+    _syncIdentity();
+    final Map<String, UnreadAlert>? map = _alertsByMessage[conversationId];
+    return map == null
+        ? const <String, UnreadAlert>{}
+        : Map<String, UnreadAlert>.unmodifiable(map);
+  }
 
   UnreadAlert? latestAlertFor(String conversationId) {
     _syncIdentity();
@@ -554,6 +591,7 @@ class MentionRecipientController extends ChangeNotifier {
     bool changed = false;
     final List<String> tracked = <String>{
       ..._summaries.keys,
+      ..._alertsByMessage.keys,
       ..._jumpCursors.keys,
       ..._submittedSeenIds.keys,
       ..._inFlightSeenIds.keys,
@@ -574,11 +612,15 @@ class MentionRecipientController extends ChangeNotifier {
 
   bool _dropConversationState(String conversationId) {
     final summary = _summaries.remove(conversationId);
+    final distinct = _distinctMessageCounts.remove(conversationId);
+    final alerts = _alertsByMessage.remove(conversationId);
     final cursor = _jumpCursors.remove(conversationId);
     final submitted = _submittedSeenIds.remove(conversationId);
     final inFlight = _inFlightSeenIds.remove(conversationId);
     final visible = _foregroundVisibleInbound.remove(conversationId);
     return summary != null ||
+        distinct != null ||
+        alerts != null ||
         cursor != null ||
         submitted != null ||
         inFlight != null ||
@@ -611,6 +653,9 @@ class MentionRecipientController extends ChangeNotifier {
     _summaryInFlight = false;
     _summaryRetryQueued = false;
     _summaries.clear();
+    _distinctMessageCounts.clear();
+    _alertsByMessage.clear();
+    _refreshingAlertDetails.clear();
     _jumpCursors.clear();
     _submittedSeenIds.clear();
     _inFlightSeenIds.clear();
@@ -645,9 +690,26 @@ class MentionRecipientController extends ChangeNotifier {
               !shared.access.isRevoked(identity.account, item.conversationId))
             item.conversationId: item,
       };
+      for (final MapEntry<String, ClientAlertSummary> entry in next.entries) {
+        final ClientAlertSummary? prev = _summaries[entry.key];
+        if (prev == null ||
+            prev.unreadMentionCount != entry.value.unreadMentionCount ||
+            prev.unreadReplyCount != entry.value.unreadReplyCount ||
+            prev.latestAlert.messageId != entry.value.latestAlert.messageId) {
+          _distinctMessageCounts.remove(entry.key);
+          _alertsByMessage.remove(entry.key);
+        }
+      }
       _summaries
         ..clear()
         ..addAll(next);
+      _distinctMessageCounts.removeWhere(
+        (String convId, int _) => !_summaries.containsKey(convId),
+      );
+      _alertsByMessage.removeWhere(
+        (String convId, Map<String, UnreadAlert> _) =>
+            !_summaries.containsKey(convId),
+      );
       _summaryLoadedOnce = true;
       _jumpCursors.removeWhere(
         (String convId, int _) => !_summaries.containsKey(convId),
@@ -755,6 +817,18 @@ class MentionRecipientController extends ChangeNotifier {
         return null;
       }
       submitted.addAll(pendingIds);
+      final Map<String, UnreadAlert>? cachedAlerts =
+          _alertsByMessage[conversation.id];
+      if (cachedAlerts != null) {
+        for (final String id in pendingIds) {
+          cachedAlerts.remove(id);
+        }
+        if (counts.hasAny) {
+          _distinctMessageCounts[conversation.id] = cachedAlerts.length;
+        }
+      } else {
+        _distinctMessageCounts.remove(conversation.id);
+      }
       _applyCounts(conversation.id, counts);
       if (counts.hasAny && latestAlertFor(conversation.id) == null) {
         try {
@@ -773,6 +847,8 @@ class MentionRecipientController extends ChangeNotifier {
   void _applyCounts(String conversationId, AlertCounts counts) {
     if (!counts.hasAny) {
       _summaries.remove(conversationId);
+      _distinctMessageCounts.remove(conversationId);
+      _alertsByMessage.remove(conversationId);
       _jumpCursors.remove(conversationId);
     } else {
       final ClientAlertSummary? existing = _summaries[conversationId];
@@ -784,6 +860,59 @@ class MentionRecipientController extends ChangeNotifier {
       }
     }
     notifyListeners();
+  }
+
+  /// Read-only refresh of unread alert items in [conversation] so the open
+  /// transcript can show exact distinct jump counts and per-message unread
+  /// tags without advancing `mark_seen`.
+  Future<int> refreshConversationAlerts(ConversationRef conversation) async {
+    final AuthIdentity? identity = _syncIdentity();
+    if (identity == null ||
+        (conversation.isGroup &&
+            shared.access.isRevoked(identity.account, conversation.id))) {
+      return 0;
+    }
+    final int epoch = _sessionEpoch;
+    final key = (epoch, conversation.id);
+    if (!_refreshingAlertDetails.add(key)) {
+      return _distinctMessageCounts[conversation.id] ?? 0;
+    }
+    try {
+      final Map<String, UnreadAlert> byId = <String, UnreadAlert>{};
+      int? beforePosition;
+      while (true) {
+        final AlertPage page = await shared.listConversationAlerts(
+          conversation: conversation,
+          beforePosition: beforePosition,
+          limit: 100,
+          captured: identity,
+        );
+        if (!_isEpochCurrent(epoch, identity) ||
+            (conversation.isGroup &&
+                shared.access.isRevoked(identity.account, conversation.id))) {
+          return 0;
+        }
+        for (final UnreadAlert alert in page.items) {
+          byId[alert.messageId] = alert;
+        }
+        final int? next = page.nextCursor;
+        if (next == null ||
+            (beforePosition != null && next >= beforePosition)) {
+          break;
+        }
+        beforePosition = next;
+      }
+      final Set<String>? submitted = _submittedSeenIds[conversation.id];
+      if (submitted != null) {
+        byId.removeWhere((String id, UnreadAlert _) => submitted.contains(id));
+      }
+      _alertsByMessage[conversation.id] = byId;
+      _distinctMessageCounts[conversation.id] = byId.length;
+      notifyListeners();
+      return byId.length;
+    } finally {
+      _refreshingAlertDetails.remove(key);
+    }
   }
 
   /// Resolves the next unread alert in [conversation] from newest to oldest

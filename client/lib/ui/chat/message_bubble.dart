@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../../app.dart';
 import '../../models/chat_models.dart';
+import '../../models/mention_models.dart';
 import '../../services/chat_service.dart';
 import '../widgets/profile_avatar.dart';
 import 'chat_avatars.dart';
@@ -109,6 +110,8 @@ class MessageBubble extends StatelessWidget {
     this.showSenderName = false,
     this.originKeyFor,
     this.mediaMaxWidth,
+    this.unreadAlert,
+    this.highlightJumpTarget = false,
   });
 
   final ChatMessage message;
@@ -162,6 +165,12 @@ class MessageBubble extends StatelessWidget {
   /// width). Computed by the page, so a dual pane never asks for a phone-wide
   /// picture.
   final double? mediaMaxWidth;
+
+  /// Server unread alert metadata for this message, if still unread.
+  final UnreadAlert? unreadAlert;
+
+  /// True briefly after jumping to this message from the unread jump button.
+  final bool highlightJumpTarget;
 
   static const Key sendingKey = Key('chat-bubble-sending');
   static const Key failedKey = Key('chat-bubble-failed');
@@ -230,6 +239,17 @@ class MessageBubble extends StatelessWidget {
                         ? AppColors.warningBorder
                         : AppColors.dangerBorder,
                   )
+                : highlightJumpTarget
+                ? Border.all(color: AppColors.accent, width: 1.8)
+                : null,
+            boxShadow: highlightJumpTarget
+                ? <BoxShadow>[
+                    BoxShadow(
+                      color: AppColors.accent.withValues(alpha: 0.26),
+                      blurRadius: 10,
+                      spreadRadius: 1,
+                    ),
+                  ]
                 : null,
           ),
           child: Material(
@@ -315,20 +335,45 @@ class MessageBubble extends StatelessWidget {
         child: tailed,
       ),
     );
-    final Widget bubbleColumn = (!mine && showAvatar && showSenderName)
+    final List<Widget> headerTags = <Widget>[
+      if (!mine && unreadAlert?.mention == true)
+        const _UnreadAlertTag(
+          label: '未读 @',
+          background: AppColors.accentSoft,
+          foreground: AppColors.accentDeep,
+        ),
+      if (!mine && unreadAlert?.reply == true)
+        const _UnreadAlertTag(
+          label: '未读回复',
+          background: AppColors.warningSurface,
+          foreground: AppColors.warning,
+        ),
+    ];
+    final bool showHeaderRow =
+        (!mine && showAvatar && showSenderName) || headerTags.isNotEmpty;
+    final Widget bubbleColumn = showHeaderRow
         ? Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
               Padding(
                 padding: const EdgeInsets.only(left: 4, bottom: 3),
-                child: Text(
-                  _resolvedSenderLabel(),
-                  style: const TextStyle(
-                    fontSize: 11.5,
-                    color: AppColors.inkMuted,
-                    fontWeight: FontWeight.w600,
-                  ),
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 2,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: <Widget>[
+                    if (!mine && showAvatar && showSenderName)
+                      Text(
+                        _resolvedSenderLabel(),
+                        style: const TextStyle(
+                          fontSize: 11.5,
+                          color: AppColors.inkMuted,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ...headerTags,
+                  ],
                 ),
               ),
               tailedBubble,
@@ -1343,4 +1388,36 @@ Widget _photoPlaceholder(double width, double height, IconData icon) {
     ),
     child: Icon(icon, color: AppColors.inkMuted, size: 22),
   );
+}
+
+class _UnreadAlertTag extends StatelessWidget {
+  const _UnreadAlertTag({
+    required this.label,
+    required this.background,
+    required this.foreground,
+  });
+
+  final String label;
+  final Color background;
+  final Color foreground;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(5),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 9.5,
+          fontWeight: FontWeight.w800,
+          color: foreground,
+          height: 1.2,
+        ),
+      ),
+    );
+  }
 }

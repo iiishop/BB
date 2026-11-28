@@ -9,10 +9,15 @@ import 'pending_send.dart';
 /// One unsaved composer part: text or an image kept in insertion order.
 @immutable
 class ChatDraftPart {
-  const ChatDraftPart(this.part, {this.bytes});
+  const ChatDraftPart(
+    this.part, {
+    this.bytes,
+    this.mentionedAccounts = const <String>[],
+  });
 
   final OutgoingPart part;
   final Uint8List? bytes;
+  final List<String> mentionedAccounts;
 }
 
 /// One unsaved attachment (video / file) with the bytes already prepared.

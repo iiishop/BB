@@ -14,6 +14,7 @@ import '../services/auth_service.dart';
 import '../services/auth_session.dart';
 import '../services/chat_api_client.dart';
 import '../services/chat_service.dart';
+import '../services/group_mention_controller.dart';
 import '../services/group_service.dart';
 import '../services/heartbeat_controller.dart';
 import '../services/presence_directory.dart';
@@ -147,6 +148,7 @@ class _HomeViewState extends State<HomeView>
   /// surfaces read the same last-confirmed presence instead of each keeping a
   /// snapshot or its own poll.
   PresenceDirectory? _presence;
+  MentionRecipientController? _mentionAlerts;
 
   /// Conversation the list marks with its message note. On the phone list the
   /// chat itself is a pushed page, so the note is what remains after coming
@@ -181,6 +183,8 @@ class _HomeViewState extends State<HomeView>
     }
     _followStore = _buildFollowStore();
     if (widget.shared != null) {
+      _mentionAlerts = MentionRecipientController(shared: widget.shared!);
+      unawaited(_mentionAlerts!.refreshSummary().catchError((Object _) {}));
       unawaited(_pollGroupEvents());
       unawaited(_ensureGroupEventSocket());
       _groupEventsTimer = Timer.periodic(const Duration(seconds: 3), (_) {
@@ -201,6 +205,15 @@ class _HomeViewState extends State<HomeView>
   @override
   void didUpdateWidget(HomeView oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.shared != widget.shared) {
+      _mentionAlerts?.dispose();
+      _mentionAlerts = widget.shared == null
+          ? null
+          : MentionRecipientController(shared: widget.shared!);
+      if (_mentionAlerts != null) {
+        unawaited(_mentionAlerts!.refreshSummary().catchError((Object _) {}));
+      }
+    }
     if (oldWidget.space?.scopeKey != widget.space?.scopeKey) {
       _followStore?.dispose();
       _followStore = _buildFollowStore();
@@ -216,6 +229,7 @@ class _HomeViewState extends State<HomeView>
     unawaited(_groupEventsSocket?.close());
     _groupEventsSub = null;
     _groupEventsSocket = null;
+    _mentionAlerts?.dispose();
     _presence?.dispose();
     _followStore?.dispose();
     _onlineFilter.dispose();
@@ -254,7 +268,13 @@ class _HomeViewState extends State<HomeView>
       case ServerEventDisposition.groupAccessRevoked:
       case ServerEventDisposition.groupCurrentMessage:
         _bumpGroupsRefresh();
+        if (_mentionAlerts != null) {
+          unawaited(_mentionAlerts!.refreshSummary().catchError((Object _) {}));
+        }
       case ServerEventDisposition.directMessage:
+        if (_mentionAlerts != null) {
+          unawaited(_mentionAlerts!.refreshSummary().catchError((Object _) {}));
+        }
       case ServerEventDisposition.staleGroupMessage:
       case ServerEventDisposition.revokedGroupMessage:
       case ServerEventDisposition.staleAccessEvent:
@@ -530,6 +550,8 @@ class _HomeViewState extends State<HomeView>
           peer: user,
           chat: chat,
           profile: widget.profile,
+          shared: widget.shared,
+          alerts: _mentionAlerts,
           presence: _presence,
         ),
       ),
@@ -557,6 +579,7 @@ class _HomeViewState extends State<HomeView>
           profile: widget.profile,
           shared: widget.shared,
           groups: widget.groups,
+          alerts: _mentionAlerts,
           onOpenDirectChat: _openChat,
           onGroupsChanged: _bumpGroupsRefresh,
           onGroupRevoked: (_) => _bumpGroupsRefresh(),
@@ -713,6 +736,7 @@ class _HomeViewState extends State<HomeView>
                   profile: widget.profile,
                   shared: widget.shared,
                   groups: widget.groups,
+                  alerts: _mentionAlerts,
                   refreshTrigger: _groupsRefresh,
                   onGroupsChanged: _bumpGroupsRefresh,
                   presence: _presence,
@@ -833,6 +857,7 @@ class _HomeViewState extends State<HomeView>
                         profile: widget.profile,
                         shared: widget.shared,
                         groups: widget.groups,
+                        alerts: _mentionAlerts,
                         refreshTrigger: _groupsRefresh,
                         presence: _presence,
                         onlineFilter: _onlineFilter,
