@@ -170,6 +170,7 @@ class ChatPage extends StatefulWidget {
 class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   final ScrollController _scrollController = ScrollController();
   final GlobalKey _listViewportKey = GlobalKey();
+  final GlobalKey _timelineSliverKey = GlobalKey();
   final Map<String, GlobalKey> _rowKeys = <String, GlobalKey>{};
   final List<ChatMessage> _messages = <ChatMessage>[];
   final Set<String> _busyMedia = <String>{};
@@ -1662,6 +1663,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     // The list is chronological, so the top edge is where the past lives.
     // `_loadOlder` guards itself against repeat entry.
     if (notification is ScrollUpdateNotification &&
+        !_jumpingToMessage &&
         notification.depth == 0 &&
         notification.metrics.pixels <= 240) {
       unawaited(_loadOlder());
@@ -1790,12 +1792,18 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     required MessageHighlightKind highlightKind,
   }) async {
     final int epoch = _pageEpoch;
+    final int scrollEpoch = ++_scrollEpoch;
+    _pinBottomOnKeyboard = false;
     final double? previousOffset = _scrollController.hasClients
         ? _scrollController.offset
         : null;
-    bool onSamePage() => mounted && _pageEpoch == epoch && !_revoked;
+    bool jumpIsCurrent() =>
+        mounted &&
+        _pageEpoch == epoch &&
+        _scrollEpoch == scrollEpoch &&
+        !_revoked;
     bool restoreAfterFailure() {
-      if (onSamePage() &&
+      if (jumpIsCurrent() &&
           previousOffset != null &&
           _scrollController.hasClients) {
         final ScrollPosition position = _scrollController.position;
@@ -1813,62 +1821,58 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       (ChatMessage? m) => m?.id == messageId,
       orElse: () => null,
     );
-    if (target == null) {
+    if (target == null || target.isSystem) {
       return false;
     }
     final GlobalKey key = _rowKeyFor(target.identity);
-    await _nextFrame();
-    if (!mounted || !onSamePage()) {
-      return false;
-    }
+    final Key columnKey = _messageColumnKey(
+      target.operationId ??
+          _operationByMessage[target.identity] ??
+          target.identity,
+    );
     final bool reducedMotion =
         MediaQuery.maybeDisableAnimationsOf(context) ?? false;
-    if (key.currentContext == null && _scrollController.hasClients) {
-      final List<String> order = _timelineEntryIdentities();
-      final int targetIndex = order.indexOf(target.identity);
-      if (targetIndex < 0) {
-        return false;
+    await _nextFrame();
+    int? previousDistance;
+    while (jumpIsCurrent() && _scrollController.hasClients) {
+      final BuildContext? sliverContext = _timelineSliverKey.currentContext;
+      final RenderSliverList? sliver =
+          sliverContext?.findRenderObject() as RenderSliverList?;
+      final int? index = (sliverContext?.widget as SliverList?)?.delegate
+          .findIndexByKey(columnKey);
+      final RenderBox? first = sliver?.firstChild;
+      final RenderBox? last = sliver?.lastChild;
+      if (sliver == null || index == null || first == null || last == null) {
+        return restoreAfterFailure();
       }
-      final double initialEstimate = order.length <= 1
-          ? 0
-          : (targetIndex / (order.length - 1)) *
-                _scrollController.position.maxScrollExtent;
-      _scrollController.jumpTo(
-        initialEstimate.clamp(0.0, _scrollController.position.maxScrollExtent),
+      final int firstIndex = sliver.indexOf(first);
+      final int lastIndex = sliver.indexOf(last);
+      if (index >= firstIndex && index <= lastIndex) {
+        break;
+      }
+      final bool earlier = index < firstIndex;
+      final int distance = earlier ? firstIndex - index : index - lastIndex;
+      if (previousDistance != null && distance >= previousDistance) {
+        return restoreAfterFailure();
+      }
+      previousDistance = distance;
+
+      // Move past the measured edge of the lazy list so the next layout
+      // reaches new rows even when a single message spans multiple screens.
+      final RenderBox edge = earlier ? first : last;
+      final ScrollPosition position = _scrollController.position;
+      final double start = RenderAbstractViewport.of(edge)
+          .getOffsetToReveal(edge, 0)
+          .offset;
+      final double offset =
+          start + (earlier ? -position.viewportDimension : edge.size.height);
+      position.jumpTo(
+        offset.clamp(position.minScrollExtent, position.maxScrollExtent),
       );
       await _nextFrame();
-      for (int step = 0; step < 12; step += 1) {
-        if (!onSamePage() || !_scrollController.hasClients) {
-          return false;
-        }
-        if (key.currentContext != null) {
-          break;
-        }
-        int? minMounted;
-        int? maxMounted;
-        for (int i = 0; i < order.length; i += 1) {
-          if (_rowKeys[order[i]]?.currentContext != null) {
-            minMounted ??= i;
-            maxMounted = i;
-          }
-        }
-        final ScrollPosition pos = _scrollController.position;
-        final double stride = math.max(120.0, pos.viewportDimension * 0.7);
-        double nextOffset = pos.pixels;
-        if (minMounted != null && targetIndex < minMounted) {
-          nextOffset = pos.pixels - stride;
-        } else if (maxMounted != null && targetIndex > maxMounted) {
-          nextOffset = pos.pixels + stride;
-        } else {
-          break;
-        }
-        final double clamped = nextOffset.clamp(0.0, pos.maxScrollExtent);
-        if ((clamped - pos.pixels).abs() < 1.0) {
-          break;
-        }
-        _scrollController.jumpTo(clamped);
-        await _nextFrame();
-      }
+    }
+    if (!jumpIsCurrent() || !_scrollController.hasClients) {
+      return false;
     }
     final BuildContext? rowContext = key.currentContext;
     if (rowContext == null || !rowContext.mounted) {
@@ -1882,11 +1886,11 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
           : const Duration(milliseconds: 220),
       curve: Curves.easeOutCubic,
     );
-    if (!onSamePage()) {
+    if (!jumpIsCurrent()) {
       return false;
     }
     await _nextFrame();
-    if (!onSamePage()) {
+    if (!jumpIsCurrent()) {
       return false;
     }
     if (!_isMessageInForegroundViewport(target)) {
@@ -1896,14 +1900,8 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     return true;
   }
 
-  List<String> _timelineEntryIdentities() {
-    return <String>[
-      for (final ChatMessage m in _messages) m.identity,
-      for (final PendingSend pending in _pending)
-        if (!_committedOperations.contains(pending.operationId))
-          pending.message.identity,
-    ];
-  }
+  Key _messageColumnKey(String bubbleKey) =>
+      ValueKey<String>('chat-column-$bubbleKey');
 
   bool _isMessageInForegroundViewport(ChatMessage message) {
     final RenderBox? viewportBox =
@@ -2924,7 +2922,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
               // The keyed wrapper (not the inner row) is the ListView child, so a
               // day separator inserted above must not recreate the message element
               // and reset its entrance/feedback state.
-              key: ValueKey<String>('chat-column-$bubbleKey'),
+              key: _messageColumnKey(bubbleKey),
               child: Padding(
                 key: ValueKey<String>('chat-row-$bubbleKey'),
                 padding: EdgeInsets.only(top: runStart ? 10 : 2),
@@ -2970,8 +2968,9 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
           },
           child: NotificationListener<ScrollNotification>(
             onNotification: _onScrollNotification,
-            child: ListView(
+            child: _ChatTimeline(
               key: ChatPage.listKey,
+              sliverKey: _timelineSliverKey,
               controller: _scrollController,
               padding: const EdgeInsets.fromLTRB(
                 AppSpacing.md,
@@ -3188,6 +3187,22 @@ class _NewMessagesPill extends StatelessWidget {
 }
 
 /// One row in the visible timeline: a committed message or a local pending one.
+class _ChatTimeline extends ListView {
+  _ChatTimeline({
+    super.key,
+    super.controller,
+    super.padding,
+    required super.children,
+    required this.sliverKey,
+  });
+
+  final GlobalKey sliverKey;
+
+  @override
+  Widget buildChildLayout(BuildContext context) =>
+      SliverList(key: sliverKey, delegate: childrenDelegate);
+}
+
 class _TimelineEntry {
   const _TimelineEntry({required this.message, this.operationId, this.pending});
 

@@ -687,6 +687,20 @@ void main() {
         isNot(contains('m-12')),
       );
 
+      // The alert is outside the loaded window and its context is unavailable.
+      api.failContextIds.add('m-12');
+      final int seenCallsBeforeFail = api.markSeenCalls.length;
+      await tester.tap(find.byKey(ChatPage.alertJumpKey));
+      await tester.pumpAndSettle();
+      expect(find.text('无法定位该未读提醒消息'), findsOneWidget);
+      expect(alerts.unreadReplyCountFor(dmConv.id), 1);
+      expect(api.markSeenCalls.length, seenCallsBeforeFail);
+      api.failContextIds.clear();
+      tester
+          .state<ScaffoldMessengerState>(find.byType(ScaffoldMessenger))
+          .hideCurrentSnackBar();
+      await tester.pumpAndSettle();
+
       // Tap broken quote first -> explicit error SnackBar, no alert consumed.
       await tester.tap(find.byKey(MessageBubble.quoteKeyFor('m-119@119')));
       await tester.pumpAndSettle();
@@ -699,9 +713,7 @@ void main() {
 
       // Tap valid quote targeting m-5 -> loads /messages/m-5/context & jumps!
       await tester.tap(find.byKey(MessageBubble.quoteKeyFor('m-118@118')));
-      for (int i = 0; i < 10; i += 1) {
-        await tester.pump(const Duration(milliseconds: 50));
-      }
+      await tester.pumpAndSettle();
 
       expect(api.contextCalls, contains('m-5'));
       expect(
@@ -1109,4 +1121,151 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('loaded quote and reply alerts jump across mixed-height rows', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(900, 700);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final String longBody = List<String>.filled(65, 'line').join('\n');
+    final List<ChatMessage> dmMessages = <ChatMessage>[
+      for (int pos = 1; pos <= 100; pos += 1)
+        _dmMsg(
+          pos,
+          sender: _bob.account,
+          senderUsername: 'bob',
+          text: pos < 50 ? longBody : 'row $pos',
+          replyTo: pos == 100
+              ? const ReplyQuote(
+                  messageId: 'm-50',
+                  senderAccount: '10000002',
+                  senderUsername: 'bob',
+                  preview: 'row 50',
+                )
+              : null,
+        ),
+    ];
+    final ConversationRef dmConv = ConversationRef.direct(
+      _alice.account,
+      _bob.account,
+    );
+    final _InMemoryAlertApiClient api = _InMemoryAlertApiClient(
+      selfAccount: _alice.account,
+      dmMessages: dmMessages,
+      groupMessages: const <ChatMessage>[],
+    );
+    api.addAlert(
+      dmConv.id,
+      const UnreadAlert(
+        messageId: 'm-25',
+        position: 25,
+        mention: false,
+        reply: true,
+      ),
+    );
+    api.addAlert(
+      dmConv.id,
+      const UnreadAlert(
+        messageId: 'm-50',
+        position: 50,
+        mention: false,
+        reply: true,
+      ),
+    );
+
+    final FakeChatService chat = FakeChatService(
+      self: _alice,
+      users: const <ChatUser>[_bob],
+      conversations: <String, List<ChatMessage>>{_bob.account: dmMessages},
+      api: api,
+    );
+    final _InMemorySharedService shared = _InMemorySharedService(
+      api: api,
+      chat: chat,
+      groups: const <GroupConversationItem>[],
+      groupMessages: const <ChatMessage>[],
+    );
+    final MentionRecipientController alerts = MentionRecipientController(
+      shared: shared,
+    );
+    addTearDown(alerts.dispose);
+    await alerts.refreshSummary();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(),
+        home: ChatPage(
+          peer: _bob,
+          chat: chat,
+          profile: FakeProfileGateway(),
+          shared: shared,
+          alerts: alerts,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final Finder jump = find.byKey(ChatPage.alertJumpKey);
+    Finder visibleBody(int position) => find
+        .descendant(
+          of: find.byKey(ValueKey<String>('chat-bubble-m-$position@$position')),
+          matching: find.text('row $position'),
+        )
+        .hitTestable();
+    final Finder original = visibleBody(50);
+    Iterable<String> submittedAlerts() => api.markSeenCalls
+        .expand((call) => call.messageIds)
+        .where(<String>{'m-25', 'm-50', 'm-75'}.contains);
+    expect(original, findsNothing);
+    await tester.tap(find.byKey(MessageBubble.quoteKeyFor('m-100@100')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('原消息定位失败'), findsNothing);
+    expect(original, findsOneWidget);
+    expect(
+      find.byKey(MessageBubble.highlightKeyFor('m-50@50')),
+      findsOneWidget,
+    );
+    expect(api.contextCalls, isEmpty);
+    expect(submittedAlerts(), isEmpty);
+    expect(alerts.unreadReplyCountFor(dmConv.id), 2);
+
+    await tester.tap(jump);
+    await tester.pumpAndSettle();
+    expect(submittedAlerts(), <String>['m-50']);
+    expect(alerts.unreadReplyCountFor(dmConv.id), 1);
+    expect(jump, findsOneWidget);
+
+    await tester.tap(jump);
+    await tester.pumpAndSettle();
+    expect(submittedAlerts(), <String>['m-50', 'm-25']);
+    expect(
+      find.byKey(MessageBubble.highlightKeyFor('m-25@25')),
+      findsOneWidget,
+    );
+    expect(alerts.unreadReplyCountFor(dmConv.id), 0);
+    expect(jump, findsNothing);
+
+    // A newer alert can also send the reader forward from tall history.
+    api.addAlert(
+      dmConv.id,
+      const UnreadAlert(
+        messageId: 'm-75',
+        position: 75,
+        mention: false,
+        reply: true,
+      ),
+    );
+    await alerts.refreshSummary();
+    await tester.pumpAndSettle();
+    expect(visibleBody(75), findsNothing);
+    await tester.tap(jump);
+    await tester.pumpAndSettle();
+    expect(visibleBody(75), findsOneWidget);
+    expect(submittedAlerts(), <String>['m-50', 'm-25', 'm-75']);
+    expect(jump, findsNothing);
+    expect(tester.takeException(), isNull);
+  });
 }
