@@ -47,6 +47,16 @@ class ChatAvatarController extends ChangeNotifier {
     return _requests[account] ??= _request(account);
   }
 
+  /// Ensures all [accounts] (for example, newly seen group senders) are
+  /// queued for at most one avatar fetch during this chat visit.
+  void ensureAccounts(Iterable<String> accounts) {
+    for (final String account in accounts) {
+      if (account.isNotEmpty && !_requests.containsKey(account)) {
+        unawaited(ensureLoaded(account));
+      }
+    }
+  }
+
   Future<void> _request(String account) async {
     _loading[account] = true;
     _notify();

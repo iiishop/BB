@@ -10,11 +10,15 @@ import '../models/chat_models.dart';
 import 'auth_session.dart';
 import 'install_safety_gate.dart';
 import 'chat_api_client.dart';
+import 'chat_delivery_remote.dart';
 import 'chat_ledger.dart';
 import 'chat_query.dart';
 import 'client_identity.dart';
 import 'download_manager.dart';
+import 'conversation_access.dart';
 import 'event_feed.dart';
+import 'group_api_client.dart';
+import 'group_service.dart';
 import 'media_source.dart';
 import 'media_stream_proxy.dart';
 
@@ -130,6 +134,8 @@ class ChatService {
       api: api,
       session: session,
       ledger: ledger,
+      deliveryRemote: deliveryRemote,
+      onGroupEvent: (account, event) => sharedConversations.applyServerEvent(account, event),
       pollInterval: eventPollInterval,
       webSocketHints: webSocketHints,
     );
@@ -156,6 +162,16 @@ class ChatService {
   /// commit point and prove the watermark is not written.
   final Future<void> Function()? beforeCommit;
 
+  final _groupAccess = ConversationAccessController();
+  late final SharedConversationService sharedConversations = SharedConversationService(
+    api: api, session: session, access: _groupAccess, resolver: _resolver,
+  );
+  late final GroupService groups = GroupService(
+    api: GroupApiClient(baseUri: api.baseUri, timeout: api.timeout, transport: api.transport),
+    session: session,
+    access: _groupAccess,
+  );
+  late final ChatDeliveryRemote deliveryRemote = ChatDeliveryRemote(api);
   late final EventFeed eventFeed;
   late DownloadManager downloads;
   late MediaStreamProxy mediaStreams;
@@ -200,6 +216,7 @@ class ChatService {
   }
 
   Future<void> dispose() async {
+    sharedConversations.dispose();
     await eventFeed.dispose();
     await downloads.dispose();
     await mediaStreams.close();
@@ -310,11 +327,16 @@ class ChatService {
   }) async {
     final ({AuthIdentity identity, ConsumerBinding binding}) context =
         await requireIdentity(expectedIdentity);
-    return ledger.consumedThrough(
-      context.identity.account,
-      peerAccount,
-      consumerId: context.binding.consumerId,
-    );
+    if (!isGroupId(peerAccount)) {
+      return ledger.consumedThrough(
+        context.identity.account, peerAccount, consumerId: context.binding.consumerId);
+    }
+    final member = await requireGroup(context.identity, peerAccount);
+    final stored = await ledger.consumedThrough(context.identity.account,
+      groupConsumptionKey(peerAccount, member.membershipRevision),
+      consumerId: context.binding.consumerId);
+    await requireIdentity(expectedIdentity);
+    return max(stored, member.historyThrough);
   }
 
   /// v2 operation lookup scoped to the requesting consumer.
@@ -341,12 +363,15 @@ class ChatService {
     if (owner == null || owner.consumerId != expectedIdentity.consumerId) {
       return null;
     }
+    final group = isGroupId(record.targetAccount)
+        ? await requireGroup(context.identity, record.targetAccount) : null;
     final result = await _queryMessageOperation(
       context.identity,
       operationId,
       record: record,
       exposeUncertain: true,
     );
+    await requireSameGroupMembership(context.identity, group);
     await requireIdentity(expectedIdentity);
     return result;
   }
@@ -438,6 +463,20 @@ class ChatService {
         } while (true);
       }
     }
+    final businessNotices = settings['enabled'] == true
+        ? await _businessNoticeChanges(context.identity, entries, settings['skip_source_through'] as int)
+        : null;
+    if (settings['enabled'] == true) {
+      await _groupNotificationChanges(
+        context.identity,
+        expectedIdentity.consumerId,
+        entries,
+        settings['skip_source_through'] as int,
+        displayed,
+        changes,
+        deferred,
+      );
+    }
     for (final peer in failedPeers.keys) { changes.remove(peer); }
     for (final entry in entries) {
       final code = failedPeers[entry.event.peerAccount];
@@ -452,7 +491,415 @@ class ChatService {
     }
     final int next = settings['enabled'] == false ? head : fresh.isEmpty ? head : fresh.last.cursor;
     return <String, dynamic>{'settings': settings, 'items': changes.values.toList(), 'deferred': deferred,
+      'business_notices': ?businessNotices,
       'next_cursor': next, 'through_cursor': head, 'has_more': next < head};
+  }
+
+  int _sourcePosition(LocalEvent event) {
+    final value = int.tryParse(event.eventId.replaceFirst('server:', ''));
+    if (value == null || value < 1) throw upstreamMalformed;
+    return value;
+  }
+
+  Future<Map<String, dynamic>?> _businessNoticeChanges(
+    AuthIdentity captured,
+    List<LocalEventEntry> entries,
+    int skipThrough,
+  ) async {
+    final sources = <String, int>{};
+    for (final entry in entries) {
+      final event = entry.event;
+      if (event.type != LocalEventType.notificationAvailable) continue;
+      final position = _sourcePosition(event);
+      if (position > skipThrough) sources[event.notificationId!] = position;
+    }
+    if (sources.isEmpty) return null;
+    Map<String, dynamic>? latest;
+    var latestSource = 0;
+    var count = 0;
+    int? unread;
+    int? pending;
+    String? cursor;
+    final seen = <String>{};
+    do {
+      final page = await groups.listNotices(captured: captured, cursor: cursor, limit: 100);
+      unread ??= page.unreadCount;
+      pending ??= page.pendingCount;
+      for (final notice in page.items) {
+        final id = notice.id;
+        if (!seen.add(id)) continue;
+        final source = sources[id];
+        if (source == null) continue;
+        count++;
+        if (source <= latestSource) continue;
+        final type = notice.type, text = notice.text;
+        final preview = text.runes.take(161).toList();
+        latest = {
+          'notification_id': id,
+          'type': type,
+          'text': String.fromCharCodes(preview.take(160)),
+          'truncated': preview.length > 160,
+        };
+        latestSource = source;
+      }
+      final next = page.nextCursor;
+      if (next == null || count == sources.length) break;
+      if (next == cursor) throw upstreamMalformed;
+      cursor = next;
+    } while (true);
+    if (latest == null) return null;
+    return {
+      'new_count': count,
+      'unread_count': unread,
+      'pending_count': pending,
+      'last_notice': latest,
+    };
+  }
+
+  final _sharedConversationSnapshots = <String, _SharedConversationSnapshot>{};
+
+  Future<Map<String, dynamic>> listConversationsFor(
+    AuthIdentity captured,
+    ExpectedIdentity expected, {
+    required String afterAccount,
+    required int limit,
+    required String order,
+    required bool unreadOnly,
+    String? cursor,
+  }) async {
+    Future<ConversationPage> direct({String? next, int? pageSize}) =>
+        query.listConversations(
+          afterAccount: afterAccount, consumerId: expected.consumerId,
+          order: order, unreadOnly: unreadOnly, cursor: next, limit: pageSize ?? limit,
+        );
+    final snapshot = cursor == null ? null : _sharedConversationSnapshots[cursor];
+    if (snapshot != null) {
+      if (!expected.matches(snapshot.identity) || snapshot.order != order ||
+          snapshot.unreadOnly != unreadOnly || !DateTime.now().isBefore(snapshot.expires)) {
+        throw _validation('cursor 无效');
+      }
+      return _sharedConversationPage(captured, snapshot, limit);
+    }
+    if (afterAccount.isNotEmpty || cursor != null) {
+      return (await direct(next: cursor)).toJson();
+    }
+    Map<String, GroupConversationItem> members;
+    try {
+      members = await _activeGroups(captured);
+    } on AuthFailure catch (failure) {
+      // An older BB server can still serve the existing direct-chat API.
+      if (failure.status != 404) rethrow;
+      members = {};
+    }
+    if (members.isEmpty) return (await direct()).toJson();
+    final rows = <Map<String, dynamic>>[];
+    String? next;
+    var after = '';
+    do {
+      final page = await query.listConversations(
+        afterAccount: after, consumerId: expected.consumerId, order: order,
+        unreadOnly: unreadOnly, cursor: next, limit: 100,
+      );
+      rows.addAll(page.items.map((row) => row.toJson()));
+      next = page.nextCursor;
+      if (next == null) break;
+      if (order == 'account' && !unreadOnly) {
+        if (next.compareTo(after) <= 0) throw upstreamMalformed;
+        after = next;
+        next = null;
+      }
+    } while (true);
+    final displayed = await ledger.displayedMessageIds(expected.account);
+    for (final member in members.values) {
+      try {
+        final row = await summarizeGroup(captured, member, expected.consumerId, displayed);
+        if (!unreadOnly || row['incoming_unread'] != 0) rows.add(row);
+      } on AuthFailure catch (failure) {
+        if (!const {'forbidden', 'not_found', 'group_unavailable'}.contains(failure.code)) {
+          rethrow;
+        }
+      }
+    }
+    String key(Map<String, dynamic> row) => (row['conversation'] as Map)['id'] as String;
+    rows.sort((first, second) {
+      if (order == 'recent') {
+        final time = DateTime.parse(second['last_activity_at'] as String)
+            .compareTo(DateTime.parse(first['last_activity_at'] as String));
+        if (time != 0) return time;
+      }
+      return key(first).compareTo(key(second));
+    });
+    return _sharedConversationPage(captured, _SharedConversationSnapshot(
+      identity: expected, order: order, unreadOnly: unreadOnly, rows: rows,
+      expires: DateTime.now().add(const Duration(minutes: 5)),
+    ), limit);
+  }
+
+  Future<Map<String, dynamic>> _sharedConversationPage(
+    AuthIdentity captured,
+    _SharedConversationSnapshot snapshot,
+    int limit,
+  ) async {
+    final groupIds = <String>{
+      for (final row in snapshot.rows)
+        if (row['membership_revision'] != null) (row['conversation'] as Map)['id'] as String,
+    };
+    final current = await _activeGroups(captured, ids: groupIds);
+    final rows = snapshot.rows.where((row) {
+      final revision = row['membership_revision'];
+      return revision == null || current[(row['conversation'] as Map)['id']]?.membershipRevision == revision;
+    }).toList();
+    String? next;
+    if (rows.length > limit) {
+      final now = DateTime.now();
+      _sharedConversationSnapshots.removeWhere((_, value) => !now.isBefore(value.expires));
+      if (_sharedConversationSnapshots.length >= 32) {
+        _sharedConversationSnapshots.remove(_sharedConversationSnapshots.keys.first);
+      }
+      next = newConsumerId();
+      _sharedConversationSnapshots[next] = _SharedConversationSnapshot(
+        identity: snapshot.identity, order: snapshot.order,
+        unreadOnly: snapshot.unreadOnly, expires: snapshot.expires, rows: rows.sublist(limit),
+      );
+    }
+    return {'items': rows.take(limit).toList(), 'next_cursor': next};
+  }
+
+  Future<Map<String, GroupConversationItem>> _activeGroups(
+    AuthIdentity captured, {
+    Set<String>? ids,
+  }) async {
+    if (ids?.isEmpty ?? false) return {};
+    final result = <String, GroupConversationItem>{};
+    var after = '';
+    do {
+      final page = await sharedConversations.listSharedConversations(
+        captured: captured, afterId: after, limit: 100);
+      for (final row in page.items.whereType<GroupConversationItem>()) {
+        final id = row.conversation.id;
+        if (ids == null || ids.contains(id)) result[id] = row;
+      }
+      if (ids != null && result.length == ids.length) break;
+      final next = page.nextCursor;
+      if (next == null) break;
+      if (next.compareTo(after) <= 0) throw upstreamMalformed;
+      after = next;
+    } while (true);
+    return result;
+  }
+
+  Future<GroupConversationItem> requireGroup(AuthIdentity captured, String id) async {
+    final current = await _activeGroups(captured, ids: {id});
+    if (!session.isCurrent(captured)) throw staleIdentity;
+    return current[id] ?? (throw const AuthFailure(
+      status: 404, code: 'not_found', message: '群会话当前不可访问'));
+  }
+
+  Future<void> requireSameGroupMembership(AuthIdentity captured, GroupConversationItem? group) async {
+    if (group == null) return;
+    final current = await requireGroup(captured, group.conversation.id);
+    if (current.membershipRevision != group.membershipRevision) {
+      throw staleBinding('群成员身份已变化');
+    }
+  }
+
+  static String groupConsumptionKey(String group, int revision) => '$group@$revision';
+
+  Future<Map<String, dynamic>> summarizeGroup(
+    AuthIdentity captured,
+    GroupConversationItem membership,
+    String consumer,
+    Set<String> displayed, {
+    void Function(ChatMessage)? onUnread,
+  }) async {
+    final group = membership.conversation.id;
+    final boundary = membership.historyThrough;
+    final revision = membership.membershipRevision;
+    final latest = membership.latestPosition;
+    if (latest < boundary) throw upstreamMalformed;
+    final stored = await ledger.consumedThrough(captured.account,
+      groupConsumptionKey(group, revision), consumerId: consumer);
+    final consumed = max(boundary, stored);
+    var unread = 0;
+    var position = boundary;
+    Map<String, dynamic>? preview;
+    while (position < latest) {
+      final page = await sharedConversations.loadConversationHistory(captured: captured,
+        conversation: membership.conversation, afterPosition: position, limit: 100);
+      for (final message in page.items) {
+        if (message.position > latest) break;
+        if (message.position <= boundary || message.isSystem ||
+            message.senderAccount == captured.account || displayed.contains(message.id)) {
+          continue;
+        }
+        unread++;
+        preview = messagePreview(message);
+        onUnread?.call(message);
+      }
+      if (!page.hasMore) break;
+      if (page.nextPosition <= position) throw upstreamMalformed;
+      position = page.nextPosition;
+    }
+    return {
+      'conversation': membership.conversation.toJson(),
+      'display_name': membership.displayName,
+      'last_message': membership.lastMessage == null ? null : messageToJson(membership.lastMessage!),
+      'last_activity_at': membership.lastActivityAt.toUtc().toIso8601String(),
+      'latest_position': latest,
+      'group_number': membership.groupNumber,
+      'history_through': boundary,
+      'membership_revision': revision,
+      'avatar_url': membership.avatarUrl,
+      'avatar_version': membership.avatarVersion,
+      'consumed_through': consumed,
+      'unconsumed_positions': max(0, latest - consumed),
+      'incoming_unread': unread,
+      'latest_unread': preview,
+    };
+  }
+
+  Future<Map<String, dynamic>> groupHistoryFor({
+    required ExpectedIdentity expected,
+    required String group,
+    int? after,
+    int? before,
+    int limit = 50,
+    bool unreadOnly = false,
+    Set<String>? createdReceiptIds,
+    int? membershipRevision,
+  }) async {
+    final context = await requireIdentity(expected);
+    final membership = await requireGroup(context.identity, group);
+    final revision = membership.membershipRevision;
+    final historyThrough = membership.historyThrough;
+    if (membershipRevision != null && revision != membershipRevision) {
+      throw staleBinding('群成员身份已变化');
+    }
+    final page = await sharedConversations.loadConversationHistory(captured: context.identity,
+      conversation: membership.conversation, afterPosition: after, beforePosition: before, limit: limit);
+    final displayed = unreadOnly ? await ledger.displayedMessageIds(expected.account) : null;
+    final items = <Map<String, dynamic>>[];
+    for (final message in page.items) {
+      if (displayed != null && (message.position <= historyThrough ||
+          message.isSystem || message.senderAccount == expected.account ||
+          displayed.contains(message.id))) {
+        continue;
+      }
+      final visible = await visibleMessageForQuery(
+        captured: context.identity,
+        binding: context.binding,
+        peerAccount: groupConsumptionKey(group, revision),
+        message: message,
+        createdReceiptIds: createdReceiptIds,
+        groupMembership: membership,
+      );
+      items.add(visible.item.toJson());
+    }
+    await requireSameGroupMembership(context.identity, membership);
+    await requireIdentity(expected);
+    final next = before != null
+        ? (page.items.isEmpty ? before : page.items.first.position)
+        : page.nextPosition;
+    return {'items': items, 'next_position': next, 'has_more': page.hasMore};
+  }
+
+  Future<Map<String, dynamic>> waitGroupHistory({
+    required ExpectedIdentity expected,
+    required String group,
+    required int after,
+    required int timeout,
+    Set<String>? createdReceiptIds,
+  }) async {
+    final context = await requireIdentity(expected);
+    final membership = await requireGroup(context.identity, group);
+    final deadline = DateTime.now().add(Duration(seconds: timeout));
+    for (;;) {
+      final page = await groupHistoryFor(expected: expected, group: group, after: after,
+        createdReceiptIds: createdReceiptIds,
+        membershipRevision: membership.membershipRevision);
+      if ((page['items'] as List).isNotEmpty) {
+        return {...page, 'reason': 'messages'};
+      }
+      final remaining = deadline.difference(DateTime.now());
+      if (remaining <= Duration.zero) return {...page, 'reason': 'timeout'};
+      const interval = Duration(milliseconds: 400);
+      await Future<void>.delayed(remaining < interval ? remaining : interval);
+    }
+  }
+
+  Future<void> _groupNotificationChanges(
+    AuthIdentity captured,
+    String consumer,
+    List<LocalEventEntry> entries,
+    int skipThrough,
+    Set<String> displayed,
+    Map<String, Map<String, dynamic>> changes,
+    List<Map<String, dynamic>> deferred,
+  ) async {
+    final relevant = <String, List<LocalEventEntry>>{};
+    final account = captured.account;
+    final discover = await ledger.discoversConversations(account, consumer);
+    final selected = discover ? null : (await ledger.subscriptions(account))[consumer]?.toSet();
+    for (final entry in entries) {
+      final event = entry.event;
+      final group = event.groupId;
+      if (event.type == LocalEventType.messageAvailable && group != null &&
+          (discover || (selected?.contains(group) ?? false)) &&
+          _sourcePosition(event) > skipThrough) {
+        (relevant[group] ??= []).add(entry);
+      }
+    }
+    if (relevant.isEmpty) return;
+    final groups = await _activeGroups(captured, ids: relevant.keys.toSet());
+    for (final group in groups.keys) {
+      final membership = groups[group]!;
+      final after = membership.historyThrough;
+      final revision = membership.membershipRevision;
+      final candidates = relevant[group]!.where((e) =>
+        e.event.position! > after && e.event.membershipRevision == revision).toList();
+      if (candidates.isEmpty) continue;
+      try {
+        final targetIds = candidates.map((e) => e.event.messageId).toSet();
+        final summary = await summarizeGroup(captured, membership, consumer, displayed,
+          onUnread: (message) {
+            if (!targetIds.contains(message.id)) return;
+            final row = changes.putIfAbsent(group, () => {
+              'conversation': groupRef(group),
+              'display_name': membership.displayName,
+              'membership_revision': revision,
+              'new_count': 0,
+              'last_message': messagePreview(message),
+            });
+            row['new_count'] = (row['new_count'] as int) + 1;
+            row['last_message'] = messagePreview(message);
+          },
+        );
+        changes[group]?['incoming_unread'] = summary['incoming_unread'];
+      } on AuthFailure catch (failure) {
+        changes.remove(group);
+        if (const {'not_found', 'forbidden', 'group_unavailable'}.contains(failure.code)) {
+          continue;
+        }
+        if (!const {'upstream_unavailable', 'upstream_timeout', 'network_error'}.contains(failure.code)) {
+          rethrow;
+        }
+        for (final entry in candidates) {
+          deferred.add({
+            'cursor': entry.cursor,
+            'conversation': groupRef(group),
+            'membership_revision': revision,
+            'error_code': failure.code,
+          });
+        }
+      }
+    }
+    final sentGroups = changes.keys.where(isGroupId).toSet();
+    final current = await _activeGroups(captured, ids: sentGroups);
+    for (final id in sentGroups) {
+      if (current[id]?.membershipRevision != changes[id]!['membership_revision']) {
+        changes.remove(id);
+      }
+    }
   }
 
   Future<void> subscribeEventsFor({
@@ -460,7 +907,10 @@ class ChatService {
     String? peerAccount,
     bool discover = false,
   }) async {
-    await requireIdentity(expectedIdentity);
+    final context = await requireIdentity(expectedIdentity);
+    if (peerAccount != null && isGroupId(peerAccount)) {
+      await requireGroup(context.identity, peerAccount);
+    }
     await eventFeed.subscribe(
       consumerSession: expectedIdentity.consumerId,
       peerAccount: peerAccount,
@@ -475,13 +925,14 @@ class ChatService {
     required int afterCursor,
     int limit = 50,
   }) async {
-    await requireIdentity(expectedIdentity);
-    return eventFeed.read(
+    final captured = (await requireIdentity(expectedIdentity)).identity;
+    final page = await eventFeed.read(
       consumerSession: expectedIdentity.consumerId,
       expectedIdentity: expectedIdentity,
       afterCursor: afterCursor,
       limit: limit,
     );
+    return _scopeSharedEvents(expectedIdentity, captured, page);
   }
 
   Future<LocalEventPage> waitEventsFor({
@@ -493,13 +944,40 @@ class ChatService {
     if (!const <int>{30, 60, 120}.contains(timeoutSeconds)) {
       throw _validation('timeout 只能是 30、60 或 120 秒');
     }
-    await requireIdentity(expectedIdentity);
-    return eventFeed.wait(
+    final captured = (await requireIdentity(expectedIdentity)).identity;
+    final page = await eventFeed.wait(
       consumerSession: expectedIdentity.consumerId,
       expectedIdentity: expectedIdentity,
       afterCursor: afterCursor,
       limit: limit,
       timeout: Duration(seconds: timeoutSeconds),
+    );
+    return _scopeSharedEvents(expectedIdentity, captured, page);
+  }
+
+  Future<LocalEventPage> _scopeSharedEvents(
+    ExpectedIdentity expected, AuthIdentity captured, LocalEventPage page,
+  ) async {
+    final ids = page.items.map((entry) => entry.event.groupId).whereType<String>().toSet();
+    if (ids.isEmpty) return page;
+    final discover = await ledger.discoversConversations(expected.account, expected.consumerId);
+    if (!discover) {
+      final peers = (await ledger.subscriptions(expected.account))[expected.consumerId];
+      ids.retainWhere((id) => peers?.contains(id) ?? false);
+    }
+    final current = await _activeGroups(captured, ids: ids);
+    await requireIdentity(expected);
+    return LocalEventPage(
+      items: page.items.where((entry) {
+        final event = entry.event;
+        final group = event.groupId;
+        return group == null || (ids.contains(group) &&
+            (event.type == LocalEventType.conversationAccessChanged ||
+                current[group]?.membershipRevision == event.membershipRevision));
+      }).toList(),
+      nextCursor: page.nextCursor,
+      hasMore: page.hasMore,
+      reason: page.reason,
     );
   }
 
@@ -644,6 +1122,19 @@ class ChatService {
 
   // ------------------------------------------------------- unread / viewed --
 
+  final Map<String, int> _unreadHistoryPositions = <String, int>{};
+  String? _unreadHistoryGeneration;
+
+  /// History already observed by the human unread query in this login.
+  /// Capture this at navigation time, before starting asynchronous history reads.
+  int observedConversationPosition(String peerAccount) {
+    final String? generation = session.authGeneration;
+    if (generation == null || generation != _unreadHistoryGeneration) {
+      return 0;
+    }
+    return _unreadHistoryPositions[peerAccount] ?? 0;
+  }
+
   /// Account incoming unread per existing conversation for the human UI.
   ///
   /// The single derivation stays [ChatQueryService.listConversations]'
@@ -663,6 +1154,7 @@ class ChatService {
     final ({AuthIdentity identity, ConsumerBinding binding}) context =
         await _captureLocalBinding(current.account);
     final Map<String, int> unread = <String, int>{};
+    final Map<String, int> positions = <String, int>{};
     String after = '';
     do {
       final ConversationPage page = await query.listConversations(
@@ -672,30 +1164,62 @@ class ChatService {
       );
       for (final ConversationSummary summary in page.items) {
         unread[summary.peerAccount] = summary.incomingUnread;
+        positions[summary.peerAccount] = summary.latestPosition;
       }
       after = page.nextCursor ?? '';
     } while (after.isNotEmpty);
     if (!session.isCurrent(current)) {
       throw unauthenticated;
     }
+    if (_unreadHistoryGeneration != current.authGeneration) {
+      _unreadHistoryGeneration = current.authGeneration;
+      _unreadHistoryPositions.clear();
+    }
+    positions.forEach((String peer, int position) {
+      _unreadHistoryPositions.update(
+        peer,
+        (int observed) => max(observed, position),
+        ifAbsent: () => position,
+      );
+    });
     return Map<String, int>.unmodifiable(unread);
   }
 
   /// Records the human UI entering [peerAccount]'s conversation as viewed.
   ///
-  /// Entering is the view action: every inbound message up to the current
-  /// latest position gets a confirmed display receipt, which is the only fact
-  /// account incoming unread is derived from. Outgoing messages get none, and
-  /// consumption progress (`consumed_through`) is left untouched — this is not
-  /// an ACK and not an outbound read receipt. Returns the number of newly
-  /// confirmed display facts.
-  Future<int> markConversationViewed(String peerAccount) async {
+  /// The UI supplies [throughPosition] from [observedConversationPosition] at
+  /// entry. Without a supplied bound, the first server history response supplies
+  /// it. Entries beyond that position are confirmed by the rendering path.
+  /// Returns the number of newly confirmed inbound display facts.
+  Future<int> markConversationViewed(
+    String peerAccount, {
+    int? throughPosition,
+  }) async {
     if (!_accountPattern.hasMatch(peerAccount)) {
       throw _validation('peer_account 必须是 8 位账号');
     }
     final AuthIdentity? current = session.identity;
     if (current == null) {
       throw unauthenticated;
+    }
+    final int entryMaxPosition;
+    if (throughPosition != null) {
+      entryMaxPosition = throughPosition;
+    } else {
+      final MessagePage newest = await api.conversation(
+        token: current.token,
+        account: peerAccount,
+        afterPosition: null,
+        beforePosition: 9007199254740991,
+        limit: 1,
+      );
+      if (!session.isCurrent(current)) {
+        throw unauthenticated;
+      }
+      entryMaxPosition = newest.items.isEmpty ? 0 : newest.items.single.position;
+    }
+    if (entryMaxPosition <= 0) {
+      return 0;
     }
     final ({AuthIdentity identity, ConsumerBinding binding}) context =
         await _captureLocalBinding(current.account);
@@ -704,7 +1228,7 @@ class ChatService {
     );
     final List<ChatMessage> inbound = <ChatMessage>[];
     int position = 0;
-    while (true) {
+    while (position < entryMaxPosition) {
       final MessagePage page = await api.conversation(
         token: current.token,
         account: peerAccount,
@@ -715,6 +1239,9 @@ class ChatService {
         throw unauthenticated;
       }
       for (final ChatMessage message in page.items) {
+        if (message.position > entryMaxPosition) {
+          break;
+        }
         if (message.targetAccount == current.account &&
             !displayed.contains(message.id)) {
           inbound.add(message);
@@ -937,8 +1464,9 @@ class ChatService {
     String? target,
     ChatMessageKind? kind,
   }) {
+    final actualTarget = message.isGroup ? message.conversation!.id : message.targetAccount;
     if (message.senderAccount != account ||
-        (target != null && message.targetAccount != target) ||
+        (target != null && actualTarget != target) ||
         (kind != null && message.kind != kind) ||
         (message.operationId != null && message.operationId != operationId)) {
       throw upstreamMalformed;
@@ -1055,6 +1583,7 @@ class ChatService {
     final AuthIdentity captured = context.identity;
     final String account = captured.account;
     final String token = captured.token;
+    final member = isGroupId(targetAccount) ? await requireGroup(captured, targetAccount) : null;
     _expectCurrentIdentity(expectedIdentity, context.binding, captured);
     final ExpectedIdentity currentIdentity = context.binding.identity;
     final String opId = operationId ?? newOperationId('b');
@@ -1074,8 +1603,13 @@ class ChatService {
       throw staleIdentity;
     }
     if (record != null) {
+      if (member != null && expectedIdentity != null &&
+          record.expectedIdentity?.consumerId != currentIdentity.consumerId) {
+        throw staleBinding('群发送操作属于另一个消费者');
+      }
       _expectSameOperation(record, targetAccount, sourceDigest, 'message');
       if (record.state == 'succeeded' && record.message != null) {
+        await requireSameGroupMembership(captured, member);
         return SendOutcome(
           operationId: opId,
           message: record.message,
@@ -1090,7 +1624,9 @@ class ChatService {
           record.expectedIdentity != null &&
           record.expectedIdentity!.matches(currentIdentity);
       if (!identityMatches) {
-        return _reconcileStalePlan(captured, account, record, cleaned);
+        final outcome = await _reconcileStalePlan(captured, account, record, cleaned);
+        await requireSameGroupMembership(captured, member);
+        return outcome;
       }
       // Other failures are safe to retry with the same nonce: the server
       // either committed the identical request or rejected it.
@@ -1115,7 +1651,7 @@ class ChatService {
       }
       if (imageIndex >= mediaIds.length || mediaIds[imageIndex].isEmpty) {
         final ResolvedMedia media = await _resolver.resolve(part.source);
-        final Attachment uploaded = await api.uploadMedia(
+        final Attachment uploaded = await _uploadChatMedia(
           token: token,
           targetAccount: targetAccount,
           bytes: media.bytes,
@@ -1161,12 +1697,31 @@ class ChatService {
     if (!session.isCurrent(captured)) {
       throw staleIdentity;
     }
-    return _sendOrCommitted(
+    final outcome = await _sendOrCommitted(
       captured,
       record,
       () => _submitBody(captured, account, record!, cleaned, mediaIds),
       parts: cleaned,
     );
+    await requireSameGroupMembership(captured, member);
+    return outcome;
+  }
+
+  Future<Attachment> _uploadChatMedia({
+    required String token,
+    required String targetAccount,
+    required Uint8List bytes,
+    required String filename,
+    required String mimeType,
+    String? coverMediaId,
+  }) {
+    if (isGroupId(targetAccount)) {
+      return api.uploadConversationMedia(token: token,
+        conversation: ConversationRef.group(targetAccount), bytes: bytes,
+        filename: filename, mimeType: mimeType, coverMediaId: coverMediaId);
+    }
+    return api.uploadMedia(token: token, targetAccount: targetAccount, bytes: bytes,
+      filename: filename, mimeType: mimeType, coverMediaId: coverMediaId);
   }
 
   Future<SendOutcome> _sendOrCommitted(
@@ -1207,12 +1762,13 @@ class ChatService {
   }) async {
     for (int attempt = 0; ; attempt++) {
       try {
-        final message = await api.sendMessage(
-          token: captured.token,
-          targetAccount: targetAccount,
-          clientNonce: clientNonce,
-          content: content,
-        );
+        final message = isGroupId(targetAccount)
+            ? await api.sendConversationMessage(
+                token: captured.token, conversation: ConversationRef.group(targetAccount),
+                clientNonce: clientNonce, content: content)
+            : await api.sendMessage(
+                token: captured.token, targetAccount: targetAccount,
+                clientNonce: clientNonce, content: content);
         return _associatedMessage(
           message,
           captured.account,
@@ -1250,12 +1806,13 @@ class ChatService {
   }) async {
     for (int attempt = 0; ; attempt++) {
       try {
-        final message = await api.sendAttachment(
-          token: captured.token,
-          targetAccount: targetAccount,
-          clientNonce: clientNonce,
-          mediaId: mediaId,
-        );
+        final message = isGroupId(targetAccount)
+            ? await api.sendConversationAttachment(
+                token: captured.token, conversation: ConversationRef.group(targetAccount),
+                clientNonce: clientNonce, mediaId: mediaId)
+            : await api.sendAttachment(
+                token: captured.token, targetAccount: targetAccount,
+                clientNonce: clientNonce, mediaId: mediaId);
         return _associatedMessage(
           message,
           captured.account,
@@ -1454,6 +2011,7 @@ class ChatService {
     final AuthIdentity captured = context.identity;
     final String account = captured.account;
     final String token = captured.token;
+    final member = isGroupId(targetAccount) ? await requireGroup(captured, targetAccount) : null;
     _expectCurrentIdentity(expectedIdentity, context.binding, captured);
     final ExpectedIdentity currentIdentity = context.binding.identity;
     final String opId = operationId ?? newOperationId('a');
@@ -1465,8 +2023,13 @@ class ChatService {
       throw staleIdentity;
     }
     if (record != null) {
+      if (member != null && expectedIdentity != null &&
+          record.expectedIdentity?.consumerId != currentIdentity.consumerId) {
+        throw staleBinding('群发送操作属于另一个消费者');
+      }
       _expectSameOperation(record, targetAccount, sourceDigest, 'attachment');
       if (record.state == 'succeeded' && record.message != null) {
+        await requireSameGroupMembership(captured, member);
         return SendOutcome(
           operationId: opId,
           message: record.message,
@@ -1480,7 +2043,9 @@ class ChatService {
           record.expectedIdentity != null &&
           record.expectedIdentity!.matches(currentIdentity);
       if (!identityMatches) {
-        return _reconcileStaleAttachment(captured, account, record, attachment);
+        final outcome = await _reconcileStaleAttachment(captured, account, record, attachment);
+        await requireSameGroupMembership(captured, member);
+        return outcome;
       }
     }
     ResolvedMedia media;
@@ -1513,7 +2078,7 @@ class ChatService {
           if (cover == null) {
             throw _validation('无法提取视频封面，不能发送该视频');
           }
-          final Attachment uploadedCover = await api.uploadMedia(
+          final Attachment uploadedCover = await _uploadChatMedia(
             token: token,
             targetAccount: targetAccount,
             bytes: cover.bytes,
@@ -1526,7 +2091,7 @@ class ChatService {
           }
         }
       }
-      final Attachment uploaded = await api.uploadMedia(
+      final Attachment uploaded = await _uploadChatMedia(
         token: token,
         targetAccount: targetAccount,
         bytes: media.bytes,
@@ -1583,12 +2148,14 @@ class ChatService {
     if (!session.isCurrent(captured)) {
       throw staleIdentity;
     }
-    return _sendOrCommitted(
+    final outcome = await _sendOrCommitted(
       captured,
       record,
       () => _submitAttachment(captured, account, record!, attachment),
       attachment: attachment,
     );
+    await requireSameGroupMembership(captured, member);
+    return outcome;
   }
 
   Future<SendOutcome> _submitAttachment(
@@ -2102,6 +2669,7 @@ class ChatService {
     required String peerAccount,
     required ChatMessage message,
     Set<String>? createdReceiptIds,
+    GroupConversationItem? groupMembership,
   }) {
     return _buildVisible(
       captured,
@@ -2111,6 +2679,7 @@ class ChatService {
       message,
       tolerateMissingMedia: true,
       createdReceiptIds: createdReceiptIds,
+      groupMembership: groupMembership,
     );
   }
 
@@ -2122,10 +2691,13 @@ class ChatService {
     ChatMessage message, {
     required bool tolerateMissingMedia,
     Set<String>? createdReceiptIds,
+    GroupConversationItem? groupMembership,
   }) async {
-    await ledger.observeMessageAssociations(captured.account, [
-      message,
-    ], peerAccount: peerAccount);
+    if (groupMembership == null) {
+      await ledger.observeMessageAssociations(captured.account, [message], peerAccount: peerAccount);
+    } else if (message.conversation != groupMembership.conversation) {
+      throw upstreamMalformed;
+    }
     if (!session.isCurrent(captured)) throw staleIdentity;
 
     if (!captured.sameAs(session.identity)) {
@@ -2133,7 +2705,11 @@ class ChatService {
     }
     final List<VisibleBlock> blocks = <VisibleBlock>[];
     final List<String> missing = <String>[];
-    if (message.kind == ChatMessageKind.body) {
+    if (message.isSystem) {
+      final text = message.systemText;
+      if (text == null) throw upstreamMalformed;
+      blocks.add(VisibleTextBlock(text));
+    } else if (message.kind == ChatMessageKind.body) {
       for (final MessagePart part in message.parts) {
         if (part is TextPart) {
           blocks.add(VisibleTextBlock(part.text));
@@ -2184,7 +2760,8 @@ class ChatService {
         }
       }
     }
-    if (missing.isNotEmpty) {
+    if (missing.isNotEmpty ||
+        (groupMembership != null && message.position <= groupMembership.historyThrough)) {
       return QueryVisibleMessage(
         item: VisibleMessage(
           message: message,
@@ -2238,6 +2815,22 @@ class ChatService {
         await _captureBinding(consumerSession, create: false);
     final AuthIdentity captured = context.identity;
     _expectCurrentIdentity(expectedIdentity, context.binding, captured);
+    final groupKeys = <String, String>{};
+    for (final receiptId in receiptIds.toSet()) {
+      final receipt = await ledger.receipt(captured.account, receiptId);
+      final key = receipt?.peerAccount;
+      if (key == null || !key.startsWith('group:')) continue;
+      groupKeys[key] = key.split('@').first;
+    }
+    if (groupKeys.isNotEmpty) {
+      final groups = await _activeGroups(captured, ids: groupKeys.values.toSet());
+      for (final entry in groupKeys.entries) {
+        final revision = groups[entry.value]?.membershipRevision;
+        if (revision is! int || entry.key != groupConsumptionKey(entry.value, revision)) {
+          throw const AuthFailure(status: 404, code: 'not_found', message: '群展示凭据已失效');
+        }
+      }
+    }
     final List<String> confirmed = await ledger.confirmPresentationAttempt(
       account: captured.account,
       consumerId: context.binding.consumerId,
@@ -2274,6 +2867,12 @@ class ChatService {
         await _captureBinding(consumerSession, create: false);
     final AuthIdentity captured = context.identity;
     _expectCurrentIdentity(expectedIdentity, context.binding, captured);
+    final member = isGroupId(peerAccount) ? await requireGroup(captured, peerAccount) : null;
+    final key = member == null ? peerAccount :
+        groupConsumptionKey(peerAccount, member.membershipRevision);
+    if (member != null && throughPosition > member.latestPosition) {
+      throw consumptionGap('请求位置超出群会话范围');
+    }
     // Everything below happens inside one ledger lock: identity and binding are
     // re-verified, the gap is recomputed and only then is the watermark
     // written. A switch at the commit pause cannot advance any cursor.
@@ -2281,7 +2880,8 @@ class ChatService {
       account: captured.account,
       consumerSession: consumerSession,
       consumerId: context.binding.consumerId,
-      peerAccount: peerAccount,
+      peerAccount: key,
+      historyThrough: (member?.historyThrough) ?? 0,
       throughPosition: throughPosition,
       expectedIdentity: expectedIdentity ?? context.binding.identity,
       stillCurrent: () => session.isCurrent(captured),
@@ -2746,4 +3346,20 @@ class CancelToken {
   bool get cancelled => _cancelled;
 
   void cancel() => _cancelled = true;
+}
+
+class _SharedConversationSnapshot {
+  const _SharedConversationSnapshot({
+    required this.identity,
+    required this.order,
+    required this.unreadOnly,
+    required this.expires,
+    required this.rows,
+  });
+
+  final ExpectedIdentity identity;
+  final String order;
+  final bool unreadOnly;
+  final DateTime expires;
+  final List<Map<String, dynamic>> rows;
 }

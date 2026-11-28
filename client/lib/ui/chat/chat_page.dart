@@ -12,14 +12,20 @@ import '../../app.dart';
 import '../../models/auth_models.dart';
 import '../../models/chat_media.dart';
 import '../../models/chat_models.dart';
+import '../../models/group_models.dart';
 import '../../services/chat_service.dart';
+import '../../services/conversation_access.dart';
+import '../../services/group_service.dart';
 import '../../services/media_stream_proxy.dart';
 import '../../services/presence_directory.dart';
 import '../../services/profile_service.dart';
 import '../widgets/profile_avatar.dart';
+import '../profile/group_profile_host.dart';
+import '../profile/profile_details.dart';
 import 'chat_avatars.dart';
 import 'chat_composer.dart';
 import 'chat_format.dart';
+import 'chat_system_entry.dart';
 import 'clipboard_paste.dart';
 import 'media_actions.dart';
 import 'media_save.dart';
@@ -27,16 +33,23 @@ import 'media_viewer.dart';
 import 'message_bubble.dart';
 import 'pending_send.dart';
 
-/// One-to-one chat with ordered text/image content and independent attachments.
+/// Shared direct or group chat view with ordered content, attachments, and
+/// live group membership revocation handling.
 class ChatPage extends StatefulWidget {
   const ChatPage({
     super.key,
-    required this.peer,
+    ChatUser? peer,
+    this.group,
     required this.chat,
     required this.profile,
+    this.shared,
+    this.groups,
     this.presence,
     this.openExternalStream,
     this.onMessagesChanged,
+    this.onOpenDirectChat,
+    this.onGroupRevoked,
+    this.onGroupsChanged,
     this.saveService,
     this.clipboard = const PlatformClipboardMediaReader(),
     this.coverExtractor = defaultVideoCoverExtractor,
@@ -44,12 +57,38 @@ class ChatPage extends StatefulWidget {
     this.embedded = false,
     this.leading,
     this.active = true,
-  });
+  }) : _peer = peer,
+       assert(peer != null || group != null);
 
-  /// Snapshot used for name/avatar; presence is read live from [presence] when
-  /// one is provided, so an update lands without leaving and reopening.
-  final ChatUser peer;
+  final ChatUser? _peer;
+
+  /// Effective peer snapshot (synthesized cleanly from [group] when in group mode
+  /// so callers inspecting `peer` keep compatibility).
+  ChatUser get peer =>
+      _peer ??
+      ChatUser(
+        account: group!.groupNumber,
+        username: group!.displayName,
+        avatarUrl: group!.avatarUrl,
+        avatarVersion: group!.avatarVersion,
+        presence: Presence.offline,
+      );
+
+  /// Active group conversation item when viewing a group chat.
+  final GroupConversationItem? group;
+
   final ChatService chat;
+  final SharedConversationService? shared;
+  final GroupService? groups;
+
+  /// Navigates to a 1:1 direct chat when tapping a member in group profile.
+  final Future<void> Function(ChatUser user)? onOpenDirectChat;
+
+  /// Notified immediately when membership is revoked (leave/remove/dissolve).
+  final ValueChanged<ConversationRef>? onGroupRevoked;
+
+  /// Notified when group metadata/membership changes from profile actions.
+  final VoidCallback? onGroupsChanged;
 
   /// Shared with the user list; null keeps the snapshot (tests and any surface
   /// that has no directory).
@@ -105,6 +144,7 @@ class ChatPage extends StatefulWidget {
   static const Key groupTimeKey = Key('chat-group-time');
   static const Key headerNameKey = Key('chat-header-name');
   static const Key headerStatusKey = Key('chat-header-status');
+  static const Key headerProfileKey = Key('chat-header-profile');
 
   /// Header metrics taken from the annotated reference: a 48 px avatar with
   /// the name over the live presence, inside a 72 px tall bar.
@@ -146,9 +186,12 @@ class _ChatPageState extends State<ChatPage> {
   bool _pinBottomOnKeyboard = false;
 
   /// Display facts staged while this pane was hidden. They are sent only when
-  /// [ChatPage.active] turns true, so a background poll cannot consume the
-  /// other conversation's unread badge.
+  /// [ChatPage.active] turns true and no covering route sits above this page,
+  /// so a background poll cannot consume the other conversation's unread badge.
   final Map<String, ChatMessage> _pendingDisplayed = <String, ChatMessage>{};
+  ModalRoute<dynamic>? _modalRoute;
+  bool _routeCurrent = true;
+  int _modalCovers = 0;
 
   /// Identities that were not on screen at the previous build. Only these get
   /// the entrance animation; history, scroll rebuilds and refresh do not.
@@ -187,6 +230,12 @@ class _ChatPageState extends State<ChatPage> {
   static const int _maxLocalPreviewBytes = 24 * 1024 * 1024;
   bool _loading = true;
   String? _error;
+  bool _revoked = false;
+  int? _capturedEpoch;
+  GroupProfile? _liveGroupProfile;
+  StreamSubscription<GroupProfile>? _groupUpdatesSub;
+  int _groupAvatarTicket = 0;
+  Uint8List? _groupAvatarBytes;
   Timer? _pollTimer;
   late final ChatAvatarController _avatars;
 
@@ -231,8 +280,26 @@ class _ChatPageState extends State<ChatPage> {
     return widget.embedded ? 16 : 8;
   }
 
-  String get _consumerSession =>
-      'ui:${widget.chat.selfAccount}:${widget.peer.account}';
+  bool get _isGroup => widget.group != null;
+
+  String get _scopeId => widget.group?.conversation.id ?? widget._peer!.account;
+
+  String get _displayName =>
+      _liveGroupProfile?.name ??
+      widget.group?.displayName ??
+      widget._peer!.username;
+
+  String get _groupAvatarUrl =>
+      _liveGroupProfile?.avatarUrl ?? widget.group?.avatarUrl ?? '';
+
+  String get _groupAvatarVersion =>
+      _liveGroupProfile?.avatarVersion ?? widget.group?.avatarVersion ?? '';
+
+  ConversationRef? get _conversation => widget.group?.conversation;
+
+  ConversationAccessController? get _access => widget.shared?.access;
+
+  String get _consumerSession => 'ui:${widget.chat.selfAccount}:$_scopeId';
 
   late final MediaSaveService _saveService =
       widget.saveService ?? MediaSaveService(chat: widget.chat);
@@ -242,19 +309,163 @@ class _ChatPageState extends State<ChatPage> {
     super.initState();
     // Both sides are requested once when the conversation opens. The AppBar and
     // every bubble read this same controller, so scrolling cannot add requests.
+    final Iterable<String> initialAccounts = _isGroup
+        ? <String>[widget.chat.selfAccount]
+        : <String>[widget.chat.selfAccount, widget._peer!.account];
     _avatars = ChatAvatarController(
       profile: widget.profile,
-      accounts: <String>[widget.chat.selfAccount, widget.peer.account],
+      accounts: initialAccounts,
     )..addListener(_onAvatarsChanged);
     _scrollController.addListener(_onScrolled);
-    widget.presence?.addListener(_onPresenceChanged);
-    widget.presence?.watch(widget.peer.account);
+    if (!_isGroup) {
+      widget.presence?.addListener(_onPresenceChanged);
+      widget.presence?.watch(widget._peer!.account);
+    } else {
+      _attachGroupAccess();
+      _subscribeGroupUpdates();
+      unawaited(_loadGroupAvatar());
+    }
     unawaited(_loadInitial());
     _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) {
-      if (mounted && !_fetching) {
+      if (mounted && !_fetching && !_revoked) {
         unawaited(_pollNew());
       }
     });
+  }
+
+  void _attachGroupAccess() {
+    final GroupConversationItem? group = widget.group;
+    final ConversationAccessController? access = _access;
+    final String? self = _selfAccount;
+    if (group == null || access == null || self == null) {
+      return;
+    }
+    if (access.stateFor(self, group.conversation.id) == null) {
+      access.grant(
+        self,
+        group.conversation.id,
+        membershipRevision: group.membershipRevision,
+        historyThrough: group.historyThrough,
+      );
+    }
+    _capturedEpoch = access.epochFor(self, group.conversation.id);
+    access.addListener(_onGroupAccessChanged);
+    if (access.isRevoked(self, group.conversation.id)) {
+      _handleAccessRevoked(popRoute: false);
+    }
+  }
+
+  void _detachGroupAccess([ConversationAccessController? access]) {
+    (access ?? _access)?.removeListener(_onGroupAccessChanged);
+  }
+
+  void _onGroupAccessChanged() {
+    final GroupConversationItem? group = widget.group;
+    final ConversationAccessController? access = _access;
+    final String? self = _selfAccount;
+    if (!mounted ||
+        _revoked ||
+        group == null ||
+        access == null ||
+        self == null) {
+      return;
+    }
+    if (access.isRevoked(self, group.conversation.id) ||
+        (_capturedEpoch != null &&
+            access.isStale(self, group.conversation.id, _capturedEpoch!))) {
+      _handleAccessRevoked(popRoute: !widget.embedded);
+    }
+  }
+
+  void _handleAccessRevoked({required bool popRoute}) {
+    final GroupConversationItem? group = widget.group;
+    if (_revoked || group == null) {
+      return;
+    }
+    _revoked = true;
+    _pollTimer?.cancel();
+    for (final MediaStreamHandle handle in List<MediaStreamHandle>.of(
+      _streamHandles,
+    )) {
+      unawaited(_closeStream(handle));
+    }
+    _localPreviews.clear();
+    _localPreviewOrder.clear();
+    if (mounted) {
+      setState(() {
+        _messages.clear();
+        _pending = <PendingSend>[];
+        _loading = false;
+        _error = '已离开或无权访问该群会话';
+      });
+    }
+    widget.onGroupRevoked?.call(group.conversation);
+    if (popRoute && mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          unawaited(Navigator.of(context).maybePop());
+        }
+      });
+    }
+  }
+
+  void _subscribeGroupUpdates() {
+    unawaited(_groupUpdatesSub?.cancel());
+    _groupUpdatesSub = _isGroup
+        ? widget.groups?.groupUpdates.listen(_onGroupProfileUpdated)
+        : null;
+  }
+
+  void _onGroupProfileUpdated(GroupProfile profile) {
+    final GroupConversationItem? group = widget.group;
+    if (!mounted ||
+        _revoked ||
+        group == null ||
+        profile.conversation != group.conversation) {
+      return;
+    }
+    final String previousUrl = _groupAvatarUrl;
+    final String previousVersion = _groupAvatarVersion;
+    setState(() {
+      _liveGroupProfile = profile;
+    });
+    if (profile.name != group.displayName ||
+        profile.avatarVersion != group.avatarVersion) {
+      widget.onGroupsChanged?.call();
+    }
+    if (profile.avatarUrl != previousUrl ||
+        profile.avatarVersion != previousVersion) {
+      unawaited(_loadGroupAvatar());
+    }
+  }
+
+  Future<void> _loadGroupAvatar() async {
+    final GroupConversationItem? group = widget.group;
+    final GroupService? groups = widget.groups;
+    final int ticket = ++_groupAvatarTicket;
+    final String avatarUrl = _groupAvatarUrl;
+    if (group == null || groups == null || avatarUrl.isEmpty) {
+      if (mounted && _groupAvatarBytes != null && avatarUrl.isEmpty) {
+        setState(() => _groupAvatarBytes = null);
+      }
+      return;
+    }
+    try {
+      final GroupAvatarImage image = await groups.loadGroupAvatar(
+        groupNumber: group.groupNumber,
+        avatarUrl: avatarUrl,
+        thumb: true,
+      );
+      if (mounted &&
+          !_revoked &&
+          _scopeId == group.conversation.id &&
+          _groupAvatarTicket == ticket &&
+          _groupAvatarUrl == avatarUrl) {
+        setState(() => _groupAvatarBytes = Uint8List.fromList(image.bytes));
+      }
+    } catch (_) {
+      // Group avatar fallback stays cleanly without errors.
+    }
   }
 
   void _onPresenceChanged() {
@@ -264,25 +475,58 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _modalRoute = ModalRoute.of(context);
+    final bool current = _modalRoute?.isCurrent ?? true;
+    if (current != _routeCurrent) {
+      _routeCurrent = current;
+      if (current) {
+        _flushDisplayed();
+      }
+    }
+  }
+
+  @override
   void didUpdateWidget(covariant ChatPage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.presence != widget.presence) {
-      oldWidget.presence
-        ?..removeListener(_onPresenceChanged)
-        ..unwatch(oldWidget.peer.account);
-      widget.presence
-        ?..addListener(_onPresenceChanged)
-        ..watch(widget.peer.account);
-    } else if (oldWidget.peer.account != widget.peer.account) {
-      widget.presence
-        ?..unwatch(oldWidget.peer.account)
-        ..watch(widget.peer.account);
+    final String oldScope =
+        oldWidget.group?.conversation.id ?? oldWidget._peer!.account;
+    final String newScope = _scopeId;
+    if (oldWidget.shared?.access != widget.shared?.access) {
+      _detachGroupAccess(oldWidget.shared?.access);
+      if (_isGroup) {
+        _attachGroupAccess();
+      }
     }
-    if (oldWidget.peer.account != widget.peer.account) {
+    if (oldWidget.presence != widget.presence ||
+        (oldScope != newScope) ||
+        (oldWidget.group != null) != _isGroup) {
+      final ChatUser? oldPeer = oldWidget._peer;
+      if (oldPeer != null) {
+        oldWidget.presence
+          ?..removeListener(_onPresenceChanged)
+          ..unwatch(oldPeer.account);
+      }
+      if (!_isGroup) {
+        widget.presence
+          ?..addListener(_onPresenceChanged)
+          ..watch(widget._peer!.account);
+      }
+    }
+    if (oldWidget.groups != widget.groups ||
+        (oldWidget.group != null) != _isGroup) {
+      _subscribeGroupUpdates();
+    }
+    if (oldScope != newScope) {
       // Requests captured for the previous conversation must never write into
       // this page. A real navigation creates a new state; this guard also
-      // covers a parent that reuses the widget with another peer.
+      // covers a parent that reuses the widget with another target.
       _pageEpoch += 1;
+      _revoked = false;
+      _liveGroupProfile = null;
+      _groupAvatarTicket += 1;
+      _groupAvatarBytes = null;
       _lookupGeneration.clear();
       _lookupInFlight.clear();
       _messages.clear();
@@ -303,19 +547,45 @@ class _ChatPageState extends State<ChatPage> {
       _historyTicket += 1;
       _error = null;
       _loading = true;
+      if (_isGroup) {
+        _attachGroupAccess();
+        unawaited(_loadGroupAvatar());
+      }
       unawaited(_loadInitial());
-    } else if (!oldWidget.active && widget.active) {
-      // The pane just became visible again: only now do the arrivals that
-      // were staged while it was hidden become display facts.
-      _flushDisplayed();
+    } else {
+      final GroupConversationItem? oldGroup = oldWidget.group;
+      final GroupConversationItem? newGroup = widget.group;
+      if (oldGroup != null &&
+          newGroup != null &&
+          (oldGroup.displayName != newGroup.displayName ||
+              oldGroup.avatarUrl != newGroup.avatarUrl ||
+              oldGroup.avatarVersion != newGroup.avatarVersion)) {
+        final String previousUrl = _groupAvatarUrl;
+        final String previousVersion = _groupAvatarVersion;
+        _liveGroupProfile = null;
+        if (newGroup.avatarUrl != previousUrl ||
+            newGroup.avatarVersion != previousVersion) {
+          unawaited(_loadGroupAvatar());
+        }
+      }
+      if (!oldWidget.active && widget.active) {
+        // The pane just became visible again: only now do the arrivals that
+        // were staged while it was hidden become display facts.
+        _flushDisplayed();
+      }
     }
   }
 
   @override
   void dispose() {
-    widget.presence
-      ?..removeListener(_onPresenceChanged)
-      ..unwatch(widget.peer.account);
+    unawaited(_groupUpdatesSub?.cancel());
+    _groupUpdatesSub = null;
+    if (widget._peer != null) {
+      widget.presence
+        ?..removeListener(_onPresenceChanged)
+        ..unwatch(widget._peer!.account);
+    }
+    _detachGroupAccess();
     _pollTimer?.cancel();
     _avatars
       ..removeListener(_onAvatarsChanged)
@@ -343,11 +613,38 @@ class _ChatPageState extends State<ChatPage> {
     return ticket;
   }
 
-  bool _historyRequestCurrent(int ticket, int epoch, String peer) {
+  bool _historyRequestCurrent(int ticket, int epoch, String scope) {
     return mounted &&
+        !_revoked &&
         _activeHistoryTicket == ticket &&
         _pageEpoch == epoch &&
-        widget.peer.account == peer;
+        _scopeId == scope;
+  }
+
+  Future<MessagePage> _fetchHistory({
+    int? afterPosition,
+    int? beforePosition,
+    int limit = _historyWindow,
+  }) {
+    final GroupConversationItem? group = widget.group;
+    if (group != null) {
+      final SharedConversationService? shared = widget.shared;
+      if (shared == null) {
+        return Future<MessagePage>.error(upstreamMalformed);
+      }
+      return shared.loadConversationHistory(
+        conversation: group.conversation,
+        afterPosition: afterPosition,
+        beforePosition: beforePosition,
+        limit: limit,
+      );
+    }
+    return widget.chat.loadConversation(
+      peerAccount: widget._peer!.account,
+      afterPosition: afterPosition,
+      beforePosition: beforePosition,
+      limit: limit,
+    );
   }
 
   void _endHistoryRequest(int ticket) {
@@ -358,11 +655,11 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   Future<void> _loadInitial() async {
-    if (_fetching) {
+    if (_fetching || _revoked) {
       return;
     }
     final int epoch = _pageEpoch;
-    final String peer = widget.peer.account;
+    final String scope = _scopeId;
     final int ticket = _beginHistoryRequest();
     if (mounted) {
       setState(() {
@@ -374,14 +671,16 @@ class _ChatPageState extends State<ChatPage> {
       // Newest window only. Older pages load on demand from the top of the
       // list; opening a long conversation no longer issues one serial request
       // per 100 messages before the first bubble can render.
-      final MessagePage page = await widget.chat.loadConversation(
-        peerAccount: peer,
+      final MessagePage page = await _fetchHistory(
         beforePosition: _historyCeiling,
         limit: _historyWindow,
       );
-      if (!_historyRequestCurrent(ticket, epoch, peer)) {
+      if (!_historyRequestCurrent(ticket, epoch, scope)) {
         return;
       }
+      _avatars.ensureAccounts(
+        page.items.map((ChatMessage m) => m.senderAccount),
+      );
       setState(() {
         _mergeMessages(page.items);
         _fetchedThrough = page.items.isEmpty ? 0 : page.items.last.position;
@@ -397,7 +696,7 @@ class _ChatPageState extends State<ChatPage> {
       _retryUnresolvedLookups();
       _scrollToBottom(animate: false, force: true);
     } on AuthFailure catch (failure) {
-      if (!_historyRequestCurrent(ticket, epoch, peer)) {
+      if (!_historyRequestCurrent(ticket, epoch, scope)) {
         return;
       }
       setState(() {
@@ -405,7 +704,7 @@ class _ChatPageState extends State<ChatPage> {
         _error = failure.message;
       });
     } catch (_) {
-      if (!_historyRequestCurrent(ticket, epoch, peer)) {
+      if (!_historyRequestCurrent(ticket, epoch, scope)) {
         return;
       }
       setState(() {
@@ -423,11 +722,15 @@ class _ChatPageState extends State<ChatPage> {
   /// bubbles the reader is looking at, so the scroll offset is advanced by
   /// exactly the height that was added.
   Future<void> _loadOlder() async {
-    if (_loadingOlder || !_hasOlder || _messages.isEmpty || _fetching) {
+    if (_loadingOlder ||
+        !_hasOlder ||
+        _messages.isEmpty ||
+        _fetching ||
+        _revoked) {
       return;
     }
     final int epoch = _pageEpoch;
-    final String peer = widget.peer.account;
+    final String scope = _scopeId;
     final int ticket = _beginHistoryRequest();
     final bool hadClients = _scrollController.hasClients;
     final double beforePixels = hadClients
@@ -438,14 +741,16 @@ class _ChatPageState extends State<ChatPage> {
         : 0;
     setState(() => _loadingOlder = true);
     try {
-      final MessagePage page = await widget.chat.loadConversation(
-        peerAccount: peer,
+      final MessagePage page = await _fetchHistory(
         beforePosition: _messages.first.position,
         limit: _historyWindow,
       );
-      if (!_historyRequestCurrent(ticket, epoch, peer)) {
+      if (!_historyRequestCurrent(ticket, epoch, scope)) {
         return;
       }
+      _avatars.ensureAccounts(
+        page.items.map((ChatMessage m) => m.senderAccount),
+      );
       setState(() {
         _mergeMessages(page.items);
         _hasOlder = page.hasMore;
@@ -474,11 +779,11 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   Future<void> _pollNew() async {
-    if (_fetching) {
+    if (_fetching || _revoked) {
       return;
     }
     final int epoch = _pageEpoch;
-    final String peer = widget.peer.account;
+    final String scope = _scopeId;
     final int ticket = _beginHistoryRequest();
     try {
       final List<ChatMessage> loaded = <ChatMessage>[];
@@ -486,8 +791,7 @@ class _ChatPageState extends State<ChatPage> {
       bool hasMore = true;
       int pages = 0;
       while (hasMore && pages < 1000) {
-        final MessagePage page = await widget.chat.loadConversation(
-          peerAccount: widget.peer.account,
+        final MessagePage page = await _fetchHistory(
           afterPosition: cursor,
           limit: 100,
         );
@@ -503,9 +807,10 @@ class _ChatPageState extends State<ChatPage> {
           break;
         }
       }
-      if (!_historyRequestCurrent(ticket, epoch, peer)) {
+      if (!_historyRequestCurrent(ticket, epoch, scope)) {
         return;
       }
+      _avatars.ensureAccounts(loaded.map((ChatMessage m) => m.senderAccount));
       final bool wasNearBottom = _isNearBottom;
       final Set<String> known = _messages
           .map((ChatMessage message) => message.identity)
@@ -518,6 +823,7 @@ class _ChatPageState extends State<ChatPage> {
           .where(
             (ChatMessage message) =>
                 !known.contains(message.identity) &&
+                !message.isSystem &&
                 message.senderAccount != _selfAccount,
           )
           .length;
@@ -539,6 +845,17 @@ class _ChatPageState extends State<ChatPage> {
       _forgetCommittedPending();
       widget.onMessagesChanged?.call(List<ChatMessage>.unmodifiable(_messages));
       _retryUnresolvedLookups();
+      if (_isGroup &&
+          loaded.any(
+            (ChatMessage message) =>
+                arrived.contains(message.identity) && message.isSystem,
+          )) {
+        unawaited(
+          widget.groups
+              ?.findGroup(widget.group!.groupNumber)
+              .then<void>((_) {}, onError: (Object _) {}),
+        );
+      }
       if (arrived.isNotEmpty && wasNearBottom) {
         _scrollToBottom(force: true);
       }
@@ -561,31 +878,39 @@ class _ChatPageState extends State<ChatPage> {
     _lookupGeneration[operationId] = (_lookupGeneration[operationId] ?? 0) + 1;
   }
 
+  bool _matchesScope(ChatMessage message, String scope) {
+    if (_isGroup) {
+      return message.conversation?.id == scope;
+    }
+    return message.targetAccount == scope;
+  }
+
   bool _lookupApplies(
     String operationId,
     int generation,
     String account,
-    String peer,
+    String scope,
     int pageEpoch,
   ) {
     return mounted &&
+        !_revoked &&
         _pageEpoch == pageEpoch &&
-        widget.peer.account == peer &&
+        _scopeId == scope &&
         _selfAccount == account &&
         _lookupGeneration[operationId] == generation &&
         !_committedOperations.contains(operationId) &&
         _isFailedPendingLive(operationId);
   }
 
-  /// Registers an association that is valid for this page's account and pair.
-  /// The service already enforces account/pair scope; this is the display
+  /// Registers an association that is valid for this page's account and
+  /// conversation. The service already enforces scope; this is the display
   /// scope fence, and it also invalidates any in-flight lookup for the same
   /// operation because the commit is now definitive.
   void _recordAssociation(ChatMessage message, String operationId) {
     final String? self = _selfAccount;
     if (self == null ||
         message.senderAccount != self ||
-        message.targetAccount != widget.peer.account) {
+        !_matchesScope(message, _scopeId)) {
       return;
     }
     if (message.operationId != null && message.operationId != operationId) {
@@ -635,7 +960,7 @@ class _ChatPageState extends State<ChatPage> {
     if (account == null) {
       return;
     }
-    final String peer = widget.peer.account;
+    final String scope = _scopeId;
     final int pageEpoch = _pageEpoch;
     final int generation = (_lookupGeneration[operationId] ?? 0) + 1;
     _lookupGeneration[operationId] = generation;
@@ -644,13 +969,13 @@ class _ChatPageState extends State<ChatPage> {
       final OperationResult? result = await widget.chat.getOperation(
         operationId,
       );
-      if (!_lookupApplies(operationId, generation, account, peer, pageEpoch)) {
+      if (!_lookupApplies(operationId, generation, account, scope, pageEpoch)) {
         return;
       }
       final ChatMessage? message = result?.message;
       if (result?.status == OperationStatus.succeeded && message != null) {
         if (message.senderAccount != account ||
-            message.targetAccount != peer ||
+            !_matchesScope(message, scope) ||
             (message.operationId != null &&
                 message.operationId != operationId)) {
           return;
@@ -681,14 +1006,14 @@ class _ChatPageState extends State<ChatPage> {
         });
       }
     } on AuthFailure {
-      if (_lookupApplies(operationId, generation, account, peer, pageEpoch)) {
+      if (_lookupApplies(operationId, generation, account, scope, pageEpoch)) {
         setState(() {
           _unresolvedOperations.add(operationId);
           _confirmedFailedOperations.remove(operationId);
         });
       }
     } catch (_) {
-      if (_lookupApplies(operationId, generation, account, peer, pageEpoch)) {
+      if (_lookupApplies(operationId, generation, account, scope, pageEpoch)) {
         setState(() {
           _unresolvedOperations.add(operationId);
           _confirmedFailedOperations.remove(operationId);
@@ -716,21 +1041,79 @@ class _ChatPageState extends State<ChatPage> {
     _flushDisplayed();
   }
 
+  bool get _canConfirmDisplayed {
+    if (!mounted || !widget.active || _revoked || _modalCovers > 0) {
+      return false;
+    }
+    return _modalRoute?.isCurrent ?? true;
+  }
+
+  Future<T> _runCoveringRoute<T>(Future<T> Function() action) async {
+    _modalCovers += 1;
+    try {
+      return await action();
+    } finally {
+      if (mounted) {
+        _modalCovers = math.max(0, _modalCovers - 1);
+        _flushDisplayed();
+      }
+    }
+  }
+
   /// Sends staged display facts. Bookkeeping for account incoming unread only:
   /// it reuses confirmed display receipts, never the consumption ACK, and
   /// never an outbound read receipt.
   void _flushDisplayed() {
-    if (!mounted || !widget.active || _pendingDisplayed.isEmpty) {
+    if (!_canConfirmDisplayed || _pendingDisplayed.isEmpty) {
       return;
     }
     final List<ChatMessage> batch = List<ChatMessage>.of(
       _pendingDisplayed.values,
     );
     _pendingDisplayed.clear();
+    if (_isGroup) {
+      final GroupConversationItem? group = widget.group;
+      final SharedConversationService? shared = widget.shared;
+      if (group == null || shared == null) {
+        return;
+      }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!_canConfirmDisplayed) {
+          for (final ChatMessage message in batch) {
+            _pendingDisplayed[message.identity] = message;
+          }
+          return;
+        }
+        unawaited(
+          shared
+              .recordGroupDisplayedIncoming(
+                group: group,
+                ledger: widget.chat.ledger,
+                messages: batch,
+              )
+              .then<void>((int confirmed) {
+                if (confirmed > 0 && mounted) {
+                  widget.onGroupsChanged?.call();
+                }
+              })
+              .catchError((Object _) {
+                if (mounted) {
+                  for (final ChatMessage message in batch) {
+                    _pendingDisplayed.putIfAbsent(
+                      message.identity,
+                      () => message,
+                    );
+                  }
+                }
+              }),
+        );
+      });
+      return;
+    }
     unawaited(
       widget.chat
           .recordDisplayedIncoming(
-            peerAccount: widget.peer.account,
+            peerAccount: widget._peer!.account,
             messages: batch,
           )
           .then<void>((int _) {})
@@ -1142,7 +1525,7 @@ class _ChatPageState extends State<ChatPage> {
       messages: _messages,
       selfAccount: widget.chat.selfAccount,
       selfName: '我',
-      peerName: widget.peer.username,
+      peerName: _displayName,
     );
   }
 
@@ -1224,10 +1607,14 @@ class _ChatPageState extends State<ChatPage> {
       onReload: _reloadMediaSequence,
       localPreviewFor: _localPreviewFor,
       inlineVideoSupported: widget.viewerInlineVideoSupported,
+      conversation: _conversation,
+      access: _access,
     );
     // The route keeps the captured frame alive for both directions; see
     // [_captureOrigin] for why it is not disposed here.
-    await Navigator.of(context).push<void>(_mediaRoute(viewer, captured));
+    await _runCoveringRoute(
+      () => Navigator.of(context).push<void>(_mediaRoute(viewer, captured)),
+    );
   }
 
   /// Opens the existing viewer by expanding the tap target from its real list
@@ -1333,7 +1720,13 @@ class _ChatPageState extends State<ChatPage> {
     try {
       // Opening the stream is the click action. Nothing is requested for the
       // original video before this method runs.
-      handle = await widget.chat.openMediaStream(attachment.mediaId);
+      handle = _isGroup && _access != null
+          ? await widget.chat.mediaStreams.open(
+              attachment.mediaId,
+              conversation: _conversation,
+              access: _access,
+            )
+          : await widget.chat.openMediaStream(attachment.mediaId);
       _streamHandles.add(handle);
       if (!mounted) {
         return;
@@ -1408,7 +1801,38 @@ class _ChatPageState extends State<ChatPage> {
   /// Last confirmed presence from the shared directory, else the snapshot the
   /// row handed over when the page opened.
   Presence get _presenceOfPeer =>
-      widget.presence?.valueFor(widget.peer.account) ?? widget.peer.presence;
+      widget.presence?.valueFor(widget._peer!.account) ??
+      widget._peer!.presence;
+
+  Future<void> _openHeaderProfile() async {
+    final GroupConversationItem? group = widget.group;
+    if (group != null) {
+      final GroupService? groups = widget.groups;
+      if (groups == null) {
+        return;
+      }
+      await _runCoveringRoute(
+        () => openGroupProfileByNumber(
+          context,
+          groupNumber: group.groupNumber,
+          initialProfile: _liveGroupProfile,
+          groups: groups,
+          chat: widget.chat,
+          profile: widget.profile,
+          onOpenDirectChat: widget.onOpenDirectChat,
+          onGroupsChanged: widget.onGroupsChanged,
+        ),
+      );
+      return;
+    }
+    await _runCoveringRoute(
+      () => openPersonProfile(
+        context,
+        account: widget._peer!.account,
+        gateway: widget.profile,
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1454,11 +1878,17 @@ class _ChatPageState extends State<ChatPage> {
         title: Row(
           children: <Widget>[
             ProfileAvatar(
-              bytes: _avatars.bytesFor(widget.peer.account),
+              key: ChatPage.headerProfileKey,
+              bytes: _isGroup
+                  ? _groupAvatarBytes
+                  : _avatars.bytesFor(widget._peer!.account),
               size: ChatPage.headerAvatarSize,
               showBorder: true,
-              loading: _avatars.isLoading(widget.peer.account),
-              semanticLabel: '${widget.peer.username} 的头像',
+              loading: !_isGroup && _avatars.isLoading(widget._peer!.account),
+              semanticLabel: _isGroup
+                  ? '查看群 $_displayName 的资料'
+                  : '查看 $_displayName 的资料',
+              onTap: _openHeaderProfile,
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -1468,7 +1898,7 @@ class _ChatPageState extends State<ChatPage> {
                 mainAxisSize: MainAxisSize.min,
                 children: <Widget>[
                   Text(
-                    widget.peer.username,
+                    _displayName,
                     key: ChatPage.headerNameKey,
                     style: text.titleLarge?.copyWith(
                       fontSize: 17,
@@ -1478,16 +1908,26 @@ class _ChatPageState extends State<ChatPage> {
                     overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 2),
-                  Text(
-                    _presenceOfPeer == Presence.online ? '在线' : '离线',
-                    key: ChatPage.headerStatusKey,
-                    style: text.bodySmall?.copyWith(
-                      fontSize: 12.5,
-                      color: _presenceOfPeer == Presence.online
-                          ? AppColors.accent
-                          : AppColors.inkMuted,
+                  if (_isGroup)
+                    Text(
+                      '群号 ${widget.group!.groupNumber}',
+                      key: ChatPage.headerStatusKey,
+                      style: text.bodySmall?.copyWith(
+                        fontSize: 12.5,
+                        color: AppColors.inkMuted,
+                      ),
+                    )
+                  else
+                    Text(
+                      _presenceOfPeer == Presence.online ? '在线' : '离线',
+                      key: ChatPage.headerStatusKey,
+                      style: text.bodySmall?.copyWith(
+                        fontSize: 12.5,
+                        color: _presenceOfPeer == Presence.online
+                            ? AppColors.accent
+                            : AppColors.inkMuted,
+                      ),
                     ),
-                  ),
                 ],
               ),
             ),
@@ -1497,7 +1937,7 @@ class _ChatPageState extends State<ChatPage> {
           IconButton(
             key: ChatPage.refreshKey,
             tooltip: '刷新消息',
-            onPressed: _loadInitial,
+            onPressed: _revoked ? null : _loadInitial,
             icon: const Icon(Icons.refresh_rounded),
           ),
         ],
@@ -1531,9 +1971,13 @@ class _ChatPageState extends State<ChatPage> {
               ),
             ),
             ChatComposer(
-              key: ValueKey<String>('chat-composer-${widget.peer.account}'),
+              key: ValueKey<String>('chat-composer-$_scopeId'),
               chat: widget.chat,
-              peerAccount: widget.peer.account,
+              peerAccount: widget._peer?.account ?? '',
+              conversation: _conversation,
+              shared: widget.shared,
+              draftKey: _scopeId,
+              enabled: !_revoked,
               clipboard: widget.clipboard,
               coverExtractor: widget.coverExtractor,
               controller: _composerController,
@@ -1595,7 +2039,7 @@ class _ChatPageState extends State<ChatPage> {
             ),
             const SizedBox(height: AppSpacing.md),
             Text(
-              '和 ${widget.peer.username} 还没有消息',
+              _isGroup ? '$_displayName 还没有消息' : '和 $_displayName 还没有消息',
               key: ChatPage.emptyKey,
               style: const TextStyle(color: AppColors.inkMuted),
             ),
@@ -1619,6 +2063,9 @@ class _ChatPageState extends State<ChatPage> {
           ),
     ];
     bool sameRun(int left, int right) {
+      if (entries[left].message.isSystem || entries[right].message.isSystem) {
+        return false;
+      }
       return continuesMessageRun(
         entries[left].message.senderAccount,
         entries[left].message.createdAt,
@@ -1660,6 +2107,18 @@ class _ChatPageState extends State<ChatPage> {
         for (int index = 0; index < entries.length; index += 1) {
           final _TimelineEntry entry = entries[index];
           final ChatMessage message = entry.message;
+          if (message.isSystem) {
+            timeline.add(
+              _readingColumn(
+                key: ValueKey<String>('chat-system-column-${message.identity}'),
+                child: ChatSystemEntry(
+                  key: ValueKey<String>('chat-system-${message.identity}'),
+                  text: message.systemText ?? '',
+                ),
+              ),
+            );
+            continue;
+          }
           final bool committed = entry.pending == null;
           final bool runStart = index == 0 || !sameRun(index - 1, index);
           final bool runEnd =
@@ -1712,9 +2171,12 @@ class _ChatPageState extends State<ChatPage> {
             key: ValueKey<String>('chat-bubble-$bubbleKey'),
             message: message,
             selfAccount: widget.chat.selfAccount,
-            peerUsername: widget.peer.username,
+            peerUsername: (message.senderUsername?.isNotEmpty ?? false)
+                ? message.senderUsername!
+                : _displayName,
             chat: widget.chat,
             avatars: _avatars,
+            showSenderName: _isGroup,
             busy:
                 committed &&
                 attachment != null &&

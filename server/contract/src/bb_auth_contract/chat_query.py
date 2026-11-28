@@ -2,9 +2,15 @@
 
 from typing import Annotated, Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, model_serializer, model_validator
 
 from . import chat as v1
+from .conversation import (
+    ConversationId,
+    ConversationRef,
+    GroupConversationRef,
+    GroupNumber,
+)
 
 Position = Annotated[int, Field(ge=0, le=9007199254740991)]
 MessageId = Annotated[
@@ -15,20 +21,6 @@ MessageId = Annotated[
 class ConversationQuery(v1.Wire):
     after_account: str = Field(default="", pattern=r"^([1-9][0-9]{7})?$")
     limit: int = Field(default=50, ge=1, le=100)
-
-
-class ConversationRef(v1.Wire):
-    type: Literal["direct"] = "direct"
-    id: str = Field(pattern=r"^dm:[1-9][0-9]{7}:[1-9][0-9]{7}$")
-
-    @model_validator(mode="after")
-    def canonical(self):
-        _, low, high = self.id.split(":")
-        if low >= high:
-            raise ValueError(
-                "direct conversation requires two sorted distinct accounts"
-            )
-        return self
 
 
 class ConsumerConversationQuery(ConversationQuery):
@@ -94,9 +86,37 @@ class ConversationPage(v1.Wire):
     next_cursor: str | None
 
 
-class ConsumerConversation(Conversation):
+class MemberHistory(v1.Wire):
+    history_through: Position
+    membership_revision: Annotated[int, Field(ge=1, le=9007199254740991)]
+
+
+class ConversationDisplay(v1.Wire):
     conversation: ConversationRef
     display_name: str
+    last_message: v1.ChatMessage | None
+    last_activity_at: str
+    latest_position: Position
+
+
+class GroupConversation(ConversationDisplay, MemberHistory):
+    conversation: GroupConversationRef
+    group_number: GroupNumber
+    avatar_url: str
+    avatar_version: str
+
+
+class DirectConversation(Conversation):
+    conversation: ConversationRef
+
+
+class SharedConversationPage(v1.Wire):
+    items: list[DirectConversation | GroupConversation]
+    next_cursor: ConversationId | None
+
+
+class ConsumerState(v1.Wire):
+    latest_position: Position
     incoming_unread: Position
     latest_unread: MessagePreview | None
 
@@ -117,8 +137,17 @@ class ConsumerConversation(Conversation):
         return self
 
 
+class ConsumerConversation(Conversation, ConsumerState):
+    conversation: ConversationRef
+    display_name: str
+
+
+class ConsumerGroupConversation(GroupConversation, ConsumerState):
+    pass
+
+
 class ConsumerConversationPage(v1.Wire):
-    items: list[ConsumerConversation]
+    items: list[ConsumerConversation | ConsumerGroupConversation]
     next_cursor: str | None
 
 
@@ -128,7 +157,8 @@ class PositionRange(v1.Wire):
 
 
 class ContextMetadata(v1.Wire):
-    peer_account: v1.Account
+    peer_account: v1.Account | None = None
+    conversation: GroupConversationRef | None = None
     anchor_message_id: MessageId
     range: PositionRange
     before_has_more: bool
@@ -137,9 +167,17 @@ class ContextMetadata(v1.Wire):
     missing_truncated: bool
     reply_relations: Literal["unsupported"] = "unsupported"
 
+    @model_serializer(mode="wrap")
+    def omit_unused_target(self, handler):
+        value = handler(self)
+        for key in ("peer_account", "conversation"):
+            if value[key] is None:
+                value.pop(key)
+        return value
+
 
 class MessageContext(ContextMetadata):
-    items: list[v1.Message] = Field(min_length=1, max_length=99)
+    items: list[v1.ChatMessage] = Field(min_length=1, max_length=99)
 
 
 class VisibleQueryMessage(v1.Wire):

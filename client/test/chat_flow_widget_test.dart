@@ -210,55 +210,25 @@ void main() {
     },
   );
 
-  testWidgets('the removed bottom-left entry area reaches the conversation '
-      'underneath instead of opening Profile', (WidgetTester tester) async {
-    for (int i = 0; i < 10; i++) {
-      chat.users.add(
-        ChatUser(
-          account: '3000000$i',
-          username: 'member$i',
-          avatarUrl: '/avatars/3000000$i.png',
-          avatarVersion: 'v1',
-          presence: Presence.offline,
-        ),
+  testWidgets(
+    'the old floating profile area now belongs to primary navigation',
+    (tester) async {
+      await pumpAt(tester, const Size(390, 844));
+      const oldEntryPoint = Offset(54, 790);
+      expect(
+        tester.getRect(find.byType(NavigationBar)).contains(oldEntryPoint),
+        isTrue,
       );
-    }
-    await pumpAt(tester, const Size(390, 844));
-
-    // The removed floating entry was a 60x60 tap target at left 24 / bottom 24;
-    // this point sits inside that old rectangle.
-    const Offset oldEntryPoint = Offset(54, 790);
-    expect(
-      tester.getRect(find.byKey(HomeView.avatarEntryKey)).bottom,
-      lessThan(oldEntryPoint.dy),
-      reason: 'the only profile entry is now in the header',
-    );
-
-    String? covered;
-    for (int i = 0; i < 10; i++) {
-      final String account = '3000000$i';
-      final Finder row = find.byKey(UsersListView.rowKey(account));
-      if (row.evaluate().isEmpty) {
-        continue;
-      }
-      if (tester.getRect(row).contains(oldEntryPoint)) {
-        covered = account;
-        break;
-      }
-    }
-    expect(covered, isNotNull, reason: 'a row must sit under the old entry');
-
-    await tester.tapAt(oldEntryPoint);
-    await tester.pumpAndSettle();
-    expect(
-      find.byType(ProfilePanel),
-      findsNothing,
-      reason: 'the old floating tap area is gone',
-    );
-    final ChatPage page = tester.widget<ChatPage>(find.byType(ChatPage));
-    expect(page.peer.account, covered);
-    expect(tester.takeException(), isNull);
-  });
+      await tester.tap(find.byKey(HomeView.navNotificationsKey));
+      await tester.pumpAndSettle();
+      await tester.tapAt(oldEntryPoint);
+      await tester.pumpAndSettle();
+      expect(find.text('消息'), findsOneWidget);
+      expect(find.byType(ProfilePanel), findsNothing);
+      expect(find.byType(ChatPage), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('tapping a user opens ordered chat and the composer sends', (
     WidgetTester tester,

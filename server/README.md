@@ -26,6 +26,8 @@ uv run --project server --locked python -m bb_server.export_openapi server/opena
 uv run --project server --locked pytest server/tests -q
 ```
 
+群资料的成功响应附带 `X-BB-Group-Profile-Revision`。在同一群与登录身份内，按数值依次比较本人会员代次、公开资料版本和当前可见的邀请设置版本。资料和版本取自同一事务快照。非成员的邀请设置版本为 `0`，其他人的入群或离群也不会改变其响应头。旧服务端可能省略此头，客户端以有界重查处理冲突。JSON 正文与本地 MCP 结果沿用原结构。
+
 备份使用 SQLite backup API，拒绝覆盖已有目标文件并检查完整性：
 
 ```bash

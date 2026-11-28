@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { probeProfileCovers } from "./profile-cover.mjs";
+import { probeGroups } from "./groups.mjs";
 
 const [packageRoot, evidenceRoot, bundlePath, clientConfig] =
   process.argv.slice(2);
@@ -199,6 +200,10 @@ try {
       },
     });
     await writeFile(resolve(root, "profile-cover.json"), JSON.stringify(result, null, 2) + "\n");
+    console.log(JSON.stringify(result));
+  } else if (process.env.BB_PRODUCT_CASES === "groups") {
+    const result = await probeGroups({client, ctx, tool, executeTool, settings, until, modelRequests});
+    await writeFile(resolve(root, "groups.json"), JSON.stringify(result, null, 2) + "\n");
     console.log(JSON.stringify(result));
   } else {
     await testInstalledChat();

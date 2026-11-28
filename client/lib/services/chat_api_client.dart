@@ -70,6 +70,31 @@ class ChatApiClient {
     required String targetAccount,
     required String clientNonce,
     required List<MessagePart> content,
+  }) => _sendMessageRequest(
+    token: token,
+    targetAccount: targetAccount,
+    clientNonce: clientNonce,
+    content: content,
+  );
+
+  Future<ChatMessage> sendConversationMessage({
+    required String token,
+    required ConversationRef conversation,
+    required String clientNonce,
+    required List<MessagePart> content,
+  }) => _sendMessageRequest(
+    token: token,
+    conversation: conversation,
+    clientNonce: clientNonce,
+    content: content,
+  );
+
+  Future<ChatMessage> _sendMessageRequest({
+    required String token,
+    String? targetAccount,
+    ConversationRef? conversation,
+    required String clientNonce,
+    required List<MessagePart> content,
   }) async {
     if (content.isEmpty) {
       throw const AuthFailure(
@@ -83,7 +108,8 @@ class ChatApiClient {
       _query('/messages'),
       token: token,
       payload: <String, dynamic>{
-        'target_account': targetAccount,
+        'target_account': ?targetAccount,
+        if (conversation != null) 'conversation': conversation.toJson(),
         'client_nonce': clientNonce,
         'content': content.map((MessagePart p) => p.toJson()).toList(),
       },
@@ -97,19 +123,94 @@ class ChatApiClient {
     required String targetAccount,
     required String clientNonce,
     required String mediaId,
+  }) => _sendAttachmentRequest(
+    token: token,
+    targetAccount: targetAccount,
+    clientNonce: clientNonce,
+    mediaId: mediaId,
+  );
+
+  Future<ChatMessage> sendConversationAttachment({
+    required String token,
+    required ConversationRef conversation,
+    required String clientNonce,
+    required String mediaId,
+  }) => _sendAttachmentRequest(
+    token: token,
+    conversation: conversation,
+    clientNonce: clientNonce,
+    mediaId: mediaId,
+  );
+
+  Future<ChatMessage> _sendAttachmentRequest({
+    required String token,
+    String? targetAccount,
+    ConversationRef? conversation,
+    required String clientNonce,
+    required String mediaId,
   }) async {
     final _RawResponse response = await _send(
       'POST',
       _query('/messages/attachments'),
       token: token,
       payload: <String, dynamic>{
-        'target_account': targetAccount,
+        'target_account': ?targetAccount,
+        if (conversation != null) 'conversation': conversation.toJson(),
         'client_nonce': clientNonce,
         'media_id': mediaId,
       },
     );
     _requireSuccess(response, const <int>{200});
     return ChatMessage.fromJson(_decodeMessages(response));
+  }
+
+  /// One page of shared conversation history (`GET /chat/conversations/{id}/messages`).
+  ///
+  /// Works for both direct (`dm:<low>:<high>`) and group (`group:<hex>`)
+  /// conversations using the shared `after_position` / `before_position` /
+  /// `limit` paging contract.
+  Future<MessagePage> conversationHistory({
+    required String token,
+    required ConversationRef conversation,
+    int? afterPosition = 0,
+    int? beforePosition,
+    int limit = 50,
+  }) async {
+    if (afterPosition != null && beforePosition != null) {
+      throw const AuthFailure(
+        status: 422,
+        code: 'validation_error',
+        message: 'before_position 与 after_position 互斥',
+      );
+    }
+    final Uri url = _query(
+      '/chat/conversations/${Uri.encodeComponent(conversation.id)}/messages',
+      <String, String>{
+        if (beforePosition != null)
+          'before_position': '$beforePosition'
+        else if ((afterPosition ?? 0) > 0)
+          'after_position': '$afterPosition',
+        if (limit != 50) 'limit': '$limit',
+      },
+    );
+    final _RawResponse response = await _send('GET', url, token: token);
+    _requireSuccess(response, const <int>{200});
+    return MessagePage.fromJson(_decodeMessages(response));
+  }
+
+  /// Shared direct + active group conversations (`GET /chat/conversations`).
+  Future<SharedConversationPage> sharedConversations({
+    required String token,
+    String afterId = '',
+    int limit = 50,
+  }) async {
+    final Uri url = _query('/chat/conversations', <String, String>{
+      if (afterId.isNotEmpty) 'after_id': afterId,
+      if (limit != 50) 'limit': '$limit',
+    });
+    final _RawResponse response = await _send('GET', url, token: token);
+    _requireSuccess(response, const <int>{200});
+    return SharedConversationPage.fromJson(_decodeMessages(response));
   }
 
   /// One page of a pair's history.
@@ -227,6 +328,39 @@ class ChatApiClient {
     required String filename,
     required String mimeType,
     String? coverMediaId,
+  }) => _uploadMediaRequest(
+    token: token,
+    targetAccount: targetAccount,
+    bytes: bytes,
+    filename: filename,
+    mimeType: mimeType,
+    coverMediaId: coverMediaId,
+  );
+
+  Future<Attachment> uploadConversationMedia({
+    required String token,
+    required ConversationRef conversation,
+    required Uint8List bytes,
+    required String filename,
+    required String mimeType,
+    String? coverMediaId,
+  }) => _uploadMediaRequest(
+    token: token,
+    conversation: conversation,
+    bytes: bytes,
+    filename: filename,
+    mimeType: mimeType,
+    coverMediaId: coverMediaId,
+  );
+
+  Future<Attachment> _uploadMediaRequest({
+    required String token,
+    String? targetAccount,
+    ConversationRef? conversation,
+    required Uint8List bytes,
+    required String filename,
+    required String mimeType,
+    String? coverMediaId,
   }) async {
     if (bytes.length > chatMaxUploadBytes) {
       throw const AuthFailure(
@@ -247,7 +381,11 @@ class ChatApiClient {
       body.add(utf8.encode('$value\r\n'));
     }
 
-    field('target_account', targetAccount);
+    if (conversation != null) {
+      field('conversation_id', conversation.id);
+    } else {
+      field('target_account', targetAccount!);
+    }
     if (coverMediaId != null && coverMediaId.isNotEmpty) {
       field('cover_media_id', coverMediaId);
     }
@@ -385,10 +523,12 @@ class ChatApiClient {
     required String token,
     int afterEventId = 0,
     int limit = 100,
+    bool includeGroups = false,
   }) async {
     final Uri url = _query('/events', <String, String>{
       if (afterEventId > 0) 'after_event_id': '$afterEventId',
       if (limit != 100) 'limit': '$limit',
+      if (includeGroups) 'include_groups': 'true',
     });
     final _RawResponse response = await _send('GET', url, token: token);
     _requireSuccess(response, const <int>{200});
@@ -396,11 +536,18 @@ class ChatApiClient {
   }
 
   /// Hints only: the durable replay remains `GET /events`.
-  Future<WebSocket> connectEvents(String token) async {
+  Future<WebSocket> connectEvents(String token) =>
+      connectAllEvents(token, includeGroups: false);
+
+  /// Event-hint WebSocket with optional `include_groups=true`.
+  Future<WebSocket> connectAllEvents(
+    String token, {
+    bool includeGroups = true,
+  }) async {
     final Uri ws = baseUri.replace(
       scheme: baseUri.scheme == 'https' ? 'wss' : 'ws',
       path: '/events',
-      query: '',
+      query: includeGroups ? 'include_groups=true' : '',
     );
     // Dedicated handshake client: unlike Future.timeout alone this closes a
     // stalled upgrade. Successful WebSockets detach their socket from the pool.
@@ -492,7 +639,8 @@ class ChatApiClient {
       void strip(Object? node) {
         if (node is Map<String, dynamic>) {
           if (node.containsKey('sender_account') &&
-              node.containsKey('target_account')) {
+              (node.containsKey('target_account') ||
+                  node.containsKey('conversation'))) {
             node.remove('operation_id');
           }
           for (final child in node.values) {
@@ -649,15 +797,20 @@ class MediaProbe {
   final int? byteSize;
 }
 
-/// One durable server event. Only IDs/positions; never message bodies.
+/// One durable server event. Only IDs/positions/access state; never bodies.
 class ServerEvent {
   const ServerEvent({
     required this.eventId,
     required this.type,
     required this.occurredAt,
-    required this.messageId,
-    required this.peerAccount,
-    required this.position,
+    this.messageId = '',
+    this.peerAccount = '',
+    this.position = 0,
+    this.conversation,
+    this.active,
+    this.membershipRevision,
+    this.historyThrough,
+    this.notificationId = '',
   });
 
   final int eventId;
@@ -666,6 +819,21 @@ class ServerEvent {
   final String messageId;
   final String peerAccount;
   final int position;
+  final ConversationRef? conversation;
+  final bool? active;
+  final int? membershipRevision;
+  final int? historyThrough;
+  final String notificationId;
+
+  bool get isAccessChanged => type == 'conversation.access_changed';
+
+  bool get isNotificationAvailable => type == 'notification.available';
+
+  bool get isGroupMessage =>
+      type == 'message.available' && (conversation?.isGroup ?? false);
+
+  bool get isDirectMessage =>
+      type == 'message.available' && !(conversation?.isGroup ?? false);
 
   factory ServerEvent.fromJson(Object? json) {
     if (json is! Map<String, dynamic>) {
@@ -674,21 +842,89 @@ class ServerEvent {
     final Object? eventId = json['event_id'];
     final Object? type = json['type'];
     final Object? occurredAt = json['occurred_at'];
+    if (eventId is! int || type is! String || occurredAt is! String) {
+      throw const FormatException('event has invalid fields');
+    }
+    final DateTime? timestamp = DateTime.tryParse(occurredAt);
+    if (timestamp == null) {
+      throw const FormatException('event occurred_at is invalid');
+    }
+
+    if (type == 'notification.available') {
+      final Object? notificationId = json['notification_id'];
+      if (notificationId is! String || notificationId.isEmpty) {
+        throw const FormatException('notification event has invalid fields');
+      }
+      return ServerEvent(
+        eventId: eventId,
+        type: type,
+        occurredAt: timestamp.toUtc(),
+        notificationId: notificationId,
+      );
+    }
+
+    if (type == 'conversation.access_changed') {
+      final ConversationRef conversation = ConversationRef.fromJson(
+        json['conversation'],
+        requireGroup: true,
+      );
+      final Object? active = json['active'];
+      final Object? membershipRevision = json['membership_revision'];
+      final Object? historyThrough = json['history_through'];
+      if (active is! bool ||
+          membershipRevision is! int ||
+          membershipRevision < 1 ||
+          historyThrough is! int ||
+          historyThrough < 0) {
+        throw const FormatException('access event has invalid fields');
+      }
+      return ServerEvent(
+        eventId: eventId,
+        type: type,
+        occurredAt: timestamp.toUtc(),
+        conversation: conversation,
+        active: active,
+        membershipRevision: membershipRevision,
+        historyThrough: historyThrough,
+      );
+    }
+
     final Object? messageId = json['message_id'];
-    final Object? peer = json['peer_account'];
     final Object? position = json['position'];
-    if (eventId is! int ||
-        type is! String ||
-        occurredAt is! String ||
-        messageId is! String ||
-        peer is! String ||
-        position is! int) {
+    if (messageId is! String || position is! int) {
+      throw const FormatException('message event has invalid fields');
+    }
+    final Object? rawConversation = json['conversation'];
+    if (rawConversation != null) {
+      final ConversationRef conversation = ConversationRef.fromJson(
+        rawConversation,
+        requireGroup: true,
+      );
+      final Object? membershipRevision = json['membership_revision'];
+      if (membershipRevision is! int || membershipRevision < 1) {
+        throw const FormatException(
+          'group message event missing membership_revision',
+        );
+      }
+      return ServerEvent(
+        eventId: eventId,
+        type: type,
+        occurredAt: timestamp.toUtc(),
+        messageId: messageId,
+        position: position,
+        conversation: conversation,
+        membershipRevision: membershipRevision,
+      );
+    }
+
+    final Object? peer = json['peer_account'];
+    if (peer is! String) {
       throw const FormatException('event has invalid fields');
     }
     return ServerEvent(
       eventId: eventId,
       type: type,
-      occurredAt: DateTime.parse(occurredAt).toUtc(),
+      occurredAt: timestamp.toUtc(),
       messageId: messageId,
       peerAccount: peer,
       position: position,

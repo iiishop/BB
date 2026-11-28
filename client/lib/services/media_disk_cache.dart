@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'conversation_access.dart';
+
 /// Byte-level cache for image bytes that must survive a restart.
 ///
 /// [SpaceImageLoader] keeps bytes in memory so re-reading one picture during a
@@ -16,10 +18,13 @@ import 'package:path_provider/path_provider.dart';
 /// is needed. Exactly one `|` per key: the file name swaps it for `_` and the
 /// reverse parse splits on the first `_`.
 class MediaDiskCache {
-  MediaDiskCache({this.maxBytes = 256 * 1024 * 1024});
+  MediaDiskCache({this.maxBytes = 256 * 1024 * 1024, this.directory});
 
   /// Soft ceiling. Oldest entries are evicted once a write crosses it.
   final int maxBytes;
+
+  /// Optional explicit directory (used by tests instead of `path_provider`).
+  final Directory? directory;
 
   Directory? _dir;
 
@@ -49,30 +54,32 @@ class MediaDiskCache {
     // Widget tests run without a path_provider implementation; asking for the
     // cache directory there never completes and hangs pumpAndSettle. The loader
     // then just works from memory, which is what those tests exercise anyway.
-    if (Platform.environment.containsKey('FLUTTER_TEST')) {
+    if (directory == null && Platform.environment.containsKey('FLUTTER_TEST')) {
       _unavailable = true;
       return;
     }
     try {
-      final Directory base = await getApplicationCacheDirectory();
-      final Directory dir = Directory(
-        '${base.path}${Platform.pathSeparator}space-media',
-      );
+      final Directory dir =
+          directory ??
+          Directory(
+            '${(await getApplicationCacheDirectory()).path}${Platform.pathSeparator}space-media',
+          );
       if (!dir.existsSync()) {
         dir.createSync(recursive: true);
       }
       _dir = dir;
       // Index what a previous run left behind, newest last so eviction walks
       // from the least recently written entry.
-      final List<File> files = dir
-          .listSync()
-          .whereType<File>()
-          .where((File f) => f.path.endsWith('.bin'))
-          .toList()
-        ..sort(
-          (File a, File b) =>
-              a.statSync().modified.compareTo(b.statSync().modified),
-        );
+      final List<File> files =
+          dir
+              .listSync()
+              .whereType<File>()
+              .where((File f) => f.path.endsWith('.bin'))
+              .toList()
+            ..sort(
+              (File a, File b) =>
+                  a.statSync().modified.compareTo(b.statSync().modified),
+            );
       for (final File file in files) {
         final String key = _keyOf(file);
         final int size = file.statSync().size;
@@ -144,6 +151,35 @@ class MediaDiskCache {
     }
   }
 
+  /// Deletes a single cached entry from memory and disk.
+  Future<void> delete(String key) async {
+    await _ensureReady();
+    final int? size = _sizes.remove(key);
+    if (size != null) {
+      _bytes -= size;
+      _order.remove(key);
+    }
+    final File? file = _file(key);
+    try {
+      if (file != null && file.existsSync()) {
+        file.deleteSync();
+      }
+    } catch (error) {
+      debugPrint('[media-cache] 删除失败 $key：$error');
+    }
+  }
+
+  /// Deletes every cached entry whose key matches [predicate] (used on group
+  /// revocation or identity clear).
+  Future<int> deleteWhere(bool Function(String key) predicate) async {
+    await _ensureReady();
+    final List<String> targets = _sizes.keys.where(predicate).toList();
+    for (final String key in targets) {
+      await delete(key);
+    }
+    return targets.length;
+  }
+
   void _touch(String key, int size) {
     final int? previous = _sizes[key];
     if (previous != null) {
@@ -188,3 +224,33 @@ MediaDiskCache? _shared;
 /// and evict without seeing the other's files, so the ceiling would drift and
 /// one surface could delete an entry the other is about to read.
 MediaDiskCache sharedMediaDiskCache() => _shared ??= MediaDiskCache();
+
+/// Registers a [MediaDiskCache] purger on [access] so any group revocation
+/// deletes `chat-original-<scopeTag>|*` entries for `(server, account,
+/// conversationId)` even when no viewer is currently open.
+ConversationCachePurger registerDiskCachePurger({
+  required ConversationAccessController access,
+  required MediaDiskCache disk,
+  required Uri serverUri,
+}) {
+  final String server = serverUri.toString();
+  Future<void> purger(
+    String account,
+    String conversationId,
+    Set<String> mediaIds,
+  ) async {
+    final String tag = ConversationAccessController.diskScopeTag(
+      server: server,
+      account: account,
+      conversationId: conversationId,
+    );
+    final String prefix = 'chat-original-$tag|';
+    await disk.deleteWhere((String key) => key.startsWith(prefix));
+    for (final String mediaId in mediaIds) {
+      await disk.delete('$prefix$mediaId');
+    }
+  }
+
+  access.registerPurger(purger);
+  return purger;
+}

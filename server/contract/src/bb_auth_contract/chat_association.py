@@ -8,7 +8,7 @@ HEADER = "X-BB-Message-Association"
 VERSION = "1"
 
 
-class AssociatedMessage(chat.Message):
+class PrivateAssociation(chat.Wire):
     operation_id: chat.OperationId | None = None
 
     @model_serializer(mode="wrap")
@@ -19,12 +19,23 @@ class AssociatedMessage(chat.Message):
         return value
 
 
+class AssociatedMessage(chat.Message, PrivateAssociation):
+    pass
+
+
+class AssociatedGroupMessage(chat.GroupMessage, PrivateAssociation):
+    pass
+
+
+AssociatedChatMessage = AssociatedMessage | AssociatedGroupMessage | chat.SystemMessage
+
+
 class AssociatedMessagePage(chat.MessagePage):
-    items: list[AssociatedMessage]
+    items: list[AssociatedChatMessage]
 
 
 class AssociatedOperation(chat.Operation):
-    message: AssociatedMessage | None = None
+    message: AssociatedChatMessage | None = None
 
 
 class AssociatedConversation(chat_query.Conversation):
@@ -35,5 +46,17 @@ class AssociatedConversationPage(chat_query.ConversationPage):
     items: list[AssociatedConversation]
 
 
+class AssociatedDirectConversation(chat_query.DirectConversation):
+    last_message: AssociatedMessage
+
+
+class AssociatedGroupConversation(chat_query.GroupConversation):
+    last_message: AssociatedChatMessage | None
+
+
+class AssociatedSharedConversationPage(chat_query.SharedConversationPage):
+    items: list[AssociatedDirectConversation | AssociatedGroupConversation]
+
+
 class AssociatedMessageContext(chat_query.MessageContext):
-    items: list[AssociatedMessage]
+    items: list[AssociatedChatMessage]

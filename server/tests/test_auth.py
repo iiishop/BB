@@ -8,6 +8,7 @@ from argon2 import PasswordHasher
 from fastapi.testclient import TestClient
 
 from bb_server.app import create_app
+from bb_server.storage import SCHEMA_VERSION
 
 
 @pytest.fixture
@@ -153,7 +154,7 @@ def test_migration_restart_and_constraints(api):
         )
     with sqlite3.connect(path) as db:
         db.execute("PRAGMA foreign_keys=ON")
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 8
+        assert db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
         with pytest.raises(sqlite3.IntegrityError):
             db.execute(
                 "INSERT INTO sessions(token_hash,account) VALUES (?,?)",

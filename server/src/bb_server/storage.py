@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 LOCK_WAIT_SECONDS = 3.0
+SCHEMA_VERSION = 11
 logger = logging.getLogger(__name__)
 
 
@@ -72,7 +73,7 @@ def migrate(path: Path):
     path.parent.mkdir(parents=True, exist_ok=True)
     with connection(path, write=True) as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 8:
+        if version > SCHEMA_VERSION:
             raise RuntimeError("Database schema is newer than this server")
         for number, filename in [
             (1, "001_auth.sql"),
@@ -83,6 +84,9 @@ def migrate(path: Path):
             (6, "006_covers.sql"),
             # Version 8 supersedes the identical index rebuild in version 7.
             (8, "007_cover_hashes.sql"),
+            (9, "009_shared_chat.sql"),
+            (10, "010_group_lifecycle.sql"),
+            (11, "011_group_profile_revision.sql"),
         ]:
             if version >= number:
                 continue

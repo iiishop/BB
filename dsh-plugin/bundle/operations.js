@@ -149,7 +149,12 @@ export class Operations {
       session: exec.agent.session.id,
       sessionCreatedAt: exec.agent.session.header.createdAt,
       kind: exec.name.startsWith("mcp__bb__space_") ? "space" : exec.name === "mcp__bb__start_download" ? "download" : "send",
-      peer: exec.arguments.target_account,
+      peer: exec.arguments.conversation?.type === "group"
+        ? exec.arguments.conversation.id
+        : exec.arguments.conversation?.type === "direct"
+          ? exec.arguments.conversation.id.split(":").slice(1)
+            .find(member => member !== this.client.identity.account)
+          : exec.arguments.target_account,
       sourcePeers: [...new Set(sourcePeers)],
       payloadDigest,
       state: "dispatching",

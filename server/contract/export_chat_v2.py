@@ -31,7 +31,9 @@ RETIRED_ROUTES = [
 ]
 
 
-def schema():
+def schema(*, include_groups=True):
+    operations = v2.OPERATIONS if include_groups else v2.BOOTSTRAP | v2.BUSINESS
+    errors = v2.ERRORS | v2.GROUP_ERRORS if include_groups else v2.ERRORS
     components = {}
 
     def model(model):
@@ -48,7 +50,7 @@ def schema():
 
     error = model(v2.ErrorEnvelope)
     paths = {}
-    for name, (path, request, response, status, owner) in v2.OPERATIONS.items():
+    for name, (path, request, response, status, owner) in operations.items():
         paths[path] = {
             "post": {
                 "operationId": name,
@@ -67,7 +69,7 @@ def schema():
                             "description": "See x-bb-errors; no input or capability echo",
                             "content": {"application/json": {"schema": error}},
                         }
-                        for code in sorted({e[0] for e in v2.ERRORS.values()})
+                        for code in sorted({e[0] for e in errors.values()})
                     },
                 },
             }
@@ -91,7 +93,7 @@ def schema():
         },
         "x-bb-errors": {
             name: {"status": code, "recovery": recovery}
-            for name, (code, recovery) in v2.ERRORS.items()
+            for name, (code, recovery) in errors.items()
         },
         "x-bb-contract": "docs/contracts/dea467-local-v2.md",
         "x-bb-local-business-policy": "Only protected /v2 business routes; no unguarded fallback or legacy alias migration.",
@@ -218,7 +220,8 @@ def fixtures():
         inputs[name]["message_id"] = message["id"]
     cover = {
         "cover_url": f"/covers/{AUTH['account']}",
-        "cover_version": "sha256-" + hashlib.sha256(
+        "cover_version": "sha256-"
+        + hashlib.sha256(
             base64.b64decode(inputs["update_cover"]["base64"], validate=True)
         ).hexdigest(),
     }
@@ -232,8 +235,19 @@ def fixtures():
         },
         "update_cover": cover,
         "get_notifications": {"enabled": True, "revision": 1, "skip_source_through": 0},
-        "set_notifications": {"enabled": False, "revision": 2, "skip_source_through": 0},
-        "notification_changes": {"deferred": [], "settings": {"enabled": True, "revision": 1, "skip_source_through": 0}, "items": [], "next_cursor": 0, "through_cursor": 0, "has_more": False},
+        "set_notifications": {
+            "enabled": False,
+            "revision": 2,
+            "skip_source_through": 0,
+        },
+        "notification_changes": {
+            "deferred": [],
+            "settings": {"enabled": True, "revision": 1, "skip_source_through": 0},
+            "items": [],
+            "next_cursor": 0,
+            "through_cursor": 0,
+            "has_more": False,
+        },
         "view_avatar": {
             "account": AUTH["account"],
             "mime_type": "image/png",
@@ -317,6 +331,60 @@ def fixtures():
         "events_read": event_page,
         "events_wait": {**event_page, "reason": "events"},
     }
+    target = {"conversation": {"type": "group", "id": "group:" + "a" * 32}}
+    profile = {
+        **target,
+        "group_number": "10000002",
+        "name": "Synthetic group",
+        "description": "",
+        "avatar_url": "/avatars/group.png",
+        "avatar_version": "v1",
+        "status": "active",
+    }
+    notice = {
+        "id": "notice-1",
+        "type": "group_invitation",
+        "title": "Join group",
+        "text": "A synthetic invitation",
+        "created_at": "2026-01-01T00:00:00Z",
+        "read": False,
+        "state": "pending",
+        "actions": [{"id": "accept", "label": "Accept", "available": True}],
+        "link": {"type": "group", "id": "10000002"},
+    }
+    group_inputs = {
+        "create_group": {"operation_id": "create-example", "name": profile["name"]},
+        "find_group": {"group_number": profile["group_number"]},
+        "update_group": {**target, "allow_member_invites": True},
+        "list_directory": {},
+        "list_group_members": target,
+        "invite_to_group": {**target, "accounts": ["10000002"]},
+        "apply_to_group": target,
+        "leave_group": target,
+        "remove_group_member": {**target, "account": "10000002"},
+        "dissolve_group": target,
+        "list_notices": {"filter": "pending"},
+        "mark_notice_read": {"notification_id": notice["id"]},
+        "execute_notice_action": {"notification_id": notice["id"], "action_id": "accept"},
+    }
+    inputs.update({name: {**body, "expected_identity": IDENTITY}
+                   for name, body in group_inputs.items()})
+    results.update({
+        "create_group": {**profile, "role": "owner", "can_invite": True},
+        "find_group": profile,
+        "update_group": {**profile, "allow_member_invites": True},
+        "list_directory": {"items": [], "next_cursor": None},
+        "list_group_members": {"items": [], "next_cursor": None},
+        "invite_to_group": {"request_ids": ["request-1"]},
+        "apply_to_group": {"request_ids": ["request-1"]},
+        "leave_group": profile,
+        "remove_group_member": profile,
+        "dissolve_group": {**profile, "status": "dissolved"},
+        "list_notices": {"items": [notice], "next_cursor": None, "unread_count": 1,
+                         "pending_count": 1},
+        "mark_notice_read": {**notice, "read": True},
+        "execute_notice_action": {**notice, "state": "processed", "actions": []},
+    })
     outputs = {
         name: {"identity": IDENTITY, "result": value} for name, value in results.items()
     }
@@ -338,7 +406,7 @@ def fixtures():
         }
     )
     invalid = []
-    for name in v2.BUSINESS:
+    for name in v2.BUSINESS | v2.GROUP_BUSINESS:
         body = copy.deepcopy(inputs[name])
         body.pop("expected_identity")
         invalid.append(
@@ -474,11 +542,30 @@ def fixtures():
         "inputs": {
             n: v2.OPERATIONS[n][1]
             .model_validate(v)
-            .model_dump(exclude_unset=n == "update_avatar")
+            .model_dump(
+                exclude_unset=n == "update_avatar",
+                exclude={"conversation"}
+                if n
+                in {
+                    "send_message",
+                    "send_attachment",
+                    "read_messages",
+                    "wait_messages",
+                    "ack_messages",
+                    "get_consumption",
+                }
+                else None,
+            )
             for n, v in inputs.items()
         },
         "outputs": {
-            n: v2.OPERATIONS[n][2].model_validate(v).model_dump()
+            n: v2.OPERATIONS[n][2]
+            .model_validate(v)
+            .model_dump(
+                exclude={"result": {"business_notices"}}
+                if n == "notification_changes"
+                else None
+            )
             for n, v in outputs.items()
         },
         "invalid_inputs": invalid,
@@ -493,7 +580,7 @@ def fixtures():
                     }
                 },
             }
-            for n, (s, _) in v2.ERRORS.items()
+            for n, (s, _) in (v2.ERRORS | v2.GROUP_ERRORS).items()
         },
         "semantic_cases": [
             {
@@ -547,6 +634,7 @@ def fixtures():
 def export():
     for name, value in [
         ("chat-v2-openapi.json", schema()),
+        ("chat-v2-group-openapi.json", schema(include_groups=True)),
         ("chat-v2-cases.json", fixtures()),
     ]:
         (ROOT / name).write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n")

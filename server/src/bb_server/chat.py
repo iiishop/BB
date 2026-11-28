@@ -1,4 +1,4 @@
-"""SQLite-authoritative private chat and durable replay. All identities are server-derived."""
+"""SQLite-authoritative chat and durable replay. All identities are server-derived."""
 
 import asyncio
 import hashlib
@@ -7,16 +7,17 @@ import json
 import os
 import re
 import uuid
-from datetime import UTC, datetime
+from contextlib import asynccontextmanager
 from typing import Annotated
 
+import anyio
 import regex
 from bb_auth_contract import ContractError, ErrorResponse
 from bb_auth_contract.chat import (
     Account,
+    ChatMessage,
     EventPage,
     Media,
-    Message,
     MessagePage,
     Operation,
     SendAttachment,
@@ -26,13 +27,25 @@ from bb_auth_contract.chat import (
 from bb_auth_contract.chat_association import (
     HEADER,
     VERSION,
+    AssociatedChatMessage,
     AssociatedConversationPage,
-    AssociatedMessage,
     AssociatedMessageContext,
     AssociatedMessagePage,
     AssociatedOperation,
+    AssociatedSharedConversationPage,
 )
-from bb_auth_contract.chat_query import ConversationPage, MessageContext, MessageId
+from bb_auth_contract.chat_query import (
+    ConversationPage,
+    MessageContext,
+    MessageId,
+    SharedConversationPage,
+)
+from bb_auth_contract.conversation import (
+    CONVERSATION_PATTERN,
+    ConversationId,
+    GroupNumber,
+    direct_id,
+)
 from bb_auth_contract.media import THUMB_MIME, MediaVariant
 from fastapi import (
     Depends,
@@ -50,8 +63,8 @@ from PIL import Image as PILImage
 from PIL import UnidentifiedImageError
 from starlette.concurrency import run_in_threadpool
 
-from . import chat_queries
-from .avatars import default_version, etag_matches
+from . import chat_queries, chat_store
+from .avatars import avatar_bytes, etag_matches
 from .media_thumbnails import thumbnail
 from .storage import connection, find_session
 
@@ -70,16 +83,34 @@ MIMES = {
 }
 
 
+class AuthorizedGroupFile(FileResponse):
+    """Pin the file while the membership snapshot still protects its path."""
+
+    def __init__(self, path, **kwargs):
+        self.file = path.open("rb")
+        try:
+            super().__init__(path, stat_result=os.fstat(self.file.fileno()), **kwargs)
+        except BaseException:
+            self.file.close()
+            raise
+
+    @asynccontextmanager
+    async def _open_file(self):
+        yield anyio.wrap_file(self.file)
+
+    async def __call__(self, scope, receive, send):
+        # The ASGI server must stream the authorized handle rather than reopen
+        # the name after a concurrent dissolve has unlinked it.
+        extensions = dict(scope.get("extensions", {}))
+        extensions.pop("http.response.pathsend", None)
+        try:
+            await super().__call__({**scope, "extensions": extensions}, receive, send)
+        finally:
+            self.file.close()
+
+
 def fail(status, code):
     raise ContractError(status, code, code)
-
-
-def peer_exists(db, account, peer):
-    if (
-        account == peer
-        or not db.execute("SELECT 1 FROM users WHERE account=?", (peer,)).fetchone()
-    ):
-        fail(404, "not_found")
 
 
 def media_view(row):
@@ -93,24 +124,52 @@ def media_view(row):
     }
 
 
-def readable_media(db, mid, account, peer=None):
-    row = db.execute(
-        "SELECT * FROM media WHERE id=? AND (owner=? OR peer=?)",
-        (mid, account, account),
-    ).fetchone()
-    if not row or (peer and {row["owner"], row["peer"]} != {account, peer}):
+def readable_media(db, mid, account, *, peer=None, group_id=None):
+    row = db.execute("SELECT * FROM media WHERE id=?", (mid,)).fetchone()
+    if row is None:
         fail(404, "not_found")
+    if row["group_id"] is None:
+        participants = {row["owner"], row["peer"]}
+        if (
+            group_id
+            or account not in participants
+            or (peer and peer not in participants)
+        ):
+            fail(404, "not_found")
+    else:
+        if peer or (group_id and row["group_id"] != group_id):
+            fail(404, "not_found")
+        chat_store.active_membership(db, account, row["group_id"])
+        if (
+            row["owner"] != account
+            and not db.execute(
+                """SELECT 1 FROM chat_message_media r JOIN messages m ON m.id=r.message_id
+            WHERE m.conversation_id=? AND r.media_id IN (
+                SELECT ? UNION ALL SELECT id FROM media WHERE cover_id=?
+            ) LIMIT 1""",
+                (row["group_id"], mid, mid),
+            ).fetchone()
+        ):
+            fail(404, "not_found")
     return row
 
 
 def submit(path, account, body, clock, association=False):
-    request = body.model_dump()
-    digest = hashlib.sha256(
-        json.dumps(
-            request, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-        ).encode()
-    ).hexdigest()
     with connection(path, write=True) as db:
+        conversation_id, peer = chat_store.resolve_send(
+            db, account, body.target_account, body.conversation
+        )
+        request = body.model_dump(exclude={"conversation", "target_account"})
+        if peer:
+            # Keep the pre-migration digest and make explicit dm sends replay it.
+            request["target_account"] = peer
+        else:
+            request["conversation"] = chat_store.group_ref(conversation_id)
+        digest = hashlib.sha256(
+            json.dumps(
+                request, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+            ).encode()
+        ).hexdigest()
         prior = db.execute(
             "SELECT * FROM operations WHERE account=? AND operation_id=?",
             (account, body.client_nonce),
@@ -118,98 +177,55 @@ def submit(path, account, body, clock, association=False):
         if prior:
             if prior["request_hash"] != digest:
                 fail(409, "conflict")
-            message = json.loads(
-                db.execute(
-                    "SELECT payload FROM messages WHERE id=?", (prior["message_id"],)
-                ).fetchone()[0]
-            )
-            return chat_queries.project_messages(db, account, [message], association)[0]
-        peer_exists(db, account, body.target_account)
-        content, attachment = None, None
-        if isinstance(body, SendMessage):
-            content = request["content"]
-            for part in content:
-                if (
-                    part["type"] == "image"
-                    and readable_media(
-                        db, part["media_id"], account, body.target_account
-                    )["kind"]
-                    != "image"
-                ):
-                    fail(422, "validation_error")
+            if prior["message_id"] is None:
+                fail(404, "not_found")
+            return chat_queries.find_message(
+                db, account, prior["message_id"], association
+            )[0]
+        scope = {"peer": peer} if peer else {"group_id": conversation_id}
+        created_at = chat_store.timestamp(clock)
+        fields = {"sender_account": account, "content": None, "attachment": None}
+        if peer:
+            chat_store.ensure_direct(db, account, peer, created_at)
+            fields["target_account"] = peer
         else:
-            row = readable_media(db, body.media_id, account, body.target_account)
+            fields.update(
+                conversation=chat_store.group_ref(conversation_id),
+                sender_username=db.execute(
+                    "SELECT username FROM users WHERE account=?", (account,)
+                ).fetchone()[0],
+            )
+        media_ids = []
+        if isinstance(body, SendMessage):
+            fields.update(kind="body", content=request["content"])
+            for part in request["content"]:
+                if part["type"] == "image":
+                    media_id = part["media_id"]
+                    if (
+                        readable_media(db, media_id, account, **scope)["kind"]
+                        != "image"
+                    ):
+                        fail(422, "validation_error")
+                    media_ids.append(media_id)
+        else:
+            row = readable_media(db, body.media_id, account, **scope)
             if row["kind"] == "image":
                 fail(422, "validation_error")
-            attachment = media_view(row)
-        low, high = sorted([account, body.target_account])
-        position = db.execute(
-            "SELECT COALESCE(MAX(position),0)+1 FROM messages WHERE pair_low=? AND pair_high=?",
-            (low, high),
-        ).fetchone()[0]
-        message = {
-            "id": uuid.uuid4().hex,
-            "position": position,
-            "sender_account": account,
-            "target_account": body.target_account,
-            "created_at": datetime.fromtimestamp(clock(), UTC)
-            .isoformat(timespec="milliseconds")
-            .replace("+00:00", "Z"),
-            "kind": "body" if content is not None else "attachment",
-            "content": content,
-            "attachment": attachment,
-        }
-        db.execute(
-            "INSERT INTO messages VALUES (?,?,?,?,?,?,?,?)",
-            (
-                message["id"],
-                low,
-                high,
-                position,
-                account,
-                body.target_account,
-                message["created_at"],
-                json.dumps(message, ensure_ascii=False),
-            ),
+            fields.update(kind="attachment", attachment=media_view(row))
+            media_ids.append(body.media_id)
+        message = chat_store.append_entry(
+            db,
+            conversation_id,
+            fields,
+            created_at,
+            direct_accounts=(account, peer) if peer else None,
+            media_ids=media_ids,
         )
         db.execute(
             "INSERT INTO operations VALUES (?,?,?,?)",
             (account, body.client_nonce, digest, message["id"]),
         )
-        for receiver, other in (
-            (account, body.target_account),
-            (body.target_account, account),
-        ):
-            db.execute(
-                "INSERT INTO events(account,message_id,peer,position,occurred_at) VALUES (?,?,?,?,?)",
-                (receiver, message["id"], other, position, message["created_at"]),
-            )
         return chat_queries.project_messages(db, account, [message], association)[0]
-
-
-def event_page(path, account, after, limit):
-    with connection(path) as db:
-        rows = db.execute(
-            "SELECT * FROM events WHERE account=? AND event_id>? ORDER BY event_id LIMIT ?",
-            (account, after, limit + 1),
-        ).fetchall()
-    items = [
-        {
-            "version": 1,
-            "event_id": r["event_id"],
-            "type": "message.available",
-            "occurred_at": r["occurred_at"],
-            "message_id": r["message_id"],
-            "peer_account": r["peer"],
-            "position": r["position"],
-        }
-        for r in rows[:limit]
-    ]
-    return {
-        "items": items,
-        "next_event_id": items[-1]["event_id"] if items else after,
-        "has_more": len(rows) > limit,
-    }
 
 
 def preview(message):
@@ -226,7 +242,7 @@ def preview(message):
     return "".join(clusters[:20]) + ("…" if len(clusters) > 20 else "")
 
 
-def install(app, path, directory, current_session, clock):
+def install(app, path, directory, group_avatar_directory, current_session, clock):
     identity_dep = Depends(current_session)
     errors = {s: {"model": ErrorResponse} for s in (401, 404, 409, 413, 415, 422, 503)}
 
@@ -254,7 +270,7 @@ def install(app, path, directory, current_session, clock):
 
     @app.post(
         "/messages",
-        response_model=Message | AssociatedMessage,
+        response_model=ChatMessage | AssociatedChatMessage,
         responses=association_responses,
     )
     def send(body: SendMessage, identity=identity_dep, association=association_dep):
@@ -262,7 +278,7 @@ def install(app, path, directory, current_session, clock):
 
     @app.post(
         "/messages/attachments",
-        response_model=Message | AssociatedMessage,
+        response_model=ChatMessage | AssociatedChatMessage,
         responses=association_responses,
     )
     def attach(
@@ -280,17 +296,17 @@ def install(app, path, directory, current_session, clock):
     ):
         with connection(path) as db:
             row = db.execute(
-                "SELECT m.payload FROM operations o JOIN messages m ON m.id=o.message_id WHERE o.account=? AND o.operation_id=?",
+                "SELECT message_id FROM operations WHERE account=? AND operation_id=?",
                 (identity["account"], operation_id),
             ).fetchone()
-            if not row:
+            if not row or row[0] is None:
                 fail(404, "not_found")
             return {
                 "operation_id": operation_id,
                 "kind": "message",
                 "status": "succeeded",
-                "message": chat_queries.project_messages(
-                    db, identity["account"], [json.loads(row[0])], association
+                "message": chat_queries.find_message(
+                    db, identity["account"], row[0], association
                 )[0],
             }
 
@@ -310,7 +326,7 @@ def install(app, path, directory, current_session, clock):
         return chat_queries.history(
             path,
             identity["account"],
-            account,
+            direct_id(identity["account"], account),
             after_position,
             before_position,
             limit,
@@ -333,8 +349,76 @@ def install(app, path, directory, current_session, clock):
         )
 
     @app.get(
+        "/chat/conversations/{conversation_id}/messages",
+        response_model=MessagePage | AssociatedMessagePage,
+        responses=association_responses,
+    )
+    def shared_history(
+        conversation_id: ConversationId,
+        after_position: int | None = Query(None, ge=0, le=9007199254740991),
+        before_position: int | None = Query(None, ge=1, le=9007199254740991),
+        limit: int = Query(50, ge=1, le=100),
+        identity=identity_dep,
+        association=association_dep,
+    ):
+        return chat_queries.history(
+            path,
+            identity["account"],
+            conversation_id,
+            after_position,
+            before_position,
+            limit,
+            association,
+        )
+
+    @app.get(
+        "/chat/conversations",
+        response_model=SharedConversationPage | AssociatedSharedConversationPage,
+        responses=association_responses,
+    )
+    def shared_conversations(
+        after_id: str = Query("", pattern=CONVERSATION_PATTERN[:-1] + "?$"),
+        limit: int = Query(50, ge=1, le=100),
+        identity=identity_dep,
+        association=association_dep,
+    ):
+        return chat_queries.conversations(
+            path, identity["account"], after_id, limit, association, shared=True
+        )
+
+    @app.get(
+        "/chat/groups/{group_number}/avatar", responses=errors, response_class=Response
+    )
+    def group_avatar(
+        group_number: GroupNumber,
+        request: Request,
+        variant: Annotated[MediaVariant, Query()] = "original",
+        identity=identity_dep,
+    ):
+        with connection(path, write=True) as db:
+            row = db.execute(
+                "SELECT avatar_path,avatar_version FROM chat_groups WHERE group_number=?",
+                (group_number,),
+            ).fetchone()
+            if row is None:
+                fail(404, "not_found")
+            data, version, mime = avatar_bytes(
+                row, group_avatar_directory, group_number, variant
+            )
+        etag = '"' + version + '"'
+        headers = {
+            "ETag": etag,
+            "Cache-Control": "private, no-cache",
+            "Vary": "Authorization",
+            "X-Content-Type-Options": "nosniff",
+        }
+        if etag_matches(request.headers.get("if-none-match"), etag):
+            return Response(status_code=304, headers=headers)
+        return Response(data, media_type=mime, headers=headers)
+
+    @app.get(
         "/messages/{message_id}",
-        response_model=Message | AssociatedMessage,
+        response_model=ChatMessage | AssociatedChatMessage,
         responses=association_responses,
     )
     def get_message(
@@ -370,17 +454,14 @@ def install(app, path, directory, current_session, clock):
         identity=identity_dep,
     ):
         with connection(path) as db:
-            rows = db.execute(
-                "SELECT *, EXISTS(SELECT 1 FROM sessions s WHERE s.account=users.account AND s.status='online' AND s.last_seen_at>?) AS online FROM users WHERE account!=? AND account>? ORDER BY account LIMIT ?",
-                (clock() - 90, identity["account"], after_account, limit + 1),
-            ).fetchall()
+            rows = chat_queries.directory_rows(
+                db, identity["account"], after_account, limit, clock()
+            )
             items = []
             for row in rows[:limit]:
-                last = db.execute(
-                    "SELECT payload FROM messages WHERE pair_low=? AND pair_high=? ORDER BY position DESC LIMIT 1",
-                    tuple(sorted([identity["account"], row["account"]])),
-                ).fetchone()
-                m = json.loads(last[0]) if last else None
+                m = chat_queries.latest_direct_message(
+                    db, identity["account"], row["account"]
+                )
                 sender = (
                     db.execute(
                         "SELECT username FROM users WHERE account=?",
@@ -391,12 +472,7 @@ def install(app, path, directory, current_session, clock):
                 )
                 items.append(
                     {
-                        "account": row["account"],
-                        "username": row["username"],
-                        "avatar_url": f"/avatars/{row['account']}.png",
-                        "avatar_version": row["avatar_version"]
-                        or default_version(row["account"]),
-                        "presence": "online" if row["online"] else "offline",
+                        **chat_queries.user_card(row),
                         "last_contact_at": m["created_at"] if m else None,
                         "last_message": {
                             "id": m["id"],
@@ -414,26 +490,30 @@ def install(app, path, directory, current_session, clock):
             }
 
     @app.get("/events/head", responses=errors)
-    def event_head(identity=identity_dep):
+    def event_head(include_groups: bool = False, identity=identity_dep):
         with connection(path) as db:
-            value = db.execute(
-                "SELECT COALESCE(MAX(event_id),0) FROM events WHERE account=?",
-                (identity["account"],),
-            ).fetchone()[0]
-        return {"event_id": value}
+            return {
+                "event_id": chat_queries.event_head(
+                    db, identity["account"], include_groups=include_groups
+                )
+            }
 
     @app.get("/events", response_model=EventPage, responses=errors)
     def replay(
         after_event_id: int = Query(0, ge=0),
         limit: int = Query(100, ge=1, le=500),
+        include_groups: bool = False,
         identity=identity_dep,
     ):
-        return event_page(path, identity["account"], after_event_id, limit)
+        return chat_queries.event_page(
+            path, identity["account"], after_event_id, limit, include_groups
+        )
 
     @app.websocket("/events")
     async def events(socket: WebSocket):
         auth = socket.headers.get("authorization", "")
-        if socket.query_params or not auth.startswith("Bearer "):
+        group_opt_in = socket.query_params.multi_items() == [("include_groups", "true")]
+        if (socket.query_params and not group_opt_in) or not auth.startswith("Bearer "):
             await socket.close(code=4401)
             return
         digest = hashlib.sha256(auth[7:].encode()).hexdigest()
@@ -450,7 +530,12 @@ def install(app, path, directory, current_session, clock):
                     await socket.close(code=4401)
                     break
                 page = await run_in_threadpool(
-                    event_page, path, session["account"], after, 500
+                    chat_queries.event_page,
+                    path,
+                    session["account"],
+                    after,
+                    500,
+                    group_opt_in,
                 )
                 for item in page["items"]:
                     await socket.send_json(item)
@@ -465,11 +550,14 @@ def install(app, path, directory, current_session, clock):
 
     @app.post("/media", response_model=Media, responses=errors)
     def upload(
-        target_account: Annotated[Account, Form()],
         file: Annotated[UploadFile, File()],
+        target_account: Annotated[Account | None, Form()] = None,
+        conversation_id: Annotated[ConversationId | None, Form()] = None,
         cover_media_id: str | None = Form(None),
         identity=identity_dep,
     ):
+        if (target_account is None) == (conversation_id is None):
+            fail(422, "validation_error")
         mime = file.content_type
         if mime not in MIMES:
             fail(415, "unsupported_media_type")
@@ -513,13 +601,16 @@ def install(app, path, directory, current_session, clock):
         mid = uuid.uuid4().hex
         directory.mkdir(parents=True, exist_ok=True)
         with connection(path, write=True) as db:
-            peer_exists(db, identity["account"], target_account)
+            account = identity["account"]
+            target = conversation_id or direct_id(account, target_account)
+            peer = chat_store.authorize(db, account, target)
+            group_id = None if peer else target
             if kind == "video" and not cover_media_id:
                 fail(422, "validation_error")
             if cover_media_id and (
                 kind != "video"
                 or readable_media(
-                    db, cover_media_id, identity["account"], target_account
+                    db, cover_media_id, account, peer=peer, group_id=group_id
                 )["kind"]
                 != "image"
             ):
@@ -539,16 +630,17 @@ def install(app, path, directory, current_session, clock):
                 finally:
                     os.close(fd)
             db.execute(
-                "INSERT INTO media VALUES (?,?,?,?,?,?,?,?)",
+                "INSERT INTO media VALUES (?,?,?,?,?,?,?,?,?)",
                 (
                     mid,
-                    identity["account"],
-                    target_account,
+                    account,
+                    peer,
                     mime,
                     kind,
                     filename,
                     len(data),
                     cover_media_id,
+                    group_id,
                 ),
             )
             return media_view(
@@ -590,19 +682,30 @@ def install(app, path, directory, current_session, clock):
     ):
         with connection(path) as db:
             row = readable_media(db, media_id, identity["account"])
+        if row["group_id"] is None:
+            return download_file(row, request, variant, FileResponse)
+        # The writer lock also serializes file lookup with GC on databases
+        # opened in WAL mode. Release it as soon as the authorized file is open.
+        with connection(path, write=True) as db:
+            row = readable_media(db, media_id, identity["account"])
+            return download_file(row, request, variant, AuthorizedGroupFile)
+
+    def download_file(row, request, variant, response_type):
         if variant == "thumb":
             if row["kind"] != "image":
                 fail(415, "unsupported_media_type")
             derivative, etag = thumbnail(directory, row["id"])
             headers = {
-                "Cache-Control": "private, no-cache",
+                "Cache-Control": "private, no-store"
+                if row["group_id"]
+                else "private, no-cache",
                 "X-Content-Type-Options": "nosniff",
                 "ETag": etag,
             }
             if etag_matches(request.headers.get("if-none-match"), etag):
                 return Response(status_code=304, headers=headers)
-            return FileResponse(derivative, media_type=THUMB_MIME, headers=headers)
-        return FileResponse(
+            return response_type(derivative, media_type=THUMB_MIME, headers=headers)
+        return response_type(
             directory / row["id"],
             media_type=row["mime"],
             filename=row["filename"],

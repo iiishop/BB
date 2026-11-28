@@ -506,6 +506,163 @@
       "consumer_id": "consumer-A",
       "expected_binding_revision": 1,
       "session_id": "session-two"
+    },
+    "create_group": {
+      "operation_id": "create-example",
+      "name": "Synthetic group",
+      "description": "",
+      "invitees": [],
+      "avatar": null,
+      "expected_identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      }
+    },
+    "find_group": {
+      "group_number": "10000002",
+      "expected_identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      }
+    },
+    "update_group": {
+      "conversation": {
+        "type": "group",
+        "id": "group:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "name": null,
+      "description": null,
+      "allow_member_invites": true,
+      "avatar": null,
+      "reset_avatar": false,
+      "expected_identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      }
+    },
+    "list_directory": {
+      "after_account": "",
+      "limit": 50,
+      "expected_identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      }
+    },
+    "list_group_members": {
+      "after_account": "",
+      "limit": 50,
+      "conversation": {
+        "type": "group",
+        "id": "group:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "expected_identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      }
+    },
+    "invite_to_group": {
+      "conversation": {
+        "type": "group",
+        "id": "group:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "accounts": [
+        "10000002"
+      ],
+      "expected_identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      }
+    },
+    "apply_to_group": {
+      "conversation": {
+        "type": "group",
+        "id": "group:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "expected_identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      }
+    },
+    "leave_group": {
+      "conversation": {
+        "type": "group",
+        "id": "group:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "expected_identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      }
+    },
+    "remove_group_member": {
+      "conversation": {
+        "type": "group",
+        "id": "group:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "account": "10000002",
+      "expected_identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      }
+    },
+    "dissolve_group": {
+      "conversation": {
+        "type": "group",
+        "id": "group:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "expected_identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      }
+    },
+    "list_notices": {
+      "filter": "pending",
+      "cursor": null,
+      "limit": 50,
+      "expected_identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      }
+    },
+    "mark_notice_read": {
+      "notification_id": "notice-1",
+      "expected_identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      }
+    },
+    "execute_notice_action": {
+      "notification_id": "notice-1",
+      "action_id": "accept",
+      "expected_identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      }
     }
   },
   "outputs": {
@@ -667,29 +824,7 @@
       "result": {
         "items": [
           {
-            "peer_account": "10000002",
-            "display_name": "Bob",
-            "last_message": {
-              "id": "example-message",
-              "position": 1,
-              "sender_account": "10000002",
-              "target_account": "10000001",
-              "created_at": "2026-11-11T00:00:00Z",
-              "kind": "body",
-              "content": [
-                {
-                  "type": "text",
-                  "text": "hello"
-                }
-              ],
-              "attachment": null
-            },
-            "last_activity_at": "2026-11-11T00:00:00Z",
             "latest_position": 1,
-            "conversation": {
-              "type": "direct",
-              "id": "dm:10000001:10000002"
-            },
             "incoming_unread": 1,
             "latest_unread": {
               "message_id": "example-message",
@@ -700,7 +835,29 @@
               "truncated": false
             },
             "consumed_through": 0,
-            "unconsumed_positions": 1
+            "unconsumed_positions": 1,
+            "peer_account": "10000002",
+            "display_name": "Bob",
+            "last_message": {
+              "id": "example-message",
+              "position": 1,
+              "created_at": "2026-11-11T00:00:00Z",
+              "sender_account": "10000002",
+              "kind": "body",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "hello"
+                }
+              ],
+              "attachment": null,
+              "target_account": "10000001"
+            },
+            "last_activity_at": "2026-11-11T00:00:00Z",
+            "conversation": {
+              "type": "direct",
+              "id": "dm:10000001:10000002"
+            }
           }
         ],
         "next_cursor": null
@@ -718,9 +875,8 @@
           "message": {
             "id": "example-message",
             "position": 1,
-            "sender_account": "10000002",
-            "target_account": "10000001",
             "created_at": "2026-11-11T00:00:00Z",
+            "sender_account": "10000002",
             "kind": "body",
             "content": [
               {
@@ -728,7 +884,8 @@
                 "text": "hello"
               }
             ],
-            "attachment": null
+            "attachment": null,
+            "target_account": "10000001"
           },
           "presentation": {
             "receipt_id": "example-receipt",
@@ -768,9 +925,8 @@
             "message": {
               "id": "example-message",
               "position": 1,
-              "sender_account": "10000002",
-              "target_account": "10000001",
               "created_at": "2026-11-11T00:00:00Z",
+              "sender_account": "10000002",
               "kind": "body",
               "content": [
                 {
@@ -778,7 +934,8 @@
                   "text": "hello"
                 }
               ],
-              "attachment": null
+              "attachment": null,
+              "target_account": "10000001"
             },
             "presentation": {
               "receipt_id": "example-receipt",
@@ -817,9 +974,8 @@
       "result": {
         "id": "sent-message",
         "position": 1,
-        "sender_account": "10000001",
-        "target_account": "10000002",
         "created_at": "2026-11-11T00:00:00Z",
+        "sender_account": "10000001",
         "kind": "body",
         "content": [
           {
@@ -835,7 +991,8 @@
             "text": "after"
           }
         ],
-        "attachment": null
+        "attachment": null,
+        "target_account": "10000002"
       }
     },
     "send_attachment": {
@@ -848,9 +1005,8 @@
       "result": {
         "id": "sent-attachment",
         "position": 1,
-        "sender_account": "10000001",
-        "target_account": "10000002",
         "created_at": "2026-11-11T00:00:00Z",
+        "sender_account": "10000001",
         "kind": "attachment",
         "content": null,
         "attachment": {
@@ -860,7 +1016,8 @@
           "mime_type": "application/pdf",
           "byte_size": 10,
           "cover_media_id": null
-        }
+        },
+        "target_account": "10000002"
       }
     },
     "read_messages": {
@@ -876,9 +1033,8 @@
             "message": {
               "id": "example-message",
               "position": 1,
-              "sender_account": "10000002",
-              "target_account": "10000001",
               "created_at": "2026-11-11T00:00:00Z",
+              "sender_account": "10000002",
               "kind": "body",
               "content": [
                 {
@@ -886,7 +1042,8 @@
                   "text": "hello"
                 }
               ],
-              "attachment": null
+              "attachment": null,
+              "target_account": "10000001"
             },
             "presentation": {
               "receipt_id": "example-receipt",
@@ -917,9 +1074,8 @@
             "message": {
               "id": "example-message",
               "position": 1,
-              "sender_account": "10000002",
-              "target_account": "10000001",
               "created_at": "2026-11-11T00:00:00Z",
+              "sender_account": "10000002",
               "kind": "body",
               "content": [
                 {
@@ -927,7 +1083,8 @@
                   "text": "hello"
                 }
               ],
-              "attachment": null
+              "attachment": null,
+              "target_account": "10000001"
             },
             "presentation": {
               "receipt_id": "example-receipt",
@@ -1039,9 +1196,8 @@
         "message": {
           "id": "sent-message",
           "position": 1,
-          "sender_account": "10000001",
-          "target_account": "10000002",
           "created_at": "2026-11-11T00:00:00Z",
+          "sender_account": "10000001",
           "kind": "body",
           "content": [
             {
@@ -1057,7 +1213,8 @@
               "text": "after"
             }
           ],
-          "attachment": null
+          "attachment": null,
+          "target_account": "10000002"
         },
         "task_id": null,
         "error_code": null
@@ -1146,6 +1303,279 @@
         "next_cursor": 1,
         "has_more": false,
         "reason": "events"
+      }
+    },
+    "create_group": {
+      "identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      },
+      "result": {
+        "group_number": "10000002",
+        "conversation": {
+          "type": "group",
+          "id": "group:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "name": "Synthetic group",
+        "description": "",
+        "avatar_url": "/avatars/group.png",
+        "avatar_version": "v1",
+        "status": "active",
+        "role": "owner",
+        "can_invite": true,
+        "allow_member_invites": null
+      }
+    },
+    "find_group": {
+      "identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      },
+      "result": {
+        "group_number": "10000002",
+        "conversation": {
+          "type": "group",
+          "id": "group:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "name": "Synthetic group",
+        "description": "",
+        "avatar_url": "/avatars/group.png",
+        "avatar_version": "v1",
+        "status": "active",
+        "role": null,
+        "can_invite": false,
+        "allow_member_invites": null
+      }
+    },
+    "update_group": {
+      "identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      },
+      "result": {
+        "group_number": "10000002",
+        "conversation": {
+          "type": "group",
+          "id": "group:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "name": "Synthetic group",
+        "description": "",
+        "avatar_url": "/avatars/group.png",
+        "avatar_version": "v1",
+        "status": "active",
+        "role": null,
+        "can_invite": false,
+        "allow_member_invites": true
+      }
+    },
+    "list_directory": {
+      "identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      },
+      "result": {
+        "items": [],
+        "next_cursor": null
+      }
+    },
+    "list_group_members": {
+      "identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      },
+      "result": {
+        "items": [],
+        "next_cursor": null
+      }
+    },
+    "invite_to_group": {
+      "identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      },
+      "result": {
+        "request_ids": [
+          "request-1"
+        ]
+      }
+    },
+    "apply_to_group": {
+      "identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      },
+      "result": {
+        "request_ids": [
+          "request-1"
+        ]
+      }
+    },
+    "leave_group": {
+      "identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      },
+      "result": {
+        "group_number": "10000002",
+        "conversation": {
+          "type": "group",
+          "id": "group:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "name": "Synthetic group",
+        "description": "",
+        "avatar_url": "/avatars/group.png",
+        "avatar_version": "v1",
+        "status": "active",
+        "role": null,
+        "can_invite": false,
+        "allow_member_invites": null
+      }
+    },
+    "remove_group_member": {
+      "identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      },
+      "result": {
+        "group_number": "10000002",
+        "conversation": {
+          "type": "group",
+          "id": "group:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "name": "Synthetic group",
+        "description": "",
+        "avatar_url": "/avatars/group.png",
+        "avatar_version": "v1",
+        "status": "active",
+        "role": null,
+        "can_invite": false,
+        "allow_member_invites": null
+      }
+    },
+    "dissolve_group": {
+      "identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      },
+      "result": {
+        "group_number": "10000002",
+        "conversation": {
+          "type": "group",
+          "id": "group:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "name": "Synthetic group",
+        "description": "",
+        "avatar_url": "/avatars/group.png",
+        "avatar_version": "v1",
+        "status": "dissolved",
+        "role": null,
+        "can_invite": false,
+        "allow_member_invites": null
+      }
+    },
+    "list_notices": {
+      "identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      },
+      "result": {
+        "items": [
+          {
+            "id": "notice-1",
+            "type": "group_invitation",
+            "title": "Join group",
+            "text": "A synthetic invitation",
+            "created_at": "2026-01-01T00:00:00Z",
+            "read": false,
+            "state": "pending",
+            "actions": [
+              {
+                "id": "accept",
+                "label": "Accept",
+                "available": true
+              }
+            ],
+            "link": {
+              "type": "group",
+              "id": "10000002"
+            }
+          }
+        ],
+        "next_cursor": null,
+        "unread_count": 1,
+        "pending_count": 1
+      }
+    },
+    "mark_notice_read": {
+      "identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      },
+      "result": {
+        "id": "notice-1",
+        "type": "group_invitation",
+        "title": "Join group",
+        "text": "A synthetic invitation",
+        "created_at": "2026-01-01T00:00:00Z",
+        "read": true,
+        "state": "pending",
+        "actions": [
+          {
+            "id": "accept",
+            "label": "Accept",
+            "available": true
+          }
+        ],
+        "link": {
+          "type": "group",
+          "id": "10000002"
+        }
+      }
+    },
+    "execute_notice_action": {
+      "identity": {
+        "account": "10000001",
+        "auth_generation": "generation-A-1",
+        "consumer_id": "consumer-A",
+        "binding_revision": 1
+      },
+      "result": {
+        "id": "notice-1",
+        "type": "group_invitation",
+        "title": "Join group",
+        "text": "A synthetic invitation",
+        "created_at": "2026-01-01T00:00:00Z",
+        "read": false,
+        "state": "processed",
+        "actions": [],
+        "link": {
+          "type": "group",
+          "id": "10000002"
+        }
       }
     },
     "negotiate": {
@@ -1422,6 +1852,123 @@
         "after_cursor": 0,
         "limit": 50,
         "timeout": 120
+      }
+    },
+    {
+      "id": "create_group-missing-identity",
+      "operation": "create_group",
+      "input": {
+        "operation_id": "create-example",
+        "name": "Synthetic group"
+      }
+    },
+    {
+      "id": "find_group-missing-identity",
+      "operation": "find_group",
+      "input": {
+        "group_number": "10000002"
+      }
+    },
+    {
+      "id": "update_group-missing-identity",
+      "operation": "update_group",
+      "input": {
+        "conversation": {
+          "type": "group",
+          "id": "group:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "allow_member_invites": true
+      }
+    },
+    {
+      "id": "list_directory-missing-identity",
+      "operation": "list_directory",
+      "input": {}
+    },
+    {
+      "id": "list_group_members-missing-identity",
+      "operation": "list_group_members",
+      "input": {
+        "conversation": {
+          "type": "group",
+          "id": "group:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      }
+    },
+    {
+      "id": "invite_to_group-missing-identity",
+      "operation": "invite_to_group",
+      "input": {
+        "conversation": {
+          "type": "group",
+          "id": "group:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "accounts": [
+          "10000002"
+        ]
+      }
+    },
+    {
+      "id": "apply_to_group-missing-identity",
+      "operation": "apply_to_group",
+      "input": {
+        "conversation": {
+          "type": "group",
+          "id": "group:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      }
+    },
+    {
+      "id": "leave_group-missing-identity",
+      "operation": "leave_group",
+      "input": {
+        "conversation": {
+          "type": "group",
+          "id": "group:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      }
+    },
+    {
+      "id": "remove_group_member-missing-identity",
+      "operation": "remove_group_member",
+      "input": {
+        "conversation": {
+          "type": "group",
+          "id": "group:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "account": "10000002"
+      }
+    },
+    {
+      "id": "dissolve_group-missing-identity",
+      "operation": "dissolve_group",
+      "input": {
+        "conversation": {
+          "type": "group",
+          "id": "group:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      }
+    },
+    {
+      "id": "list_notices-missing-identity",
+      "operation": "list_notices",
+      "input": {
+        "filter": "pending"
+      }
+    },
+    {
+      "id": "mark_notice_read-missing-identity",
+      "operation": "mark_notice_read",
+      "input": {
+        "notification_id": "notice-1"
+      }
+    },
+    {
+      "id": "execute_notice_action-missing-identity",
+      "operation": "execute_notice_action",
+      "input": {
+        "notification_id": "notice-1",
+        "action_id": "accept"
       }
     },
     {
@@ -1937,6 +2484,36 @@
       "body": {
         "error": {
           "code": "unsupported_media_type",
+          "message": "Synthetic contract error",
+          "fields": []
+        }
+      }
+    },
+    "forbidden": {
+      "status": 403,
+      "body": {
+        "error": {
+          "code": "forbidden",
+          "message": "Synthetic contract error",
+          "fields": []
+        }
+      }
+    },
+    "action_unavailable": {
+      "status": 409,
+      "body": {
+        "error": {
+          "code": "action_unavailable",
+          "message": "Synthetic contract error",
+          "fields": []
+        }
+      }
+    },
+    "group_unavailable": {
+      "status": 409,
+      "body": {
+        "error": {
+          "code": "group_unavailable",
           "message": "Synthetic contract error",
           "fields": []
         }

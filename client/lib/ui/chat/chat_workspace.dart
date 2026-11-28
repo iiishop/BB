@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import '../../app.dart';
 import '../../models/chat_models.dart';
 import '../../services/chat_service.dart';
+import '../../services/group_service.dart';
 import '../../services/presence_directory.dart';
 import '../../services/profile_service.dart';
 import '../display_features.dart';
@@ -25,6 +26,10 @@ class ChatWorkspace extends StatefulWidget {
     required this.chat,
     required this.profile,
     required this.listHeader,
+    this.shared,
+    this.groups,
+    this.refreshTrigger,
+    this.onGroupsChanged,
     this.presence,
     this.onlineFilter,
     this.onSessionExpired,
@@ -35,6 +40,10 @@ class ChatWorkspace extends StatefulWidget {
 
   final ChatService chat;
   final ProfileGateway profile;
+  final SharedConversationService? shared;
+  final GroupService? groups;
+  final Listenable? refreshTrigger;
+  final VoidCallback? onGroupsChanged;
 
   /// Brand/「消息」header shown above the conversation list only.
   final Widget listHeader;
@@ -169,6 +178,9 @@ class _ChatWorkspaceState extends State<ChatWorkspace>
   String? _selected;
   final List<String> _opened = <String>[];
   final Map<String, ChatUser> _peers = <String, ChatUser>{};
+  final Map<String, GroupConversationItem> _groups =
+      <String, GroupConversationItem>{};
+  final ValueNotifier<int> _groupsRefresh = ValueNotifier<int>(0);
   bool _autoSelected = false;
   bool _resetScheduled = false;
 
@@ -186,31 +198,133 @@ class _ChatWorkspaceState extends State<ChatWorkspace>
       ));
 
   @override
+  void initState() {
+    super.initState();
+    widget.refreshTrigger?.addListener(_bumpLocalGroupsRefresh);
+  }
+
+  @override
+  void didUpdateWidget(covariant ChatWorkspace oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.refreshTrigger != widget.refreshTrigger) {
+      oldWidget.refreshTrigger?.removeListener(_bumpLocalGroupsRefresh);
+      widget.refreshTrigger?.addListener(_bumpLocalGroupsRefresh);
+    }
+  }
+
+  void _bumpLocalGroupsRefresh() {
+    _groupsRefresh.value += 1;
+  }
+
+  void _notifyGroupsChanged() {
+    if (widget.onGroupsChanged != null) {
+      widget.onGroupsChanged!.call();
+    } else {
+      _bumpLocalGroupsRefresh();
+    }
+  }
+
+  @override
   void dispose() {
+    widget.refreshTrigger?.removeListener(_bumpLocalGroupsRefresh);
+    _groupsRefresh.dispose();
     _ownedFoldController?.dispose();
     super.dispose();
   }
 
   void _select(ChatUser user, {bool markViewed = true}) {
-    if (!_peers.containsKey(user.account)) {
+    if (!_opened.contains(user.account)) {
       _opened.add(user.account);
     }
+    _peers[user.account] = user;
     if (_selected == user.account) {
       return;
     }
     setState(() {
-      _peers[user.account] = user;
       _selected = user.account;
     });
     if (markViewed) {
       // Same view fact the phone entry records; display bookkeeping only.
       unawaited(
         widget.chat
-            .markConversationViewed(user.account)
+            .markConversationViewed(
+              user.account,
+              throughPosition: widget.chat.observedConversationPosition(
+                user.account,
+              ),
+            )
             .then<void>((int _) {})
             .catchError((Object _) {}),
       );
     }
+  }
+
+  void _selectGroup(GroupConversationItem group) {
+    final String id = group.conversation.id;
+    if (!_opened.contains(id)) {
+      _opened.add(id);
+    }
+    _groups[id] = group;
+    if (_selected == id) {
+      return;
+    }
+    setState(() {
+      _selected = id;
+    });
+  }
+
+  void _onGroupsLoaded(List<GroupConversationItem> groups) {
+    if (!mounted) {
+      return;
+    }
+    bool openedGroupChanged = false;
+    for (final GroupConversationItem group in groups) {
+      final GroupConversationItem? previous = _groups[group.conversation.id];
+      _groups[group.conversation.id] = group;
+      if (previous != null &&
+          _opened.contains(group.conversation.id) &&
+          (previous.displayName != group.displayName ||
+              previous.avatarUrl != group.avatarUrl ||
+              previous.avatarVersion != group.avatarVersion ||
+              previous.historyThrough != group.historyThrough ||
+              previous.membershipRevision != group.membershipRevision ||
+              previous.latestPosition != group.latestPosition)) {
+        openedGroupChanged = true;
+      }
+    }
+    final Set<String> activeGroupIds = <String>{
+      for (final GroupConversationItem group in groups) group.conversation.id,
+    };
+    final List<String> revokedOpened = _opened
+        .where(
+          (String id) =>
+              id.startsWith('group:') && !activeGroupIds.contains(id),
+        )
+        .toList();
+    if (openedGroupChanged || revokedOpened.isNotEmpty) {
+      setState(() {
+        for (final String id in revokedOpened) {
+          _opened.remove(id);
+          _groups.remove(id);
+          if (_selected == id) {
+            _selected = null;
+          }
+        }
+      });
+    }
+  }
+
+  void _onGroupRevoked(ConversationRef conversation) {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _opened.remove(conversation.id);
+      _groups.remove(conversation.id);
+      if (_selected == conversation.id) {
+        _selected = null;
+      }
+    });
   }
 
   void _onDirectoryLoaded(List<ChatUser> users) {
@@ -404,14 +518,28 @@ class _ChatWorkspaceState extends State<ChatWorkspace>
             child: UsersListView(
               chat: widget.chat,
               profile: widget.profile,
+              shared: widget.shared,
+              groups: widget.groups,
+              refreshTrigger: _groupsRefresh,
               presence: widget.presence,
               onlineFilter: widget.onlineFilter,
-              selectedAccount: _selected,
+              selectedAccount:
+                  _selected != null && !_selected!.startsWith('group:')
+                  ? _selected
+                  : null,
+              selectedConversationId:
+                  _selected != null && _selected!.startsWith('group:')
+                  ? _selected
+                  : null,
               onSelect: _select,
+              onSelectGroup: _selectGroup,
               onDirectoryLoaded: _onDirectoryLoaded,
+              onGroupsLoaded: _onGroupsLoaded,
               // The split surface never pushes a route; this keeps the
               // required callback a no-op for the shared list widget.
               onOpenChat: (ChatUser user) async => _select(user),
+              onOpenGroup: (GroupConversationItem group) async =>
+                  _selectGroup(group),
               onSessionExpired: widget.onSessionExpired,
             ),
           ),
@@ -437,19 +565,34 @@ class _ChatWorkspaceState extends State<ChatWorkspace>
       key: ChatWorkspace.chatPaneKey,
       index: index < 0 ? 0 : index,
       children: <Widget>[
-        for (final String account in _opened)
-          ChatPage(
-            key: ValueKey<String>('chat-workspace-page-$account'),
-            peer: _peers[account]!,
-            chat: widget.chat,
-            profile: widget.profile,
-            presence: widget.presence,
-            embedded: true,
-            // Only the visible conversation may confirm display facts; the
-            // hidden pages keep polling data but stage their receipts. A pane
-            // that the host section has covered counts as hidden too.
-            active: widget.visible && account == _selected,
-          ),
+        for (final String keyId in _opened)
+          if (keyId.startsWith('group:') && _groups.containsKey(keyId))
+            ChatPage(
+              key: ValueKey<String>('chat-workspace-page-$keyId'),
+              group: _groups[keyId]!,
+              chat: widget.chat,
+              profile: widget.profile,
+              shared: widget.shared,
+              groups: widget.groups,
+              embedded: true,
+              active: widget.visible && keyId == _selected,
+              onOpenDirectChat: (ChatUser user) async => _select(user),
+              onGroupsChanged: _notifyGroupsChanged,
+              onGroupRevoked: _onGroupRevoked,
+            )
+          else
+            ChatPage(
+              key: ValueKey<String>('chat-workspace-page-$keyId'),
+              peer: _peers[keyId]!,
+              chat: widget.chat,
+              profile: widget.profile,
+              presence: widget.presence,
+              embedded: true,
+              // Only the visible conversation may confirm display facts; the
+              // hidden pages keep polling data but stage their receipts. A pane
+              // that the host section has covered counts as hidden too.
+              active: widget.visible && keyId == _selected,
+            ),
       ],
     );
   }

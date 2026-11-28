@@ -123,12 +123,36 @@ Future<ProfilePanelResult?> openProfilePanel(
   ).push<ProfilePanelResult>(_ProfileDialogRoute(builder: (_) => frame()));
 }
 
+/// Opens read-only people, group details and directory surfaces using the same
+/// route, live posture rules and frame as the signed-in Profile.
+Future<T?> openProfileSurface<T>(
+  BuildContext context, {
+  required String label,
+  required WidgetBuilder builder,
+}) {
+  final GlobalKey contentKey = GlobalKey(debugLabel: 'profile-surface-content');
+  Widget frame(BuildContext context) => ProfilePanelFrame(
+    child: KeyedSubtree(
+      key: contentKey,
+      child: Builder(builder: builder),
+    ),
+  );
+  if (resolveProfilePanelMode(context) == ProfilePanelMode.mobile) {
+    return Navigator.of(context).push<T>(_PhoneProfileRoute<T>(builder: frame));
+  }
+  return Navigator.of(
+    context,
+    rootNavigator: true,
+  ).push<T>(_ProfileDialogRoute<T>(builder: frame, label: label));
+}
+
 /// In flat posture the frame owns both panes, so the route retains the full view
 /// instead of a dialog's default DisplayFeatureSubScreen removing its hinge.
-class _ProfileDialogRoute extends PopupRoute<ProfilePanelResult> {
-  _ProfileDialogRoute({required this.builder});
+class _ProfileDialogRoute<T> extends PopupRoute<T> {
+  _ProfileDialogRoute({required this.builder, this.label = '个人资料'});
 
   final WidgetBuilder builder;
+  final String label;
 
   @override
   bool get barrierDismissible => true;
@@ -137,7 +161,7 @@ class _ProfileDialogRoute extends PopupRoute<ProfilePanelResult> {
   Color get barrierColor => Colors.transparent;
 
   @override
-  String get barrierLabel => '个人资料';
+  String get barrierLabel => label;
 
   @override
   Duration get transitionDuration => const Duration(milliseconds: 300);
@@ -175,7 +199,7 @@ const Key profilePhoneFadeKey = Key('profile-phone-fade');
 ///
 /// The page fades in while the avatar Hero flies; both use the same 360 ms
 /// clock so the photo has landed before the scalloped rim starts settling.
-class _PhoneProfileRoute extends PageRouteBuilder<ProfilePanelResult> {
+class _PhoneProfileRoute<T> extends PageRouteBuilder<T> {
   _PhoneProfileRoute({required WidgetBuilder builder})
     : super(
         opaque: true,
@@ -193,15 +217,17 @@ class _PhoneProfileRoute extends PageRouteBuilder<ProfilePanelResult> {
               Animation<double> animation,
               Animation<double> secondary,
               Widget child,
-            ) => FadeTransition(
-              key: profilePhoneFadeKey,
-              opacity: CurvedAnimation(
-                parent: animation,
-                curve: Curves.easeOutCubic,
-                reverseCurve: Curves.easeInCubic,
+            ) => MediaQuery.disableAnimationsOf(context)
+            ? child
+            : FadeTransition(
+                key: profilePhoneFadeKey,
+                opacity: CurvedAnimation(
+                  parent: animation,
+                  curve: Curves.easeOutCubic,
+                  reverseCurve: Curves.easeInCubic,
+                ),
+                child: child,
               ),
-              child: child,
-            ),
       );
 }
 
@@ -267,8 +293,12 @@ class _ResponsiveProfileTransitionState
 
   @override
   Widget build(BuildContext context) {
+    final bool reducedMotion = MediaQuery.disableAnimationsOf(context);
     final bool desktop =
         resolveProfilePanelMode(context) == ProfilePanelMode.desktop;
+    if (reducedMotion) {
+      return widget.child;
+    }
     return SlideTransition(
       position: desktop
           ? const AlwaysStoppedAnimation<Offset>(Offset.zero)
@@ -327,6 +357,26 @@ class _ResponsiveProfileFrame extends StatelessWidget {
       avatarDecodeCheck: avatarDecodeCheck,
       avatarSourceReader: avatarSourceReader,
     );
+    return ProfilePanelFrame(mode: mode, underStatusBar: true, child: panel);
+  }
+}
+
+/// Shared containers only; each caller owns its content, data and permissions.
+class ProfilePanelFrame extends StatelessWidget {
+  const ProfilePanelFrame({
+    super.key,
+    required this.child,
+    this.mode,
+    this.underStatusBar = false,
+  });
+
+  final Widget child;
+  final ProfilePanelMode? mode;
+  final bool underStatusBar;
+
+  @override
+  Widget build(BuildContext context) {
+    final ProfilePanelMode mode = this.mode ?? resolveProfilePanelMode(context);
     if (mode == ProfilePanelMode.mobile) {
       // The phone page draws under the status bar so the sea cover reaches the
       // top edge; ProfilePanel insets only its own controls. The Scaffold is
@@ -335,13 +385,16 @@ class _ResponsiveProfileFrame extends StatelessWidget {
       // so feedback is never mirrored onto the host Scaffold when this frame is
       // shown as a dialog after a desktop-to-phone reflow.
       return ScaffoldMessenger(
-        child: Scaffold(backgroundColor: AppColors.paper, body: panel),
+        child: Scaffold(
+          backgroundColor: AppColors.paper,
+          body: underStatusBar ? child : SafeArea(child: child),
+        ),
       );
     }
     if (mode == ProfilePanelMode.folded) {
-      return _FoldedFrame(width: foldedPanelWidth(context), child: panel);
+      return _FoldedFrame(width: foldedPanelWidth(context), child: child);
     }
-    return _DesktopFrame(child: panel);
+    return _DesktopFrame(child: child);
   }
 }
 

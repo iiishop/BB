@@ -27,6 +27,7 @@ class ChatMediaItem {
     this.byteSize,
     this.filename,
     this.mimeType,
+    this.conversation,
   });
 
   final ChatMessage message;
@@ -35,7 +36,7 @@ class ChatMediaItem {
   /// Original media id; this is what save and "原图" fetch.
   final String mediaId;
 
-  /// Display name of the sender ("我" or the peer's username).
+  /// Display name of the sender ("我" or the sender's username).
   final String senderLabel;
 
   /// Index of the `ImagePart` inside a body message; null for attachments.
@@ -50,6 +51,7 @@ class ChatMediaItem {
 
   final String? filename;
   final String? mimeType;
+  final ConversationRef? conversation;
 
   DateTime get createdAt => message.createdAt;
 
@@ -69,6 +71,7 @@ class ChatMediaItem {
       byteSize: byteSize ?? this.byteSize,
       filename: filename,
       mimeType: mimeType,
+      conversation: conversation,
     );
   }
 }
@@ -77,20 +80,28 @@ class ChatMediaItem {
 ///
 /// Messages are sorted by `position` (the server's stable order) and image
 /// parts keep their order inside a message. Only images and videos are
-/// included; other attachments stay in the bubble list.
+/// included; other attachments stay in the bubble list and system entries are
+/// skipped.
 List<ChatMediaItem> buildConversationMedia({
   required List<ChatMessage> messages,
   required String selfAccount,
   required String selfName,
   required String peerName,
+  Map<String, String>? senderNames,
 }) {
   final List<ChatMessage> sorted = List<ChatMessage>.from(messages)
     ..sort((ChatMessage a, ChatMessage b) => a.position.compareTo(b.position));
   final List<ChatMediaItem> items = <ChatMediaItem>[];
   for (final ChatMessage message in sorted) {
+    if (message.kind == ChatMessageKind.system) {
+      continue;
+    }
     final String sender = message.senderAccount == selfAccount
         ? selfName
-        : peerName;
+        : (message.senderUsername?.isNotEmpty == true
+              ? message.senderUsername!
+              : (senderNames?[message.senderAccount] ?? peerName));
+    final ConversationRef? conversation = message.conversation;
     final Attachment? attachment = message.attachment;
     if (message.kind == ChatMessageKind.attachment && attachment != null) {
       final ChatMediaKind? kind = switch (attachment.kind) {
@@ -109,6 +120,7 @@ List<ChatMediaItem> buildConversationMedia({
             byteSize: attachment.byteSize,
             filename: attachment.filename,
             mimeType: attachment.mimeType,
+            conversation: conversation,
           ),
         );
       }
@@ -129,6 +141,7 @@ List<ChatMediaItem> buildConversationMedia({
           mediaId: part.mediaId,
           senderLabel: sender,
           partIndex: index,
+          conversation: conversation,
         ),
       );
     }

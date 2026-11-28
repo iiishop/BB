@@ -5,6 +5,18 @@ import { Operations } from "./operations.js";
 import { digest, Journal } from "./store.js";
 
 // Metadata only. Messages, display receipts and watermarks stay authoritative in BB.
+function targetKey({account, target_account, conversation}, self) {
+  if (conversation?.type === "group") return conversation.id;
+  if (conversation?.type === "direct")
+    return conversation.id.split(":").slice(1).find(member => member !== self);
+  return account ?? target_account;
+}
+function queryTarget(peer) {
+  return peer?.startsWith("group:")
+    ? {conversation: {type: "group", id: peer}}
+    : {account: peer};
+}
+
 export class Bridge {
   constructor(ctx, agent, client, root, checkpoint = async () => {}) {
     Object.assign(this, { ctx, agent, client, root, checkpoint });
@@ -55,11 +67,10 @@ export class Bridge {
       name: "bb-chat-consumption",
       apply(ctx) {
         ctx.on("agent/pre-step", async (p, next) => {
-          if (p.agent === self.agent) {
-            self.turn = p.turn;
-            await self.check();
-          }
-          return next();
+          if (p.agent !== self.agent) return next();
+          self.turn = p.turn;
+          await self.check();
+          return self.notifications.prepareModelStep(await next());
         });
         ctx.on("llm/stream", async function* (options, next) {
           if (options.sessionId !== self.agent.session.id) {
@@ -168,24 +179,24 @@ export class Bridge {
             return next();
           await self.serial(async () => {
             await self.check();
+            const target = targetKey(exec.arguments, self.client.identity.account);
+            if (!target) return;
             if (
-              self.waiting(exec.arguments.account) ||
-              self.inputBlocked(exec.arguments.account) ||
+              self.waiting(target) ||
+              self.inputBlocked(target) ||
               self.journal
                 .list()
                 .some(
                   (r) =>
-                    r.peer === exec.arguments.account &&
+                    r.peer === target &&
                     !["completed", "awaiting_read"].includes(r.state),
                 )
             )
               throw new Error("BB input already active; await its settlement");
-            const cursor = await self.client.call("chat/consumption", {
-              account: exec.arguments.account,
-            });
+            const cursor = await self.client.call("chat/consumption", queryTarget(target));
             if (exec.arguments.seen_position < cursor.consumed_through)
               throw new Error("BB wait cursor precedes consumption");
-            self.waiters.set(exec.callId, exec.arguments.account);
+            self.waiters.set(exec.callId, target);
           });
           return next();
         });
@@ -387,10 +398,8 @@ export class Bridge {
         throw new Error("BB message has no complete presentation receipt");
       const m = item.message,
         identity = this.client.identity;
-      const peer =
-        m.sender_account === identity.account
-          ? m.target_account
-          : m.sender_account;
+      const peer = m.conversation?.type === "group" ? m.conversation.id :
+        m.sender_account === identity.account ? m.target_account : m.sender_account;
       if ((!callId && this.waiting(peer)) || this.inputBlocked(peer)) return;
       const key = digest([identity.account, identity.consumer_id, peer, m.id]);
       const prior = this.journal.get(key);
@@ -585,13 +594,11 @@ export class Bridge {
         });
         await this.checkpoint("confirmed");
         await this.check();
-        const cursor = await this.client.call("chat/consumption", {
-          account: row.peer,
-        });
+        const cursor = await this.client.call("chat/consumption", queryTarget(row.peer));
         if (cursor.consumed_through < row.position) {
           try {
             await this.client.call("chat/ack_messages", {
-              account: row.peer,
+              ...queryTarget(row.peer),
               through_position: row.position,
             });
           } catch (error) {
@@ -612,7 +619,7 @@ export class Bridge {
   }
   async findItem(row) {
     const page = await this.client.call("chat/read_messages", {
-      account: row.peer,
+      ...queryTarget(row.peer),
       after_position: row.position - 1,
       limit: 1,
     });
@@ -795,7 +802,14 @@ export class Bridge {
       if (completed) await this.settle(row);
     }
     await this.client.call("events/subscribe", peer ? { peer_account: peer } : { discover: true });
-    await this.notifications.tick(peer);
+    let notificationFailure;
+    try {
+      await this.notifications.tick(peer);
+    } catch (error) {
+      if (!["upstream_unavailable", "upstream_timeout", "network_error"].includes(error.code))
+        throw error;
+      notificationFailure = error;
+    }
     let after_cursor = 0;
     for (;;) {
       const page = await this.client.call("events/read", {
@@ -808,6 +822,7 @@ export class Bridge {
       if (!page.has_more) break;
       after_cursor = page.next_cursor;
     }
+    if (notificationFailure) throw notificationFailure;
   }
   async poll(peer) {
     return this.notifications.tick(peer);

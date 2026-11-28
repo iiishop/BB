@@ -109,3 +109,35 @@ def test_download_cannot_publish_path_before_success():
         v2.Download.model_validate({**pending, "actual_path": "/synthetic/not-yet"})
     with pytest.raises(ValidationError):
         v2.Download.model_validate({**pending, "status": "succeeded"})
+
+
+def test_group_operations_share_the_remote_business_contract():
+    from bb_auth_contract import group
+
+    assert v2.GROUP_BUSINESS.keys() == group.REMOTE.keys()
+    document = json.loads((ROOT / "chat-v2-group-openapi.json").read_text())
+    assert document == exporter.schema(include_groups=True)
+    for path, request, _, _, owner in v2.GROUP_BUSINESS.values():
+        assert owner
+        assert "expected_identity" in request.model_json_schema()["required"]
+        assert document["paths"][path]["post"]["security"] == [{"consumerOwner": []}]
+
+
+def test_explicit_group_uses_existing_guarded_chat_tools():
+    conversation = {"type": "group", "id": "group:" + "a" * 32}
+    expected_identity = CASES["inputs"]["send_message"]["expected_identity"]
+    v2.Read.model_validate(
+        {"expected_identity": expected_identity, "conversation": conversation}
+    )
+    v2.Subscribe.model_validate(
+        {"expected_identity": expected_identity, "conversation": conversation}
+    )
+    data = copy.deepcopy(CASES["inputs"]["send_message"])
+    data["conversation"] = conversation
+    with pytest.raises(ValidationError):
+        v2.Send.model_validate(data)
+    data.pop("target_account")
+    assert v2.Send.model_validate(data).conversation.id == conversation["id"]
+    data["conversation"]["id"] = expected_identity["account"]
+    with pytest.raises(ValidationError):
+        v2.Send.model_validate(data)

@@ -7,12 +7,15 @@ import 'package:flutter/material.dart';
 import '../../app.dart';
 import '../../models/auth_models.dart';
 import '../../models/chat_models.dart';
-import '../../models/profile_models.dart';
+import '../../models/group_models.dart';
 import '../../services/chat_service.dart';
+import '../../services/group_service.dart';
 import '../../services/presence_directory.dart';
 import '../../services/profile_service.dart';
+import '../widgets/profile_avatar.dart';
 import 'chat_format.dart';
 import 'conversation_order.dart';
+import 'user_identity_row.dart';
 
 /// Width of the little speech tail that points from the current conversation's
 /// note back towards its avatar. It is always reserved so names start on the
@@ -31,6 +34,13 @@ class UsersListView extends StatefulWidget {
     required this.chat,
     required this.profile,
     required this.onOpenChat,
+    this.shared,
+    this.groups,
+    this.selectedConversationId,
+    this.onOpenGroup,
+    this.onSelectGroup,
+    this.onGroupsLoaded,
+    this.refreshTrigger,
     this.presence,
     this.onSessionExpired,
     this.selectedAccount,
@@ -41,6 +51,13 @@ class UsersListView extends StatefulWidget {
 
   final ChatService chat;
   final ProfileGateway profile;
+  final SharedConversationService? shared;
+  final GroupService? groups;
+  final String? selectedConversationId;
+  final Future<void> Function(GroupConversationItem group)? onOpenGroup;
+  final void Function(GroupConversationItem group)? onSelectGroup;
+  final void Function(List<GroupConversationItem> groups)? onGroupsLoaded;
+  final Listenable? refreshTrigger;
 
   /// Last-confirmed presence shared with the open conversation; when absent
   /// the page falls back to the presence each list page carried.
@@ -82,6 +99,8 @@ class UsersListView extends StatefulWidget {
   static const Key onlineOnlyKey = Key('users-online-only');
   static const Key onlineEmptyKey = Key('users-online-empty');
   static Key rowKey(String account) => Key('user-row-$account');
+  static Key groupRowKey(String conversationId) =>
+      Key('group-row-$conversationId');
   static Key unreadKey(String account) => Key('user-unread-$account');
   static Key selectedKey(String account) => Key('user-selected-$account');
 
@@ -102,12 +121,14 @@ class UsersListView extends StatefulWidget {
 
 class _UsersListViewState extends State<UsersListView> {
   final List<ChatUser> _users = <ChatUser>[];
+  final List<GroupConversationItem> _groups = <GroupConversationItem>[];
 
   /// Server-derived incoming unread per conversation, absent when zero.
   Map<String, int> _unread = <String, int>{};
   bool _loading = true;
   String? _error;
   Timer? _refreshTimer;
+  StreamSubscription<void>? _displayedSub;
   bool _inFlight = false;
 
   /// Set when a refresh is requested while a directory read is still running
@@ -159,6 +180,11 @@ class _UsersListViewState extends State<UsersListView> {
     super.initState();
     widget.presence?.addListener(_onPresenceChanged);
     widget.onlineFilter?.addListener(_onFilterChanged);
+    widget.shared?.access.addListener(_onAccessOrRefreshTriggered);
+    _displayedSub = widget.shared?.displayedChanges.listen((_) {
+      _onDisplayedChanged();
+    });
+    widget.refreshTrigger?.addListener(_onAccessOrRefreshTriggered);
     unawaited(_load());
     _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       if (mounted && !_inFlight) {
@@ -174,14 +200,46 @@ class _UsersListViewState extends State<UsersListView> {
       oldWidget.onlineFilter?.removeListener(_onFilterChanged);
       widget.onlineFilter?.addListener(_onFilterChanged);
     }
+    if (oldWidget.shared?.access != widget.shared?.access) {
+      oldWidget.shared?.access.removeListener(_onAccessOrRefreshTriggered);
+      widget.shared?.access.addListener(_onAccessOrRefreshTriggered);
+    }
+    if (oldWidget.shared != widget.shared) {
+      unawaited(_displayedSub?.cancel());
+      _displayedSub = widget.shared?.displayedChanges.listen((_) {
+        _onDisplayedChanged();
+      });
+    }
+    if (oldWidget.refreshTrigger != widget.refreshTrigger) {
+      oldWidget.refreshTrigger?.removeListener(_onAccessOrRefreshTriggered);
+      widget.refreshTrigger?.addListener(_onAccessOrRefreshTriggered);
+    }
   }
 
   @override
   void dispose() {
     widget.presence?.removeListener(_onPresenceChanged);
     widget.onlineFilter?.removeListener(_onFilterChanged);
+    widget.shared?.access.removeListener(_onAccessOrRefreshTriggered);
+    unawaited(_displayedSub?.cancel());
+    _displayedSub = null;
+    widget.refreshTrigger?.removeListener(_onAccessOrRefreshTriggered);
     _refreshTimer?.cancel();
     super.dispose();
+  }
+
+  void _onDisplayedChanged() {
+    if (!mounted) {
+      return;
+    }
+    _unreadDirty = true;
+    unawaited(_refreshUnread());
+  }
+
+  void _onAccessOrRefreshTriggered() {
+    if (mounted) {
+      unawaited(_load(silent: true));
+    }
   }
 
   void _onPresenceChanged() {
@@ -222,12 +280,22 @@ class _UsersListViewState extends State<UsersListView> {
     _unreadDirty = false;
     final Map<String, String?> covered = _knownPreviews;
     try {
-      final Map<String, int> unread = await widget.chat.incomingUnreadByPeer();
+      final Map<String, int> unread = Map<String, int>.from(
+        await widget.chat.incomingUnreadByPeer(),
+      );
+      if (widget.shared != null && _groups.isNotEmpty) {
+        unread.addAll(
+          await widget.shared!.incomingUnreadByGroup(
+            groups: List<GroupConversationItem>.of(_groups),
+            ledger: widget.chat.ledger,
+          ),
+        );
+      }
       if (!mounted) {
         return;
       }
       setState(() {
-        _unread = unread;
+        _unread = Map<String, int>.unmodifiable(unread);
         _coveredPreviews = covered;
       });
       _unreadRetryNow = _unreadRetryNow || _previewsDifferFromCovered();
@@ -291,6 +359,41 @@ class _UsersListViewState extends State<UsersListView> {
     }
   }
 
+  Future<List<GroupConversationItem>> _loadSharedGroups() async {
+    final SharedConversationService? shared = widget.shared;
+    if (shared == null) {
+      return const <GroupConversationItem>[];
+    }
+    final List<GroupConversationItem> groups = <GroupConversationItem>[];
+    final Set<String> seen = <String>{};
+    String afterId = '';
+    while (true) {
+      final SharedConversationPage page = await shared.listSharedConversations(
+        afterId: afterId,
+        limit: 100,
+      );
+      for (final SharedConversation item in page.items) {
+        if (item is GroupConversationItem &&
+            seen.add(item.conversation.id) &&
+            !shared.access.isRevoked(
+              widget.chat.selfAccount,
+              item.conversation.id,
+            )) {
+          groups.add(item);
+        }
+      }
+      final String? next = page.nextCursor;
+      if (next == null || next.compareTo(afterId) <= 0) {
+        groups.sort(
+          (GroupConversationItem a, GroupConversationItem b) =>
+              b.lastActivityAt.compareTo(a.lastActivityAt),
+        );
+        return groups;
+      }
+      afterId = next;
+    }
+  }
+
   Future<void> _load({bool silent = false}) async {
     if (_inFlight) {
       // A caller that needs the current directory (notably the refresh after
@@ -315,9 +418,17 @@ class _UsersListViewState extends State<UsersListView> {
         // started earlier must not overwrite a targeted read that started
         // later and already confirmed a value.
         final int? observation = presence?.beginObservation();
+        final Future<List<ChatUser>> directoryFuture = _loadDirectory();
+        final Future<List<GroupConversationItem>> groupsFuture =
+            widget.shared != null
+            ? _loadSharedGroups()
+            : Future<List<GroupConversationItem>>.value(
+                const <GroupConversationItem>[],
+              );
         final List<ChatUser> users = sortChatUsersByLastMessage(
-          await _loadDirectory(),
+          await directoryFuture,
         );
+        final List<GroupConversationItem> groups = await groupsFuture;
         if (!mounted) {
           return;
         }
@@ -330,16 +441,25 @@ class _UsersListViewState extends State<UsersListView> {
           _users
             ..clear()
             ..addAll(users);
+          _groups
+            ..clear()
+            ..addAll(groups);
           _loading = false;
           _error = null;
         });
         widget.onDirectoryLoaded?.call(List<ChatUser>.unmodifiable(_users));
+        widget.onGroupsLoaded?.call(
+          List<GroupConversationItem>.unmodifiable(_groups),
+        );
         // A fresh directory read is authoritative for the accounts it
         // contains; share it so an open conversation cannot keep a stale
         // header. The ticket makes an older read lose.
         presence?.seed(users, observation: observation);
-        _knownPreviews = {
-          for (final user in users) user.account: user.lastMessage?.id,
+        _knownPreviews = <String, String?>{
+          for (final ChatUser user in users) user.account: user.lastMessage?.id,
+          for (final GroupConversationItem group in groups)
+            'group:${group.conversation.id}:${group.membershipRevision}':
+                '${group.latestPosition}:${group.historyThrough}',
         };
         if (_unreadDirty || _previewsDifferFromCovered()) {
           unawaited(_refreshUnread());
@@ -539,7 +659,7 @@ class _UsersListViewState extends State<UsersListView> {
         ),
       );
     }
-    if (_users.isEmpty) {
+    if (_users.isEmpty && _groups.isEmpty) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(AppSpacing.lg),
@@ -564,6 +684,10 @@ class _UsersListViewState extends State<UsersListView> {
         ),
       );
     }
+    final List<GroupConversationItem> visibleGroups = filtering
+        ? const <GroupConversationItem>[]
+        : _groups;
+    final List<Object> rows = _mergedRows(visible, visibleGroups);
     return RefreshIndicator(
       onRefresh: _refresh,
       child: Center(
@@ -573,12 +697,28 @@ class _UsersListViewState extends State<UsersListView> {
             key: UsersListView.listKey,
             physics: const AlwaysScrollableScrollPhysics(),
             padding: EdgeInsets.fromLTRB(gutter, AppSpacing.xs, gutter, 120),
-            itemCount: visible.length + 1,
+            itemCount: rows.length + 1,
             itemBuilder: (BuildContext context, int index) {
-              if (index == visible.length) {
+              if (index == rows.length) {
                 return _footer(filtering);
               }
-              final ChatUser user = visible[index];
+              final Object entry = rows[index];
+              if (entry is GroupConversationItem) {
+                return _GroupRow(
+                  key: UsersListView.groupRowKey(entry.conversation.id),
+                  group: entry,
+                  unread: _unread[entry.conversation.id] ?? 0,
+                  groups: widget.groups,
+                  selfAccount: widget.chat.selfAccount,
+                  current:
+                      entry.conversation.id == widget.selectedConversationId,
+                  compact: compact,
+                  onTap: widget.onSelectGroup != null
+                      ? () => widget.onSelectGroup!(entry)
+                      : () => _openGroup(entry),
+                );
+              }
+              final ChatUser user = entry as ChatUser;
               return _UserRow(
                 key: UsersListView.rowKey(user.account),
                 user: user,
@@ -586,7 +726,9 @@ class _UsersListViewState extends State<UsersListView> {
                 unread: _unread[user.account] ?? 0,
                 profile: widget.profile,
                 selfAccount: widget.chat.selfAccount,
-                current: user.account == widget.selectedAccount,
+                current:
+                    widget.selectedConversationId == null &&
+                    user.account == widget.selectedAccount,
                 compact: compact,
                 onTap: widget.onSelect == null
                     ? () => _open(user)
@@ -597,6 +739,38 @@ class _UsersListViewState extends State<UsersListView> {
         ),
       ),
     );
+  }
+
+  List<Object> _mergedRows(
+    List<ChatUser> users,
+    List<GroupConversationItem> groups,
+  ) {
+    if (groups.isEmpty) {
+      return users;
+    }
+    final List<Object> combined = <Object>[...groups, ...users];
+    DateTime activityOf(Object item) {
+      if (item is GroupConversationItem) {
+        return item.lastActivityAt;
+      }
+      final ChatUser u = item as ChatUser;
+      return u.lastContactAt ??
+          DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
+    }
+
+    combined.sort(
+      (Object a, Object b) => activityOf(b).compareTo(activityOf(a)),
+    );
+    return combined;
+  }
+
+  Future<void> _openGroup(GroupConversationItem group) async {
+    if (widget.onOpenGroup != null) {
+      await widget.onOpenGroup!(group);
+      if (mounted) {
+        await _refresh(silent: true);
+      }
+    }
   }
 
   Widget _footer(bool filtering) {
@@ -799,11 +973,13 @@ class _UserRow extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: <Widget>[
-                _UserAvatar(
+                UserIdentityAvatar(
                   user: user,
                   profile: profile,
                   online: online,
                   size: avatarSize,
+                  avatarKey: UsersListView.avatarKey(user.account),
+                  presenceKey: UsersListView.presenceDotKey(user.account),
                 ),
                 SizedBox(width: avatarGap),
                 Expanded(child: note),
@@ -892,6 +1068,261 @@ class _ConversationNotePainter extends BoxPainter {
   }
 }
 
+class _GroupRow extends StatefulWidget {
+  const _GroupRow({
+    super.key,
+    required this.group,
+    required this.unread,
+    required this.selfAccount,
+    required this.current,
+    required this.compact,
+    required this.onTap,
+    this.groups,
+  });
+
+  final GroupConversationItem group;
+  final int unread;
+  final GroupService? groups;
+  final String selfAccount;
+  final bool current;
+  final bool compact;
+  final VoidCallback onTap;
+
+  @override
+  State<_GroupRow> createState() => _GroupRowState();
+}
+
+class _GroupRowState extends State<_GroupRow> {
+  Uint8List? _avatar;
+  int _avatarTicket = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadAvatar());
+  }
+
+  @override
+  void didUpdateWidget(covariant _GroupRow oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.group.avatarUrl != widget.group.avatarUrl ||
+        oldWidget.group.avatarVersion != widget.group.avatarVersion ||
+        oldWidget.group.groupNumber != widget.group.groupNumber) {
+      unawaited(_loadAvatar());
+    }
+  }
+
+  Future<void> _loadAvatar() async {
+    final GroupService? groups = widget.groups;
+    final int ticket = ++_avatarTicket;
+    final String groupNumber = widget.group.groupNumber;
+    final String avatarUrl = widget.group.avatarUrl;
+    if (groups == null || avatarUrl.isEmpty) {
+      if (mounted && _avatar != null && avatarUrl.isEmpty) {
+        setState(() => _avatar = null);
+      }
+      return;
+    }
+    try {
+      final GroupAvatarImage img = await groups.loadGroupAvatar(
+        groupNumber: groupNumber,
+        avatarUrl: avatarUrl,
+        thumb: true,
+      );
+      if (mounted &&
+          _avatarTicket == ticket &&
+          widget.group.groupNumber == groupNumber &&
+          widget.group.avatarUrl == avatarUrl) {
+        setState(() => _avatar = Uint8List.fromList(img.bytes));
+      }
+    } catch (_) {
+      // Fallback placeholder cleanly without spinning.
+    }
+  }
+
+  String _previewLabel(ChatMessage? last) {
+    if (last == null) {
+      return '暂无消息';
+    }
+    if (last.isSystem) {
+      return last.systemText ?? '系统提示';
+    }
+    final String sender = last.senderAccount == widget.selfAccount
+        ? '我'
+        : ((last.senderUsername?.isNotEmpty ?? false)
+              ? last.senderUsername!
+              : last.senderAccount);
+    final String body;
+    if (last.attachment != null) {
+      body = switch (last.attachment!.kind) {
+        AttachmentKind.video => '[视频]',
+        AttachmentKind.audio => '[语音]',
+        AttachmentKind.image => '[图片]',
+        _ => '[文件] ${last.attachment!.filename}',
+      };
+    } else if (last.parts.isEmpty) {
+      body = '';
+    } else {
+      body = last.parts
+          .map((MessagePart p) => p is TextPart ? p.text : '[图片]')
+          .join(' ');
+    }
+    return sender.isEmpty ? body : '$sender：$body';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final TextTheme text = Theme.of(context).textTheme;
+    final String? unreadLabel = unreadBadgeLabel(widget.unread);
+    final double avatarSize = widget.compact ? 46 : 50;
+    final double avatarGap = widget.compact ? AppSpacing.sm : AppSpacing.sm + 2;
+    final double notePaddingVertical = widget.compact
+        ? AppSpacing.sm + 4
+        : AppSpacing.md + 2;
+    final EdgeInsets notePadding = EdgeInsets.fromLTRB(
+      _noteTailWidth + (widget.compact ? AppSpacing.md : AppSpacing.lg - 2),
+      notePaddingVertical,
+      widget.compact ? AppSpacing.md : AppSpacing.lg - 2,
+      notePaddingVertical,
+    );
+    final Widget noteContent = Padding(
+      padding: notePadding,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Flexible(
+                      child: Text(
+                        widget.group.displayName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: text.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          fontSize: widget.compact ? 17 : 18,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.xs),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 1,
+                      ),
+                      decoration: BoxDecoration(
+                        color: widget.current
+                            ? AppColors.surface
+                            : AppColors.accentSoft,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: const Text(
+                        '群聊',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: AppColors.accentDeep,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Text(
+                formatContactTime(widget.group.lastActivityAt),
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: AppColors.inkMuted,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 5),
+          LayoutBuilder(
+            builder: (BuildContext context, BoxConstraints constraints) => Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: <Widget>[
+                Expanded(
+                  child: Padding(
+                    padding: EdgeInsets.only(
+                      right: unreadLabel == null ? 0 : AppSpacing.sm,
+                    ),
+                    child: Text(
+                      _previewLabel(widget.group.lastMessage),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: text.bodyMedium?.copyWith(
+                        fontSize: 14,
+                        color: AppColors.inkMuted,
+                      ),
+                    ),
+                  ),
+                ),
+                if (unreadLabel != null)
+                  ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: constraints.maxWidth),
+                    child: _UnreadBadge(
+                      count: widget.unread,
+                      label: unreadLabel,
+                      account: widget.group.conversation.id,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+    final Widget content = KeyedSubtree(
+      key: widget.current
+          ? UsersListView.selectedKey(widget.group.conversation.id)
+          : null,
+      child: noteContent,
+    );
+    final Widget note = widget.current
+        ? Ink(
+            key: UsersListView.noteKey(widget.group.conversation.id),
+            decoration: const _ConversationNoteDecoration(
+              color: AppColors.accentSoft,
+              tailWidth: _noteTailWidth,
+              radius: AppRadius.card,
+            ),
+            child: content,
+          )
+        : content;
+    return Semantics(
+      selected: widget.current,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: widget.onTap,
+          borderRadius: BorderRadius.circular(AppRadius.card),
+          child: Padding(
+            padding: EdgeInsets.symmetric(vertical: widget.compact ? 4 : 6),
+            child: Row(
+              children: <Widget>[
+                ProfileAvatar(
+                  bytes: _avatar,
+                  size: avatarSize,
+                  semanticLabel: '${widget.group.displayName} 群头像',
+                ),
+                SizedBox(width: avatarGap),
+                Expanded(child: note),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _UnreadBadge extends StatelessWidget {
   const _UnreadBadge({
     required this.count,
@@ -925,122 +1356,6 @@ class _UnreadBadge extends StatelessWidget {
             height: 1,
             fontWeight: FontWeight.w700,
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _UserAvatar extends StatefulWidget {
-  const _UserAvatar({
-    required this.user,
-    required this.profile,
-    required this.online,
-    required this.size,
-  });
-
-  final ChatUser user;
-  final ProfileGateway profile;
-  final bool online;
-  final double size;
-
-  @override
-  State<_UserAvatar> createState() => _UserAvatarState();
-}
-
-class _UserAvatarState extends State<_UserAvatar> {
-  Future<Uint8List>? _future;
-
-  @override
-  void initState() {
-    super.initState();
-    _future = _load();
-  }
-
-  @override
-  void didUpdateWidget(covariant _UserAvatar oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.user.account != widget.user.account ||
-        oldWidget.user.avatarVersion != widget.user.avatarVersion) {
-      _future = _load();
-    }
-  }
-
-  Future<Uint8List> _load() async {
-    final AvatarImage image = await widget.profile.loadAvatar(
-      account: widget.user.account,
-      thumb: true,
-    );
-    return image.bytes;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      label: widget.online ? '在线' : '离线',
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: <Widget>[
-          Container(
-            key: UsersListView.avatarKey(widget.user.account),
-            width: widget.size,
-            height: widget.size,
-            decoration: BoxDecoration(
-              color: AppColors.accentSoft,
-              shape: BoxShape.circle,
-              border: Border.all(color: AppColors.border),
-            ),
-            clipBehavior: Clip.antiAlias,
-            child: FutureBuilder<Uint8List>(
-              future: _future,
-              builder:
-                  (BuildContext context, AsyncSnapshot<Uint8List> snapshot) {
-                    if (snapshot.hasData) {
-                      return Image.memory(
-                        snapshot.data!,
-                        fit: BoxFit.cover,
-                        gaplessPlayback: true,
-                        errorBuilder: (
-                          BuildContext context,
-                          Object error,
-                          StackTrace? stackTrace,
-                        ) => _initials(),
-                      );
-                    }
-                    return _initials();
-                  },
-            ),
-          ),
-          // Offline has no dot: the online dot and the note are independent
-          // states, and an offline peer must not look selected or online.
-          if (widget.online)
-            Positioned(
-              right: -1,
-              bottom: -1,
-              child: Container(
-                key: UsersListView.presenceDotKey(widget.user.account),
-                width: 13,
-                height: 13,
-                decoration: BoxDecoration(
-                  color: AppColors.success,
-                  shape: BoxShape.circle,
-                  border: Border.all(color: AppColors.paper, width: 2),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _initials() {
-    return Center(
-      child: Text(
-        initialsOf(widget.user.username),
-        style: TextStyle(
-          fontSize: widget.size * 0.36,
-          fontWeight: FontWeight.w700,
-          color: AppColors.accentDeep,
         ),
       ),
     );

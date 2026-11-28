@@ -2,14 +2,25 @@
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import Field, model_validator
+
+from .conversation import ConversationRef, GroupConversationRef
+from .wire import Wire
 
 Account = Annotated[str, Field(pattern=r"^[1-9][0-9]{7}$")]
 OperationId = Annotated[str, Field(pattern=r"^[A-Za-z0-9_-]{1,128}$")]
+OpaqueId = Annotated[str, Field(pattern=r"^[A-Za-z0-9_-]{1,200}$")]
 
 
-class Wire(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True, hide_input_in_errors=True)
+class SendTarget(Wire):
+    target_account: Account | None = None
+    conversation: ConversationRef | None = None
+
+    @model_validator(mode="after")
+    def one_target(self):
+        if (self.target_account is None) == (self.conversation is None):
+            raise ValueError("select one target account or conversation")
+        return self
 
 
 class Text(Wire):
@@ -22,16 +33,14 @@ class Image(Wire):
     media_id: str
 
 
-class SendMessage(Wire):
-    target_account: Account
+class SendMessage(SendTarget):
     client_nonce: OperationId
     content: list[Annotated[Text | Image, Field(discriminator="type")]] = Field(
         min_length=1, max_length=100
     )
 
 
-class SendAttachment(Wire):
-    target_account: Account
+class SendAttachment(SendTarget):
     client_nonce: OperationId
     media_id: str
 
@@ -45,19 +54,52 @@ class Media(Wire):
     cover_media_id: str | None = None
 
 
-class Message(Wire):
+class MessageEntry(Wire):
     id: str
     position: int
-    sender_account: Account
-    target_account: Account
     created_at: str
+
+
+class UserMessage(MessageEntry):
+    sender_account: Account
     kind: Literal["body", "attachment"]
     content: list[Annotated[Text | Image, Field(discriminator="type")]] | None = None
     attachment: Media | None = None
 
 
+class Message(UserMessage):
+    target_account: Account
+
+
+class GroupMessage(UserMessage):
+    conversation: GroupConversationRef
+    sender_username: str
+
+
+class MemberJoined(Wire):
+    type: Literal["member.joined"]
+    account: Account
+    username: str
+
+
+class GroupRenamed(Wire):
+    type: Literal["group.renamed"]
+    old_name: str
+    new_name: str
+
+
+class SystemMessage(MessageEntry):
+    kind: Literal["system"]
+    conversation: ConversationRef
+    system: Annotated[MemberJoined | GroupRenamed, Field(discriminator="type")]
+    text: str
+
+
+ChatMessage = Message | GroupMessage | SystemMessage
+
+
 class MessagePage(Wire):
-    items: list[Message]
+    items: list[ChatMessage]
     next_position: int
     has_more: bool
 
@@ -66,7 +108,7 @@ class Operation(Wire):
     operation_id: OperationId
     kind: Literal["message", "download"]
     status: Literal["pending", "succeeded", "failed"]
-    message: Message | None = None
+    message: ChatMessage | None = None
     task_id: str | None = None
     error_code: str | None = None
 
@@ -81,8 +123,38 @@ class Event(Wire):
     position: int
 
 
+class GroupMessageEvent(Wire):
+    version: Literal[1] = 1
+    event_id: int
+    type: Literal["message.available"] = "message.available"
+    occurred_at: str
+    message_id: str
+    conversation: GroupConversationRef
+    position: int
+    membership_revision: int
+
+
+class ConversationAccessEvent(Wire):
+    version: Literal[1] = 1
+    event_id: int
+    type: Literal["conversation.access_changed"] = "conversation.access_changed"
+    occurred_at: str
+    conversation: GroupConversationRef
+    active: bool
+    membership_revision: int
+    history_through: int
+
+
+class NotificationEvent(Wire):
+    version: Literal[1] = 1
+    event_id: int
+    type: Literal["notification.available"] = "notification.available"
+    occurred_at: str
+    notification_id: OpaqueId
+
+
 class EventPage(Wire):
-    items: list[Event]
+    items: list[Event | GroupMessageEvent | ConversationAccessEvent | NotificationEvent]
     next_event_id: int
     has_more: bool
 
@@ -133,16 +205,14 @@ class LocalImage(Wire):
     source: Source
 
 
-class LocalSend(Wire):
-    target_account: Account
+class LocalSend(SendTarget):
     operation_id: OperationId
     content: list[Annotated[Text | LocalImage, Field(discriminator="type")]] = Field(
         min_length=1, max_length=100
     )
 
 
-class LocalAttachment(Wire):
-    target_account: Account
+class LocalAttachment(SendTarget):
     operation_id: OperationId
     source: Source
     cover: Source | None = None
@@ -164,7 +234,7 @@ class Presentation(Wire):
 
 
 class VisibleMessage(Wire):
-    message: Message
+    message: ChatMessage
     presentation: Presentation | None = None
     blocks: list[Annotated[Text | VisibleImage, Field(discriminator="type")]]
 

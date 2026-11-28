@@ -3,8 +3,10 @@ import 'dart:io';
 import 'dart:math';
 
 import '../models/auth_models.dart';
+import '../models/chat_models.dart';
 import 'auth_session.dart';
 import 'chat_api_client.dart';
+import 'conversation_access.dart';
 import 'http_transport.dart';
 
 /// Bytes delivered through the loopback stream for the current request.
@@ -60,7 +62,11 @@ class MediaStreamProxy {
     connectionTimeout: const Duration(seconds: 15),
   );
 
-  Future<MediaStreamHandle> open(String mediaId) async {
+  Future<MediaStreamHandle> open(
+    String mediaId, {
+    ConversationRef? conversation,
+    ConversationAccessController? access,
+  }) async {
     if (mediaId.isEmpty) {
       throw const AuthFailure(
         status: 422,
@@ -71,6 +77,18 @@ class MediaStreamProxy {
     final AuthIdentity? captured = session.identity;
     if (captured == null) {
       throw unauthenticated;
+    }
+    final int capturedEpoch = (conversation != null && access != null)
+        ? access.epochFor(captured.account, conversation.id)
+        : 0;
+    if (conversation != null &&
+        access != null &&
+        access.isStale(captured.account, conversation.id, capturedEpoch)) {
+      throw const AuthFailure(
+        status: 403,
+        code: 'forbidden',
+        message: '当前已无权访问该会话媒体',
+      );
     }
     final String token = _randomToken();
     final HttpServer server = await HttpServer.bind(
@@ -85,6 +103,9 @@ class MediaStreamProxy {
       session: session,
       identity: captured,
       http: _http,
+      conversation: conversation,
+      access: access,
+      capturedEpoch: capturedEpoch,
       onClosed: (_LoopbackStream value) => _open.remove(value),
     );
     _open.add(stream);
@@ -127,6 +148,9 @@ class _LoopbackStream implements MediaStreamHandle {
     required this.session,
     required this.identity,
     required this.http,
+    this.conversation,
+    this.access,
+    this.capturedEpoch = 0,
     required this.onClosed,
   });
 
@@ -137,10 +161,19 @@ class _LoopbackStream implements MediaStreamHandle {
   final AuthSession session;
   final AuthIdentity identity;
   final HttpTransport http;
+  final ConversationRef? conversation;
+  final ConversationAccessController? access;
+  final int capturedEpoch;
   final void Function(_LoopbackStream stream) onClosed;
   bool _closed = false;
+  void Function()? _accessListener;
   final StreamController<MediaStreamProgress> _progress =
       StreamController<MediaStreamProgress>.broadcast();
+
+  bool get _accessRevoked =>
+      conversation != null &&
+      access != null &&
+      access!.isStale(identity.account, conversation!.id, capturedEpoch);
 
   @override
   Uri get uri => Uri.parse('http://127.0.0.1:${server.port}/stream/$token');
@@ -149,6 +182,14 @@ class _LoopbackStream implements MediaStreamHandle {
   Stream<MediaStreamProgress> get progress => _progress.stream;
 
   void start() {
+    if (access != null && conversation != null) {
+      _accessListener = () {
+        if (_accessRevoked) {
+          unawaited(close());
+        }
+      };
+      access!.addListener(_accessListener!);
+    }
     server.listen(_handle, onError: (Object _) {});
   }
 
@@ -164,6 +205,10 @@ class _LoopbackStream implements MediaStreamHandle {
     // A stream opened by A must never serve B's credentials or data.
     if (!session.isCurrent(identity)) {
       await _writeError(request, HttpStatus.unauthorized);
+      return;
+    }
+    if (_accessRevoked) {
+      await _writeError(request, HttpStatus.forbidden);
       return;
     }
     final String auth = identity.token;
@@ -315,6 +360,11 @@ class _LoopbackStream implements MediaStreamHandle {
       return;
     }
     _closed = true;
+    final void Function()? listener = _accessListener;
+    if (listener != null) {
+      access?.removeListener(listener);
+      _accessListener = null;
+    }
     onClosed(this);
     await _stop();
   }

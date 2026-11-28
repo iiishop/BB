@@ -186,3 +186,187 @@ for(const committed of [0,2]) for(const enabled of [true,false]) test(`existing 
  assert.equal(JSON.parse(f.sent[1].content[0].text).conversations[0].new_count,committed?2:1,'both old failure and forward event survive repair');
  await f.n.tick();assert.equal(f.sent.length,2);
 });
+
+async function businessFixture(t) {
+  const f = await fixture(t);
+  f.counts = {unread_count: 1, pending_count: 1};
+  f.preview = {notification_id: 'invite', type: 'group_invitation', text: 'Invitation', truncated: false};
+  f.bridge.client.call = async (path, args) => {
+    if (path === 'notifications/get') return {...f.settings};
+    if (path === 'notices/list') {
+      assert.deepEqual(args, {limit: 1});
+      if (f.countsFailure) throw f.countsFailure;
+      return {...f.counts, items: [], next_cursor: null};
+    }
+    assert.equal(path, 'notifications/changes');
+    return {
+      settings: {...f.settings},
+      items: [], deferred: [], next_cursor: 1, through_cursor: 1, has_more: false,
+      ...(args.after_cursor === 0 ? {
+        business_notices: {new_count: 1, unread_count: 1, pending_count: 1, last_notice: f.preview},
+      } : {}),
+    };
+  };
+  return f;
+}
+
+for (const reopen of [false, true]) {
+  test(`collecting notice keeps its event count and refreshes account counts (reopen=${reopen})`, async t => {
+    const f = await businessFixture(t);
+    await f.n.tick();
+    const nativeId = f.n.state.batch.nativeId;
+    f.counts = {unread_count: 0, pending_count: 0};
+    if (reopen) {
+      // Journals from older writers contain totals sampled during collection.
+      const batch = f.n.state.batch;
+      await f.n.save({...f.n.state, batch: {
+        ...batch, businessNotices: {...batch.businessNotices, unread_count: 1, pending_count: 1},
+      }});
+      await f.open();
+    }
+    f.now = 1000;
+    await f.n.tick();
+    assert.equal(f.sent[0].id, nativeId);
+    assert.deepEqual(JSON.parse(f.sent[0].content[0].text).business_notices,
+      {new_count: 1, ...f.counts, last_notice: f.preview});
+    assert.equal(f.n.state.cursor, 1);
+    await f.n.tick();
+    assert.equal(f.sent.length, 1);
+  });
+}
+
+test('failed notice count refresh stays recoverable without a duplicate event', async t => {
+  const f = await businessFixture(t);
+  await f.n.tick();
+  const nativeId = f.n.state.batch.nativeId;
+  f.now = 1000;
+  f.countsFailure = new Error('notice list unavailable');
+  await assert.rejects(f.n.tick(), /notice list unavailable/);
+  assert.equal(f.sent.length, 0);
+  assert.equal(f.n.state.cursor, 0);
+  assert.equal(f.n.state.batch.state, 'collecting');
+  assert.equal(f.n.state.batch.scanned, 1);
+  await f.open();
+  f.countsFailure = null;
+  f.counts = {unread_count: 0, pending_count: 0};
+  await f.n.tick();
+  assert.equal(f.sent[0].id, nativeId);
+  assert.deepEqual(JSON.parse(f.sent[0].content[0].text).business_notices,
+    {new_count: 1, ...f.counts, last_notice: f.preview});
+  await f.n.tick();
+  assert.equal(f.sent.length, 1);
+});
+
+test('rearmed native inbox fetches counts before replacing an unclaimed notice', async t => {
+  const f = await businessFixture(t);
+  await f.n.tick();
+  f.now = 1000;
+  await f.n.tick();
+  const original = f.sent[0];
+  const inbox = f.bridge.agent.inbox;
+  inbox.remove = id => { inbox.nextTurn = inbox.nextTurn.filter(m => m.id !== id); };
+  await f.open();
+  f.countsFailure = new Error('notice list unavailable');
+  await assert.rejects(f.n.resumePending(), /notice list unavailable/);
+  assert.deepEqual(inbox.nextTurn, [original]);
+  f.countsFailure = null;
+  f.counts = {unread_count: 0, pending_count: 0};
+  await f.n.resumePending();
+  assert.equal(inbox.nextTurn.length, 1);
+  assert.equal(inbox.nextTurn[0].id, original.id);
+  assert.deepEqual(JSON.parse(inbox.nextTurn[0].content[0].text).business_notices,
+    {new_count: 1, ...f.counts, last_notice: f.preview});
+});
+
+test('group and business notices use one recovered batch with membership and action state independent', async t => {
+  const f = await fixture(t);
+  const group = {type: 'group', id: 'group:' + 'a'.repeat(32)};
+  const groupSummary = (revision, position) => ({
+    conversation: group, display_name: 'Synthetic group',
+    membership_revision: revision, new_count: 1, incoming_unread: 1,
+    last_message: {position, text: 'sender content'},
+  });
+  let membership = 1;
+  let page = {
+    items: [groupSummary(1, 2)],
+    business_notices: {
+      new_count: 1, unread_count: 3, pending_count: 2,
+      last_notice: {notification_id: 'invite-1', type: 'group_invitation', text: 'invited', truncated: false},
+    },
+    cursor: 1,
+  };
+  f.bridge.client.call = async (path, args) => {
+    if (path === 'notifications/get') return {...f.settings};
+    if (path === 'notices/list') {
+      const {unread_count, pending_count} = page.business_notices;
+      return {unread_count, pending_count, items: [], next_cursor: null};
+    }
+    if (path === 'chat/list_conversations') {
+      return {items: membership === null ? [] : [{conversation: group, membership_revision: membership}],
+        next_cursor: null};
+    }
+    assert.equal(path, 'notifications/changes', 'delivery never executes or marks a notice');
+    const fresh = args.after_cursor < page.cursor;
+    return {
+      settings: {...f.settings}, items: fresh ? page.items : [],
+      ...(fresh ? {business_notices: page.business_notices} : {}),
+      next_cursor: page.cursor, through_cursor: page.cursor, has_more: false, deferred: [],
+    };
+  };
+  await f.n.tick();
+  await f.open();
+  membership = 3;
+  page = {
+    items: [groupSummary(3, 5)],
+    business_notices: {
+      new_count: 1, unread_count: 2, pending_count: 2,
+      last_notice: {notification_id: 'invite-2', type: 'group_invitation', text: 'new', truncated: false},
+    },
+    cursor: 2,
+  };
+  f.now = 1000;
+  await f.n.tick();
+  assert.equal(f.sent.length, 1);
+  const summary = JSON.parse(f.sent[0].content[0].text);
+  assert.notEqual(summary.notification_id, 'invite-2');
+  assert.deepEqual(summary.conversations, [groupSummary(3, 5)]);
+  assert.deepEqual(summary.business_notices, {...page.business_notices, new_count: 2});
+  membership = null;
+  await assert.rejects(f.n.beforeModel({messages: Object.freeze([...f.sent])}),
+    /group access changed during model admission/);
+  const projected = await f.n.prepareModelStep({kind: 'enter', messages: Object.freeze([...f.sent])});
+  await f.n.beforeModel({messages: Object.freeze(projected.messages)});
+  const safe = JSON.parse(projected.messages[0].content[0].text);
+  assert.deepEqual(safe.conversations, []);
+  assert.equal(safe.business_notices.pending_count, 2);
+  await f.open();
+  await f.n.tick();
+  assert.equal(f.sent.length, 1);
+});
+
+test('one batch bounds group previews and keeps the omitted counts', async t => {
+  const f = await fixture(t);
+  const groups = Array.from({length: 21}, (_, index) => ({
+    conversation: {type: 'group', id: 'group:' + index.toString(16).padStart(32, '0')},
+    display_name: 'Synthetic group',
+    membership_revision: 1, new_count: 2, incoming_unread: 5,
+    last_message: {position: 1, text: 'bounded', created_at: new Date(index * 1000).toISOString()},
+  }));
+  f.bridge.client.call = async (path, args) => {
+    if (path === 'notifications/get') return {...f.settings};
+    if (path === 'chat/list_conversations') return {items: groups, next_cursor: null};
+    assert.equal(path, 'notifications/changes');
+    return {
+      settings: {...f.settings}, items: args.after_cursor === 0 ? groups : [],
+      next_cursor: 21, through_cursor: 21, has_more: false, deferred: [],
+    };
+  };
+  await f.n.tick();
+  f.now = 1000;
+  await f.n.tick();
+  assert.equal(f.sent.length, 1);
+  const summary = JSON.parse(f.sent[0].content[0].text);
+  assert.equal(summary.conversations.length, 20);
+  assert.equal(summary.conversations[0].conversation.id, groups.at(-1).conversation.id);
+  assert.deepEqual(summary.omitted_groups, {count: 1, new_count: 2, incoming_unread: 5});
+});

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:bb_client/models/auth_models.dart';
@@ -23,6 +24,37 @@ const String _c = '10000003';
 AuthUser _user(String account) =>
     AuthUser(account: account, username: 'user-$account');
 
+class HistoryGate extends ChatApiClient {
+  HistoryGate({required super.baseUri, required this.pauseAfter});
+
+  final int? pauseAfter;
+  ({Completer<void> entered, Completer<void> resume})? gate;
+
+  @override
+  Future<MessagePage> conversation({
+    required String token,
+    required String account,
+    int? afterPosition = 0,
+    int? beforePosition,
+    int limit = 50,
+  }) async {
+    final waiting = gate;
+    if ((pauseAfter == null || afterPosition == pauseAfter) &&
+        waiting != null &&
+        !waiting.entered.isCompleted) {
+      waiting.entered.complete();
+      await waiting.resume.future;
+    }
+    return super.conversation(
+      token: token,
+      account: account,
+      afterPosition: afterPosition,
+      beforePosition: beforePosition,
+      limit: limit,
+    );
+  }
+}
+
 void main() {
   late FakeChatBackend backend;
   late Directory root;
@@ -33,9 +65,9 @@ void main() {
   late String b3Id;
   late String c1Id;
 
-  Future<ChatService> openService() async {
+  Future<ChatService> openService({ChatApiClient? api}) async {
     final ChatService opened = ChatService(
-      api: ChatApiClient(baseUri: backend.baseUri),
+      api: api ?? ChatApiClient(baseUri: backend.baseUri),
       session: session,
       ledger: ChatLedger.atPath('${root.path}/ledger.json'),
       cacheRoot: Directory('${root.path}/cache'),
@@ -98,6 +130,74 @@ void main() {
       expect((await service.incomingUnreadByPeer())[_b], 2);
     },
   );
+
+  for (final int? pauseAfter in <int?>[null, 100]) {
+    test(
+      'entry excludes later arrivals with ${pauseAfter == null ? 'first' : 'second'} history request paused',
+      () async {
+        for (int position = 4; position <= 101; position++) {
+          await backend.seedMessage(
+            sender: _b,
+            target: _a,
+            text: 'old $position',
+          );
+        }
+        await service.dispose();
+        final HistoryGate api = HistoryGate(
+          baseUri: backend.baseUri,
+          pauseAfter: pauseAfter,
+        );
+        service = await openService(api: api);
+        // Let the badge query finish before arming the gate for entry history.
+        expect((await service.incomingUnreadByPeer())[_b], 100);
+        final int throughPosition = service.observedConversationPosition(_b);
+        expect(throughPosition, 101);
+        final entered = Completer<void>();
+        final resume = Completer<void>();
+        api.gate = (entered: entered, resume: resume);
+
+        final Future<int> entry = service.markConversationViewed(
+          _b,
+          throughPosition: throughPosition,
+        );
+        late final String hiddenId;
+        try {
+          await entered.future.timeout(const Duration(seconds: 5));
+          expect(await service.ledger.displayedMessageIds(_a), isEmpty);
+          hiddenId = await backend.seedMessage(
+            sender: _b,
+            target: _a,
+            text: 'arrives while entry is pending',
+          );
+          expect((await service.incomingUnreadByPeer())[_b], 101);
+          expect(service.observedConversationPosition(_b), 102);
+        } finally {
+          resume.complete();
+        }
+        expect(await entry, 100);
+        final Set<String> displayed = await service.ledger.displayedMessageIds(
+          _a,
+        );
+        expect(displayed, containsAll(<String>[b1Id, b3Id]));
+        expect(displayed, isNot(contains(hiddenId)));
+        expect((await service.incomingUnreadByPeer())[_b], 1);
+
+        final ChatMessage? rendered = await service.query.messageById(hiddenId);
+        expect(
+          await service.recordDisplayedIncoming(
+            peerAccount: _b,
+            messages: <ChatMessage>[rendered!],
+          ),
+          1,
+        );
+        expect(
+          await service.ledger.displayedMessageIds(_a),
+          contains(hiddenId),
+        );
+        expect((await service.incomingUnreadByPeer())[_b], 0);
+      },
+    );
+  }
 
   test(
     'entering clears only that conversation and never ACKs consumption',

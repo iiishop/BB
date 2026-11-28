@@ -105,6 +105,7 @@ class MessageBubble extends StatelessWidget {
     this.statusUnconfirmed = false,
     this.showAvatar = true,
     this.isRunEnd = true,
+    this.showSenderName = false,
     this.originKeyFor,
     this.mediaMaxWidth,
   });
@@ -141,6 +142,9 @@ class MessageBubble extends StatelessWidget {
 
   /// Grouping: the sender-side bottom corner tightens at the run end.
   final bool isRunEnd;
+
+  /// Group chats display the sender's username above incoming runs.
+  final bool showSenderName;
 
   /// Page-owned key for one painted thumbnail occurrence of this message.
   ///
@@ -285,6 +289,46 @@ class MessageBubble extends StatelessWidget {
       ],
     );
 
+    final Widget tailedBubble = GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: failed ? onRetry : null,
+      onSecondaryTapDown: (TapDownDetails details) =>
+          _showMenu(context, details.globalPosition),
+      onLongPressStart: (LongPressStartDetails details) =>
+          _showMenu(context, details.globalPosition),
+      child: Semantics(
+        button: failed,
+        label: failed
+            ? unconfirmed
+                  ? '消息状态待确认，点按重试'
+                  : '消息未发送，点按重试'
+            : sending
+            ? '消息发送中'
+            : null,
+        child: tailed,
+      ),
+    );
+    final Widget bubbleColumn = (!mine && showAvatar && showSenderName)
+        ? Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Padding(
+                padding: const EdgeInsets.only(left: 4, bottom: 3),
+                child: Text(
+                  _resolvedSenderLabel(),
+                  style: const TextStyle(
+                    fontSize: 11.5,
+                    color: AppColors.inkMuted,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              tailedBubble,
+            ],
+          )
+        : tailedBubble;
+
     return Row(
       crossAxisAlignment: showAvatar
           ? CrossAxisAlignment.start
@@ -295,29 +339,19 @@ class MessageBubble extends StatelessWidget {
           _avatarSlot(false),
           const SizedBox(width: AppSpacing.sm),
         ],
-        Flexible(
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: failed ? onRetry : null,
-            onSecondaryTapDown: (TapDownDetails details) =>
-                _showMenu(context, details.globalPosition),
-            onLongPressStart: (LongPressStartDetails details) =>
-                _showMenu(context, details.globalPosition),
-            child: Semantics(
-              button: failed,
-              label: failed
-                  ? unconfirmed
-                        ? '消息状态待确认，点按重试'
-                        : '消息未发送，点按重试'
-                  : sending
-                  ? '消息发送中'
-                  : null,
-              child: tailed,
-            ),
-          ),
-        ),
+        Flexible(child: bubbleColumn),
       ],
     );
+  }
+
+  String _resolvedSenderLabel() {
+    if (message.senderUsername != null && message.senderUsername!.isNotEmpty) {
+      return message.senderUsername!;
+    }
+    if (message.senderAccount.isNotEmpty) {
+      return message.senderAccount;
+    }
+    return peerUsername;
   }
 
   /// Photo blocks for a picture-only message, plus any send feedback.
@@ -378,6 +412,18 @@ class MessageBubble extends StatelessWidget {
                 : CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
+              if (!mine && showAvatar && showSenderName)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text(
+                    _resolvedSenderLabel(),
+                    style: const TextStyle(
+                      fontSize: 11.5,
+                      color: AppColors.inkMuted,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
               ...blocks,
               if (sending || failed)
                 _StatusSlot(

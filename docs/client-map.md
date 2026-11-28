@@ -4,6 +4,7 @@
 > 这不是产品介绍，也不是验收报告；它回答“这个能力现在在哪、谁在调用、什么条件下生效、要复用该接哪里”。
 >
 > DEA-495 原始地图基线为 `609811ffdc090bd71b734dd8a1bdf674036cd870`。本次资料页、折叠判定及坐标转换按客户端候选 `f413e3d29b7c1d4a94646125b126e92f79c8e5c7` 更新。其他条目的行号沿用原始基线。
+> DEA-500 基于 main `ef4e4a8af9c113b47de48d9726dd41b1e5ca3873` 增加三级导航、目录与资料外壳；新增条目用符号定位。DEA-502 已补齐群会话模型、纯 Dart 共享服务（`GroupService` / `SharedConversationService` / `ConversationAccessController`）、首页与双栏/详情/通知/媒体撤权及磁盘缓存隔离接线；`chat_service.dart` 与 Dart 本地 API 路由（`chat_v2.dart`）由 DEA-503 独立维护。
 
 先读这三份再动手：
 
@@ -47,7 +48,10 @@ main()
                   ├─ 聊天：UsersListView（手机）或 ChatWorkspace（宽屏/展开折叠）
                   │    └─ ChatPage → ChatComposer / MessageBubble / MediaViewer
                   ├─ BB 空间：SpacePage → feed / detail / compose / notifications / drafts / profile
+                  ├─ 通用通知：NotificationCenterHost（`ui/profile/group_profile_host.dart`）→ NotificationCenter
                   └─ 个人资料：openProfilePanel → ProfilePanel（mobile / folded / desktop）
+聊天头部头像 → 私聊 openPersonProfile → PersonProfilePanel；群聊 openGroupProfileByNumber → GroupProfilePanel
+首页「+」菜单 → openCreateGroupFlow / openFindGroupDialog → UserDirectoryPicker / GroupDetailsForm / GroupProfilePanel
 更新：UpdateScope 包在 BbRoot 外层，每个进程一份控制器；入口在资料页 → 设置。
 独立入口：client/bin/bb_client_api.dart → LocalAuthServer（回环本地控制接口），不启动 Flutter 界面。
 ```
@@ -66,6 +70,7 @@ main()
 | `ui/chat/` | 用户列表、单聊、输入区、气泡、媒体查看器、草稿、剪贴板、在线状态 | `users_view.dart`、`chat_page.dart`、`chat_workspace.dart`、`chat_composer.dart`、`message_bubble.dart`、`media_viewer.dart`、`chat_photo_source.dart`、`viewer_video.dart`、`media_save.dart`、`media_actions.dart`、`chat_drafts.dart`、`chat_avatars.dart`、`chat_format.dart`、`conversation_order.dart`、`clipboard_paste.dart`、`pending_send.dart` | 照片查看器的通用行为在 `ui/media/`，不要在这里再写一套 |
 | `ui/media/` | 聊天与 Space 共用的全屏图片/分页契约 | `photo_source.dart`、`photo_page.dart`、`photo_pager.dart`、`photo_format.dart` | 只负责“怎么显示字节”，不负责“字节从哪来”（那是 `PhotoSource` 实现） |
 | `ui/profile/` | 三形态资料面板、头像/封面视觉、头像选择器 | `profile_panel.dart`、`profile_artwork.dart`、`avatar_picker.dart` | 资料修改动作只有一份；三种呈现只换外壳/页面体（§4.3） |
+| `ui/notifications/` | 独立通用通知展示 | `notification_center.dart` | 全部/待处理、任意动作、失效/已读展示；不保存业务状态、不复用 Space 通知账本 |
 | `ui/space/` | BB 空间 feed、详情、编辑、通知、草稿、关注、作者主页、图片查看 | `space_page.dart`、`space_controller.dart`、`space_detail_controller.dart`、`space_detail_view.dart`、`space_compose_controller.dart`、`space_compose_page.dart`、`space_widgets.dart`、`space_layout.dart`、`space_gateway.dart`、`space_follow_store.dart`、`space_follow_button.dart`、`space_image_viewer.dart`、`space_avatars.dart`、`space_lists_view.dart`、`space_local_store.dart`、`space_people_sheets.dart`；`profile/` 下是作者主页（`space_profile_page.dart`、`space_profile_controller.dart`、`space_profile_posts_module.dart`、`space_profile_month_directory.dart`、`space_profile_gateway.dart`、`space_profile_adapter.dart`） | 线协议只认 `server/contract/space-v1.json` + 生成代码；UI 不手写第二套协议 |
 | `ui/updates/` | 更新设置的展示层和宿主绑定 | `update_scope.dart`、`update_settings_host.dart`、`update_settings_page.dart`、`update_ui_mapper.dart`、`update_ui_state.dart`、`release_notes_view.dart`、`update_link_opener.dart` | 网络、分段下载、校验、安装事务在 `updates/`，不在 Widget 里 |
 | `ui/widgets/` | 跨认证/资料/聊天/空间共用的小部件 | `profile_avatar.dart`、`auth_widgets.dart` | 放真正跨功能、无业务状态的东西；页面私有 Widget 留在各自文件 |
@@ -160,7 +165,7 @@ main()
 
 - 未读/已显示/消费 ACK 是三件事。UI 只记录“已显示”（`ChatPage._flushDisplayed`，`ui/chat/chat_page.dart:722`），消费 ACK 只在本地 `v2` 路由里由模型显式调用（`services/chat_v2.dart:585`、`:603`）。不要把打开会话当作已读回执。
 - 会话内轮询是 3 秒（`chat_page.dart:253`）；服务端事件流是另一条（`ChatService.start` → `EventFeed`，`services/chat_service.dart:189`）。
-- 群聊/多聊不在当前客户端范围内；`ChatPage` 只接受一个 `peer`（`chat_page.dart:51`）。
+- DEA-498 已授权群聊；本阶段 `ChatPage` 仍只接受一个 `peer`，共享会话寻址及真实群消息适配由 DEA-502 接入。不得把群号伪装成用户账号传入该参数。
 
 ### 2.5 Space 组件
 
@@ -202,6 +207,20 @@ Space 状态边界：
 
 `client/lib/app.dart`：`AppSpacing`（`:12`）、`AppRadius`（`:22`）、`AppColors`（`:32`）、`buildAppTheme`（`:62`）。新页面只用这些 token；聊天气泡的专用颜色（`chatPaper`、`bubblePeer`、`bubbleMine`）也在 `AppColors`（`:45-49`），不要在页面里写新的十六进制色。
 
+### 2.8 通用通知、用户目录与群资料（DEA-500）
+
+| 组件 | 位置（`client/lib/`） | 调用与复用边界 |
+| --- | --- | --- |
+| `NotificationCenter` | `ui/notifications/notification_center.dart` | `HomeView.notificationBuilder(context, active)` 插入独立的第三页；默认显示“通知暂不可用”。`NotificationEntry` / `NotificationEntryAction` 仅为展示值，不是另一份线协议。宿主（`NotificationCenterHost`）按当前筛选（`all` / `pending`）向服务端逐页请求并在切换筛选、事件刷新及「加载更多」（`NotificationCenter.loadMoreKey`）时保持按 `notification_id` 操作；页面不自动标读、不假装处理完成。待处理只看当前可用动作，与 `read` 无关；`invalidated` 隐藏全部动作并移出待处理。 |
+| `UserIdentityAvatar` / `UserIdentityRow` | `ui/chat/user_identity_row.dart` | 会话列表与目录共用原有头像加载；身份行只显示头像、昵称、BB号、在线状态。成员私聊为手机单击、桌面双击；宿主的 `onOpenChat` 必须接既有 Home/Workspace 入口。移除按钮作为独立 `trailing` 区域，不与私聊共享手势。 |
+| `openUserDirectoryPicker` / `UserDirectoryPicker` | `ui/chat/user_directory_picker.dart` | 使用现有 `ChatService.listUsers` 逐页读取并验证游标前进；排除自己/指定账号，多选，按账号去重，按昵称/BB号搜索。取消返回 null，跳过返回空列表；邀请场景可传 `allowEmpty: false`。不拉历史、未读、最近联系时间，不确认聊天展示。 |
+| `openProfileSurface<T>` / `ProfilePanelFrame` | `ui/profile/profile_panel.dart` | 复用原有手机路由、桌面 440×700 卡片、折叠左侧资料/右侧模糊；`GlobalKey` 保留窗口重排中的输入和选择。自己资料仍保留原 Hero/封面和编辑动作；通用外壳只负责容器。 |
+| `ProfileDetails` / `PersonProfilePanel` | `ui/profile/profile_details.dart` | 群资料与对方个人资料共用详情排版。`ChatPage.headerProfileKey` 打开指定 peer 的真实 `ProfileGateway` 资料；失败可重试，返回保留原聊天。没有自己的编辑/退出登录或 Space 作者主页。 |
+| `GroupProfilePanel` / `GroupDetailsForm` | `ui/profile/group_profile_panel.dart` | 基础群资料、成员/群主/非成员入口可见性和名称必填表单。非成员无成员入口；普通成员无编辑/移除/解散；群主无退群；解散只保留基础资料。邀请权限/成员事实/图片字节由服务传入，UI 不生成群号或默认头像、不执行服务写入；真实动作确认、头像编辑与服务接入由 DEA-502 完成。 |
+| `ChatSystemEntry` | `ui/chat/chat_system_entry.dart` | 中央系统文案，独立于时间标签/用户气泡，无伪造发送者。仅准备共享表现；加入/改名事件的权威数据与消息适配在后续接入，不能用此组件自行生成业务事件。 |
+
+三形态与状态回归入口为 `client/test/social_shell_widget_test.dart`（外壳）与 `client/test/group_social_integration_widget_test.dart`、`client/test/group_service_and_revocation_test.dart`（DEA-502 群聊、通知动作与媒体撤权/重放回归）；原 `chat_hidden_display_test.dart` 同时覆盖 Space 和通用通知遮挡，不可只检查聊天内选中状态。`HomeView` 在传入 `groups`/`shared` 后直接启用的「+」菜单完成真实建群与查群流程。
+
 ## 3. 功能清单与入口
 
 ### 3.1 启动、服务地址与外壳
@@ -225,6 +244,7 @@ client/lib/main.dart:31  main()
 - 地址顺序：`server.json` 保存值 → 编译期 `BB_API_BASE_URL` → 首次设置页。保存值优先（`main.dart:100-108`）。
 - 切换服务器会清掉旧服务器的会话文件和聊天账本（`main.dart:270` `_resetCredentialState`），头像/媒体缓存保留（内容按账号/版本寻址）。有未发送草稿时拒绝切换（`main.dart:131-132`）。
 - `HomeView` 的 92px rail（`ui/home_view.dart:73`）只在宽度 ≥720 时出现（`:601`）；窄屏用底部 `NavigationBar`（`:683`）。宽屏/折叠时传给 Space/Chat 的 `MediaQuery` 已扣除 rail，并平移 display feature（`:622-640`）。
+- 三个一级入口固定为聊天、BB空间、通知；`space == null` 只让空间页显示不可用，不再绕过整个导航。`IndexedStack` 保留各页状态，`_section == 0` 才把聊天标为可见；通知的 `active` 单独传给宿主。不要将通用通知合入 `SpaceSection.notifications`。
 
 ### 3.2 认证
 
@@ -399,7 +419,7 @@ client/lib/main.dart:31  main()
 **需保留的行为差异**：
 
 - Chat 原图一旦发送，客户端持有 `heldOriginal`，打开 viewer 不应再走网络；Space 没有“刚发送的本地副本”，必须重新读授权图源。
-- Space 图片可能因帖子删除/重连整体失效，`changes`/`invalidated` 必须继续生效；Chat 的 media id 不可变，不需要失效监听。
+- Space 图片因帖子删除/重连失效时，`changes`/`invalidated` 必须继续生效。群成员撤权/解散同样要求 Chat 图源、已打开窗口和本地字节失效；当前 `ChatPhotoSource.changes=null` / `invalidated=false` 只是旧私聊实现现状，不能再当作群聊安全前提，DEA-502 必须补齐。
 - 列表不是无条件用缩略图：`loadListPreview` 先 probe 大小，≤102400 字节走 `mediaBytes` 原图，>102400（从 102401 起）才 `loadThumbnail`（`services/chat_service.dart:2345-2352`、`config/media_policy.dart:15`）。统一预览逻辑时不能把这个边界改成 `<`、也不能让列表一律拉缩略图或一律拉原图。
 
 ### 4.6 权限判断
