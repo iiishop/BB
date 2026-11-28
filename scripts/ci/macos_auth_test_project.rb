@@ -1,7 +1,7 @@
 require "json"
 require "xcodeproj"
 
-directory, app_path, server_url = ARGV
+directory, app_path, server_url, server_log = ARGV
 project = Xcodeproj::Project.new(File.join(directory, "AuthSmoke.xcodeproj"))
 target = project.new_target(:ui_test_bundle, "AuthSmoke", :osx, "13.0")
 target.build_configurations.each do |configuration|
@@ -13,7 +13,10 @@ target.build_configurations.each do |configuration|
   )
 end
 target.add_file_references([project.main_group.new_file(File.join(__dir__, "macos_auth_test.swift"))])
-File.write(File.join(directory, "settings.json"), JSON.generate(app: app_path, server: server_url))
+File.write(
+  File.join(directory, "settings.json"),
+  JSON.generate(app: app_path, server: server_url, server_log: server_log),
+)
 target.resources_build_phase.add_file_reference(project.main_group.new_file("settings.json"))
 project.save
 

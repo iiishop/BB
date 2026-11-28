@@ -34,10 +34,14 @@ if [[ -z "$server_url" ]]; then
   exit 1
 fi
 
-ruby scripts/ci/macos_auth_test_project.rb "$work" "$app" "$server_url"
-xcodebuild test -project "$work/AuthSmoke.xcodeproj" -scheme AuthSmoke \
+ruby scripts/ci/macos_auth_test_project.rb "$work" "$app" "$server_url" "$evidence/auth-server.log"
+if ! xcodebuild test -project "$work/AuthSmoke.xcodeproj" -scheme AuthSmoke \
   -destination 'platform=macOS' -parallel-testing-enabled NO \
   -derivedDataPath "$work/DerivedData" -resultBundlePath "$work/AuthSmoke.xcresult" \
-  2>&1 | tee "$evidence/auth-ui.log"
+  2>&1 | tee "$evidence/auth-ui.log"; then
+  xcrun xcresulttool export attachments --only-failures \
+    --path "$work/AuthSmoke.xcresult" --output-path "$evidence/auth-ui-failures" || true
+  exit 1
+fi
 grep -E '"POST /auth/register HTTP/[0-9.]+" 201( |$)' "$evidence/auth-server.log"
 grep -E '"POST /auth/login HTTP/[0-9.]+" 200( |$)' "$evidence/auth-server.log"
