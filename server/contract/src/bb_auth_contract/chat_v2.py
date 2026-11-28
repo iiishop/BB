@@ -8,8 +8,8 @@ from typing import Annotated, Generic, Literal, TypeVar
 from pydantic import ConfigDict, Field, model_validator
 
 from . import chat as v1
-from . import chat_query as query
 from . import chat_alerts, cover, group, mentions, profile
+from . import chat_query as query
 from .conversation import GroupConversationRef
 
 VERSION = "dea467-local-v2"
