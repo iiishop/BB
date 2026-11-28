@@ -6,6 +6,7 @@ from threading import Barrier, Event
 
 import test_chat
 from bb_auth_contract.group import PROFILE_REVISION_HEADER, REMOTE
+from fastapi.testclient import TestClient
 from PIL import Image
 from space_support import call as space_call
 from space_support import register
@@ -13,6 +14,7 @@ from starlette.concurrency import run_in_threadpool
 from test_admin_http import free_port, running
 from test_shared_chat import group_send, shared_list
 
+from bb_server.app import create_app
 from bb_server.avatars import default_version, identicon
 from bb_server.chat import AuthorizedGroupFile
 from bb_server.storage import connection
@@ -426,6 +428,109 @@ def test_current_permissions_and_invitation_survives_issuer_leaving(chat):
         "member.joined",
         "member.joined",
     ]
+
+
+def test_group_member_counts_refresh_over_http(tmp_path):
+    port = free_port()
+    env = {
+        **os.environ,
+        "BB_DATABASE_PATH": str(tmp_path / "db"),
+        "BB_AVATAR_DIRECTORY": str(tmp_path / "avatars"),
+        "BB_MEDIA_DIRECTORY": str(tmp_path / "media"),
+        "BB_HOST": "127.0.0.1",
+        "BB_PORT": str(port),
+    }
+    origin = f"http://127.0.0.1:{port}"
+    with running("bb-server", env, origin, tmp_path / "server.log") as api:
+        owner, member, outsider = (
+            register(api, name) for name in ("Alice", "Bob", "Carol")
+        )
+        group = call(
+            api,
+            owner,
+            "create_group",
+            operation_id="counts",
+            name="Synthetic group",
+            invitees=[member[0]],
+        )
+        target = {"conversation": group["conversation"]}
+
+        def refresh(online, total, viewer=owner, **page):
+            result = call(
+                api, viewer, "list_group_members", include_counts=True, **target, **page
+            )
+            assert result["counts"] == {"online": online, "total": total}
+            return result
+
+        legacy = post(api, owner, "list_group_members", **target)
+        assert legacy.status_code == 200
+        assert set(legacy.json()) == {"items", "next_cursor"}
+        assert legacy.json() == post(
+            api, owner, "list_group_members", include_counts=False, **target
+        ).json()
+        refresh(1, 1)
+        public_profile = call(
+            api, outsider, "find_group", group_number=group["group_number"]
+        )
+        assert "counts" not in public_profile
+        for viewer, status in ((None, 401), (member, 404), (outsider, 404)):
+            assert "counts" not in call(
+                api,
+                viewer,
+                "list_group_members",
+                status=status,
+                include_counts=True,
+                **target,
+            )
+
+        act(api, member, notice(api, member, "group_invitation"), "accept")
+        first = refresh(2, 2, viewer=member, limit=1)
+        assert len(first["items"]) == 1 and first["next_cursor"] is not None
+        assert refresh(2, 2, after_account="99999999")["items"] == []
+
+        credentials = {"account": member[0], "password": "Abc123"}
+        second_login = api.post("/auth/login", json=credentials)
+        assert second_login.status_code == 200
+        second_headers = {"Authorization": "Bearer " + second_login.json()["token"]}
+        refresh(2, 2)
+        assert api.post("/auth/logout", headers=member[1]).status_code == 204
+        refresh(2, 2)
+        assert api.post("/auth/logout", headers=second_headers).status_code == 204
+        refresh(1, 2)
+        login_again = api.post("/auth/login", json=credentials)
+        assert login_again.status_code == 200
+        refresh(2, 2)
+
+        call(api, owner, "remove_group_member", account=member[0], **target)
+        refresh(1, 1)
+        removed = member[0], {"Authorization": "Bearer " + login_again.json()["token"]}
+        call(
+            api, removed, "list_group_members", status=404, include_counts=True, **target
+        )
+        call(api, owner, "dissolve_group", **target)
+        call(api, owner, "list_group_members", status=404, include_counts=True, **target)
+
+
+def test_group_member_counts_at_presence_timeout_and_heartbeat(tmp_path):
+    now = [2_000_000_000.0]
+    with TestClient(create_app(tmp_path / "db", clock=lambda: now[0])) as api:
+        owner = register(api, "Alice")
+        group = call(
+            api, owner, "create_group", operation_id="zero", name="Synthetic group"
+        )
+        target = {"conversation": group["conversation"], "include_counts": True}
+
+        def refresh(presence, online):
+            page = call(api, owner, "list_group_members", **target)
+            assert page["items"][0]["presence"] == presence
+            assert page["counts"] == {"online": online, "total": 1}
+
+        now[0] += 89.5
+        refresh("online", 1)
+        now[0] += 0.5
+        refresh("offline", 0)
+        assert api.post("/auth/heartbeat", headers=owner[1]).status_code == 200
+        refresh("online", 1)
 
 
 def test_dissolve_http_cleanup_retries_after_process_restart(tmp_path):

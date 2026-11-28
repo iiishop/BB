@@ -13,12 +13,13 @@ from bb_auth_contract.group import (
     PROFILE_REVISION_PATTERN,
     REMOTE,
     GroupProfile,
+    RemoteGroupMemberPage,
 )
 from fastapi import Depends, Response
 
 from . import avatars, chat_media_gc, chat_store, notices
 from .chat import fail
-from .chat_queries import directory_rows, user_card
+from .chat_queries import directory_rows, group_member_counts, user_card
 from .storage import connection
 from .storage_errors import storage_failure
 
@@ -375,15 +376,16 @@ class Groups:
         with connection(self.path) as db:
             chat_store.active_membership(db, account, conversation_id)
             owner = by_id(db, conversation_id)["owner"]
+            now = self.clock()
             rows = directory_rows(
                 db,
                 account,
                 body.after_account,
                 body.limit,
-                self.clock(),
+                now,
                 conversation_id=conversation_id,
             )
-            return {
+            page = {
                 "items": [
                     {
                         **user_card(row),
@@ -395,6 +397,9 @@ class Groups:
                 if len(rows) > body.limit
                 else None,
             }
+            if body.include_counts:
+                page["counts"] = group_member_counts(db, conversation_id, now)
+            return page
 
     def invite_to_group(self, account, body):
         conversation_id = body.conversation.id
@@ -574,6 +579,7 @@ def install(app, service, current_session, no_query):
             bind(name, request_model, has_profile),
             methods=["POST"],
             response_model=response_model,
+            response_model_exclude_unset=response_model is RemoteGroupMemberPage,
             responses=responses,
             dependencies=[Depends(no_query)],
         )
