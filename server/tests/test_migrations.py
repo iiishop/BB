@@ -5,10 +5,11 @@ import time
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
+
 from bb_server.app import create_app
 from bb_server.chat_store import create_group_conversation
 from bb_server.storage import SCHEMA_VERSION, connection, migrate
-from fastapi.testclient import TestClient
 
 
 def test_failed_migration_rolls_back_entire_schema(tmp_path, monkeypatch):

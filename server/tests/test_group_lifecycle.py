@@ -6,15 +6,16 @@ from threading import Barrier, Event
 
 import test_chat
 from bb_auth_contract.group import PROFILE_REVISION_HEADER, REMOTE
-from bb_server.avatars import default_version, identicon
-from bb_server.chat import AuthorizedGroupFile
-from bb_server.storage import connection
 from PIL import Image
 from space_support import call as space_call
 from space_support import register
 from starlette.concurrency import run_in_threadpool
 from test_admin_http import free_port, running
 from test_shared_chat import group_send, shared_list
+
+from bb_server.avatars import default_version, identicon
+from bb_server.chat import AuthorizedGroupFile
+from bb_server.storage import connection
 
 chat = test_chat.chat
 
