@@ -1886,4 +1886,73 @@ void main() {
       await tester.pump(const Duration(seconds: 35));
     },
   );
+
+  testWidgets(
+    'A6: second client update observed via findGroup before delayed write response preserves latest title',
+    (WidgetTester tester) async {
+      server.createdGroup1 = true;
+      await pumpHome(tester, size: const Size(375, 812));
+
+      await tester.tap(find.byKey(UsersListView.groupRowKey(server.group1Id)));
+      await _settle(tester);
+
+      final Completer<void> first = Completer<void>();
+      server.holdUpdate = first;
+      await tester.tap(find.byKey(ChatPage.headerProfileKey));
+      await _settle(tester);
+      await tester.tap(find.text('编辑群资料'));
+      await _settle(tester);
+      await tester.enterText(find.byType(TextFormField).first, 'First edit');
+      await tester.tap(find.text('保存群资料'));
+      await _settle(tester);
+      expect(server.holdUpdate, isNull);
+      expect(server.group1Name, 'First edit');
+      await tester.binding.handlePopRoute();
+      await _settle(tester);
+
+      final GroupApiClient otherClient = GroupApiClient(
+        baseUri: server.baseUri,
+        transport: HttpTransport(factory: () => HttpClient()),
+      );
+      await tester.runAsync(
+        () => otherClient.updateGroup(
+          token: session.identity!.token,
+          conversation: ConversationRef.group(server.group1Id),
+          name: 'Final edit',
+        ),
+      );
+      expect(server.group1Name, 'Final edit');
+
+      await tester.tap(find.byKey(ChatPage.headerProfileKey));
+      await _settle(tester);
+      expect(find.text('Final edit'), findsOneWidget);
+      await tester.binding.handlePopRoute();
+      await _settle(tester);
+      expect(
+        tester.widget<Text>(find.byKey(ChatPage.headerNameKey)).data,
+        'Final edit',
+      );
+
+      first.complete();
+      await _settle(tester);
+      expect(server.group1Name, 'Final edit');
+      expect(
+        tester.widget<Text>(find.byKey(ChatPage.headerNameKey)).data,
+        'Final edit',
+      );
+
+      await tester.binding.handlePopRoute();
+      await _settle(tester);
+      expect(
+        find.descendant(
+          of: find.byKey(UsersListView.groupRowKey(server.group1Id)),
+          matching: find.text('Final edit'),
+        ),
+        findsOneWidget,
+      );
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump(const Duration(seconds: 35));
+    },
+  );
 }

@@ -91,14 +91,18 @@ class GroupService {
     GroupProfile profile, {
     required int startTicket,
     required AuthIdentity captured,
+    bool invalidateAvatar = false,
   }) async {
     final String convId = profile.conversation.id;
     final int? priorCommit = _latestMutationCommit[convId];
+    final int priorProfile = _latestProfileTicket[convId] ?? 0;
     final int commitTicket = ++_profileTicket;
     _latestMutationCommit[convId] = commitTicket;
-    if (priorCommit != null && startTicket < priorCommit) {
-      // Another mutation committed while this request was in flight; re-query
-      // so either server commit order converges to the authoritative state.
+    if ((priorCommit != null && startTicket < priorCommit) ||
+        startTicket < priorProfile) {
+      // Another mutation or profile query completed while this request was
+      // in flight; re-query so the UI converges to the authoritative server
+      // state regardless of commit order or updates from other sessions.
       try {
         return await findGroup(profile.groupNumber, captured: captured);
       } on AuthFailure catch (failure) {
@@ -109,6 +113,9 @@ class GroupService {
       } catch (_) {
         return profile;
       }
+    }
+    if (invalidateAvatar) {
+      await invalidateGroupAvatar(profile.groupNumber);
     }
     _emitGroupUpdate(profile, ticket: commitTicket);
     return profile;
@@ -300,13 +307,11 @@ class GroupService {
       resetAvatar: resetAvatar,
     );
     _ensureCurrent(identity);
-    if (avatarBytes != null || resetAvatar) {
-      await invalidateGroupAvatar(profile.groupNumber);
-    }
     return _finalizeMutation(
       profile,
       startTicket: startTicket,
       captured: identity,
+      invalidateAvatar: avatarBytes != null || resetAvatar,
     );
   }
 
