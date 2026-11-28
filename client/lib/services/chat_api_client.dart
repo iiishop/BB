@@ -6,6 +6,7 @@ import 'dart:typed_data' show BytesBuilder, Uint8List;
 import '../models/auth_models.dart';
 import '../models/chat_models.dart';
 import '../models/mention_models.dart';
+import '../models/reply_models.dart';
 import 'http_transport.dart';
 
 /// HTTP/WebSocket client for the server's STEP-3 chat REST surface.
@@ -71,11 +72,13 @@ class ChatApiClient {
     required String targetAccount,
     required String clientNonce,
     required List<MessagePart> content,
+    String? replyToMessageId,
   }) => _sendMessageRequest(
     token: token,
     targetAccount: targetAccount,
     clientNonce: clientNonce,
     content: content,
+    replyToMessageId: replyToMessageId,
   );
 
   Future<ChatMessage> sendConversationMessage({
@@ -84,12 +87,14 @@ class ChatApiClient {
     required String clientNonce,
     required List<MessagePart> content,
     List<String> mentionedAccounts = const <String>[],
+    String? replyToMessageId,
   }) => _sendMessageRequest(
     token: token,
     conversation: conversation,
     clientNonce: clientNonce,
     content: content,
     mentionedAccounts: mentionedAccounts,
+    replyToMessageId: replyToMessageId,
   );
 
   Future<ChatMessage> _sendMessageRequest({
@@ -99,6 +104,7 @@ class ChatApiClient {
     required String clientNonce,
     required List<MessagePart> content,
     List<String> mentionedAccounts = const <String>[],
+    String? replyToMessageId,
   }) async {
     if (content.isEmpty) {
       throw const AuthFailure(
@@ -115,6 +121,7 @@ class ChatApiClient {
         'target_account': ?targetAccount,
         if (conversation != null) 'conversation': conversation.toJson(),
         'client_nonce': clientNonce,
+        'reply_to_message_id': ?replyToMessageId,
         'content': content.map((MessagePart p) => p.toJson()).toList(),
         if (mentionedAccounts.isNotEmpty) 'mentioned_accounts': mentionedAccounts,
       },
@@ -203,6 +210,50 @@ class ChatApiClient {
     }
   }
 
+  Future<ChatAlertPage<UnreadReply, int>> listUnreadReplies({
+    required String token,
+    required String conversationId,
+    int? beforePosition,
+    int limit = 50,
+  }) async {
+    final data = await _alertRequest('/chat/replies/unread', token, {
+      'conversation_id': conversationId,
+      'before_position': ?beforePosition,
+      'limit': limit,
+    });
+    try {
+      return ChatAlertPage.fromJson(
+        data,
+        UnreadReply.fromJson,
+        (position) => position > 0,
+      );
+    } on FormatException {
+      throw upstreamMalformed;
+    }
+  }
+
+  Future<ChatAlertPage<ReplyMessage, int>> listDirectReplies({
+    required String token,
+    required String originalMessageId,
+    int? beforePosition,
+    int limit = 50,
+  }) async {
+    final data = await _alertRequest('/chat/replies/direct', token, {
+      'original_message_id': originalMessageId,
+      'before_position': ?beforePosition,
+      'limit': limit,
+    });
+    try {
+      return ChatAlertPage.fromJson(
+        data,
+        ReplyMessage.fromJson,
+        (position) => position > 0,
+      );
+    } on FormatException {
+      throw upstreamMalformed;
+    }
+  }
+
   Future<Map<String, dynamic>> _alertRequest(
     String path,
     String token,
@@ -215,7 +266,7 @@ class ChatApiClient {
       payload: payload,
     );
     _requireSuccess(response, const <int>{200});
-    return _decode(response.body);
+    return _decodeMessages(response);
   }
 
   Future<ChatMessage> sendAttachment({
@@ -223,11 +274,13 @@ class ChatApiClient {
     required String targetAccount,
     required String clientNonce,
     required String mediaId,
+    String? replyToMessageId,
   }) => _sendAttachmentRequest(
     token: token,
     targetAccount: targetAccount,
     clientNonce: clientNonce,
     mediaId: mediaId,
+    replyToMessageId: replyToMessageId,
   );
 
   Future<ChatMessage> sendConversationAttachment({
@@ -235,11 +288,13 @@ class ChatApiClient {
     required ConversationRef conversation,
     required String clientNonce,
     required String mediaId,
+    String? replyToMessageId,
   }) => _sendAttachmentRequest(
     token: token,
     conversation: conversation,
     clientNonce: clientNonce,
     mediaId: mediaId,
+    replyToMessageId: replyToMessageId,
   );
 
   Future<ChatMessage> _sendAttachmentRequest({
@@ -248,6 +303,7 @@ class ChatApiClient {
     ConversationRef? conversation,
     required String clientNonce,
     required String mediaId,
+    String? replyToMessageId,
   }) async {
     final _RawResponse response = await _send(
       'POST',
@@ -258,6 +314,7 @@ class ChatApiClient {
         if (conversation != null) 'conversation': conversation.toJson(),
         'client_nonce': clientNonce,
         'media_id': mediaId,
+        'reply_to_message_id': ?replyToMessageId,
       },
     );
     _requireSuccess(response, const <int>{200});

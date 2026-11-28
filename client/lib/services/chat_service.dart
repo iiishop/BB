@@ -1556,6 +1556,7 @@ class ChatService {
     required String targetAccount,
     required List<OutgoingPart> content,
     List<String> mentionedAccounts = const <String>[],
+    String? replyToMessageId,
     String? operationId,
     ExpectedIdentity? expectedIdentity,
   }) => InstallSafetyGate.instance.protect(
@@ -1563,6 +1564,7 @@ class ChatService {
       targetAccount: targetAccount,
       content: content,
       mentionedAccounts: mentionedAccounts,
+      replyToMessageId: replyToMessageId,
       operationId: operationId,
       expectedIdentity: expectedIdentity,
     ),
@@ -1572,6 +1574,7 @@ class ChatService {
     required String targetAccount,
     required List<OutgoingPart> content,
     List<String> mentionedAccounts = const <String>[],
+    String? replyToMessageId,
     String? operationId,
     ExpectedIdentity? expectedIdentity,
   }) async {
@@ -1581,6 +1584,9 @@ class ChatService {
             recipients.length > 100 ||
             !recipients.every(isValidAccount))) {
       throw _validation('提及需要有效的群成员账号');
+    }
+    if (replyToMessageId != null && !isValidMessageId(replyToMessageId)) {
+      throw _validation('reply_to_message_id 必须是有效的消息 ID');
     }
     final AuthIdentity? maybeCurrent = session.identity;
     if (maybeCurrent == null) {
@@ -1605,7 +1611,12 @@ class ChatService {
     if (cleaned.isEmpty) {
       throw _validation('正文不能为空');
     }
-    final String sourceDigest = _digestOfBody(targetAccount, cleaned, recipients);
+    final String sourceDigest = _digestOfBody(
+      targetAccount,
+      cleaned,
+      recipients,
+      replyToMessageId: replyToMessageId,
+    );
     ChatOperationRecord? record = await ledger.operation(account, opId);
     final String? owner = await ledger.accountForOperation(opId);
     if (owner != null && owner != account) {
@@ -1680,6 +1691,7 @@ class ChatService {
           sourceDigest: sourceDigest,
           parts: _storedParts(cleaned, mediaIds),
           mentionedAccounts: recipients,
+          replyToMessageId: replyToMessageId,
           resolvedMediaIds: List<String>.from(mediaIds),
           attempts: (record?.attempts ?? 0) + 1,
           createdAt: record?.createdAt ?? _clock(),
@@ -1698,6 +1710,7 @@ class ChatService {
       sourceDigest: sourceDigest,
       parts: _storedParts(cleaned, mediaIds),
       mentionedAccounts: recipients,
+      replyToMessageId: replyToMessageId,
       resolvedMediaIds: mediaIds,
       attempts: (record?.attempts ?? 0) + 1,
       message: record?.message,
@@ -1772,6 +1785,7 @@ class ChatService {
     required String clientNonce,
     required List<MessagePart> content,
     required List<String> mentionedAccounts,
+    String? replyToMessageId,
   }) async {
     for (int attempt = 0; ; attempt++) {
       try {
@@ -1782,12 +1796,14 @@ class ChatService {
                 clientNonce: clientNonce,
                 content: content,
                 mentionedAccounts: mentionedAccounts,
+                replyToMessageId: replyToMessageId,
               )
             : await api.sendMessage(
                 token: captured.token,
                 targetAccount: targetAccount,
                 clientNonce: clientNonce,
                 content: content,
+                replyToMessageId: replyToMessageId,
               );
         return _associatedMessage(
           message,
@@ -1823,16 +1839,25 @@ class ChatService {
     required String targetAccount,
     required String clientNonce,
     required String mediaId,
+    String? replyToMessageId,
   }) async {
     for (int attempt = 0; ; attempt++) {
       try {
         final message = isGroupId(targetAccount)
             ? await api.sendConversationAttachment(
-                token: captured.token, conversation: ConversationRef.group(targetAccount),
-                clientNonce: clientNonce, mediaId: mediaId)
+                token: captured.token,
+                conversation: ConversationRef.group(targetAccount),
+                clientNonce: clientNonce,
+                mediaId: mediaId,
+                replyToMessageId: replyToMessageId,
+              )
             : await api.sendAttachment(
-                token: captured.token, targetAccount: targetAccount,
-                clientNonce: clientNonce, mediaId: mediaId);
+                token: captured.token,
+                targetAccount: targetAccount,
+                clientNonce: clientNonce,
+                mediaId: mediaId,
+                replyToMessageId: replyToMessageId,
+              );
         return _associatedMessage(
           message,
           captured.account,
@@ -1923,6 +1948,7 @@ class ChatService {
         clientNonce: record.operationId,
         content: parts,
         mentionedAccounts: record.mentionedAccounts,
+        replyToMessageId: record.replyToMessageId,
       );
       // The remote commit already happened under the captured identity. Record
       // it in the original account's ledger first; a later switch only turns
@@ -1969,6 +1995,7 @@ class ChatService {
             clientNonce: record.operationId,
             content: parts,
             mentionedAccounts: record.mentionedAccounts,
+            replyToMessageId: record.replyToMessageId,
           );
           await _succeed(account, record, message);
           if (!session.isCurrent(captured)) {
@@ -2005,12 +2032,14 @@ class ChatService {
   Future<SendOutcome> sendAttachment({
     required String targetAccount,
     required OutgoingAttachment attachment,
+    String? replyToMessageId,
     String? operationId,
     ExpectedIdentity? expectedIdentity,
   }) => InstallSafetyGate.instance.protect(
     () => _sendAttachment(
       targetAccount: targetAccount,
       attachment: attachment,
+      replyToMessageId: replyToMessageId,
       operationId: operationId,
       expectedIdentity: expectedIdentity,
     ),
@@ -2019,9 +2048,13 @@ class ChatService {
   Future<SendOutcome> _sendAttachment({
     required String targetAccount,
     required OutgoingAttachment attachment,
+    String? replyToMessageId,
     String? operationId,
     ExpectedIdentity? expectedIdentity,
   }) async {
+    if (replyToMessageId != null && !isValidMessageId(replyToMessageId)) {
+      throw _validation('reply_to_message_id 必须是有效的消息 ID');
+    }
     final AuthIdentity? maybeCurrent = session.identity;
     if (maybeCurrent == null) {
       throw unauthenticated;
@@ -2038,7 +2071,11 @@ class ChatService {
     final ExpectedIdentity currentIdentity = context.binding.identity;
     final String opId = operationId ?? newOperationId('a');
     _validateOperationId(opId);
-    final String sourceDigest = _digestOfAttachment(targetAccount, attachment);
+    final String sourceDigest = _digestOfAttachment(
+      targetAccount,
+      attachment,
+      replyToMessageId: replyToMessageId,
+    );
     ChatOperationRecord? record = await ledger.operation(account, opId);
     final String? owner = await ledger.accountForOperation(opId);
     if (owner != null && owner != account) {
@@ -2135,6 +2172,7 @@ class ChatService {
         state: 'prepared',
         sourceDigest: sourceDigest,
         parts: const <Map<String, dynamic>>[],
+        replyToMessageId: replyToMessageId,
         attachmentSource: <String, dynamic>{
           'filename': filename,
           'mime_type': mimeType,
@@ -2155,6 +2193,7 @@ class ChatService {
       state: 'prepared',
       sourceDigest: sourceDigest,
       parts: const <Map<String, dynamic>>[],
+      replyToMessageId: replyToMessageId,
       attachmentSource: <String, dynamic>{
         'filename': filename,
         'mime_type': mimeType,
@@ -2215,6 +2254,7 @@ class ChatService {
         targetAccount: record.targetAccount,
         clientNonce: record.operationId,
         mediaId: record.resolvedMediaId!,
+        replyToMessageId: record.replyToMessageId,
       );
       await _succeed(account, record, message);
       if (!session.isCurrent(captured)) {
@@ -2255,6 +2295,7 @@ class ChatService {
             targetAccount: record.targetAccount,
             clientNonce: record.operationId,
             mediaId: record.resolvedMediaId!,
+            replyToMessageId: record.replyToMessageId,
           );
           await _succeed(account, record, message);
           if (!session.isCurrent(captured)) {
@@ -2294,6 +2335,7 @@ class ChatService {
     required List<OutgoingPart> body,
     required List<OutgoingAttachment> attachments,
     List<String> mentionedAccounts = const <String>[],
+    String? replyToMessageId,
     String? operationSeed,
   }) => InstallSafetyGate.instance.protect(
     () => _sendComposed(
@@ -2301,6 +2343,7 @@ class ChatService {
       body: body,
       attachments: attachments,
       mentionedAccounts: mentionedAccounts,
+      replyToMessageId: replyToMessageId,
       operationSeed: operationSeed,
     ),
   );
@@ -2310,6 +2353,7 @@ class ChatService {
     required List<OutgoingPart> body,
     required List<OutgoingAttachment> attachments,
     List<String> mentionedAccounts = const <String>[],
+    String? replyToMessageId,
     String? operationSeed,
   }) async {
     final AuthIdentity? captured = session.identity;
@@ -2336,6 +2380,7 @@ class ChatService {
             targetAccount: targetAccount,
             content: cleaned,
             mentionedAccounts: mentionedAccounts,
+            replyToMessageId: replyToMessageId,
             operationId: '$seed-b',
           );
         } on AuthFailure catch (failure) {
@@ -2363,6 +2408,8 @@ class ChatService {
           await sendAttachment(
             targetAccount: targetAccount,
             attachment: attachments[i],
+            replyToMessageId:
+                cleaned.isEmpty && i == 0 ? replyToMessageId : null,
             operationId: '$seed-a$i',
           ),
         );
@@ -3223,8 +3270,9 @@ class ChatService {
   String _digestOfBody(
     String targetAccount,
     List<OutgoingPart> content,
-    List<String> mentionedAccounts,
-  ) {
+    List<String> mentionedAccounts, {
+    String? replyToMessageId,
+  }) {
     final List<Map<String, dynamic>> canonical = <Map<String, dynamic>>[
       for (final OutgoingPart part in content)
         if (part is OutgoingText)
@@ -3240,6 +3288,7 @@ class ChatService {
           'content': canonical,
           if (mentionedAccounts.isNotEmpty)
             'mentioned_accounts': mentionedAccounts,
+          'reply_to_message_id': ?replyToMessageId,
         }),
       ),
     );
@@ -3247,8 +3296,9 @@ class ChatService {
 
   String _digestOfAttachment(
     String targetAccount,
-    OutgoingAttachment attachment,
-  ) {
+    OutgoingAttachment attachment, {
+    String? replyToMessageId,
+  }) {
     return sha256Hex(
       utf8.encode(
         _canonical(<String, dynamic>{
@@ -3256,6 +3306,7 @@ class ChatService {
           'target': targetAccount,
           'source': attachment.source.toJson(),
           'cover': attachment.cover?.toJson(),
+          'reply_to_message_id': ?replyToMessageId,
         }),
       ),
     );
