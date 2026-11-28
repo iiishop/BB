@@ -7,6 +7,7 @@ import 'dart:typed_data' show Uint8List;
 import '../config/media_policy.dart';
 import '../models/auth_models.dart';
 import '../models/chat_models.dart';
+import '../models/mention_models.dart';
 import 'auth_session.dart';
 import 'install_safety_gate.dart';
 import 'chat_api_client.dart';
@@ -67,6 +68,7 @@ class SendOutcome {
     this.failure,
     this.part,
     this.attachment,
+    this.mentionedAccounts = const <String>[],
   });
 
   final String operationId;
@@ -78,6 +80,9 @@ class SendOutcome {
 
   /// Original attachment (attachment sends only) for a retry.
   final OutgoingAttachment? attachment;
+
+  /// Original unique group mention accounts (body sends only) for a retry.
+  final List<String> mentionedAccounts;
 
   bool get succeeded => message != null;
 }
@@ -1555,12 +1560,14 @@ class ChatService {
   Future<SendOutcome> sendBody({
     required String targetAccount,
     required List<OutgoingPart> content,
+    List<String> mentionedAccounts = const <String>[],
     String? operationId,
     ExpectedIdentity? expectedIdentity,
   }) => InstallSafetyGate.instance.protect(
     () => _sendBody(
       targetAccount: targetAccount,
       content: content,
+      mentionedAccounts: mentionedAccounts,
       operationId: operationId,
       expectedIdentity: expectedIdentity,
     ),
@@ -1569,9 +1576,17 @@ class ChatService {
   Future<SendOutcome> _sendBody({
     required String targetAccount,
     required List<OutgoingPart> content,
+    List<String> mentionedAccounts = const <String>[],
     String? operationId,
     ExpectedIdentity? expectedIdentity,
   }) async {
+    validateMentionAccounts(
+      mentionedAccounts,
+      isGroup: isGroupId(targetAccount),
+    );
+    final List<String> frozenMentions = List<String>.unmodifiable(
+      mentionedAccounts,
+    );
     final AuthIdentity? maybeCurrent = session.identity;
     if (maybeCurrent == null) {
       throw unauthenticated;
@@ -1595,7 +1610,11 @@ class ChatService {
     if (cleaned.isEmpty) {
       throw _validation('正文不能为空');
     }
-    final String sourceDigest = _digestOfBody(targetAccount, cleaned);
+    final String sourceDigest = _digestOfBody(
+      targetAccount,
+      cleaned,
+      mentionedAccounts: frozenMentions,
+    );
     ChatOperationRecord? record = await ledger.operation(account, opId);
     final String? owner = await ledger.accountForOperation(opId);
     if (owner != null && owner != account) {
@@ -1614,6 +1633,7 @@ class ChatService {
           operationId: opId,
           message: record.message,
           part: cleaned,
+          mentionedAccounts: frozenMentions,
         );
       }
       if (record.state == 'failed' && record.errorStatus == 409) {
@@ -1669,6 +1689,7 @@ class ChatService {
           state: 'prepared',
           sourceDigest: sourceDigest,
           parts: _storedParts(cleaned, mediaIds),
+          mentionedAccounts: frozenMentions,
           resolvedMediaIds: List<String>.from(mediaIds),
           attempts: (record?.attempts ?? 0) + 1,
           createdAt: record?.createdAt ?? _clock(),
@@ -1686,6 +1707,7 @@ class ChatService {
       state: 'prepared',
       sourceDigest: sourceDigest,
       parts: _storedParts(cleaned, mediaIds),
+      mentionedAccounts: frozenMentions,
       resolvedMediaIds: mediaIds,
       attempts: (record?.attempts ?? 0) + 1,
       message: record?.message,
@@ -1702,6 +1724,7 @@ class ChatService {
       record,
       () => _submitBody(captured, account, record!, cleaned, mediaIds),
       parts: cleaned,
+      mentionedAccounts: frozenMentions,
     );
     await requireSameGroupMembership(captured, member);
     return outcome;
@@ -1730,6 +1753,7 @@ class ChatService {
     Future<SendOutcome> Function() submit, {
     List<OutgoingPart>? parts,
     OutgoingAttachment? attachment,
+    List<String> mentionedAccounts = const <String>[],
   }) async {
     try {
       return await submit();
@@ -1746,6 +1770,7 @@ class ChatService {
           message: latest!.message!.withOperationId(record.operationId),
           part: parts,
           attachment: attachment,
+          mentionedAccounts: mentionedAccounts,
         );
       }
       rethrow;
@@ -1759,13 +1784,15 @@ class ChatService {
     required String targetAccount,
     required String clientNonce,
     required List<MessagePart> content,
+    List<String> mentionedAccounts = const <String>[],
   }) async {
     for (int attempt = 0; ; attempt++) {
       try {
         final message = isGroupId(targetAccount)
             ? await api.sendConversationMessage(
                 token: captured.token, conversation: ConversationRef.group(targetAccount),
-                clientNonce: clientNonce, content: content)
+                clientNonce: clientNonce, content: content,
+                mentionedAccounts: mentionedAccounts)
             : await api.sendMessage(
                 token: captured.token, targetAccount: targetAccount,
                 clientNonce: clientNonce, content: content);
@@ -1893,6 +1920,7 @@ class ChatService {
           operationId: record.operationId,
           message: resolved.message,
           part: content,
+          mentionedAccounts: record.mentionedAccounts,
         );
       }
     }
@@ -1902,6 +1930,7 @@ class ChatService {
         targetAccount: record.targetAccount,
         clientNonce: record.operationId,
         content: parts,
+        mentionedAccounts: record.mentionedAccounts,
       );
       // The remote commit already happened under the captured identity. Record
       // it in the original account's ledger first; a later switch only turns
@@ -1918,6 +1947,7 @@ class ChatService {
         operationId: record.operationId,
         message: message,
         part: content,
+        mentionedAccounts: record.mentionedAccounts,
       );
     } on AuthFailure catch (failure) {
       if (_isUncertain(failure)) {
@@ -1938,6 +1968,7 @@ class ChatService {
             operationId: record.operationId,
             message: resolved.message,
             part: content,
+            mentionedAccounts: record.mentionedAccounts,
           );
         }
         // Identical retry with the same nonce: at most one message commits.
@@ -1947,6 +1978,7 @@ class ChatService {
             targetAccount: record.targetAccount,
             clientNonce: record.operationId,
             content: parts,
+            mentionedAccounts: record.mentionedAccounts,
           );
           await _succeed(account, record, message);
           if (!session.isCurrent(captured)) {
@@ -1956,6 +1988,7 @@ class ChatService {
             operationId: record.operationId,
             message: message,
             part: content,
+            mentionedAccounts: record.mentionedAccounts,
           );
         } on AuthFailure catch (again) {
           if (_isUncertain(again)) {
@@ -2271,12 +2304,14 @@ class ChatService {
     required String targetAccount,
     required List<OutgoingPart> body,
     required List<OutgoingAttachment> attachments,
+    List<String> mentionedAccounts = const <String>[],
     String? operationSeed,
   }) => InstallSafetyGate.instance.protect(
     () => _sendComposed(
       targetAccount: targetAccount,
       body: body,
       attachments: attachments,
+      mentionedAccounts: mentionedAccounts,
       operationSeed: operationSeed,
     ),
   );
@@ -2285,8 +2320,16 @@ class ChatService {
     required String targetAccount,
     required List<OutgoingPart> body,
     required List<OutgoingAttachment> attachments,
+    List<String> mentionedAccounts = const <String>[],
     String? operationSeed,
   }) async {
+    validateMentionAccounts(
+      mentionedAccounts,
+      isGroup: isGroupId(targetAccount),
+    );
+    final List<String> frozenMentions = List<String>.unmodifiable(
+      mentionedAccounts,
+    );
     final AuthIdentity? captured = session.identity;
     if (captured == null) {
       throw unauthenticated;
@@ -2304,12 +2347,14 @@ class ChatService {
           operationId: '$seed-b',
           failure: unauthenticated,
           part: cleaned,
+          mentionedAccounts: frozenMentions,
         );
       } else {
         try {
           bodyOutcome = await sendBody(
             targetAccount: targetAccount,
             content: cleaned,
+            mentionedAccounts: frozenMentions,
             operationId: '$seed-b',
           );
         } on AuthFailure catch (failure) {
@@ -2317,6 +2362,7 @@ class ChatService {
             operationId: '$seed-b',
             failure: failure,
             part: cleaned,
+            mentionedAccounts: frozenMentions,
           );
         }
       }
@@ -3194,7 +3240,11 @@ class ChatService {
     return _coverExtractor.extract(path: path, filename: video.filename);
   }
 
-  String _digestOfBody(String targetAccount, List<OutgoingPart> content) {
+  String _digestOfBody(
+    String targetAccount,
+    List<OutgoingPart> content, {
+    List<String> mentionedAccounts = const <String>[],
+  }) {
     final List<Map<String, dynamic>> canonical = <Map<String, dynamic>>[
       for (final OutgoingPart part in content)
         if (part is OutgoingText)
@@ -3208,6 +3258,8 @@ class ChatService {
           'kind': 'message',
           'target': targetAccount,
           'content': canonical,
+          if (mentionedAccounts.isNotEmpty)
+            'mentioned_accounts': mentionedAccounts,
         }),
       ),
     );

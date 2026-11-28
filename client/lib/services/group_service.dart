@@ -12,6 +12,7 @@ import 'dart:typed_data';
 import '../models/auth_models.dart';
 import '../models/chat_models.dart';
 import '../models/group_models.dart';
+import '../models/mention_models.dart';
 import 'auth_session.dart';
 import 'avatar_cache.dart';
 import 'avatar_source.dart';
@@ -1215,6 +1216,7 @@ class SharedConversationService {
     required ConversationRef conversation,
     required String clientNonce,
     required List<MessagePart> content,
+    List<String> mentionedAccounts = const <String>[],
     AuthIdentity? captured,
   }) => InstallSafetyGate.instance.protect(() async {
     final AuthIdentity identity = _requireIdentity(captured);
@@ -1225,12 +1227,14 @@ class SharedConversationService {
         message: '需要群会话 ID',
       );
     }
+    validateMentionAccounts(mentionedAccounts, isGroup: true);
     try {
       final ChatMessage message = await api.sendConversationMessage(
         token: identity.token,
         conversation: conversation,
         clientNonce: clientNonce,
         content: content,
+        mentionedAccounts: mentionedAccounts,
       );
       if (!session.isCurrent(identity)) {
         throw staleIdentity;
@@ -1288,9 +1292,13 @@ class SharedConversationService {
     required ConversationRef conversation,
     required List<OutgoingPart> content,
     required String operationId,
+    List<String> mentionedAccounts = const <String>[],
     AuthIdentity? captured,
   }) => InstallSafetyGate.instance.protect(() async {
     final AuthIdentity identity = _requireIdentity(captured);
+    final List<String> frozenMentions = List<String>.unmodifiable(
+      mentionedAccounts,
+    );
     if (!conversation.isGroup) {
       return SendOutcome(
         operationId: operationId,
@@ -1300,9 +1308,11 @@ class SharedConversationService {
           message: '需要群会话 ID',
         ),
         part: content,
+        mentionedAccounts: frozenMentions,
       );
     }
     try {
+      validateMentionAccounts(frozenMentions, isGroup: true);
       final List<MessagePart> wireParts = <MessagePart>[];
       for (final OutgoingPart part in content) {
         if (part is OutgoingText) {
@@ -1322,14 +1332,20 @@ class SharedConversationService {
         conversation: conversation,
         clientNonce: operationId,
         content: wireParts,
+        mentionedAccounts: frozenMentions,
         captured: identity,
       );
-      return SendOutcome(operationId: operationId, message: committed);
+      return SendOutcome(
+        operationId: operationId,
+        message: committed,
+        mentionedAccounts: frozenMentions,
+      );
     } on AuthFailure catch (failure) {
       return SendOutcome(
         operationId: operationId,
         failure: failure,
         part: content,
+        mentionedAccounts: frozenMentions,
       );
     }
   });
@@ -1392,6 +1408,7 @@ class SharedConversationService {
     required ConversationRef conversation,
     required List<OutgoingPart> body,
     required List<OutgoingAttachment> attachments,
+    List<String> mentionedAccounts = const <String>[],
     String? operationSeed,
     AuthIdentity? captured,
   }) => InstallSafetyGate.instance.protect(() async {
@@ -1408,6 +1425,7 @@ class SharedConversationService {
         conversation: conversation,
         content: cleaned,
         operationId: '$seed-b',
+        mentionedAccounts: mentionedAccounts,
         captured: identity,
       );
     }
@@ -1427,6 +1445,245 @@ class SharedConversationService {
       operationSeed: seed,
     );
   });
+
+  /// Fetches one page of conversations that still have unread alerts
+  /// (`POST /chat/alerts/summary`).
+  Future<ClientAlertSummaryPage> listAlertSummary({
+    String? afterConversationId,
+    int limit = mentionDefaultPageLimit,
+    AuthIdentity? captured,
+  }) async {
+    final AuthIdentity identity = _requireIdentity(captured);
+    final ClientAlertSummaryPage page = await api.alertSummary(
+      token: identity.token,
+      afterConversationId: afterConversationId,
+      limit: limit.clamp(1, mentionMaxPageLimit),
+    );
+    if (!session.isCurrent(identity)) {
+      throw staleIdentity;
+    }
+    return page;
+  }
+
+  /// Pages through all conversations with remaining unread alerts, guarding
+  /// against non-advancing cursors.
+  Future<List<ClientAlertSummary>> listAllAlertSummaries({
+    AuthIdentity? captured,
+  }) async {
+    final AuthIdentity identity = _requireIdentity(captured);
+    final List<ClientAlertSummary> summaries = <ClientAlertSummary>[];
+    final Set<String> seen = <String>{};
+    String? afterConversationId;
+    while (true) {
+      final ClientAlertSummaryPage page = await listAlertSummary(
+        afterConversationId: afterConversationId,
+        limit: mentionMaxPageLimit,
+        captured: identity,
+      );
+      for (final ClientAlertSummary item in page.items) {
+        final bool revoked =
+            item.conversation.isGroup &&
+            access.isRevoked(identity.account, item.conversationId);
+        if (!revoked && seen.add(item.conversationId)) {
+          summaries.add(item);
+        }
+      }
+      final String? next = page.nextCursor;
+      if (next == null) {
+        return List<ClientAlertSummary>.unmodifiable(summaries);
+      }
+      if (afterConversationId != null &&
+          next.compareTo(afterConversationId) <= 0) {
+        throw upstreamMalformed;
+      }
+      afterConversationId = next;
+    }
+  }
+
+  /// Fetches one reverse-ordered page of unread alerts in [conversation]
+  /// (`POST /chat/alerts/list`).
+  Future<AlertPage> listConversationAlerts({
+    required ConversationRef conversation,
+    int? beforePosition,
+    int limit = mentionDefaultPageLimit,
+    AuthIdentity? captured,
+  }) async {
+    final AuthIdentity identity = _requireIdentity(captured);
+    if (conversation.isGroup &&
+        access.isRevoked(identity.account, conversation.id)) {
+      throw const AuthFailure(
+        status: 403,
+        code: 'forbidden',
+        message: '已无权查看该群未读提醒',
+      );
+    }
+    try {
+      final AlertPage page = await api.listAlerts(
+        token: identity.token,
+        conversation: conversation,
+        beforePosition: beforePosition,
+        limit: limit.clamp(1, mentionMaxPageLimit),
+      );
+      if (!session.isCurrent(identity)) {
+        throw staleIdentity;
+      }
+      return page;
+    } on AuthFailure catch (failure) {
+      if (conversation.isGroup &&
+          (failure.status == 403 ||
+              failure.status == 404 ||
+              failure.code == 'group_unavailable')) {
+        await access.revoke(identity.account, conversation.id);
+      }
+      rethrow;
+    }
+  }
+
+  /// Fetches one reverse-ordered page of unread mentions in a group
+  /// (`POST /chat/mentions/list`).
+  Future<MentionPage> listGroupMentions({
+    required ConversationRef conversation,
+    int? beforePosition,
+    int limit = mentionDefaultPageLimit,
+    AuthIdentity? captured,
+  }) async {
+    final AuthIdentity identity = _requireIdentity(captured);
+    if (!conversation.isGroup) {
+      throw GroupService._validation('conversation', '需要群会话 ID');
+    }
+    if (access.isRevoked(identity.account, conversation.id)) {
+      throw const AuthFailure(
+        status: 403,
+        code: 'forbidden',
+        message: '已无权查看该群提及记录',
+      );
+    }
+    try {
+      final MentionPage page = await api.listMentions(
+        token: identity.token,
+        conversation: conversation,
+        beforePosition: beforePosition,
+        limit: limit.clamp(1, mentionMaxPageLimit),
+      );
+      if (!session.isCurrent(identity)) {
+        throw staleIdentity;
+      }
+      return page;
+    } on AuthFailure catch (failure) {
+      if (failure.status == 403 ||
+          failure.status == 404 ||
+          failure.code == 'group_unavailable') {
+        await access.revoke(identity.account, conversation.id);
+      }
+      rethrow;
+    }
+  }
+
+  /// Submits exact foreground-visible alert message IDs (chunked by 100) to
+  /// `POST /chat/alerts/mark_seen` and returns the latest [AlertCounts].
+  Future<AlertCounts> markConversationAlertsSeen({
+    required ConversationRef conversation,
+    required List<String> messageIds,
+    AuthIdentity? captured,
+  }) async {
+    final AuthIdentity identity = _requireIdentity(captured);
+    if (messageIds.isEmpty) {
+      throw GroupService._validation('message_ids', '至少需要一条消息 ID');
+    }
+    if (conversation.isGroup &&
+        access.isRevoked(identity.account, conversation.id)) {
+      throw const AuthFailure(
+        status: 403,
+        code: 'forbidden',
+        message: '已无权更新该群提醒已读状态',
+      );
+    }
+    final List<String> deduped = <String>[];
+    final Set<String> seen = <String>{};
+    for (final String id in messageIds) {
+      if (seen.add(id)) {
+        deduped.add(id);
+      }
+    }
+    try {
+      late AlertCounts latest;
+      for (int offset = 0; offset < deduped.length; offset += mentionMaxPageLimit) {
+        final int end = (offset + mentionMaxPageLimit).clamp(0, deduped.length);
+        latest = await api.markAlertsSeen(
+          token: identity.token,
+          conversation: conversation,
+          messageIds: deduped.sublist(offset, end),
+        );
+        if (!session.isCurrent(identity)) {
+          throw staleIdentity;
+        }
+      }
+      return latest;
+    } on AuthFailure catch (failure) {
+      if (conversation.isGroup &&
+          (failure.status == 403 ||
+              failure.status == 404 ||
+              failure.code == 'group_unavailable')) {
+        await access.revoke(identity.account, conversation.id);
+      }
+      rethrow;
+    }
+  }
+
+  /// Loads surrounding context for an unloaded conversation message via
+  /// `GET /messages/{message_id}/context`.
+  Future<MessageContextRecord?> loadMessageContext({
+    required ConversationRef conversation,
+    required String messageId,
+    int beforeLimit = 25,
+    int afterLimit = 25,
+    AuthIdentity? captured,
+  }) async {
+    final AuthIdentity identity = _requireIdentity(captured);
+    if (conversation.isGroup &&
+        access.isRevoked(identity.account, conversation.id)) {
+      throw const AuthFailure(
+        status: 403,
+        code: 'forbidden',
+        message: '已无权查看该群历史上下文',
+      );
+    }
+    try {
+      final MessageContextRecord? record = await api.messageContext(
+        token: identity.token,
+        messageId: messageId,
+        beforeLimit: beforeLimit.clamp(0, 49),
+        afterLimit: afterLimit.clamp(0, 49),
+      );
+      if (!session.isCurrent(identity)) {
+        throw staleIdentity;
+      }
+      if (record == null) {
+        return null;
+      }
+      final bool matches = conversation.isGroup
+          ? record.conversation == conversation
+          : (record.conversation == conversation ||
+                (record.conversation == null &&
+                    record.peerAccount ==
+                        conversation.directPeerFor(identity.account)));
+      if (!matches) {
+        throw upstreamMalformed;
+      }
+      if (conversation.isGroup) {
+        for (final ChatMessage message in record.items) {
+          _registerMessageMedia(identity.account, conversation.id, message);
+        }
+      }
+      return record;
+    } on AuthFailure catch (failure) {
+      if (conversation.isGroup &&
+          (failure.status == 403 || failure.code == 'group_unavailable')) {
+        await access.revoke(identity.account, conversation.id);
+      }
+      rethrow;
+    }
+  }
 
   Future<Attachment> uploadConversationMedia({
     required ConversationRef conversation,

@@ -20,6 +20,7 @@ class ChatOperationRecord {
     required this.state,
     required this.sourceDigest,
     required this.parts,
+    this.mentionedAccounts = const <String>[],
     this.attachmentSource,
     this.resolvedMediaIds = const <String>[],
     this.resolvedMediaId,
@@ -51,6 +52,9 @@ class ChatOperationRecord {
   /// Persisted ordered content for body operations.
   final List<Map<String, dynamic>> parts;
 
+  /// Persisted unique group mention accounts for body operations.
+  final List<String> mentionedAccounts;
+
   /// Persisted original source for attachment operations.
   final Map<String, dynamic>? attachmentSource;
 
@@ -72,6 +76,7 @@ class ChatOperationRecord {
     String? resolvedMediaId,
     String? resolvedCoverMediaId,
     ChatMessage? message,
+    List<String>? mentionedAccounts,
     String? errorCode,
     int? errorStatus,
     String? errorMessage,
@@ -87,6 +92,7 @@ class ChatOperationRecord {
       state: state ?? this.state,
       sourceDigest: sourceDigest,
       parts: parts,
+      mentionedAccounts: mentionedAccounts ?? this.mentionedAccounts,
       attachmentSource: attachmentSource,
       resolvedMediaIds: resolvedMediaIds ?? this.resolvedMediaIds,
       resolvedMediaId: resolvedMediaId ?? this.resolvedMediaId,
@@ -110,6 +116,7 @@ class ChatOperationRecord {
     'state': state,
     'source_digest': sourceDigest,
     'parts': parts,
+    if (mentionedAccounts.isNotEmpty) 'mentioned_accounts': mentionedAccounts,
     'attachment_source': attachmentSource,
     'resolved_media_ids': resolvedMediaIds,
     'resolved_media_id': resolvedMediaId,
@@ -151,6 +158,11 @@ class ChatOperationRecord {
         for (final Object? id in json['resolved_media_ids'] as List)
           if (id is String) id,
     ];
+    final List<String> mentionedAccounts = <String>[
+      if (json['mentioned_accounts'] is List)
+        for (final Object? account in json['mentioned_accounts'] as List)
+          if (account is String) account,
+    ];
     return ChatOperationRecord(
       operationId: json['operation_id'] as String,
       kind: json['kind'] as String,
@@ -158,6 +170,7 @@ class ChatOperationRecord {
       state: json['state'] as String,
       sourceDigest: json['source_digest'] as String,
       parts: parts,
+      mentionedAccounts: List<String>.unmodifiable(mentionedAccounts),
       attachmentSource: json['attachment_source'] is Map<String, dynamic>
           ? Map<String, dynamic>.from(
               json['attachment_source'] as Map<String, dynamic>,
