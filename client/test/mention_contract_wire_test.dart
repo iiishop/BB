@@ -243,6 +243,16 @@ void main() {
       }
 
       if (request.method == 'POST' && path == '/messages') {
+        if (body['reply_to_message_id'] == 'outside-group') {
+          request.response
+            ..statusCode = 404
+            ..headers.contentType = ContentType.json
+            ..write(jsonEncode({
+              'error': {'code': 'not_found', 'message': 'not found', 'fields': []},
+            }));
+          await request.response.close();
+          return;
+        }
         messageAttempts += 1;
         receivedMessages.add(body);
         if (messageAttempts == 1) {
@@ -273,12 +283,27 @@ void main() {
               'created_at': '2026-11-28T15:01:00Z',
               'kind': 'body',
               'content': body['content'],
+              if (body['reply_to_message_id'] case final String quoted)
+                'reply_to': <String, dynamic>{
+                  'message_id': quoted,
+                  'sender_account': '10000002',
+                  'sender_username': 'Bob',
+                  'preview': 'Original',
+                },
             }),
           );
         await request.response.close();
         return;
       }
 
+      if (request.method == 'GET' && path == '/chat/conversations/$_groupA/messages') {
+        request.response
+          ..statusCode = 200
+          ..headers.contentType = ContentType.json
+          ..write(jsonEncode({'items': [], 'next_position': 0, 'has_more': false}));
+        await request.response.close();
+        return;
+      }
       request.response.statusCode = 404;
       await request.response.close();
     });
@@ -321,6 +346,14 @@ void main() {
     expect(receivedMessages[1]['mentioned_accounts'], const <String>[
       '10000002',
     ]);
+    final SendOutcome badQuote = await shared.sendGroupBodyOutcome(
+      conversation: ConversationRef.group(_groupA),
+      content: const <OutgoingPart>[OutgoingText('Invalid quote')],
+      replyToMessageId: 'outside-group',
+      operationId: 'op-invalid-quote',
+    );
+    expect(badQuote.failure?.code, 'not_found');
+    expect(access.isRevoked(_alice.account, _groupA), isFalse);
 
     // 2. ChatService.sendBody records mentionedAccounts in ChatLedger and rejects mismatched retry.
     final Directory cacheDir = await Directory.systemTemp.createTemp(
@@ -369,6 +402,23 @@ void main() {
     );
     expect(replay.message?.id, chatSend.message?.id);
     expect(receivedMessages, hasLength(sendsBeforeReplay));
+
+    final SendOutcome mixed = await durableShared.sendGroupBodyOutcome(
+      conversation: ConversationRef.group(_groupA),
+      content: const <OutgoingPart>[OutgoingText('Quoted @Bob')],
+      mentionedAccounts: const <String>['10000002'],
+      replyToMessageId: 'group-original',
+      operationId: 'op-mixed',
+    );
+    expect(mixed.message?.replyTo?.messageId, 'group-original');
+    expect(receivedMessages.last['mentioned_accounts'], ['10000002']);
+    expect(receivedMessages.last['reply_to_message_id'], 'group-original');
+    final ChatOperationRecord? mixedRecord = await ledger.operation(
+      _alice.account,
+      'op-mixed',
+    );
+    expect(mixedRecord?.replyToMessageId, 'group-original');
+    expect(mixedRecord?.mentionedAccounts, ['10000002']);
 
     await expectLater(
       chat.sendBody(

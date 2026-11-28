@@ -74,6 +74,25 @@ export async function probeReplies({client, ctx, tool, executeTool, settings, un
   const invitation = notices.items.find(({link}) => link?.id === group.group_number);
   assert.ok(invitation?.actions.some(({id, available}) => id === "accept" && available));
   await invoke("execute_notice_action", {notification_id: invitation.id, action_id: "accept"});
+  const groupAnchor = await send(own, "native-group-anchor", {conversation: group.conversation});
+  const mixed = await send(peer, "native-mixed-alert", {
+    conversation: group.conversation,
+    reply_to_message_id: groupAnchor.id,
+    mentioned_accounts: [client.account],
+  });
+  const groupQuery = {conversation_id: group.conversation.id};
+  const combined = (await invoke("list_unread_mention_groups", {})).items;
+  assert.deepEqual(combined.map(({conversation_id, unread_mention_count, unread_reply_count}) =>
+    [conversation_id, unread_mention_count, unread_reply_count]), [[group.conversation.id, 1, 1]]);
+  assert.equal((await invoke("list_unread_replies", groupQuery)).items[0].reply.id, mixed.id);
+  assert.deepEqual((await post("/chat/alerts/list", groupQuery, own)).items, [{
+    message_id: mixed.id, position: mixed.position, mention: true, reply: true,
+  }]);
+  assert.deepEqual(await post("/chat/alerts/mark_seen", {...groupQuery, message_ids: [mixed.id]}, own),
+    {unread_mention_count: 0, unread_reply_count: 0});
+  assert.deepEqual(await invoke("list_unread_replies", groupQuery), {items: [], next_cursor: null});
+  assert.equal((await invoke("list_direct_replies", {original_message_id: groupAnchor.id})).items[0].id,
+    mixed.id);
   const privateMessage = await send(outsider, "native-private", {target_account: client.peer});
   await denied("list_direct_replies", {original_message_id: privateMessage.id}, "not_found");
   await denied("send_reply", replyArgs(group.conversation, received, "native-cross"), "not_found");
@@ -90,6 +109,7 @@ export async function probeReplies({client, ctx, tool, executeTool, settings, un
     scopes: ["direct", "group"],
     isolated_accounts: 3,
     quote_lookup_deduplication_and_no_read_side_effect: true,
+    mixed_alert_clear_by_exact_message_id: true,
     cross_conversation_send_and_private_lookup_denied: true,
     real_routes: ["FastAPI", "independent Dart", "installed DSH MCP"],
     provider: "deterministic double",

@@ -1312,11 +1312,9 @@ class SharedConversationService {
       }
       return message;
     } on AuthFailure catch (failure) {
-      if (failure.status == 403 ||
-          failure.status == 404 ||
-          failure.code == 'group_unavailable') {
-        await access.revoke(identity.account, conversation.id);
-      }
+      await _recheckFailedGroupWrite(
+        conversation, identity, failure, replyToMessageId,
+      );
       rethrow;
     }
   });
@@ -1356,14 +1354,35 @@ class SharedConversationService {
       access.registerMedia(identity.account, conversation.id, mediaId);
       return message;
     } on AuthFailure catch (failure) {
-      if (failure.status == 403 ||
-          failure.status == 404 ||
-          failure.code == 'group_unavailable') {
-        await access.revoke(identity.account, conversation.id);
-      }
+      await _recheckFailedGroupWrite(
+        conversation, identity, failure, replyToMessageId,
+      );
       rethrow;
     }
   });
+
+  Future<void> _recheckFailedGroupWrite(
+    ConversationRef conversation,
+    AuthIdentity identity,
+    AuthFailure failure,
+    String? replyToMessageId,
+  ) async {
+    if (failure.status == 404 && replyToMessageId != null) {
+      // The server also returns 404 for an unavailable original message.
+      // History access can confirm lost membership without exposing the quote.
+      try {
+        await loadConversationHistory(
+          conversation: conversation, limit: 1, captured: identity,
+        );
+      } on AuthFailure {
+        // The history check handles revocation. Preserve the send error.
+      }
+    } else if (failure.status == 403 ||
+        failure.status == 404 ||
+        failure.code == 'group_unavailable') {
+      await access.revoke(identity.account, conversation.id);
+    }
+  }
 
   /// Sends one ordered body message to a group and wraps the outcome with the
   /// same [SendOutcome] shape used by `ChatComposer` retries.
@@ -1394,11 +1413,13 @@ class SharedConversationService {
     try {
       validateMentionAccounts(frozenMentions, isGroup: true);
       final ChatService? sender = durableChat;
-      if (frozenMentions.isNotEmpty && sender != null) {
+      if (sender != null &&
+          (frozenMentions.isNotEmpty || replyToMessageId != null)) {
         final SendOutcome outcome = await sender.sendBody(
           targetAccount: conversation.id,
           content: content,
           mentionedAccounts: frozenMentions,
+          replyToMessageId: replyToMessageId,
           operationId: operationId,
         );
         _requireIdentity(identity);
@@ -1464,6 +1485,17 @@ class SharedConversationService {
       );
     }
     try {
+      final ChatService? sender = durableChat;
+      if (sender != null && replyToMessageId != null) {
+        final SendOutcome outcome = await sender.sendAttachment(
+          targetAccount: conversation.id,
+          attachment: attachment,
+          operationId: operationId,
+          replyToMessageId: replyToMessageId,
+        );
+        _requireIdentity(identity);
+        return outcome;
+      }
       String? coverMediaId;
       if (attachment.cover != null) {
         final Attachment cover = await uploadConversationMedia(
