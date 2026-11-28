@@ -15,10 +15,6 @@ final class MacOSAuthSmokeTests: XCTestCase {
         let password = "MacSmoke3Test"
 
         let app = XCUIApplication(url: appURL)
-        let bundleID = try XCTUnwrap(Bundle(url: appURL)?.bundleIdentifier)
-        app.launchEnvironment["BB_SESSION_FILE"] = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Containers/\(bundleID)/Data/Library/Application Support")
-            .appendingPathComponent("BBAuthSmoke-\(UUID().uuidString)/session.json").path
         app.launch()
         defer { app.terminate() }
 

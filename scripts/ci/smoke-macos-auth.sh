@@ -41,6 +41,9 @@ if ! xcodebuild test -project "$work/AuthSmoke.xcodeproj" -scheme AuthSmoke \
   2>&1 | tee "$evidence/auth-ui.log"; then
   xcrun xcresulttool export attachments \
     --path "$work/AuthSmoke.xcresult" --output-path "$evidence/auth-ui-failures" || true
+  log show --last 5m --style compact \
+    --predicate '(eventMessage CONTAINS "bb_client" OR process == "bb_client") AND (eventMessage CONTAINS[c] "deny" OR subsystem BEGINSWITH "com.apple.sandbox")' \
+    > "$evidence/auth-sandbox.log" 2>&1 || true
   exit 1
 fi
 grep -E '"POST /auth/register HTTP/[0-9.]+" 201( |$)' "$evidence/auth-server.log"
