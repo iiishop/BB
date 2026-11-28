@@ -32,7 +32,7 @@ final class MacOSAuthSmokeTests: XCTestCase {
 
         // Flutter's controls are absent from the hosted runner's native
         // accessibility tree. Read the rendered window for navigation.
-        func clickLabel(_ label: String) throws {
+        func locateLabel(_ label: String, click: Bool = false) throws {
             let request = VNRecognizeTextRequest()
             request.recognitionLanguages = ["zh-Hans", "en-US"]
             let deadline = Date().addingTimeInterval(10)
@@ -42,8 +42,10 @@ final class MacOSAuthSmokeTests: XCTestCase {
                 if let match = request.results?.first(where: {
                     $0.topCandidates(1).first?.string.replacingOccurrences(of: " ", with: "") == label
                 }) {
-                    let bounds = match.boundingBox
-                    window.coordinate(withNormalizedOffset: CGVector(dx: bounds.midX, dy: 1 - bounds.midY)).click()
+                    if click {
+                        let bounds = match.boundingBox
+                        window.coordinate(withNormalizedOffset: CGVector(dx: bounds.midX, dy: 1 - bounds.midY)).click()
+                    }
                     return
                 }
                 if Date() >= deadline {
@@ -78,17 +80,18 @@ final class MacOSAuthSmokeTests: XCTestCase {
 
         click(0.50, 0.48) // Server address.
         app.typeText(serverAddress)
-        try clickLabel("连接")
-        try clickLabel("注册")
+        try locateLabel("连接", click: true)
+        try locateLabel("登录")
+        click(0.55, 0.91) // Registration link beside its explanatory text.
+        try locateLabel("创建账号")
         click(0.50, 0.48) // Username.
-        app.typeText("MacSandboxSmoke")
-        click(0.50, 0.61) // Registration password.
-        app.typeText(password)
-        click(0.50, 0.93) // Password confirmation.
+        enter("MacSandboxSmoke")
+        enter(password)
         enter(password)
         expectResponse("/auth/register", status: 201)
 
-        try clickLabel("去登录")
+        try locateLabel("去登录", click: true)
+        try locateLabel("登录")
         click(0.50, 0.61) // Login password.
         enter(password)
         expectResponse("/auth/login", status: 200)
