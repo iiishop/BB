@@ -101,6 +101,13 @@ class _HomeViewState extends State<HomeView>
     with SingleTickerProviderStateMixin {
   int _section = 0;
   final LayerLink _railNavLink = LayerLink();
+  static Widget _buildSpaceNavIcon(
+    BuildContext context,
+    Color color,
+    bool selected,
+    double size,
+  ) => HomeSpaceNavIcon(color: color, selected: selected, size: size);
+
   static const List<HomeNavItem> _navItems = <HomeNavItem>[
     HomeNavItem(
       itemKey: HomeView.navChatKey,
@@ -113,6 +120,7 @@ class _HomeViewState extends State<HomeView>
       label: 'BB空间',
       icon: Icons.public_outlined,
       selectedIcon: Icons.public_rounded,
+      iconBuilder: _buildSpaceNavIcon,
     ),
     HomeNavItem(
       itemKey: HomeView.navNotificationsKey,

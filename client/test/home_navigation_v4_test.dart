@@ -421,4 +421,158 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  FocusNode navFocusNode(WidgetTester tester, Key itemKey) {
+    return tester
+        .widget<FocusableActionDetector>(
+          find
+              .descendant(
+                of: find.byKey(itemKey),
+                matching: find.byType(FocusableActionDetector),
+              )
+              .first,
+        )
+        .focusNode!;
+  }
+
+  Future<void> sendShiftTab(WidgetTester tester) async {
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.pumpAndSettle();
+  }
+
+  for (final Size size in <Size>[const Size(390, 844), const Size(1280, 800)]) {
+    testWidgets(
+      'roving Tab/Shift+Tab enters/exits active nav item and arrows update traversal at ${size.width.toInt()}',
+      (WidgetTester tester) async {
+        FocusManager.instance.highlightStrategy =
+            FocusHighlightStrategy.alwaysTraditional;
+        addTearDown(() {
+          FocusManager.instance.highlightStrategy =
+              FocusHighlightStrategy.automatic;
+        });
+
+        await pumpShell(tester, size: size);
+
+        // Select Space (index 1); only Space participates in Tab traversal.
+        await tester.tap(find.byKey(HomeView.navSpaceKey));
+        await tester.pumpAndSettle();
+        expect(navFocusNode(tester, HomeView.navSpaceKey).hasFocus, isTrue);
+        expect(navFocusNode(tester, HomeView.navChatKey).skipTraversal, isTrue);
+        expect(
+          navFocusNode(tester, HomeView.navSpaceKey).skipTraversal,
+          isFalse,
+        );
+        expect(
+          navFocusNode(tester, HomeView.navNotificationsKey).skipTraversal,
+          isTrue,
+        );
+
+        // Pressing Tab leaves navigation without landing on Notifications.
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.pumpAndSettle();
+        for (final Key key in <Key>[
+          HomeView.navChatKey,
+          HomeView.navSpaceKey,
+          HomeView.navNotificationsKey,
+        ]) {
+          expect(
+            navFocusNode(tester, key).hasFocus,
+            isFalse,
+            reason: 'Tab should leave navigation from $key',
+          );
+        }
+
+        // Shift+Tab returns directly to the active tab (Space).
+        await sendShiftTab(tester);
+        expect(navFocusNode(tester, HomeView.navSpaceKey).hasFocus, isTrue);
+        expect(hasFocusRing(tester, HomeView.navSpaceKey), isTrue);
+
+        // Arrow moves selection + focus to Notifications, and Tab leaves again.
+        await tester.sendKeyEvent(
+          size.width < 720
+              ? LogicalKeyboardKey.arrowRight
+              : LogicalKeyboardKey.arrowDown,
+        );
+        await tester.pumpAndSettle();
+        expect(
+          navFocusNode(tester, HomeView.navNotificationsKey).hasFocus,
+          isTrue,
+        );
+        expect(
+          navFocusNode(tester, HomeView.navNotificationsKey).skipTraversal,
+          isFalse,
+        );
+        expect(
+          navFocusNode(tester, HomeView.navSpaceKey).skipTraversal,
+          isTrue,
+        );
+
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.pumpAndSettle();
+        for (final Key key in <Key>[
+          HomeView.navChatKey,
+          HomeView.navSpaceKey,
+          HomeView.navNotificationsKey,
+        ]) {
+          expect(navFocusNode(tester, key).hasFocus, isFalse);
+        }
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets(
+      'all three nav icons switch cleanly between outline and solid at ${size.width.toInt()}',
+      (WidgetTester tester) async {
+        await pumpShell(tester, size: size);
+
+        void expectIcons({required int selected}) {
+          final Icon chatIcon = tester.widget<Icon>(
+            find.descendant(
+              of: find.byKey(HomeView.navChatKey),
+              matching: find.byType(Icon),
+            ),
+          );
+          final HomeSpaceNavIcon spaceIcon = tester.widget<HomeSpaceNavIcon>(
+            find.descendant(
+              of: find.byKey(HomeView.navSpaceKey),
+              matching: find.byType(HomeSpaceNavIcon),
+            ),
+          );
+          final Icon notifyIcon = tester.widget<Icon>(
+            find.descendant(
+              of: find.byKey(HomeView.navNotificationsKey),
+              matching: find.byType(Icon),
+            ),
+          );
+
+          expect(
+            chatIcon.icon,
+            selected == 0
+                ? Icons.chat_bubble_rounded
+                : Icons.chat_bubble_outline_rounded,
+          );
+          expect(spaceIcon.selected, selected == 1);
+          expect(
+            notifyIcon.icon,
+            selected == 2
+                ? Icons.notifications_rounded
+                : Icons.notifications_none_rounded,
+          );
+        }
+
+        expectIcons(selected: 0);
+
+        await tester.tap(find.byKey(HomeView.navSpaceKey));
+        await tester.pumpAndSettle();
+        expectIcons(selected: 1);
+
+        await tester.tap(find.byKey(HomeView.navNotificationsKey));
+        await tester.pumpAndSettle();
+        expectIcons(selected: 2);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 }

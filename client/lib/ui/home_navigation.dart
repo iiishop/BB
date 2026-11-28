@@ -5,6 +5,14 @@ import 'package:flutter/services.dart';
 
 import '../app.dart';
 
+/// Optional custom icon builder for a shell navigation destination.
+typedef HomeNavIconBuilder = Widget Function(
+  BuildContext context,
+  Color color,
+  bool selected,
+  double size,
+);
+
 /// Descriptor for a top-level shell navigation destination.
 class HomeNavItem {
   const HomeNavItem({
@@ -12,12 +20,121 @@ class HomeNavItem {
     required this.label,
     required this.icon,
     required this.selectedIcon,
+    this.iconBuilder,
   });
 
   final Key itemKey;
   final String label;
   final IconData icon;
   final IconData selectedIcon;
+  final HomeNavIconBuilder? iconBuilder;
+
+  Widget buildIcon(
+    BuildContext context, {
+    required Color color,
+    required bool selected,
+    required double size,
+  }) {
+    if (iconBuilder != null) {
+      return iconBuilder!(context, color, selected, size);
+    }
+    return Icon(selected ? selectedIcon : icon, size: size, color: color);
+  }
+}
+
+/// Wireframe/solid globe icon matching DEA-508 v4's Space navigation entry.
+class HomeSpaceNavIcon extends StatelessWidget {
+  const HomeSpaceNavIcon({
+    super.key,
+    required this.color,
+    required this.selected,
+    required this.size,
+  });
+
+  final Color color;
+  final bool selected;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(
+      size: Size.square(size),
+      painter: _HomeSpaceNavIconPainter(color: color, selected: selected),
+    );
+  }
+}
+
+class _HomeSpaceNavIconPainter extends CustomPainter {
+  const _HomeSpaceNavIconPainter({required this.color, required this.selected});
+
+  final Color color;
+  final bool selected;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final double s = size.width / 24.0;
+    final Offset center = Offset(12 * s, 12 * s);
+    if (!selected) {
+      final Paint stroke = Paint()
+        ..color = color
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.6 * s
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round;
+      canvas.drawCircle(center, 8.5 * s, stroke);
+      canvas.drawOval(
+        Rect.fromCenter(center: center, width: 7.6 * s, height: 17.0 * s),
+        stroke,
+      );
+      canvas.drawLine(
+        Offset(3.8 * s, 12 * s),
+        Offset(20.2 * s, 12 * s),
+        stroke,
+      );
+      return;
+    }
+
+    canvas.saveLayer(Offset.zero & size, Paint());
+    final Paint fill = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(center, 8.6 * s, fill);
+    final Paint cutout = Paint()
+      ..blendMode = BlendMode.clear
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.4 * s;
+    canvas.drawOval(
+      Rect.fromCenter(center: center, width: 7.6 * s, height: 17.2 * s),
+      cutout,
+    );
+    canvas.drawLine(Offset(3.6 * s, 12 * s), Offset(20.4 * s, 12 * s), cutout);
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_HomeSpaceNavIconPainter oldDelegate) =>
+      oldDelegate.color != color || oldDelegate.selected != selected;
+}
+
+List<FocusNode> _buildRovingFocusNodes(
+  int count,
+  int selectedIndex,
+  String debugPrefix,
+) => List<FocusNode>.generate(
+  count,
+  (int index) => FocusNode(
+    debugLabel: '$debugPrefix-$index',
+    skipTraversal: index != selectedIndex,
+  ),
+);
+
+void _syncRovingFocusNodes(List<FocusNode> nodes, int selectedIndex) {
+  for (int i = 0; i < nodes.length; i++) {
+    final bool shouldSkip = i != selectedIndex;
+    if (nodes[i].skipTraversal != shouldSkip) {
+      nodes[i].skipTraversal = shouldSkip;
+    }
+  }
 }
 
 /// Mobile edge-anchored bottom navigation bar (DEA-508 v4).
@@ -47,13 +164,11 @@ class HomeBottomNavBar extends StatefulWidget {
 }
 
 class _HomeBottomNavBarState extends State<HomeBottomNavBar> {
-  late List<FocusNode> _focusNodes = _buildFocusNodes(widget.items.length);
-
-  static List<FocusNode> _buildFocusNodes(int count) =>
-      List<FocusNode>.generate(
-        count,
-        (int index) => FocusNode(debugLabel: 'home-bottom-nav-$index'),
-      );
+  late List<FocusNode> _focusNodes = _buildRovingFocusNodes(
+    widget.items.length,
+    widget.selectedIndex,
+    'home-bottom-nav',
+  );
 
   @override
   void didUpdateWidget(HomeBottomNavBar oldWidget) {
@@ -62,7 +177,13 @@ class _HomeBottomNavBarState extends State<HomeBottomNavBar> {
       for (final FocusNode node in _focusNodes) {
         node.dispose();
       }
-      _focusNodes = _buildFocusNodes(widget.items.length);
+      _focusNodes = _buildRovingFocusNodes(
+        widget.items.length,
+        widget.selectedIndex,
+        'home-bottom-nav',
+      );
+    } else {
+      _syncRovingFocusNodes(_focusNodes, widget.selectedIndex);
     }
   }
 
@@ -194,12 +315,11 @@ class _HomeBottomNavBarState extends State<HomeBottomNavBar> {
                                             mainAxisAlignment:
                                                 MainAxisAlignment.center,
                                             children: <Widget>[
-                                              Icon(
-                                                selected
-                                                    ? item.selectedIcon
-                                                    : item.icon,
-                                                size: 20,
+                                              item.buildIcon(
+                                                context,
                                                 color: inkColor,
+                                                selected: selected,
+                                                size: 20,
                                               ),
                                               const SizedBox(width: 7),
                                               Flexible(
@@ -273,13 +393,11 @@ class HomeDesktopNavRail extends StatefulWidget {
 }
 
 class _HomeDesktopNavRailState extends State<HomeDesktopNavRail> {
-  late List<FocusNode> _focusNodes = _buildFocusNodes(widget.items.length);
-
-  static List<FocusNode> _buildFocusNodes(int count) =>
-      List<FocusNode>.generate(
-        count,
-        (int index) => FocusNode(debugLabel: 'home-desktop-rail-$index'),
-      );
+  late List<FocusNode> _focusNodes = _buildRovingFocusNodes(
+    widget.items.length,
+    widget.selectedIndex,
+    'home-desktop-rail',
+  );
 
   @override
   void didUpdateWidget(HomeDesktopNavRail oldWidget) {
@@ -288,7 +406,13 @@ class _HomeDesktopNavRailState extends State<HomeDesktopNavRail> {
       for (final FocusNode node in _focusNodes) {
         node.dispose();
       }
-      _focusNodes = _buildFocusNodes(widget.items.length);
+      _focusNodes = _buildRovingFocusNodes(
+        widget.items.length,
+        widget.selectedIndex,
+        'home-desktop-rail',
+      );
+    } else {
+      _syncRovingFocusNodes(_focusNodes, widget.selectedIndex);
     }
   }
 
@@ -369,9 +493,10 @@ class _HomeDesktopNavRailState extends State<HomeDesktopNavRail> {
                               child: Column(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: <Widget>[
-                                  Icon(
-                                    selected ? item.selectedIcon : item.icon,
+                                  item.buildIcon(
+                                    context,
                                     color: inkColor,
+                                    selected: selected,
                                     size: 22,
                                   ),
                                   const SizedBox(height: 3),
