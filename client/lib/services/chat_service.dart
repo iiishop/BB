@@ -1122,6 +1122,19 @@ class ChatService {
 
   // ------------------------------------------------------- unread / viewed --
 
+  final Map<String, int> _unreadHistoryPositions = <String, int>{};
+  String? _unreadHistoryGeneration;
+
+  /// History already observed by the human unread query in this login.
+  /// Capture this at navigation time, before starting asynchronous history reads.
+  int observedConversationPosition(String peerAccount) {
+    final String? generation = session.authGeneration;
+    if (generation == null || generation != _unreadHistoryGeneration) {
+      return 0;
+    }
+    return _unreadHistoryPositions[peerAccount] ?? 0;
+  }
+
   /// Account incoming unread per existing conversation for the human UI.
   ///
   /// The single derivation stays [ChatQueryService.listConversations]'
@@ -1141,6 +1154,7 @@ class ChatService {
     final ({AuthIdentity identity, ConsumerBinding binding}) context =
         await _captureLocalBinding(current.account);
     final Map<String, int> unread = <String, int>{};
+    final Map<String, int> positions = <String, int>{};
     String after = '';
     do {
       final ConversationPage page = await query.listConversations(
@@ -1150,30 +1164,62 @@ class ChatService {
       );
       for (final ConversationSummary summary in page.items) {
         unread[summary.peerAccount] = summary.incomingUnread;
+        positions[summary.peerAccount] = summary.latestPosition;
       }
       after = page.nextCursor ?? '';
     } while (after.isNotEmpty);
     if (!session.isCurrent(current)) {
       throw unauthenticated;
     }
+    if (_unreadHistoryGeneration != current.authGeneration) {
+      _unreadHistoryGeneration = current.authGeneration;
+      _unreadHistoryPositions.clear();
+    }
+    positions.forEach((String peer, int position) {
+      _unreadHistoryPositions.update(
+        peer,
+        (int observed) => max(observed, position),
+        ifAbsent: () => position,
+      );
+    });
     return Map<String, int>.unmodifiable(unread);
   }
 
   /// Records the human UI entering [peerAccount]'s conversation as viewed.
   ///
-  /// Entering is the view action: every inbound message up to the current
-  /// latest position gets a confirmed display receipt, which is the only fact
-  /// account incoming unread is derived from. Outgoing messages get none, and
-  /// consumption progress (`consumed_through`) is left untouched — this is not
-  /// an ACK and not an outbound read receipt. Returns the number of newly
-  /// confirmed display facts.
-  Future<int> markConversationViewed(String peerAccount) async {
+  /// The UI supplies [throughPosition] from [observedConversationPosition] at
+  /// entry. Without a supplied bound, the first server history response supplies
+  /// it. Entries beyond that position are confirmed by the rendering path.
+  /// Returns the number of newly confirmed inbound display facts.
+  Future<int> markConversationViewed(
+    String peerAccount, {
+    int? throughPosition,
+  }) async {
     if (!_accountPattern.hasMatch(peerAccount)) {
       throw _validation('peer_account 必须是 8 位账号');
     }
     final AuthIdentity? current = session.identity;
     if (current == null) {
       throw unauthenticated;
+    }
+    final int entryMaxPosition;
+    if (throughPosition != null) {
+      entryMaxPosition = throughPosition;
+    } else {
+      final MessagePage newest = await api.conversation(
+        token: current.token,
+        account: peerAccount,
+        afterPosition: null,
+        beforePosition: 9007199254740991,
+        limit: 1,
+      );
+      if (!session.isCurrent(current)) {
+        throw unauthenticated;
+      }
+      entryMaxPosition = newest.items.isEmpty ? 0 : newest.items.single.position;
+    }
+    if (entryMaxPosition <= 0) {
+      return 0;
     }
     final ({AuthIdentity identity, ConsumerBinding binding}) context =
         await _captureLocalBinding(current.account);
@@ -1182,7 +1228,7 @@ class ChatService {
     );
     final List<ChatMessage> inbound = <ChatMessage>[];
     int position = 0;
-    while (true) {
+    while (position < entryMaxPosition) {
       final MessagePage page = await api.conversation(
         token: current.token,
         account: peerAccount,
@@ -1193,6 +1239,9 @@ class ChatService {
         throw unauthenticated;
       }
       for (final ChatMessage message in page.items) {
+        if (message.position > entryMaxPosition) {
+          break;
+        }
         if (message.targetAccount == current.account &&
             !displayed.contains(message.id)) {
           inbound.add(message);

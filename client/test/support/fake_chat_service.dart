@@ -198,10 +198,26 @@ class FakeChatService extends ChatService {
   /// widget behaviour under test (badge count and clearing) and leaves ledger
   /// durability to the service tests.
   final Set<String> viewedMessageIds = <String>{};
+  final Map<String, int> _observedPositions = <String, int>{};
+  Completer<void>? entryHistoryGate;
+
+  @override
+  int observedConversationPosition(String peerAccount) =>
+      _observedPositions[peerAccount] ?? 0;
 
   /// Same rule as the real service: inbound messages minus display facts.
   @override
   Future<Map<String, int>> incomingUnreadByPeer({int limit = 100}) async {
+    for (final MapEntry<String, List<ChatMessage>> entry
+        in conversations.entries) {
+      int position = observedConversationPosition(entry.key);
+      for (final ChatMessage message in entry.value) {
+        if (message.position > position) {
+          position = message.position;
+        }
+      }
+      _observedPositions[entry.key] = position;
+    }
     return <String, int>{
       for (final MapEntry<String, List<ChatMessage>> entry
           in conversations.entries)
@@ -215,13 +231,24 @@ class FakeChatService extends ChatService {
     };
   }
 
-  /// Records inbound message ids as viewed, mirroring the service's entry
-  /// rule: an opened conversation clears every seeded inbound message.
   @override
-  Future<int> markConversationViewed(String peerAccount) {
+  Future<int> markConversationViewed(
+    String peerAccount, {
+    int? throughPosition,
+  }) async {
+    final Completer<void>? waiting = entryHistoryGate;
+    if (waiting != null) {
+      await waiting.future;
+    }
+    final Iterable<ChatMessage> history =
+        conversations[peerAccount] ?? const <ChatMessage>[];
     return recordDisplayedIncoming(
       peerAccount: peerAccount,
-      messages: conversations[peerAccount] ?? const <ChatMessage>[],
+      messages: throughPosition == null
+          ? history
+          : history.where(
+              (ChatMessage message) => message.position <= throughPosition,
+            ),
     );
   }
 

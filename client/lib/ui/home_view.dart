@@ -474,7 +474,10 @@ class _HomeViewState extends State<HomeView>
       return;
     }
     final Future<void> viewed = chat
-        .markConversationViewed(user.account)
+        .markConversationViewed(
+          user.account,
+          throughPosition: chat.observedConversationPosition(user.account),
+        )
         .then<void>((int _) {})
         // A failed view record must not block opening or later refreshes; the
         // next refresh retries the derivation from the same server facts.

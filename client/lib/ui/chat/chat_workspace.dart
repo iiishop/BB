@@ -247,7 +247,12 @@ class _ChatWorkspaceState extends State<ChatWorkspace>
       // Same view fact the phone entry records; display bookkeeping only.
       unawaited(
         widget.chat
-            .markConversationViewed(user.account)
+            .markConversationViewed(
+              user.account,
+              throughPosition: widget.chat.observedConversationPosition(
+                user.account,
+              ),
+            )
             .then<void>((int _) {})
             .catchError((Object _) {}),
       );

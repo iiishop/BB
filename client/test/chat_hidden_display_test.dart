@@ -113,6 +113,53 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  for (final bool desktop in <bool>[false, true]) {
+    testWidgets('${desktop ? 'desktop' : 'phone'} entry confirms only its '
+        'existing unread while peer profile covers the chat', (tester) async {
+      final ChatUser peer = desktop ? carol : bob;
+      chat.conversations[peer.account] = <ChatMessage>[
+        for (int position = 101; position <= 201; position++)
+          _inbound(position, peer.account),
+      ];
+      profile.profile = Profile(
+        account: peer.account,
+        username: peer.username,
+        signature: null,
+        avatarUrl: '',
+        avatarVersion: 'v1',
+      );
+      if (desktop) {
+        await pumpWorkspace(tester);
+      } else {
+        tester.view.physicalSize = const Size(390, 844);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        await tester.pumpWidget(app());
+        await tester.pumpAndSettle();
+      }
+      expect(chat.viewedMessageIds, isNot(contains('m101')));
+      final entry = Completer<void>();
+      chat.entryHistoryGate = entry;
+      await tester.tap(find.byKey(UsersListView.rowKey(peer.account)));
+      await tester.pumpAndSettle();
+      expect(chat.viewedMessageIds, isNot(contains('m101')));
+      await tester.tap(find.byKey(ChatPage.headerProfileKey));
+      await tester.pumpAndSettle();
+      expect(find.text('BB号 ${peer.account}'), findsOneWidget);
+      chat.conversations[peer.account]!.add(_inbound(202, peer.account));
+      entry.complete();
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pumpAndSettle();
+      expect(chat.viewedMessageIds, contains('m101'));
+      expect(chat.viewedMessageIds, isNot(contains('m202')));
+
+      await tester.tap(find.byType(CloseButton));
+      await tester.pumpAndSettle();
+      expect(find.text('消息 202'), findsOneWidget);
+      expect(chat.viewedMessageIds, contains('m202'));
+    });
+  }
+
   testWidgets(
     'a hidden conversation does not confirm display for messages that arrive '
     'while its pane is not selected',
