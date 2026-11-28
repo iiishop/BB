@@ -1582,75 +1582,90 @@ class _GroupProfileHostState extends State<_GroupProfileHost> {
                 decoration: const BoxDecoration(
                   border: Border(bottom: BorderSide(color: Color(0xFFECE7DE))),
                 ),
-                child: Row(
-                  children: <Widget>[
-                    GroupAvatarBadge(bytes: previewAvatar, size: 52),
-                    const SizedBox(width: 13),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                child: SizedBox(
+                  width: double.infinity,
+                  child: Wrap(
+                    alignment: WrapAlignment.spaceBetween,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: AppSpacing.sm,
+                    runSpacing: AppSpacing.sm,
+                    children: <Widget>[
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
                         children: <Widget>[
-                          const Text(
-                            '群头像',
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.ink,
-                            ),
-                          ),
-                          const SizedBox(height: 3),
-                          Text(
-                            _editResetAvatar
-                                ? '将恢复为默认群头像'
-                                : (_editAvatar != null
-                                      ? '已选 ${_editAvatar!.name}'
-                                      : '沿用现有头像入口'),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 11.5,
-                              color: Color(0xFF66716E),
+                          GroupAvatarBadge(bytes: previewAvatar, size: 52),
+                          const SizedBox(width: 13),
+                          Flexible(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: <Widget>[
+                                const Text(
+                                  '群头像',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.ink,
+                                  ),
+                                ),
+                                const SizedBox(height: 3),
+                                Text(
+                                  _editResetAvatar
+                                      ? '将恢复为默认群头像'
+                                      : (_editAvatar != null
+                                            ? '已选 ${_editAvatar!.name}'
+                                            : '沿用现有头像入口'),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 11.5,
+                                    color: Color(0xFF66716E),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ],
                       ),
-                    ),
-                    const SizedBox(width: AppSpacing.xs),
-                    Wrap(
-                      spacing: AppSpacing.xs,
-                      children: <Widget>[
-                        OutlinedButton(
-                          style: OutlinedButton.styleFrom(
-                            minimumSize: const Size(0, 44),
-                            padding: const EdgeInsets.symmetric(horizontal: 13),
+                      Wrap(
+                        spacing: AppSpacing.xs,
+                        runSpacing: AppSpacing.xs,
+                        children: <Widget>[
+                          OutlinedButton(
+                            style: OutlinedButton.styleFrom(
+                              minimumSize: const Size(0, 44),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 13,
+                              ),
+                            ),
+                            onPressed: _busy
+                                ? null
+                                : () async {
+                                    final AvatarPick? picked = await widget
+                                        .avatarPicker
+                                        .pickImage();
+                                    if (!mounted || picked == null) return;
+                                    setState(() {
+                                      _editAvatar = picked;
+                                      _editResetAvatar = false;
+                                    });
+                                  },
+                            child: const Text('更换群头像'),
                           ),
-                          onPressed: _busy
-                              ? null
-                              : () async {
-                                  final AvatarPick? picked = await widget
-                                      .avatarPicker
-                                      .pickImage();
-                                  if (!mounted || picked == null) return;
-                                  setState(() {
-                                    _editAvatar = picked;
-                                    _editResetAvatar = false;
-                                  });
-                                },
-                          child: const Text('更换群头像'),
-                        ),
-                        TextButton(
-                          key: const Key('group-edit-avatar-reset'),
-                          onPressed: _busy
-                              ? null
-                              : () => setState(() {
-                                  _editAvatar = null;
-                                  _editResetAvatar = true;
-                                }),
-                          child: const Text('恢复默认头像'),
-                        ),
-                      ],
-                    ),
-                  ],
+                          TextButton(
+                            key: const Key('group-edit-avatar-reset'),
+                            onPressed: _busy
+                                ? null
+                                : () => setState(() {
+                                    _editAvatar = null;
+                                    _editResetAvatar = true;
+                                  }),
+                            child: const Text('恢复默认头像'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -1714,26 +1729,31 @@ class _GroupProfileHostState extends State<_GroupProfileHost> {
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(24, 6, 24, 8),
-              child: Row(
-                children: <Widget>[
-                  Expanded(
-                    child: Text(
+              child: SizedBox(
+                width: double.infinity,
+                child: Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 12,
+                  runSpacing: 4,
+                  children: <Widget>[
+                    Text(
                       '$totalCount 位成员 · $onlineCount 人在线',
                       style: const TextStyle(
                         fontSize: 12,
                         color: AppColors.inkMuted,
                       ),
                     ),
-                  ),
-                  if (ownerName.isNotEmpty)
-                    Text(
-                      '群主 · $ownerName',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: AppColors.inkMuted,
+                    if (ownerName.isNotEmpty)
+                      Text(
+                        '群主 · $ownerName',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: AppColors.inkMuted,
+                        ),
                       ),
-                    ),
-                ],
+                  ],
+                ),
               ),
             ),
             Expanded(

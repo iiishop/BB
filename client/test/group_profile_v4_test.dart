@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:ui' show DisplayFeature, DisplayFeatureState, DisplayFeatureType;
 
 import 'package:bb_client/app.dart';
@@ -330,6 +331,63 @@ void main() {
     canInvite: status == GroupStatus.active,
     allowMemberInvites: allowMemberInvites,
   );
+
+  testWidgets('窄屏成员摘要容纳合法的 24 字群主昵称', (WidgetTester tester) async {
+    final String? font = Platform.environment['QA_CJK_FONT'];
+    if (font != null) {
+      final Uint8List bytes = File(font).readAsBytesSync();
+      await tester.runAsync(() async {
+        for (final String family in <String>['Roboto', 'Ahem']) {
+          await (FontLoader(family)
+                ..addFont(Future<ByteData>.value(ByteData.view(bytes.buffer))))
+              .load();
+        }
+      });
+    }
+    final List<GroupMember> members = _sampleMembers();
+    final String name = '晚风放映室群' * 4;
+    members[0] = GroupMember(
+      account: _ownerUser.account,
+      username: name,
+      avatarUrl: '',
+      avatarVersion: 'v1',
+      presence: Presence.online,
+      role: GroupRole.owner,
+    );
+    await openLiveGroup(
+      tester,
+      size: const Size(320, 800),
+      viewer: AuthUser(account: _ownerUser.account, username: name),
+      group: ownerGroup(),
+      members: members,
+    );
+    await tester.tap(find.byKey(GroupProfilePanel.membersCardKey));
+    await tester.pumpAndSettle();
+    expect(find.text('7 位成员 · 4 人在线'), findsOneWidget);
+    expect(find.text('群主 · $name'), findsOneWidget);
+    final Rect countRect = tester.getRect(find.text('7 位成员 · 4 人在线'));
+    final Rect ownerRect = tester.getRect(find.text('群主 · $name'));
+    expect(countRect.right, lessThanOrEqualTo(320));
+    expect(ownerRect.right, lessThanOrEqualTo(320));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('320px 窄屏编辑群资料头像栏无溢出', (WidgetTester tester) async {
+    await openLiveGroup(
+      tester,
+      size: const Size(320, 800),
+      viewer: _ownerUser,
+      group: ownerGroup(),
+      members: _sampleMembers(),
+    );
+    await tester.drag(find.byType(ListView), const Offset(0, -400));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(GroupProfilePanel.editButtonKey));
+    await tester.pumpAndSettle();
+    expect(find.text('更换群头像'), findsOneWidget);
+    expect(find.byKey(const Key('group-edit-avatar-reset')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets(
     'Plan A v4 adapts across mobile, folded, and desktop viewports with member-first ordering',
