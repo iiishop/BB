@@ -233,17 +233,49 @@ class GroupService {
   Future<GroupProfile> findGroup(
     String groupNumber, {
     AuthIdentity? captured,
+  }) => _findGroup(groupNumber, captured: captured, overlapRetriesRemaining: 2);
+
+  Future<GroupProfile> _findGroup(
+    String groupNumber, {
+    required AuthIdentity? captured,
+    required int overlapRetriesRemaining,
   }) async {
     final AuthIdentity identity = _requireIdentity(captured);
     if (!isValidGroupNumber(groupNumber)) {
       throw _validation('group_number', '群号必须是 8 位数字');
     }
     final int requestTicket = ++_profileTicket;
+    final int startEpoch = _publishEpoch;
     final GroupProfile profile = await api.findGroup(
       token: identity.token,
       groupNumber: groupNumber,
     );
     _ensureCurrent(identity);
+    final String convId = profile.conversation.id;
+    final int latestTicket = _latestProfileTicket[convId] ?? 0;
+    if (requestTicket < latestTicket) {
+      return profile;
+    }
+    if (overlapRetriesRemaining > 0 &&
+        (_latestPublishedEpoch[convId] ?? 0) > startEpoch) {
+      // An earlier-started query published a snapshot for this group while
+      // this query was in flight; re-query so an overlapping query that read
+      // stale pre-update data earlier cannot overtake it.
+      try {
+        return await _findGroup(
+          groupNumber,
+          captured: identity,
+          overlapRetriesRemaining: overlapRetriesRemaining - 1,
+        );
+      } on AuthFailure catch (failure) {
+        if (failure.status == 401 || failure == staleIdentity) {
+          rethrow;
+        }
+        return profile;
+      } catch (_) {
+        return profile;
+      }
+    }
     _emitGroupUpdate(profile, ticket: requestTicket);
     return profile;
   }

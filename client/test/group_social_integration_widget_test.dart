@@ -2040,4 +2040,73 @@ void main() {
       await tester.pump(const Duration(seconds: 35));
     },
   );
+
+  testWidgets(
+    'A6: two overlapping profile queries preserve the most recently observed title',
+    (WidgetTester tester) async {
+      server.createdGroup1 = true;
+      await pumpHome(tester, size: const Size(375, 812));
+
+      await tester.tap(find.byKey(UsersListView.groupRowKey(server.group1Id)));
+      await _settle(tester);
+
+      Future<void> openThenClose() async {
+        await tester.tap(find.byKey(ChatPage.headerProfileKey));
+        await _settle(tester);
+        await tester.binding.handlePopRoute();
+        await _settle(tester);
+      }
+
+      final Completer<void> first = Completer<void>();
+      server.beforeRead = first;
+      await openThenClose();
+      expect(server.beforeRead, isNull);
+
+      final Completer<void> second = Completer<void>();
+      server.holdFind = second;
+      await openThenClose();
+      expect(server.holdFind, isNull);
+
+      final GroupApiClient otherClient = GroupApiClient(
+        baseUri: server.baseUri,
+        transport: HttpTransport(factory: () => HttpClient()),
+      );
+      await tester.runAsync(
+        () => otherClient.updateGroup(
+          token: session.identity!.token,
+          conversation: ConversationRef.group(server.group1Id),
+          name: 'Final edit',
+        ),
+      );
+      expect(server.group1Name, 'Final edit');
+
+      first.complete();
+      await _settle(tester);
+      expect(
+        tester.widget<Text>(find.byKey(ChatPage.headerNameKey)).data,
+        'Final edit',
+      );
+
+      second.complete();
+      await _settle(tester);
+      expect(server.group1Name, 'Final edit');
+      expect(
+        tester.widget<Text>(find.byKey(ChatPage.headerNameKey)).data,
+        'Final edit',
+      );
+
+      await tester.binding.handlePopRoute();
+      await _settle(tester);
+      expect(
+        find.descendant(
+          of: find.byKey(UsersListView.groupRowKey(server.group1Id)),
+          matching: find.text('Final edit'),
+        ),
+        findsOneWidget,
+      );
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump(const Duration(seconds: 35));
+    },
+  );
 }

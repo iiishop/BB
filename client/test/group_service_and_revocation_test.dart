@@ -1402,5 +1402,38 @@ void main() {
       'Renamed After Create',
       'Renamed After Create',
     ]);
+
+    // 8. Two overlapping findGroup reads where the second read captured an
+    //    older snapshot while the first read saw a newer second-client edit must
+    //    preserve the newer snapshot after the second read delivers late.
+    emitted.clear();
+    final Completer<void> holdFirstBeforeRead = Completer<void>();
+    server.beforeFindRead = holdFirstBeforeRead;
+    final Future<GroupProfile> firstOverlappingRead = groups.findGroup(
+      '10000001',
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    final Completer<void> holdSecondOldReply = Completer<void>();
+    server.holdFind = holdSecondOldReply;
+    final Future<GroupProfile> secondOverlappingRead = groups.findGroup(
+      '10000001',
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    await groupApi.updateGroup(
+      token: 'token-1',
+      conversation: group1Ref,
+      name: 'Overlap Two Reads',
+    );
+    holdFirstBeforeRead.complete();
+    final GroupProfile firstOverlapResult = await firstOverlappingRead;
+    expect(firstOverlapResult.name, 'Overlap Two Reads');
+    holdSecondOldReply.complete();
+    final GroupProfile secondOverlapResult = await secondOverlappingRead;
+    await Future<void>.delayed(Duration.zero);
+    expect(secondOverlapResult.name, 'Overlap Two Reads');
+    expect(emitted.map((GroupProfile p) => p.name), <String>[
+      'Overlap Two Reads',
+      'Overlap Two Reads',
+    ]);
   });
 }
