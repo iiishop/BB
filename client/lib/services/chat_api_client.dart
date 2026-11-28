@@ -5,6 +5,7 @@ import 'dart:typed_data' show BytesBuilder, Uint8List;
 
 import '../models/auth_models.dart';
 import '../models/chat_models.dart';
+import '../models/mention_models.dart';
 import 'http_transport.dart';
 
 /// HTTP/WebSocket client for the server's STEP-3 chat REST surface.
@@ -82,11 +83,13 @@ class ChatApiClient {
     required ConversationRef conversation,
     required String clientNonce,
     required List<MessagePart> content,
+    List<String> mentionedAccounts = const <String>[],
   }) => _sendMessageRequest(
     token: token,
     conversation: conversation,
     clientNonce: clientNonce,
     content: content,
+    mentionedAccounts: mentionedAccounts,
   );
 
   Future<ChatMessage> _sendMessageRequest({
@@ -95,6 +98,7 @@ class ChatApiClient {
     ConversationRef? conversation,
     required String clientNonce,
     required List<MessagePart> content,
+    List<String> mentionedAccounts = const <String>[],
   }) async {
     if (content.isEmpty) {
       throw const AuthFailure(
@@ -112,10 +116,106 @@ class ChatApiClient {
         if (conversation != null) 'conversation': conversation.toJson(),
         'client_nonce': clientNonce,
         'content': content.map((MessagePart p) => p.toJson()).toList(),
+        if (mentionedAccounts.isNotEmpty) 'mentioned_accounts': mentionedAccounts,
       },
     );
     _requireSuccess(response, const <int>{200});
     return ChatMessage.fromJson(_decodeMessages(response));
+  }
+
+  Future<ChatAlertPage<ChatAlertSummary, String>> listUnreadChatAlerts({
+    required String token,
+    String? afterConversationId,
+    int limit = 50,
+  }) async {
+    final data = await _alertRequest('/chat/alerts/summary', token, {
+      'after_conversation_id': ?afterConversationId,
+      'limit': limit,
+    });
+    try {
+      return ChatAlertPage.fromJson(
+        data,
+        ChatAlertSummary.fromJson,
+        isValidAlertConversationId,
+      );
+    } on FormatException {
+      throw upstreamMalformed;
+    }
+  }
+
+  Future<ChatAlertPage<MentionMessage, int>> listUnreadMentions({
+    required String token,
+    required String conversationId,
+    int? beforePosition,
+    int limit = 50,
+  }) async {
+    final data = await _alertRequest('/chat/mentions/list', token, {
+      'conversation_id': conversationId,
+      'before_position': ?beforePosition,
+      'limit': limit,
+    });
+    try {
+      return ChatAlertPage.fromJson(
+        data,
+        MentionMessage.fromJson,
+        (position) => position > 0,
+      );
+    } on FormatException {
+      throw upstreamMalformed;
+    }
+  }
+
+  Future<ChatAlertPage<UnreadChatAlert, int>> listConversationAlerts({
+    required String token,
+    required String conversationId,
+    int? beforePosition,
+    int limit = 50,
+  }) async {
+    final data = await _alertRequest('/chat/alerts/list', token, {
+      'conversation_id': conversationId,
+      'before_position': ?beforePosition,
+      'limit': limit,
+    });
+    try {
+      return ChatAlertPage.fromJson(
+        data,
+        UnreadChatAlert.fromJson,
+        (position) => position > 0,
+      );
+    } on FormatException {
+      throw upstreamMalformed;
+    }
+  }
+
+  Future<AlertCounts> markChatAlertsSeen({
+    required String token,
+    required String conversationId,
+    required List<String> messageIds,
+  }) async {
+    final data = await _alertRequest('/chat/alerts/mark_seen', token, {
+      'conversation_id': conversationId,
+      'message_ids': messageIds,
+    });
+    try {
+      return AlertCounts.fromJson(data);
+    } on FormatException {
+      throw upstreamMalformed;
+    }
+  }
+
+  Future<Map<String, dynamic>> _alertRequest(
+    String path,
+    String token,
+    Map<String, dynamic> payload,
+  ) async {
+    final response = await _send(
+      'POST',
+      _query(path),
+      token: token,
+      payload: payload,
+    );
+    _requireSuccess(response, const <int>{200});
+    return _decode(response.body);
   }
 
   Future<ChatMessage> sendAttachment({

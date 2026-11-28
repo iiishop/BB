@@ -104,6 +104,7 @@ def schema(*, include_groups=True):
 
 def fixtures():
     old = json.loads((ROOT / "chat-cases.json").read_text())
+    conversation_id = "group:" + "a" * 32
     inputs = {}
     for name in v2.BUSINESS:
         value = copy.deepcopy(
@@ -132,6 +133,18 @@ def fixtures():
                     "set_notifications": {"enabled": False},
                     "notification_changes": {},
                     "list_conversations": {"after_account": "", "limit": 50},
+                    "list_unread_mention_groups": {},
+                    "list_unread_mentions": {
+                        "conversation_id": conversation_id,
+                        "before_position": 10,
+                        "limit": 1,
+                    },
+                    "send_group_mention": {
+                        "conversation": {"type": "group", "id": conversation_id},
+                        "operation_id": "example-group-mention",
+                        "mentioned_accounts": ["10000002"],
+                        "content": [{"type": "text", "text": "@ Example"}],
+                    },
                     "get_message": {"message_id": "m1"},
                     "get_context": {
                         "message_id": "m1",
@@ -379,7 +392,7 @@ def fixtures():
         "events_read": event_page,
         "events_wait": {**event_page, "reason": "events"},
     }
-    target = {"conversation": {"type": "group", "id": "group:" + "a" * 32}}
+    target = {"conversation": {"type": "group", "id": conversation_id}}
     profile = {
         **target,
         "group_number": "10000002",
@@ -433,6 +446,35 @@ def fixtures():
         "mark_notice_read": {**notice, "read": True},
         "execute_notice_action": {**notice, "state": "processed", "actions": []},
     })
+    results["list_unread_mention_groups"] = {
+        "items": [
+            {"conversation_id": conversation_id, "display_name": profile["name"],
+             "unread_mention_count": 2, "unread_reply_count": 1}
+        ],
+        "next_cursor": None,
+    }
+    results["list_unread_mentions"] = {
+        "items": [{
+            "message_id": "mention-message-9",
+            "position": 9,
+            "sender_account": "10000002",
+            "sender_username": "Example",
+            "created_at": "2026-01-01T00:00:00Z",
+            "content": [{"type": "text", "text": "@ Example"}],
+        }],
+        "next_cursor": 9,
+    }
+    results["send_group_mention"] = {
+        "id": "example-mention",
+        "position": 11,
+        "created_at": "2026-01-01T00:00:00Z",
+        "conversation": target["conversation"],
+        "sender_account": "10000001",
+        "sender_username": "Example sender",
+        "kind": "body",
+        "content": inputs["send_group_mention"]["content"],
+        "attachment": None,
+    }
     outputs = {
         name: {"identity": IDENTITY, "result": value} for name, value in results.items()
     }
@@ -483,6 +525,18 @@ def fixtures():
         invalid.append(
             {"id": "extra-" + extra, "operation": "send_message", "input": body}
         )
+    invalid.extend(
+        {
+            "id": case,
+            "operation": "send_group_mention",
+            "input": {**inputs["send_group_mention"], **changes},
+        }
+        for case, changes in [
+            ("mention-needs-account", {"mentioned_accounts": []}),
+            ("mention-duplicate-account", {"mentioned_accounts": ["10000002", "10000002"]}),
+            ("mention-group-only", {"conversation": {"type": "direct", "id": "dm:10000001:10000002"}}),
+        ]
+    )
     invalid += [
         {
             "id": "history-exclusive-boundaries",

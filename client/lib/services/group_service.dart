@@ -12,6 +12,7 @@ import 'dart:typed_data';
 import '../models/auth_models.dart';
 import '../models/chat_models.dart';
 import '../models/group_models.dart';
+import '../models/mention_models.dart';
 import 'auth_session.dart';
 import 'avatar_cache.dart';
 import 'avatar_source.dart';
@@ -1209,6 +1210,71 @@ class SharedConversationService {
       }
       rethrow;
     }
+  }
+
+  Future<ChatAlertPage<ChatAlertSummary, String>> listUnreadChatAlerts({
+    String? afterConversationId,
+    int limit = 50,
+    AuthIdentity? captured,
+  }) async {
+    final identity = _requireIdentity(captured);
+    final page = await api.listUnreadChatAlerts(
+      token: identity.token,
+      afterConversationId: afterConversationId,
+      limit: limit,
+    );
+    _requireIdentity(identity);
+    return page;
+  }
+
+  Future<ChatAlertPage<MentionMessage, int>> listUnreadMentions({
+    required String conversationId,
+    int? beforePosition,
+    int limit = 50,
+    AuthIdentity? captured,
+  }) async {
+    final identity = _requireIdentity(captured);
+    final page = await api.listUnreadMentions(
+      token: identity.token,
+      conversationId: conversationId,
+      beforePosition: beforePosition,
+      limit: limit,
+    );
+    _requireIdentity(identity);
+    return page;
+  }
+
+  Future<ChatAlertPage<UnreadChatAlert, int>> listConversationAlerts({
+    required String conversationId,
+    int? beforePosition,
+    int limit = 50,
+    AuthIdentity? captured,
+  }) async {
+    final identity = _requireIdentity(captured);
+    final page = await api.listConversationAlerts(
+      token: identity.token,
+      conversationId: conversationId,
+      beforePosition: beforePosition,
+      limit: limit,
+    );
+    _requireIdentity(identity);
+    return page;
+  }
+
+  /// Reports the IDs whose messages entered the foreground viewport.
+  Future<AlertCounts> markChatAlertsSeen({
+    required String conversationId,
+    required List<String> messageIds,
+    AuthIdentity? captured,
+  }) async {
+    final identity = _requireIdentity(captured);
+    final count = await api.markChatAlertsSeen(
+      token: identity.token,
+      conversationId: conversationId,
+      messageIds: messageIds,
+    );
+    _requireIdentity(identity);
+    return count;
   }
 
   Future<ChatMessage> sendGroupMessage({

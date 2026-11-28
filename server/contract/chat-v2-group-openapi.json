@@ -5114,6 +5114,432 @@
         }
       }
     },
+    "/v2/chat/list_unread_mention_groups": {
+      "post": {
+        "operationId": "list_unread_mention_groups",
+        "security": [
+          {
+            "consumerOwner": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ListMentionGroups"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Reply_AlertSummaryPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v2/chat/list_unread_mentions": {
+      "post": {
+        "operationId": "list_unread_mentions",
+        "security": [
+          {
+            "consumerOwner": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ListMentions"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Reply_MentionPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v2/chat/send_group_mention": {
+      "post": {
+        "operationId": "send_group_mention",
+        "security": [
+          {
+            "consumerOwner": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendGroupMention"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Reply_GroupMessage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "See x-bb-errors; no input or capability echo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v2/groups/create": {
       "post": {
         "operationId": "create_group",
@@ -11341,6 +11767,346 @@
           "result"
         ],
         "title": "Reply[EventWait]",
+        "type": "object"
+      },
+      "ListMentionGroups": {
+        "additionalProperties": false,
+        "properties": {
+          "after_conversation_id": {
+            "anyOf": [
+              {
+                "pattern": "^(dm:[1-9][0-9]{7}:[1-9][0-9]{7}|group:[a-f0-9]{32})$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "After Conversation Id"
+          },
+          "limit": {
+            "default": 50,
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "expected_identity": {
+            "$ref": "#/components/schemas/ExpectedIdentity"
+          }
+        },
+        "required": [
+          "expected_identity"
+        ],
+        "title": "ListMentionGroups",
+        "type": "object"
+      },
+      "AlertSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "unread_mention_count": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Unread Mention Count",
+            "type": "integer"
+          },
+          "unread_reply_count": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "title": "Unread Reply Count",
+            "type": "integer"
+          },
+          "conversation_id": {
+            "pattern": "^(dm:[1-9][0-9]{7}:[1-9][0-9]{7}|group:[a-f0-9]{32})$",
+            "title": "Conversation Id",
+            "type": "string"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "unread_mention_count",
+          "unread_reply_count",
+          "conversation_id",
+          "display_name"
+        ],
+        "title": "AlertSummary",
+        "type": "object"
+      },
+      "AlertSummaryPage": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AlertSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "pattern": "^(dm:[1-9][0-9]{7}:[1-9][0-9]{7}|group:[a-f0-9]{32})$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "AlertSummaryPage",
+        "type": "object"
+      },
+      "Reply_AlertSummaryPage": {
+        "additionalProperties": false,
+        "properties": {
+          "identity": {
+            "$ref": "#/components/schemas/ExpectedIdentity"
+          },
+          "result": {
+            "$ref": "#/components/schemas/AlertSummaryPage"
+          }
+        },
+        "required": [
+          "identity",
+          "result"
+        ],
+        "title": "Reply[AlertSummaryPage]",
+        "type": "object"
+      },
+      "ListMentions": {
+        "additionalProperties": false,
+        "properties": {
+          "conversation_id": {
+            "pattern": "^group:[a-f0-9]{32}$",
+            "title": "Conversation Id",
+            "type": "string"
+          },
+          "before_position": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Before Position"
+          },
+          "limit": {
+            "default": 50,
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "expected_identity": {
+            "$ref": "#/components/schemas/ExpectedIdentity"
+          }
+        },
+        "required": [
+          "conversation_id",
+          "expected_identity"
+        ],
+        "title": "ListMentions",
+        "type": "object"
+      },
+      "MentionMessage": {
+        "additionalProperties": false,
+        "properties": {
+          "message_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Message Id",
+            "type": "string"
+          },
+          "position": {
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "title": "Position",
+            "type": "integer"
+          },
+          "sender_account": {
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Sender Account",
+            "type": "string"
+          },
+          "sender_username": {
+            "title": "Sender Username",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "content": {
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "image": "#/components/schemas/Image",
+                  "text": "#/components/schemas/Text"
+                },
+                "propertyName": "type"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/Text"
+                },
+                {
+                  "$ref": "#/components/schemas/Image"
+                }
+              ]
+            },
+            "title": "Content",
+            "type": "array"
+          }
+        },
+        "required": [
+          "message_id",
+          "position",
+          "sender_account",
+          "sender_username",
+          "created_at",
+          "content"
+        ],
+        "title": "MentionMessage",
+        "type": "object"
+      },
+      "MentionPage": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MentionMessage"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "MentionPage",
+        "type": "object"
+      },
+      "Reply_MentionPage": {
+        "additionalProperties": false,
+        "properties": {
+          "identity": {
+            "$ref": "#/components/schemas/ExpectedIdentity"
+          },
+          "result": {
+            "$ref": "#/components/schemas/MentionPage"
+          }
+        },
+        "required": [
+          "identity",
+          "result"
+        ],
+        "title": "Reply[MentionPage]",
+        "type": "object"
+      },
+      "SendGroupMention": {
+        "additionalProperties": false,
+        "properties": {
+          "conversation": {
+            "$ref": "#/components/schemas/GroupConversationRef"
+          },
+          "operation_id": {
+            "pattern": "^[A-Za-z0-9_-]{1,128}$",
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "mentioned_accounts": {
+            "items": {
+              "pattern": "^[1-9][0-9]{7}$",
+              "type": "string"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Mentioned Accounts",
+            "type": "array",
+            "uniqueItems": true
+          },
+          "content": {
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "image": "#/components/schemas/LocalImage",
+                  "text": "#/components/schemas/Text"
+                },
+                "propertyName": "type"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/Text"
+                },
+                {
+                  "$ref": "#/components/schemas/LocalImage"
+                }
+              ]
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Content",
+            "type": "array"
+          },
+          "expected_identity": {
+            "$ref": "#/components/schemas/ExpectedIdentity"
+          }
+        },
+        "required": [
+          "conversation",
+          "operation_id",
+          "mentioned_accounts",
+          "content",
+          "expected_identity"
+        ],
+        "title": "SendGroupMention",
+        "type": "object"
+      },
+      "Reply_GroupMessage": {
+        "additionalProperties": false,
+        "properties": {
+          "identity": {
+            "$ref": "#/components/schemas/ExpectedIdentity"
+          },
+          "result": {
+            "$ref": "#/components/schemas/GroupMessage"
+          }
+        },
+        "required": [
+          "identity",
+          "result"
+        ],
+        "title": "Reply[GroupMessage]",
         "type": "object"
       },
       "CreateGroup": {

@@ -3151,6 +3151,444 @@
         }
       }
     },
+    "/chat/alerts/summary": {
+      "post": {
+        "summary": "Alerts Summary",
+        "operationId": "alerts_summary_chat_alerts_summary_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AlertSummaryQuery"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientAlertSummaryPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/chat/alerts/list": {
+      "post": {
+        "summary": "Alerts List",
+        "operationId": "alerts_list_chat_alerts_list_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AlertQuery"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/chat/alerts/mark_seen": {
+      "post": {
+        "summary": "Alerts Mark Seen",
+        "operationId": "alerts_mark_seen_chat_alerts_mark_seen_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarkAlertsSeen"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertCounts"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/chat/mentions/list": {
+      "post": {
+        "summary": "Mentions List",
+        "operationId": "mentions_list_chat_mentions_list_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MentionQuery"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MentionPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/chat/replies/unread": {
+      "post": {
+        "summary": "Replies Unread",
+        "operationId": "replies_unread_chat_replies_unread_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnreadRepliesQuery"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnreadReplyPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/chat/replies/direct": {
+      "post": {
+        "summary": "Replies Direct",
+        "operationId": "replies_direct_chat_replies_direct_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DirectRepliesQuery"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectReplyPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/space/get_follow": {
       "post": {
         "tags": [
@@ -8084,6 +8522,121 @@
         ],
         "title": "AddImage"
       },
+      "AlertCounts": {
+        "properties": {
+          "unread_mention_count": {
+            "type": "integer",
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Unread Mention Count"
+          },
+          "unread_reply_count": {
+            "type": "integer",
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Unread Reply Count"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "unread_mention_count",
+          "unread_reply_count"
+        ],
+        "title": "AlertCounts"
+      },
+      "AlertPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/UnreadAlert"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 9007199254740991.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "AlertPage"
+      },
+      "AlertQuery": {
+        "properties": {
+          "conversation_id": {
+            "type": "string",
+            "pattern": "^(dm:[1-9][0-9]{7}:[1-9][0-9]{7}|group:[a-f0-9]{32})$",
+            "title": "Conversation Id"
+          },
+          "before_position": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 9007199254740991.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before Position"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "default": 50
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "conversation_id"
+        ],
+        "title": "AlertQuery"
+      },
+      "AlertSummaryQuery": {
+        "properties": {
+          "after_conversation_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(dm:[1-9][0-9]{7}:[1-9][0-9]{7}|group:[a-f0-9]{32})$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "After Conversation Id"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "default": 50
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "AlertSummaryQuery"
+      },
       "AssociatedConversation": {
         "properties": {
           "peer_account": {
@@ -8281,18 +8834,6 @@
       },
       "AssociatedGroupMessage": {
         "properties": {
-          "operation_id": {
-            "anyOf": [
-              {
-                "type": "string",
-                "pattern": "^[A-Za-z0-9_-]{1,128}$"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Operation Id"
-          },
           "id": {
             "type": "string",
             "title": "Id"
@@ -8355,6 +8896,28 @@
                 "type": "null"
               }
             ]
+          },
+          "reply_to": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReplyQuote"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "operation_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{1,128}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation Id"
           },
           "conversation": {
             "$ref": "#/components/schemas/GroupConversationRef"
@@ -8379,18 +8942,6 @@
       },
       "AssociatedMessage": {
         "properties": {
-          "operation_id": {
-            "anyOf": [
-              {
-                "type": "string",
-                "pattern": "^[A-Za-z0-9_-]{1,128}$"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Operation Id"
-          },
           "id": {
             "type": "string",
             "title": "Id"
@@ -8453,6 +9004,28 @@
                 "type": "null"
               }
             ]
+          },
+          "reply_to": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReplyQuote"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "operation_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{1,128}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation Id"
           },
           "target_account": {
             "type": "string",
@@ -8530,7 +9103,10 @@
           },
           "reply_relations": {
             "type": "string",
-            "const": "unsupported",
+            "enum": [
+              "unsupported",
+              "inline"
+            ],
             "title": "Reply Relations",
             "default": "unsupported"
           },
@@ -8885,6 +9461,74 @@
           "remaining_replies"
         ],
         "title": "Branch"
+      },
+      "ClientAlertSummary": {
+        "properties": {
+          "unread_mention_count": {
+            "type": "integer",
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Unread Mention Count"
+          },
+          "unread_reply_count": {
+            "type": "integer",
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Unread Reply Count"
+          },
+          "conversation_id": {
+            "type": "string",
+            "pattern": "^(dm:[1-9][0-9]{7}:[1-9][0-9]{7}|group:[a-f0-9]{32})$",
+            "title": "Conversation Id"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "latest_alert": {
+            "$ref": "#/components/schemas/UnreadAlert"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "unread_mention_count",
+          "unread_reply_count",
+          "conversation_id",
+          "display_name",
+          "latest_alert"
+        ],
+        "title": "ClientAlertSummary"
+      },
+      "ClientAlertSummaryPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ClientAlertSummary"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(dm:[1-9][0-9]{7}:[1-9][0-9]{7}|group:[a-f0-9]{32})$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "ClientAlertSummaryPage"
       },
       "Comment": {
         "properties": {
@@ -9463,6 +10107,74 @@
           "conversation"
         ],
         "title": "DirectConversation"
+      },
+      "DirectRepliesQuery": {
+        "properties": {
+          "before_position": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 9007199254740991.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before Position"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "default": 50
+          },
+          "original_message_id": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Original Message Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "original_message_id"
+        ],
+        "title": "DirectRepliesQuery"
+      },
+      "DirectReplyPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ReplyMessage"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 9007199254740991.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "DirectReplyPage"
       },
       "DirectoryPage": {
         "properties": {
@@ -10123,6 +10835,16 @@
               }
             ]
           },
+          "reply_to": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReplyQuote"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "conversation": {
             "$ref": "#/components/schemas/GroupConversationRef"
           },
@@ -10482,6 +11204,34 @@
         ],
         "title": "LoginResponse"
       },
+      "MarkAlertsSeen": {
+        "properties": {
+          "conversation_id": {
+            "type": "string",
+            "pattern": "^(dm:[1-9][0-9]{7}:[1-9][0-9]{7}|group:[a-f0-9]{32})$",
+            "title": "Conversation Id"
+          },
+          "message_ids": {
+            "items": {
+              "type": "string",
+              "maxLength": 200,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_-]+$"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Message Ids"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "conversation_id",
+          "message_ids"
+        ],
+        "title": "MarkAlertsSeen"
+      },
       "MarkRead": {
         "properties": {
           "operation_id": {
@@ -10590,6 +11340,134 @@
         ],
         "title": "MemberJoined"
       },
+      "MentionMessage": {
+        "properties": {
+          "message_id": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Message Id"
+          },
+          "position": {
+            "type": "integer",
+            "maximum": 9007199254740991.0,
+            "minimum": 1.0,
+            "title": "Position"
+          },
+          "sender_account": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Sender Account"
+          },
+          "sender_username": {
+            "type": "string",
+            "title": "Sender Username"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "content": {
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/Text"
+                },
+                {
+                  "$ref": "#/components/schemas/bb_auth_contract__chat__Image"
+                }
+              ],
+              "discriminator": {
+                "propertyName": "type",
+                "mapping": {
+                  "image": "#/components/schemas/bb_auth_contract__chat__Image",
+                  "text": "#/components/schemas/Text"
+                }
+              }
+            },
+            "type": "array",
+            "title": "Content"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "message_id",
+          "position",
+          "sender_account",
+          "sender_username",
+          "created_at",
+          "content"
+        ],
+        "title": "MentionMessage"
+      },
+      "MentionPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MentionMessage"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 9007199254740991.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "MentionPage"
+      },
+      "MentionQuery": {
+        "properties": {
+          "conversation_id": {
+            "type": "string",
+            "pattern": "^group:[a-f0-9]{32}$",
+            "title": "Conversation Id"
+          },
+          "before_position": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 9007199254740991.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before Position"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "default": 50
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "conversation_id"
+        ],
+        "title": "MentionQuery"
+      },
       "Message": {
         "properties": {
           "id": {
@@ -10649,6 +11527,16 @@
             "anyOf": [
               {
                 "$ref": "#/components/schemas/Media"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reply_to": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReplyQuote"
               },
               {
                 "type": "null"
@@ -10731,7 +11619,10 @@
           },
           "reply_relations": {
             "type": "string",
-            "const": "unsupported",
+            "enum": [
+              "unsupported",
+              "inline"
+            ],
             "title": "Reply Relations",
             "default": "unsupported"
           },
@@ -12223,6 +13114,143 @@
         ],
         "title": "RemoteGroupUpdate"
       },
+      "ReplyMessage": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "position": {
+            "type": "integer",
+            "title": "Position"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "sender_account": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{7}$",
+            "title": "Sender Account"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "body",
+              "attachment"
+            ],
+            "title": "Kind"
+          },
+          "content": {
+            "anyOf": [
+              {
+                "items": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Text"
+                    },
+                    {
+                      "$ref": "#/components/schemas/bb_auth_contract__chat__Image"
+                    }
+                  ],
+                  "discriminator": {
+                    "propertyName": "type",
+                    "mapping": {
+                      "image": "#/components/schemas/bb_auth_contract__chat__Image",
+                      "text": "#/components/schemas/Text"
+                    }
+                  }
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content"
+          },
+          "attachment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Media"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reply_to": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReplyQuote"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sender_username": {
+            "type": "string",
+            "title": "Sender Username"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "position",
+          "created_at",
+          "sender_account",
+          "kind",
+          "sender_username"
+        ],
+        "title": "ReplyMessage"
+      },
+      "ReplyQuote": {
+        "properties": {
+          "message_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,200}$",
+            "title": "Message Id"
+          },
+          "sender_account": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[1-9][0-9]{7}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sender Account"
+          },
+          "sender_username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sender Username"
+          },
+          "preview": {
+            "type": "string",
+            "title": "Preview"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "message_id",
+          "sender_account",
+          "sender_username",
+          "preview"
+        ],
+        "title": "ReplyQuote"
+      },
       "SendAttachment": {
         "properties": {
           "target_account": {
@@ -12255,6 +13283,18 @@
           "media_id": {
             "type": "string",
             "title": "Media Id"
+          },
+          "reply_to_message_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{1,200}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reply To Message Id"
           }
         },
         "additionalProperties": false,
@@ -12294,6 +13334,18 @@
             "pattern": "^[A-Za-z0-9_-]{1,128}$",
             "title": "Client Nonce"
           },
+          "reply_to_message_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{1,200}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reply To Message Id"
+          },
           "content": {
             "items": {
               "oneOf": [
@@ -12316,6 +13368,16 @@
             "maxItems": 100,
             "minItems": 1,
             "title": "Content"
+          },
+          "mentioned_accounts": {
+            "items": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]{7}$"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "uniqueItems": true,
+            "title": "Mentioned Accounts"
           }
         },
         "additionalProperties": false,
@@ -12492,6 +13554,134 @@
           "text"
         ],
         "title": "Text"
+      },
+      "UnreadAlert": {
+        "properties": {
+          "message_id": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Message Id"
+          },
+          "position": {
+            "type": "integer",
+            "maximum": 9007199254740991.0,
+            "minimum": 1.0,
+            "title": "Position"
+          },
+          "mention": {
+            "type": "boolean",
+            "title": "Mention"
+          },
+          "reply": {
+            "type": "boolean",
+            "title": "Reply"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "message_id",
+          "position",
+          "mention",
+          "reply"
+        ],
+        "title": "UnreadAlert"
+      },
+      "UnreadRepliesQuery": {
+        "properties": {
+          "before_position": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 9007199254740991.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before Position"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "default": 50
+          },
+          "conversation_id": {
+            "type": "string",
+            "pattern": "^(dm:[1-9][0-9]{7}:[1-9][0-9]{7}|group:[a-f0-9]{32})$",
+            "title": "Conversation Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "conversation_id"
+        ],
+        "title": "UnreadRepliesQuery"
+      },
+      "UnreadReply": {
+        "properties": {
+          "reply": {
+            "$ref": "#/components/schemas/ReplyMessage"
+          },
+          "original": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Message"
+              },
+              {
+                "$ref": "#/components/schemas/GroupMessage"
+              },
+              {
+                "$ref": "#/components/schemas/SystemMessage"
+              }
+            ],
+            "title": "Original"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "reply",
+          "original"
+        ],
+        "title": "UnreadReply"
+      },
+      "UnreadReplyPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/UnreadReply"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 9007199254740991.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "UnreadReplyPage"
       },
       "UpdateDraft": {
         "properties": {

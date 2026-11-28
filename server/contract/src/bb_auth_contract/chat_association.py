@@ -8,12 +8,12 @@ HEADER = "X-BB-Message-Association"
 VERSION = "1"
 
 
-class PrivateAssociation(chat.Wire):
+class PrivateAssociation(chat.UserMessage):
     operation_id: chat.OperationId | None = None
 
     @model_serializer(mode="wrap")
-    def omit_private_absence(self, handler):
-        value = handler(self)
+    def omit_unused_reply(self, handler):
+        value = super().omit_unused_reply(handler)
         if self.operation_id is None:
             value.pop("operation_id", None)
         return value

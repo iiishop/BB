@@ -10,7 +10,6 @@ from bb_auth_contract.replies import (
     UnreadRepliesQuery,
     UnreadReplyPage,
 )
-from fastapi import Depends
 
 from . import chat_alerts, chat_queries, chat_store
 from .storage import connection
@@ -120,13 +119,7 @@ def direct_replies(path, account, query):
         }
 
 
-def install(app, path, current_session, errors):
-    identity_dep = Depends(current_session)
-
-    @app.post(UNREAD_PATH, response_model=UnreadReplyPage, responses=errors)
-    def unread(query: UnreadRepliesQuery, identity=identity_dep):
-        return unread_replies(path, identity["account"], query)
-
-    @app.post(DIRECT_PATH, response_model=DirectReplyPage, responses=errors)
-    def direct(query: DirectRepliesQuery, identity=identity_dep):
-        return direct_replies(path, identity["account"], query)
+ROUTES = {
+    UNREAD_PATH: (UnreadRepliesQuery, UnreadReplyPage, unread_replies),
+    DIRECT_PATH: (DirectRepliesQuery, DirectReplyPage, direct_replies),
+}

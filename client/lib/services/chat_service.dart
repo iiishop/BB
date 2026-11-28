@@ -1555,12 +1555,14 @@ class ChatService {
   Future<SendOutcome> sendBody({
     required String targetAccount,
     required List<OutgoingPart> content,
+    List<String> mentionedAccounts = const <String>[],
     String? operationId,
     ExpectedIdentity? expectedIdentity,
   }) => InstallSafetyGate.instance.protect(
     () => _sendBody(
       targetAccount: targetAccount,
       content: content,
+      mentionedAccounts: mentionedAccounts,
       operationId: operationId,
       expectedIdentity: expectedIdentity,
     ),
@@ -1569,9 +1571,17 @@ class ChatService {
   Future<SendOutcome> _sendBody({
     required String targetAccount,
     required List<OutgoingPart> content,
+    List<String> mentionedAccounts = const <String>[],
     String? operationId,
     ExpectedIdentity? expectedIdentity,
   }) async {
+    final recipients = mentionedAccounts.toSet().toList()..sort();
+    if (recipients.isNotEmpty &&
+        (!isGroupId(targetAccount) ||
+            recipients.length > 100 ||
+            !recipients.every(isValidAccount))) {
+      throw _validation('提及需要有效的群成员账号');
+    }
     final AuthIdentity? maybeCurrent = session.identity;
     if (maybeCurrent == null) {
       throw unauthenticated;
@@ -1595,7 +1605,7 @@ class ChatService {
     if (cleaned.isEmpty) {
       throw _validation('正文不能为空');
     }
-    final String sourceDigest = _digestOfBody(targetAccount, cleaned);
+    final String sourceDigest = _digestOfBody(targetAccount, cleaned, recipients);
     ChatOperationRecord? record = await ledger.operation(account, opId);
     final String? owner = await ledger.accountForOperation(opId);
     if (owner != null && owner != account) {
@@ -1669,6 +1679,7 @@ class ChatService {
           state: 'prepared',
           sourceDigest: sourceDigest,
           parts: _storedParts(cleaned, mediaIds),
+          mentionedAccounts: recipients,
           resolvedMediaIds: List<String>.from(mediaIds),
           attempts: (record?.attempts ?? 0) + 1,
           createdAt: record?.createdAt ?? _clock(),
@@ -1686,6 +1697,7 @@ class ChatService {
       state: 'prepared',
       sourceDigest: sourceDigest,
       parts: _storedParts(cleaned, mediaIds),
+      mentionedAccounts: recipients,
       resolvedMediaIds: mediaIds,
       attempts: (record?.attempts ?? 0) + 1,
       message: record?.message,
@@ -1759,16 +1771,24 @@ class ChatService {
     required String targetAccount,
     required String clientNonce,
     required List<MessagePart> content,
+    required List<String> mentionedAccounts,
   }) async {
     for (int attempt = 0; ; attempt++) {
       try {
         final message = isGroupId(targetAccount)
             ? await api.sendConversationMessage(
-                token: captured.token, conversation: ConversationRef.group(targetAccount),
-                clientNonce: clientNonce, content: content)
+                token: captured.token,
+                conversation: ConversationRef.group(targetAccount),
+                clientNonce: clientNonce,
+                content: content,
+                mentionedAccounts: mentionedAccounts,
+              )
             : await api.sendMessage(
-                token: captured.token, targetAccount: targetAccount,
-                clientNonce: clientNonce, content: content);
+                token: captured.token,
+                targetAccount: targetAccount,
+                clientNonce: clientNonce,
+                content: content,
+              );
         return _associatedMessage(
           message,
           captured.account,
@@ -1902,6 +1922,7 @@ class ChatService {
         targetAccount: record.targetAccount,
         clientNonce: record.operationId,
         content: parts,
+        mentionedAccounts: record.mentionedAccounts,
       );
       // The remote commit already happened under the captured identity. Record
       // it in the original account's ledger first; a later switch only turns
@@ -1947,6 +1968,7 @@ class ChatService {
             targetAccount: record.targetAccount,
             clientNonce: record.operationId,
             content: parts,
+            mentionedAccounts: record.mentionedAccounts,
           );
           await _succeed(account, record, message);
           if (!session.isCurrent(captured)) {
@@ -2271,12 +2293,14 @@ class ChatService {
     required String targetAccount,
     required List<OutgoingPart> body,
     required List<OutgoingAttachment> attachments,
+    List<String> mentionedAccounts = const <String>[],
     String? operationSeed,
   }) => InstallSafetyGate.instance.protect(
     () => _sendComposed(
       targetAccount: targetAccount,
       body: body,
       attachments: attachments,
+      mentionedAccounts: mentionedAccounts,
       operationSeed: operationSeed,
     ),
   );
@@ -2285,6 +2309,7 @@ class ChatService {
     required String targetAccount,
     required List<OutgoingPart> body,
     required List<OutgoingAttachment> attachments,
+    List<String> mentionedAccounts = const <String>[],
     String? operationSeed,
   }) async {
     final AuthIdentity? captured = session.identity;
@@ -2310,6 +2335,7 @@ class ChatService {
           bodyOutcome = await sendBody(
             targetAccount: targetAccount,
             content: cleaned,
+            mentionedAccounts: mentionedAccounts,
             operationId: '$seed-b',
           );
         } on AuthFailure catch (failure) {
@@ -3194,7 +3220,11 @@ class ChatService {
     return _coverExtractor.extract(path: path, filename: video.filename);
   }
 
-  String _digestOfBody(String targetAccount, List<OutgoingPart> content) {
+  String _digestOfBody(
+    String targetAccount,
+    List<OutgoingPart> content,
+    List<String> mentionedAccounts,
+  ) {
     final List<Map<String, dynamic>> canonical = <Map<String, dynamic>>[
       for (final OutgoingPart part in content)
         if (part is OutgoingText)
@@ -3208,6 +3238,8 @@ class ChatService {
           'kind': 'message',
           'target': targetAccount,
           'content': canonical,
+          if (mentionedAccounts.isNotEmpty)
+            'mentioned_accounts': mentionedAccounts,
         }),
       ),
     );

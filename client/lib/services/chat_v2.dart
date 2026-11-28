@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import '../models/auth_models.dart';
 import '../models/chat_models.dart';
 import '../models/group_models.dart';
+import '../models/mention_models.dart';
 import '../models/profile_models.dart';
 import 'auth_session.dart';
 import 'chat_query.dart';
@@ -66,6 +67,17 @@ class ChatV2Router {
       'cursor',
       'limit',
     },
+    '/v2/chat/list_unread_mention_groups': <String>{
+      'expected_identity',
+      'after_conversation_id',
+      'limit',
+    },
+    '/v2/chat/list_unread_mentions': <String>{
+      'expected_identity',
+      'conversation_id',
+      'before_position',
+      'limit',
+    },
     '/v2/chat/get_message': <String>{'expected_identity', 'message_id'},
     '/v2/chat/get_context': <String>{
       'expected_identity',
@@ -83,6 +95,13 @@ class ChatV2Router {
       'target_account',
       'conversation',
       'operation_id',
+      'content',
+    },
+    '/v2/chat/send_group_mention': <String>{
+      'expected_identity',
+      'conversation',
+      'operation_id',
+      'mentioned_accounts',
       'content',
     },
     '/v2/chat/send_attachment': <String>{
@@ -470,6 +489,38 @@ class ChatV2Router {
             unreadOnly: args.values['unread_only'] as bool,
             cursor: args.values['cursor'] as String?,
           ));
+      case '/v2/chat/list_unread_mention_groups':
+        return _queryReply(
+          expected,
+          service,
+          context.identity,
+          context.binding,
+          (_) async {
+            final page = await service.sharedConversations.listUnreadChatAlerts(
+              afterConversationId:
+                  args.values['after_conversation_id'] as String?,
+              limit: args.values['limit'] as int,
+              captured: context.identity,
+            );
+            return page.toJson((ChatAlertSummary item) => item.toToolJson());
+          },
+        );
+      case '/v2/chat/list_unread_mentions':
+        return _queryReply(
+          expected,
+          service,
+          context.identity,
+          context.binding,
+          (_) async {
+            final page = await service.sharedConversations.listUnreadMentions(
+              conversationId: args.values['conversation_id'] as String,
+              beforePosition: args.values['before_position'] as int?,
+              limit: args.values['limit'] as int,
+              captured: context.identity,
+            );
+            return page.toJson((MentionMessage item) => item.toJson());
+          },
+        );
       case '/v2/chat/get_message':
         return _queryReply(expected, service, context.identity, context.binding, (
           Set<String> created,
@@ -554,9 +605,13 @@ class ChatV2Router {
         );
         return _reply(expected, page.toJson());
       case '/v2/chat/send_message':
+      case '/v2/chat/send_group_mention':
         final SendOutcome outcome = await service.sendBody(
           targetAccount: args.values['target_account'] as String,
           content: args.content!,
+          mentionedAccounts:
+              args.values['mentioned_accounts'] as List<String>? ??
+              const <String>[],
           operationId: args.values['operation_id'] as String,
           expectedIdentity: expected,
         );
@@ -841,6 +896,27 @@ class ChatV2Router {
         args.values['unread_only'] = request.boolean('unread_only', false);
         args.values['cursor'] = request.raw['cursor'] == null ? null : request.opaque('cursor');
         if (args.values['after_account'] != '' && (order != 'account' || args.values['unread_only'] == true || args.values['cursor'] != null)) throw _validation('cursor');
+      case '/v2/chat/list_unread_mention_groups':
+        args.values['after_conversation_id'] = request.optionalString(
+          'after_conversation_id',
+          nullable: true,
+        );
+        final cursor = args.values['after_conversation_id'] as String?;
+        if (cursor != null && !isValidAlertConversationId(cursor)) {
+          throw _validation('after_conversation_id');
+        }
+        args.values['limit'] = request.optionalInteger('limit', 1, 100) ?? 50;
+      case '/v2/chat/list_unread_mentions':
+        args.values['conversation_id'] = request.pattern(
+          'conversation_id',
+          groupConversationIdPattern,
+        );
+        args.values['before_position'] = request.nullableInteger(
+          'before_position',
+          1,
+          maxBindingRevision,
+        );
+        args.values['limit'] = request.optionalInteger('limit', 1, 100) ?? 50;
       case '/v2/chat/get_message':
         args.values['message_id'] = request.pattern(
           'message_id',
@@ -870,6 +946,20 @@ class ChatV2Router {
       case '/v2/chat/send_message':
         args.values['target_account'] = _chatTarget(request, args.expectedIdentity!.account, 'target_account');
         args.values['operation_id'] = request.operationId('operation_id');
+        args.content = _content(request);
+      case '/v2/chat/send_group_mention':
+        final group = request.object('conversation', {'type', 'id'});
+        args.values['target_account'] =
+            ConversationRef.fromJson(group, requireGroup: true).id;
+        args.values['operation_id'] = request.operationId('operation_id');
+        final recipients = request.list('mentioned_accounts', 1, 100);
+        if (recipients.any(
+              (value) => value is! String || !isValidAccount(value),
+            ) ||
+            recipients.toSet().length != recipients.length) {
+          throw _validation('mentioned_accounts');
+        }
+        args.values['mentioned_accounts'] = recipients.cast<String>();
         args.content = _content(request);
       case '/v2/chat/send_attachment':
         args.values['target_account'] = _chatTarget(request, args.expectedIdentity!.account, 'target_account');

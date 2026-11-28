@@ -87,6 +87,7 @@ def migrate(path: Path):
             (9, "009_shared_chat.sql"),
             (10, "010_group_lifecycle.sql"),
             (11, "011_group_profile_revision.sql"),
+            (12, "012_chat_alerts.sql"),
             (13, "013_chat_replies.sql"),
         ]:
             if version >= number:

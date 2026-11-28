@@ -45,7 +45,15 @@ from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from starlette.concurrency import run_in_threadpool
 
-from bb_server import chat_media_gc, groups, space, space_media
+from bb_server import (
+    chat_alerts,
+    chat_media_gc,
+    chat_mentions,
+    chat_replies,
+    groups,
+    space,
+    space_media,
+)
 from bb_server.avatars import (
     default_version,
     etag_matches,
@@ -420,6 +428,9 @@ def create_app(
         avatars / "groups",
         current_session,
         clock,
+    )
+    chat_alerts.install(
+        app, path, current_session, no_query, chat_mentions.ROUTES | chat_replies.ROUTES
     )
     space.install(app, path, media_root / "space", current_session, clock)
     groups.install(

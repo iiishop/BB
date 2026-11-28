@@ -13,6 +13,7 @@ def run(
     origin,
     account,
     peer,
+    switched,
     api,
     runtime,
     root,
@@ -133,8 +134,19 @@ def run(
                 "api": api,
                 "account": account,
                 "peer": peer,
+                "outsider": switched,
                 "images": [png((255, 0, 0)), png((0, 0, 255))],
                 "coverAsset": os.environ.get("BB_PROFILE_COVER_CLIENT_ASSET"),
+                **(
+                    {
+                        "replyFixture": {
+                            "python": str(Path(__file__).resolve().parents[3] / "server/.venv/bin/python"),
+                            "database": str(private / "server.db"),
+                        },
+                    }
+                    if os.environ.get("BB_PRODUCT_CASES") == "groups"
+                    else {}
+                ),
             }
         )
     )

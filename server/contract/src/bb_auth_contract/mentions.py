@@ -2,7 +2,7 @@
 
 from typing import Annotated
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from .chat import Account, Image, LocalImage, OperationId, Text
 from .chat_alerts import PositivePosition
@@ -42,3 +42,9 @@ class GroupMentionSend(Wire):
     content: list[Annotated[Text | LocalImage, Field(discriminator="type")]] = Field(
         min_length=1, max_length=100
     )
+
+    @model_validator(mode="after")
+    def unique_recipients(self):
+        if len(set(self.mentioned_accounts)) != len(self.mentioned_accounts):
+            raise ValueError("mention accounts must be unique")
+        return self
