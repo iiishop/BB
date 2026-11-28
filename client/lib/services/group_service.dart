@@ -50,7 +50,9 @@ class GroupService {
   final StreamController<GroupProfile> _groupUpdates =
       StreamController<GroupProfile>.broadcast();
   int _profileTicket = 0;
+  int _publishEpoch = 0;
   final Map<String, int> _latestProfileTicket = <String, int>{};
+  final Map<String, int> _latestPublishedEpoch = <String, int>{};
   final Map<String, int> _latestMutationCommit = <String, int>{};
   final Map<String, String> _knownAvatarVersions = <String, String>{};
   int _avatarTicket = 0;
@@ -76,6 +78,7 @@ class GroupService {
       return;
     }
     _latestProfileTicket[convId] = ticket;
+    _latestPublishedEpoch[convId] = ++_publishEpoch;
     final String? previousVersion = _knownAvatarVersions[profile.groupNumber];
     _knownAvatarVersions[profile.groupNumber] = profile.avatarVersion;
     if (previousVersion != null && previousVersion != profile.avatarVersion) {
@@ -90,19 +93,20 @@ class GroupService {
   Future<GroupProfile> _finalizeMutation(
     GroupProfile profile, {
     required int startTicket,
+    required int startEpoch,
     required AuthIdentity captured,
     bool invalidateAvatar = false,
   }) async {
     final String convId = profile.conversation.id;
     final int? priorCommit = _latestMutationCommit[convId];
-    final int priorProfile = _latestProfileTicket[convId] ?? 0;
+    final int currentEpoch = _latestPublishedEpoch[convId] ?? 0;
     final int commitTicket = ++_profileTicket;
     _latestMutationCommit[convId] = commitTicket;
     if ((priorCommit != null && startTicket < priorCommit) ||
-        startTicket < priorProfile) {
-      // Another mutation or profile query completed while this request was
-      // in flight; re-query so the UI converges to the authoritative server
-      // state regardless of commit order or updates from other sessions.
+        currentEpoch > startEpoch) {
+      // Another mutation committed or a fresher profile snapshot was published
+      // while this request was in flight; re-query so the UI converges to the
+      // authoritative server state regardless of commit order or session writes.
       try {
         return await findGroup(profile.groupNumber, captured: captured);
       } on AuthFailure catch (failure) {
@@ -199,6 +203,8 @@ class GroupService {
         ? null
         : await _resolveAvatarBytes(avatar);
     _ensureCurrent(identity);
+    final int startTicket = ++_profileTicket;
+    final int startEpoch = _publishEpoch;
     final GroupProfile profile = await api.createGroup(
       token: identity.token,
       operationId: operationId,
@@ -208,14 +214,21 @@ class GroupService {
       avatar: avatarBytes,
     );
     _ensureCurrent(identity);
-    access?.grant(
-      identity.account,
-      profile.conversation.id,
-      membershipRevision: 1,
-      historyThrough: 0,
+    if (access != null &&
+        !access!.isRevoked(identity.account, profile.conversation.id)) {
+      access!.grant(
+        identity.account,
+        profile.conversation.id,
+        membershipRevision: 1,
+        historyThrough: 0,
+      );
+    }
+    return _finalizeMutation(
+      profile,
+      startTicket: startTicket,
+      startEpoch: startEpoch,
+      captured: identity,
     );
-    _emitGroupUpdate(profile, ticket: ++_profileTicket);
-    return profile;
   }
 
   Future<GroupProfile> findGroup(
@@ -297,6 +310,7 @@ class GroupService {
         : await _resolveAvatarBytes(avatar);
     _ensureCurrent(identity);
     final int startTicket = ++_profileTicket;
+    final int startEpoch = _latestPublishedEpoch[conversation.id] ?? 0;
     final GroupProfile profile = await api.updateGroup(
       token: identity.token,
       conversation: conversation,
@@ -310,6 +324,7 @@ class GroupService {
     return _finalizeMutation(
       profile,
       startTicket: startTicket,
+      startEpoch: startEpoch,
       captured: identity,
       invalidateAvatar: avatarBytes != null || resetAvatar,
     );
@@ -429,6 +444,7 @@ class GroupService {
       throw _validation('account', '账号必须是 8 位 BB 号');
     }
     final int startTicket = ++_profileTicket;
+    final int startEpoch = _latestPublishedEpoch[conversation.id] ?? 0;
     final GroupProfile profile = await api.removeGroupMember(
       token: identity.token,
       conversation: conversation,
@@ -441,6 +457,7 @@ class GroupService {
     return _finalizeMutation(
       profile,
       startTicket: startTicket,
+      startEpoch: startEpoch,
       captured: identity,
     );
   }
@@ -452,6 +469,7 @@ class GroupService {
     final AuthIdentity identity = _requireIdentity(captured);
     _requireGroupConversation(conversation);
     final int startTicket = ++_profileTicket;
+    final int startEpoch = _latestPublishedEpoch[conversation.id] ?? 0;
     final GroupProfile profile = await api.dissolveGroup(
       token: identity.token,
       conversation: conversation,
@@ -461,6 +479,7 @@ class GroupService {
     return _finalizeMutation(
       profile,
       startTicket: startTicket,
+      startEpoch: startEpoch,
       captured: identity,
     );
   }

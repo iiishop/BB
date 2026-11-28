@@ -60,9 +60,13 @@ class _FakeGroupServer {
   String group1Name = 'Group Alpha';
   String group2Name = 'Group Beta';
   Completer<void>? holdFind;
+  Completer<void>? beforeFindRead;
   Completer<void>? holdAvatar;
   Completer<void>? beforeUpdateCommit;
   Completer<void>? holdUpdate;
+  Completer<void>? holdCreate;
+  final Map<String, Map<String, dynamic>> createdByOpId =
+      <String, Map<String, dynamic>>{};
   final Uint8List resetPng = base64Decode(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNQXtcDAAJVAV4On0tgAAAAAElFTkSuQmCC',
   );
@@ -340,25 +344,49 @@ class _FakeGroupServer {
             }
           }
         }
-        final Map<String, dynamic> payload = <String, dynamic>{
-          'conversation': <String, dynamic>{
-            'type': 'group',
-            'id': isFirst ? groupId : group2Id,
-          },
-          'group_number': requestedNumber,
-          'name': isFirst
-              ? (jsonBody?['name'] ?? group1Name)
-              : (jsonBody?['name'] ?? group2Name),
-          'description': jsonBody?['description'] ?? 'Desc',
-          'avatar_url': '/chat/groups/$requestedNumber/avatar.png',
-          'avatar_version': isFirst
-              ? 'gv$groupAvatarVersion'
-              : 'g2v$group2AvatarVersion',
-          'status': path == '/chat/groups/dissolve' ? 'dissolved' : 'active',
-          'role': path == '/chat/groups/leave' ? null : 'owner',
-          'can_invite': path != '/chat/groups/dissolve',
-          'allow_member_invites': jsonBody?['allow_member_invites'] ?? false,
-        };
+        if (path == '/chat/groups/find' && isFirst && beforeFindRead != null) {
+          final Completer<void> beforeRead = beforeFindRead!;
+          beforeFindRead = null;
+          await beforeRead.future;
+        }
+        final String? opId = jsonBody?['operation_id'] as String?;
+        final Map<String, dynamic> payload;
+        if (path == '/chat/groups/create' &&
+            opId != null &&
+            createdByOpId.containsKey(opId)) {
+          payload = Map<String, dynamic>.from(createdByOpId[opId]!);
+        } else {
+          payload = <String, dynamic>{
+            'conversation': <String, dynamic>{
+              'type': 'group',
+              'id': isFirst ? groupId : group2Id,
+            },
+            'group_number': requestedNumber,
+            'name': isFirst
+                ? (jsonBody?['name'] ?? group1Name)
+                : (jsonBody?['name'] ?? group2Name),
+            'description': jsonBody?['description'] ?? 'Desc',
+            'avatar_url': '/chat/groups/$requestedNumber/avatar.png',
+            'avatar_version': isFirst
+                ? 'gv$groupAvatarVersion'
+                : 'g2v$group2AvatarVersion',
+            'status': path == '/chat/groups/dissolve' ? 'dissolved' : 'active',
+            'role': path == '/chat/groups/leave' ? null : 'owner',
+            'can_invite': path != '/chat/groups/dissolve',
+            'allow_member_invites': jsonBody?['allow_member_invites'] ?? false,
+          };
+          if (path == '/chat/groups/create' && opId != null) {
+            if (isFirst && payload['name'] is String) {
+              group1Name = payload['name'] as String;
+            }
+            createdByOpId[opId] = Map<String, dynamic>.from(payload);
+          }
+        }
+        if (path == '/chat/groups/create' && holdCreate != null) {
+          final Completer<void> hold = holdCreate!;
+          holdCreate = null;
+          await hold.future;
+        }
         if (path == '/chat/groups/find' && isFirst && holdFind != null) {
           final Completer<void> hold = holdFind!;
           holdFind = null;
@@ -1314,5 +1342,65 @@ void main() {
     await Future<void>.delayed(Duration.zero);
     expect(resolvedLateCommit.name, 'Late server commit');
     expect(emitted.last.name, 'Late server commit');
+
+    // 7. Early-started findGroup that reads a newer second-client edit before a
+    //    pending write finishes, and delayed idempotent createGroup replays,
+    //    must both preserve the newer authoritative profile rather than reverting.
+    emitted.clear();
+    final Completer<void> gateEarlyRead = Completer<void>();
+    server.beforeFindRead = gateEarlyRead;
+    final Future<GroupProfile> earlyReadFuture = groups.findGroup('10000001');
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    final Completer<void> holdWriteReply = Completer<void>();
+    server.holdUpdate = holdWriteReply;
+    final Future<GroupProfile> delayedWrite = groups.updateGroup(
+      conversation: group1Ref,
+      name: 'First edit',
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    await groupApi.updateGroup(
+      token: 'token-1',
+      conversation: group1Ref,
+      name: 'Final edit',
+    );
+    gateEarlyRead.complete();
+    final GroupProfile earlyReadResult = await earlyReadFuture;
+    expect(earlyReadResult.name, 'Final edit');
+    holdWriteReply.complete();
+    final GroupProfile resolvedDelayedWrite = await delayedWrite;
+    await Future<void>.delayed(Duration.zero);
+    expect(resolvedDelayedWrite.name, 'Final edit');
+    expect(emitted.map((GroupProfile p) => p.name), <String>[
+      'Final edit',
+      'Final edit',
+    ]);
+
+    await groups.createGroup(
+      operationId: 'op-idempotent-replay-1',
+      name: 'Initial Create',
+    );
+    emitted.clear();
+    final Completer<void> holdReplay = Completer<void>();
+    server.holdCreate = holdReplay;
+    final Future<GroupProfile> replayFuture = groups.createGroup(
+      operationId: 'op-idempotent-replay-1',
+      name: 'Initial Create',
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    await groupApi.updateGroup(
+      token: 'token-1',
+      conversation: group1Ref,
+      name: 'Renamed After Create',
+    );
+    final GroupProfile readAfterRename = await groups.findGroup('10000001');
+    expect(readAfterRename.name, 'Renamed After Create');
+    holdReplay.complete();
+    final GroupProfile resolvedReplay = await replayFuture;
+    await Future<void>.delayed(Duration.zero);
+    expect(resolvedReplay.name, 'Renamed After Create');
+    expect(emitted.map((GroupProfile p) => p.name), <String>[
+      'Renamed After Create',
+      'Renamed After Create',
+    ]);
   });
 }
