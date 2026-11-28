@@ -21,6 +21,7 @@ import '../services/media_disk_cache.dart';
 import '../services/profile_service.dart';
 import '../models/chat_models.dart';
 import 'display_features.dart';
+import 'home_navigation.dart';
 import 'notifications/notification_center.dart';
 import 'chat/chat_page.dart';
 import 'chat/chat_workspace.dart';
@@ -87,6 +88,7 @@ class HomeView extends StatefulWidget {
   static const Key navChatKey = Key('home-nav-chat');
   static const Key navSpaceKey = Key('home-nav-space');
   static const Key navNotificationsKey = Key('home-nav-notifications');
+  static const Key bottomNavKey = Key('home-bottom-nav');
   static const Key groupMenuKey = Key('home-group-menu');
   static const Key railAvatarKey = Key('home-rail-avatar');
   static const double railWidth = 92;
@@ -98,6 +100,27 @@ class HomeView extends StatefulWidget {
 class _HomeViewState extends State<HomeView>
     with SingleTickerProviderStateMixin {
   int _section = 0;
+  final LayerLink _railNavLink = LayerLink();
+  static const List<HomeNavItem> _navItems = <HomeNavItem>[
+    HomeNavItem(
+      itemKey: HomeView.navChatKey,
+      label: '聊天',
+      icon: Icons.chat_bubble_outline_rounded,
+      selectedIcon: Icons.chat_bubble_rounded,
+    ),
+    HomeNavItem(
+      itemKey: HomeView.navSpaceKey,
+      label: 'BB空间',
+      icon: Icons.public_outlined,
+      selectedIcon: Icons.public_rounded,
+    ),
+    HomeNavItem(
+      itemKey: HomeView.navNotificationsKey,
+      label: '通知',
+      icon: Icons.notifications_none_rounded,
+      selectedIcon: Icons.notifications_rounded,
+    ),
+  ];
   Profile? _profile;
   Uint8List? _avatar;
   bool _loading = true;
@@ -995,33 +1018,38 @@ class _HomeViewState extends State<HomeView>
                     bottom: 0,
                     child: pages,
                   ),
+                  Positioned(
+                    left: 0,
+                    top: 0,
+                    child: compact || cover >= 0.5
+                        ? const SizedBox.shrink()
+                        : IgnorePointer(
+                            child: Opacity(
+                              opacity: (1 - cover * 2).clamp(0.0, 1.0),
+                              child: CompositedTransformFollower(
+                                link: _railNavLink,
+                                showWhenUnlinked: false,
+                                offset: const Offset(
+                                  HomeView.railWidth - 12,
+                                  0,
+                                ),
+                                child: HomeRailSpineMark(
+                                  itemCount: _navItems.length,
+                                  selectedIndex: _section,
+                                ),
+                              ),
+                            ),
+                          ),
+                  ),
                 ],
               ),
               bottomNavigationBar: compact
-                  ? NavigationBar(
+                  ? HomeBottomNavBar(
+                      key: HomeView.bottomNavKey,
+                      items: _navItems,
                       selectedIndex: _section,
-                      onDestinationSelected: (int index) =>
+                      onSelected: (int index) =>
                           setState(() => _section = index),
-                      destinations: const <NavigationDestination>[
-                        NavigationDestination(
-                          key: HomeView.navChatKey,
-                          icon: Icon(Icons.chat_bubble_outline_rounded),
-                          selectedIcon: Icon(Icons.chat_bubble_rounded),
-                          label: '聊天',
-                        ),
-                        NavigationDestination(
-                          key: HomeView.navSpaceKey,
-                          icon: Icon(Icons.public_outlined),
-                          selectedIcon: Icon(Icons.public_rounded),
-                          label: 'BB空间',
-                        ),
-                        NavigationDestination(
-                          key: HomeView.navNotificationsKey,
-                          icon: Icon(Icons.notifications_none_rounded),
-                          selectedIcon: Icon(Icons.notifications_rounded),
-                          label: '通知',
-                        ),
-                      ],
                     )
                   : null,
             );
@@ -1063,125 +1091,21 @@ class _HomeViewState extends State<HomeView>
   }
 
   Widget _rail(BuildContext context) {
-    final TextTheme text = Theme.of(context).textTheme;
-    return Container(
-      width: 92,
-      decoration: const BoxDecoration(
-        color: AppColors.surface,
-        border: Border(right: BorderSide(color: AppColors.border)),
-      ),
-      child: SafeArea(
-        child: Column(
-          children: <Widget>[
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
-              child: Text(
-                'BB',
-                style: text.labelLarge?.copyWith(
-                  color: AppColors.accentDeep,
-                  letterSpacing: 1.6,
-                  fontSize: 18,
-                ),
-              ),
-            ),
-            _RailButton(
-              key: HomeView.navChatKey,
-              icon: _section == 0
-                  ? Icons.chat_bubble_rounded
-                  : Icons.chat_bubble_outline_rounded,
-              label: '聊天',
-              selected: _section == 0,
-              onTap: () => setState(() => _section = 0),
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            _RailButton(
-              key: HomeView.navSpaceKey,
-              icon: _section == 1
-                  ? Icons.public_rounded
-                  : Icons.public_outlined,
-              label: 'BB空间',
-              selected: _section == 1,
-              onTap: () => setState(() => _section = 1),
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            _RailButton(
-              key: HomeView.navNotificationsKey,
-              icon: _section == 2
-                  ? Icons.notifications_rounded
-                  : Icons.notifications_none_rounded,
-              label: '通知',
-              selected: _section == 2,
-              onTap: () => setState(() => _section = 2),
-            ),
-            const Spacer(),
-            Padding(
-              padding: const EdgeInsets.only(bottom: AppSpacing.md),
-              child: KeyedSubtree(
-                key: widget.space == null ? HomeView.avatarEntryKey : null,
-                child: ProfileAvatar(
-                  key: HomeView.railAvatarKey,
-                  bytes: _avatar,
-                  size: 48,
-                  loading: _loading && _avatar == null,
-                  onTap: _openProfile,
-                  semanticLabel: '打开个人资料',
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _RailButton extends StatelessWidget {
-  const _RailButton({
-    super.key,
-    required this.icon,
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final Color color = selected ? AppColors.accentDeep : AppColors.inkMuted;
-    return Semantics(
-      button: true,
-      selected: selected,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(AppRadius.brand),
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
-            decoration: BoxDecoration(
-              color: selected ? AppColors.accentSoft : Colors.transparent,
-              borderRadius: BorderRadius.circular(AppRadius.brand),
-            ),
-            child: Column(
-              children: <Widget>[
-                Icon(icon, color: color, size: 22),
-                const SizedBox(height: 2),
-                Text(
-                  label,
-                  style: TextStyle(
-                    color: color,
-                    fontSize: 11.5,
-                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
-          ),
+    return HomeDesktopNavRail(
+      width: HomeView.railWidth,
+      items: _navItems,
+      selectedIndex: _section,
+      onSelected: (int index) => setState(() => _section = index),
+      navLink: _railNavLink,
+      footer: KeyedSubtree(
+        key: widget.space == null ? HomeView.avatarEntryKey : null,
+        child: ProfileAvatar(
+          key: HomeView.railAvatarKey,
+          bytes: _avatar,
+          size: 48,
+          loading: _loading && _avatar == null,
+          onTap: _openProfile,
+          semanticLabel: '打开个人资料',
         ),
       ),
     );

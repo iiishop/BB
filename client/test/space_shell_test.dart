@@ -97,7 +97,7 @@ void main() {
   ) async {
     final FakeSpaceGateway gateway = shellGateway();
     await pumpHome(tester, gateway: gateway);
-    expect(find.byType(NavigationBar), findsOneWidget);
+    expect(find.byKey(HomeView.bottomNavKey), findsOneWidget);
     expect(find.byKey(HomeView.navChatKey), findsOneWidget);
     expect(find.byKey(HomeView.navSpaceKey), findsOneWidget);
     expect(find.byType(NavigationRail), findsNothing);
@@ -132,7 +132,7 @@ void main() {
     await tester.pump();
 
     await pumpHome(tester, gateway: gateway, size: spacePhone, remount: false);
-    expect(find.byType(NavigationBar), findsOneWidget);
+    expect(find.byKey(HomeView.bottomNavKey), findsOneWidget);
     expect(find.byKey(SpaceDetailView.detailKey), findsOneWidget);
     expect(
       tester
@@ -150,7 +150,7 @@ void main() {
       features: <DisplayFeature>[verticalHinge(512, 768)],
       remount: false,
     );
-    expect(find.byType(NavigationBar), findsNothing);
+    expect(find.byKey(HomeView.bottomNavKey), findsNothing);
     expect(find.byKey(SpaceDetailView.detailKey), findsOneWidget);
     expect(
       tester
@@ -166,7 +166,7 @@ void main() {
   ) async {
     final FakeSpaceGateway gateway = shellGateway();
     await pumpHome(tester, gateway: gateway, size: spaceWide);
-    expect(find.byType(NavigationBar), findsNothing);
+    expect(find.byKey(HomeView.bottomNavKey), findsNothing);
     expect(find.byKey(HomeView.navChatKey), findsOneWidget);
     expect(find.byKey(HomeView.navSpaceKey), findsOneWidget);
     expect(find.byKey(HomeView.railAvatarKey), findsOneWidget);
