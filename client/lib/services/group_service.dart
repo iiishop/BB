@@ -13,6 +13,7 @@ import '../models/auth_models.dart';
 import '../models/chat_models.dart';
 import '../models/group_models.dart';
 import '../models/mention_models.dart';
+import '../models/reply_models.dart';
 import 'auth_session.dart';
 import 'avatar_cache.dart';
 import 'avatar_source.dart';
@@ -1213,11 +1214,73 @@ class SharedConversationService {
     }
   }
 
+  Future<ReplyPage<UnreadReply>> listUnreadReplies({
+    required String conversationId,
+    int? beforePosition,
+    int limit = 50,
+    AuthIdentity? captured,
+  }) async {
+    final identity = _requireIdentity(captured);
+    if (!isValidConversationId(conversationId)) {
+      throw GroupService._validation('conversation_id', 'conversation_id 无效');
+    }
+    if (beforePosition != null && !isValidPositivePosition(beforePosition)) {
+      throw GroupService._validation(
+        'before_position',
+        'before_position 必须大于 0',
+      );
+    }
+    if (limit < 1 || limit > 100) {
+      throw GroupService._validation('limit', 'limit 必须在 1–100 之间');
+    }
+    final page = await api.listUnreadReplies(
+      token: identity.token,
+      conversationId: conversationId,
+      beforePosition: beforePosition,
+      limit: limit,
+    );
+    _requireIdentity(identity);
+    return page;
+  }
+
+  Future<ReplyPage<ReplyMessage>> listDirectReplies({
+    required String originalMessageId,
+    int? beforePosition,
+    int limit = 50,
+    AuthIdentity? captured,
+  }) async {
+    final identity = _requireIdentity(captured);
+    if (!isValidMessageId(originalMessageId)) {
+      throw GroupService._validation(
+        'original_message_id',
+        'original_message_id 无效',
+      );
+    }
+    if (beforePosition != null && !isValidPositivePosition(beforePosition)) {
+      throw GroupService._validation(
+        'before_position',
+        'before_position 必须大于 0',
+      );
+    }
+    if (limit < 1 || limit > 100) {
+      throw GroupService._validation('limit', 'limit 必须在 1–100 之间');
+    }
+    final page = await api.listDirectReplies(
+      token: identity.token,
+      originalMessageId: originalMessageId,
+      beforePosition: beforePosition,
+      limit: limit,
+    );
+    _requireIdentity(identity);
+    return page;
+  }
+
   Future<ChatMessage> sendGroupMessage({
     required ConversationRef conversation,
     required String clientNonce,
     required List<MessagePart> content,
     List<String> mentionedAccounts = const <String>[],
+    String? replyToMessageId,
     AuthIdentity? captured,
   }) => InstallSafetyGate.instance.protect(() async {
     final AuthIdentity identity = _requireIdentity(captured);
@@ -1229,6 +1292,12 @@ class SharedConversationService {
       );
     }
     validateMentionAccounts(mentionedAccounts, isGroup: true);
+    if (replyToMessageId != null && !isValidMessageId(replyToMessageId)) {
+      throw GroupService._validation(
+        'reply_to_message_id',
+        'reply_to_message_id 无效',
+      );
+    }
     try {
       final ChatMessage message = await api.sendConversationMessage(
         token: identity.token,
@@ -1236,17 +1305,16 @@ class SharedConversationService {
         clientNonce: clientNonce,
         content: content,
         mentionedAccounts: mentionedAccounts,
+        replyToMessageId: replyToMessageId,
       );
       if (!session.isCurrent(identity)) {
         throw staleIdentity;
       }
       return message;
     } on AuthFailure catch (failure) {
-      if (failure.status == 403 ||
-          failure.status == 404 ||
-          failure.code == 'group_unavailable') {
-        await access.revoke(identity.account, conversation.id);
-      }
+      await _recheckFailedGroupWrite(
+        conversation, identity, failure, replyToMessageId,
+      );
       rethrow;
     }
   });
@@ -1255,6 +1323,7 @@ class SharedConversationService {
     required ConversationRef conversation,
     required String clientNonce,
     required String mediaId,
+    String? replyToMessageId,
     AuthIdentity? captured,
   }) => InstallSafetyGate.instance.protect(() async {
     final AuthIdentity identity = _requireIdentity(captured);
@@ -1265,12 +1334,19 @@ class SharedConversationService {
         message: '需要群会话 ID',
       );
     }
+    if (replyToMessageId != null && !isValidMessageId(replyToMessageId)) {
+      throw GroupService._validation(
+        'reply_to_message_id',
+        'reply_to_message_id 无效',
+      );
+    }
     try {
       final ChatMessage message = await api.sendConversationAttachment(
         token: identity.token,
         conversation: conversation,
         clientNonce: clientNonce,
         mediaId: mediaId,
+        replyToMessageId: replyToMessageId,
       );
       if (!session.isCurrent(identity)) {
         throw staleIdentity;
@@ -1278,14 +1354,35 @@ class SharedConversationService {
       access.registerMedia(identity.account, conversation.id, mediaId);
       return message;
     } on AuthFailure catch (failure) {
-      if (failure.status == 403 ||
-          failure.status == 404 ||
-          failure.code == 'group_unavailable') {
-        await access.revoke(identity.account, conversation.id);
-      }
+      await _recheckFailedGroupWrite(
+        conversation, identity, failure, replyToMessageId,
+      );
       rethrow;
     }
   });
+
+  Future<void> _recheckFailedGroupWrite(
+    ConversationRef conversation,
+    AuthIdentity identity,
+    AuthFailure failure,
+    String? replyToMessageId,
+  ) async {
+    if (failure.status == 404 && replyToMessageId != null) {
+      // The server also returns 404 for an unavailable original message.
+      // History access can confirm lost membership without exposing the quote.
+      try {
+        await loadConversationHistory(
+          conversation: conversation, limit: 1, captured: identity,
+        );
+      } on AuthFailure {
+        // The history check handles revocation. Preserve the send error.
+      }
+    } else if (failure.status == 403 ||
+        failure.status == 404 ||
+        failure.code == 'group_unavailable') {
+      await access.revoke(identity.account, conversation.id);
+    }
+  }
 
   /// Sends one ordered body message to a group and wraps the outcome with the
   /// same [SendOutcome] shape used by `ChatComposer` retries.
@@ -1294,6 +1391,7 @@ class SharedConversationService {
     required List<OutgoingPart> content,
     required String operationId,
     List<String> mentionedAccounts = const <String>[],
+    String? replyToMessageId,
     AuthIdentity? captured,
   }) => InstallSafetyGate.instance.protect(() async {
     final AuthIdentity identity = _requireIdentity(captured);
@@ -1315,11 +1413,13 @@ class SharedConversationService {
     try {
       validateMentionAccounts(frozenMentions, isGroup: true);
       final ChatService? sender = durableChat;
-      if (frozenMentions.isNotEmpty && sender != null) {
+      if (sender != null &&
+          (frozenMentions.isNotEmpty || replyToMessageId != null)) {
         final SendOutcome outcome = await sender.sendBody(
           targetAccount: conversation.id,
           content: content,
           mentionedAccounts: frozenMentions,
+          replyToMessageId: replyToMessageId,
           operationId: operationId,
         );
         _requireIdentity(identity);
@@ -1345,6 +1445,7 @@ class SharedConversationService {
         clientNonce: operationId,
         content: wireParts,
         mentionedAccounts: frozenMentions,
+        replyToMessageId: replyToMessageId,
         captured: identity,
       );
       return SendOutcome(
@@ -1368,6 +1469,7 @@ class SharedConversationService {
     required ConversationRef conversation,
     required OutgoingAttachment attachment,
     required String operationId,
+    String? replyToMessageId,
     AuthIdentity? captured,
   }) => InstallSafetyGate.instance.protect(() async {
     final AuthIdentity identity = _requireIdentity(captured);
@@ -1383,6 +1485,17 @@ class SharedConversationService {
       );
     }
     try {
+      final ChatService? sender = durableChat;
+      if (sender != null && replyToMessageId != null) {
+        final SendOutcome outcome = await sender.sendAttachment(
+          targetAccount: conversation.id,
+          attachment: attachment,
+          operationId: operationId,
+          replyToMessageId: replyToMessageId,
+        );
+        _requireIdentity(identity);
+        return outcome;
+      }
       String? coverMediaId;
       if (attachment.cover != null) {
         final Attachment cover = await uploadConversationMedia(
@@ -1402,6 +1515,7 @@ class SharedConversationService {
         conversation: conversation,
         clientNonce: operationId,
         mediaId: uploaded.mediaId,
+        replyToMessageId: replyToMessageId,
         captured: identity,
       );
       return SendOutcome(operationId: operationId, message: committed);
@@ -1421,6 +1535,7 @@ class SharedConversationService {
     required List<OutgoingPart> body,
     required List<OutgoingAttachment> attachments,
     List<String> mentionedAccounts = const <String>[],
+    String? replyToMessageId,
     String? operationSeed,
     AuthIdentity? captured,
   }) => InstallSafetyGate.instance.protect(() async {
@@ -1436,6 +1551,7 @@ class SharedConversationService {
       bodyOutcome = await sendGroupBodyOutcome(
         conversation: conversation,
         content: cleaned,
+        replyToMessageId: replyToMessageId,
         operationId: '$seed-b',
         mentionedAccounts: mentionedAccounts,
         captured: identity,
@@ -1446,6 +1562,8 @@ class SharedConversationService {
         await sendGroupAttachmentOutcome(
           conversation: conversation,
           attachment: attachments[i],
+          replyToMessageId:
+              cleaned.isEmpty && i == 0 ? replyToMessageId : null,
           operationId: '$seed-a$i',
           captured: identity,
         ),

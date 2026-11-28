@@ -49,7 +49,11 @@ def test_group_profile_migration_preserves_existing_v10_group(tmp_path, monkeypa
             "read_text",
             lambda p, **kwargs: (
                 ""
-                if p.name in {"011_group_profile_revision.sql", "012_chat_alerts.sql"}
+                if p.name in {
+                    "011_group_profile_revision.sql",
+                    "012_chat_alerts.sql",
+                    "013_chat_replies.sql",
+                }
                 else read_text(p, **kwargs)
             ),
         )
@@ -189,6 +193,7 @@ def test_space_upgrade_preserves_v3_chat_and_rollback(tmp_path, monkeypatch):
         (8, "010_group_lifecycle.sql"),
         (9, "010_group_lifecycle.sql"),
         (8, "011_group_profile_revision.sql"),
+        (8, "013_chat_replies.sql"),
     ],
 )
 def test_v8_chat_migration_rollback_and_retry_preserve_live_wire_state(

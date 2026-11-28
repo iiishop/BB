@@ -56,6 +56,7 @@ def test_mentions_scope_paging_exact_clear_and_restart(chat):
     }
     historical = post("/messages", owner, **legacy_request)
     with sqlite3.connect(path) as db:
+        db.execute("DROP TABLE chat_replies")
         db.execute("DROP TABLE chat_unread_alerts")
         db.execute("PRAGMA user_version=11")
     with TestClient(create_app(path)) as reopened:

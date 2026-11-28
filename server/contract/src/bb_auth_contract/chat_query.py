@@ -165,7 +165,7 @@ class ContextMetadata(v1.Wire):
     after_has_more: bool
     missing_positions: list[Position] = Field(max_length=100)
     missing_truncated: bool
-    reply_relations: Literal["unsupported"] = "unsupported"
+    reply_relations: Literal["unsupported", "inline"] = "unsupported"
 
     @model_serializer(mode="wrap")
     def omit_unused_target(self, handler):

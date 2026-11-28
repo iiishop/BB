@@ -13,13 +13,15 @@ import '../../services/chat_service.dart';
 import '../../services/group_service.dart';
 import '../../services/install_safety_gate.dart';
 import '../../services/media_source.dart';
+import 'chat_drafts.dart';
 import 'chat_format.dart';
+import 'chat_reply_helpers.dart';
 import 'clipboard_paste.dart';
 import 'media_actions.dart';
-import 'chat_drafts.dart';
 import 'pending_send.dart';
 
-/// Lets the chat page retry one failed item from its bubble.
+/// Lets the chat page retry one failed item from its bubble or coordinate the
+/// active reply quote target.
 ///
 /// The composer still owns the operation plan so a retry reuses the exact same
 /// operation id and cannot double-send.
@@ -37,6 +39,16 @@ class ChatComposerController {
   }
 
   bool get canRetry => _state?._failed.isNotEmpty ?? false;
+
+  ReplyQuote? get replyTarget => _state?._replyTarget;
+
+  void setReplyTarget(ReplyQuote target) {
+    _state?._setReplyTarget(target);
+  }
+
+  void clearReplyTarget() {
+    _state?._clearReplyTarget();
+  }
 
   Future<void> retryFailed(String operationId) async {
     final _ChatComposerState? state = _state;
@@ -63,6 +75,7 @@ class ChatComposer extends StatefulWidget {
     required this.onSent,
     this.onSentOperations,
     this.onPendingChanged,
+    this.onReplyTargetChanged,
     this.controller,
     this.enabled = true,
     this.clipboard = const PlatformClipboardMediaReader(),
@@ -93,6 +106,9 @@ class ChatComposer extends StatefulWidget {
   /// Snapshot of local bubbles that have not settled yet (sending or failed).
   final void Function(List<PendingSend> pending)? onPendingChanged;
 
+  /// Notified when the quoted reply target enters or clears.
+  final ValueChanged<ReplyQuote?>? onReplyTargetChanged;
+
   final ChatComposerController? controller;
   final bool enabled;
   final ClipboardMediaReader clipboard;
@@ -113,6 +129,12 @@ class ChatComposer extends StatefulWidget {
   /// Blocks editing while an update install transaction is admitted.
   static const Key safetyGateKey = Key('chat-composer-safety-gate');
 
+  /// Option A reply quote preview bar above the composer input row.
+  static const Key replyBarKey = Key('chat-composer-reply-bar');
+  static const Key replyAuthorKey = Key('chat-composer-reply-author');
+  static const Key replyPreviewKey = Key('chat-composer-reply-preview');
+  static const Key replyCancelKey = Key('chat-composer-reply-cancel');
+
   @override
   State<ChatComposer> createState() => _ChatComposerState();
 }
@@ -124,6 +146,7 @@ class _ChatComposerState extends State<ChatComposer> {
   final List<ChatDraftAttachment> _attachments = <ChatDraftAttachment>[];
   List<SendOutcome> _failed = <SendOutcome>[];
   final List<PendingSend> _pending = <PendingSend>[];
+  ReplyQuote? _replyTarget;
   bool _pasting = false;
   bool _hadText = false;
   late final Object _draftSession;
@@ -150,11 +173,17 @@ class _ChatComposerState extends State<ChatComposer> {
       _hadText = _controller.text.trim().isNotEmpty;
       _parts.addAll(stored.parts);
       _attachments.addAll(stored.attachments);
+      _replyTarget = stored.replyTarget;
       _pending.addAll(stored.pending);
       _failed.addAll(stored.failed);
       _ownedOperations.addAll(_pending.map((p) => p.operationId));
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _emitPending();
+        if (mounted) {
+          _emitPending();
+          if (_replyTarget != null) {
+            widget.onReplyTargetChanged?.call(_replyTarget);
+          }
+        }
       });
     }
     _controller.addListener(_persistDraft);
@@ -204,6 +233,7 @@ class _ChatComposerState extends State<ChatComposer> {
         parts: stored?.parts ?? List<ChatDraftPart>.of(_parts),
         attachments:
             stored?.attachments ?? List<ChatDraftAttachment>.of(_attachments),
+        replyTarget: mounted ? _replyTarget : stored?.replyTarget,
         pending: [
           if (stored != null)
             ...stored.pending.where(
@@ -220,6 +250,28 @@ class _ChatComposerState extends State<ChatComposer> {
         ],
       ),
     );
+  }
+
+  void _setReplyTarget(ReplyQuote target) {
+    _change(() {
+      _replyTarget = target;
+    });
+    _persistDraft();
+    widget.onReplyTargetChanged?.call(_replyTarget);
+    if (mounted) {
+      _focus.requestFocus();
+    }
+  }
+
+  void _clearReplyTarget() {
+    if (_replyTarget == null) {
+      return;
+    }
+    _change(() {
+      _replyTarget = null;
+    });
+    _persistDraft();
+    widget.onReplyTargetChanged?.call(null);
   }
 
   void _change(VoidCallback action) {
@@ -508,6 +560,13 @@ class _ChatComposerState extends State<ChatComposer> {
           ? KeyEventResult.handled
           : KeyEventResult.ignored;
     }
+    if (key == LogicalKeyboardKey.escape &&
+        event is KeyDownEvent &&
+        !_controller.value.composing.isValid &&
+        _replyTarget != null) {
+      _clearReplyTarget();
+      return KeyEventResult.handled;
+    }
     if (key == LogicalKeyboardKey.keyV &&
         control &&
         !alt &&
@@ -562,10 +621,17 @@ class _ChatComposerState extends State<ChatComposer> {
     final List<ChatDraftAttachment> attachments = List<ChatDraftAttachment>.of(
       _attachments,
     );
+    final ReplyQuote? replyTarget = _replyTarget;
+    final String? replyToMessageId = replyTarget?.messageId;
     final String seed = newOperationId('x');
     final List<PendingSend> pending;
     try {
-      pending = _buildPending(seed, parts, attachments);
+      pending = _buildPending(
+        seed,
+        parts,
+        attachments,
+        replyTarget: replyTarget,
+      );
     } on AuthFailure catch (failure) {
       _snack(failure.message);
       return;
@@ -573,8 +639,10 @@ class _ChatComposerState extends State<ChatComposer> {
     _change(() {
       _parts.clear();
       _attachments.clear();
+      _replyTarget = null;
       _pending.addAll(pending);
     });
+    widget.onReplyTargetChanged?.call(null);
     _ownedOperations.addAll(pending.map((p) => p.operationId));
     // Retain retryable content in the same draft owner until confirmed.
     _persistDraft();
@@ -591,12 +659,14 @@ class _ChatComposerState extends State<ChatComposer> {
               conversation: widget.conversation!,
               body: body,
               attachments: outgoingAttachments,
+              replyToMessageId: replyToMessageId,
               operationSeed: seed,
             )
           : await widget.chat.sendComposed(
               targetAccount: widget.peerAccount,
               body: body,
               attachments: outgoingAttachments,
+              replyToMessageId: replyToMessageId,
               operationSeed: seed,
             );
       _applyResult(result);
@@ -709,6 +779,13 @@ class _ChatComposerState extends State<ChatComposer> {
       return;
     }
     final SendOutcome outcome = _failed[index];
+    String? replyToMessageId;
+    for (final PendingSend pendingItem in _pending) {
+      if (pendingItem.operationId == operationId) {
+        replyToMessageId = pendingItem.message.replyTo?.messageId;
+        break;
+      }
+    }
     _change(() {
       _failed = List<SendOutcome>.of(_failed)..removeAt(index);
       _setPendingState(operationId, SendFeedbackState.sending);
@@ -722,12 +799,14 @@ class _ChatComposerState extends State<ChatComposer> {
                 conversation: widget.conversation!,
                 content: outcome.part!,
                 mentionedAccounts: outcome.mentionedAccounts,
+                replyToMessageId: replyToMessageId,
                 operationId: operationId,
               )
             : await widget.chat.sendBody(
                 targetAccount: widget.peerAccount,
                 content: outcome.part!,
                 mentionedAccounts: outcome.mentionedAccounts,
+                replyToMessageId: replyToMessageId,
                 operationId: operationId,
               );
       } else if (outcome.attachment != null) {
@@ -735,11 +814,13 @@ class _ChatComposerState extends State<ChatComposer> {
             ? await widget.shared!.sendGroupAttachmentOutcome(
                 conversation: widget.conversation!,
                 attachment: outcome.attachment!,
+                replyToMessageId: replyToMessageId,
                 operationId: operationId,
               )
             : await widget.chat.sendAttachment(
                 targetAccount: widget.peerAccount,
                 attachment: outcome.attachment!,
+                replyToMessageId: replyToMessageId,
                 operationId: operationId,
               );
       }
@@ -870,8 +951,9 @@ class _ChatComposerState extends State<ChatComposer> {
   List<PendingSend> _buildPending(
     String seed,
     List<ChatDraftPart> parts,
-    List<ChatDraftAttachment> attachments,
-  ) {
+    List<ChatDraftAttachment> attachments, {
+    ReplyQuote? replyTarget,
+  }) {
     final String self = widget.chat.selfAccount;
     final DateTime now = DateTime.now().toUtc();
     final List<PendingSend> pending = <PendingSend>[];
@@ -905,6 +987,7 @@ class _ChatComposerState extends State<ChatComposer> {
             createdAt: now,
             kind: ChatMessageKind.body,
             parts: bodyParts,
+            replyTo: replyTarget,
           ),
           state: SendFeedbackState.sending,
           imageBytes: imageBytes,
@@ -931,6 +1014,7 @@ class _ChatComposerState extends State<ChatComposer> {
             conversation: widget.conversation,
             createdAt: now,
             kind: ChatMessageKind.attachment,
+            replyTo: bodyParts.isEmpty && index == 0 ? replyTarget : null,
             attachment: Attachment(
               mediaId: mediaId,
               kind: draft.kind,
@@ -999,6 +1083,10 @@ class _ChatComposerState extends State<ChatComposer> {
         _parts.isNotEmpty ||
         _attachments.isNotEmpty;
     final bool hasStaged = _parts.isNotEmpty || _attachments.isNotEmpty;
+    final ReplyQuote? replyTarget = _replyTarget;
+    final String? replyAuthor = replyTarget == null
+        ? null
+        : replyQuoteAuthorLabel(replyTarget, widget.chat.selfAccount);
     return IgnorePointer(
       key: ChatComposer.safetyGateKey,
       ignoring: InstallSafetyGate.instance.installing,
@@ -1019,6 +1107,12 @@ class _ChatComposerState extends State<ChatComposer> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
+                if (replyTarget != null)
+                  _ReplyComposerBar(
+                    quote: replyTarget,
+                    author: replyAuthor!,
+                    onCancel: _clearReplyTarget,
+                  ),
                 if (hasStaged) _draftStrip(),
                 if (_failed.isNotEmpty)
                   TextButton(
@@ -1066,9 +1160,11 @@ class _ChatComposerState extends State<ChatComposer> {
                           // The pill is the field's own outline; the theme's
                           // focus border must not draw a second one inside it.
                           decoration: InputDecoration(
-                            hintText: _usesSendShortcut
-                                ? '输入消息… Enter 发送'
-                                : '输入消息…',
+                            hintText: replyAuthor != null
+                                ? '回复 $replyAuthor…'
+                                : (_usesSendShortcut
+                                      ? '输入消息… Enter 发送'
+                                      : '输入消息…'),
                             isDense: true,
                             border: InputBorder.none,
                             enabledBorder: InputBorder.none,
@@ -1324,5 +1420,123 @@ class _CircleButton extends StatelessWidget {
       return button;
     }
     return Tooltip(message: tooltip!, child: button);
+  }
+}
+
+/// DEA-520 v1 Option A quote bar spanning across the top of the composer row.
+class _ReplyComposerBar extends StatelessWidget {
+  const _ReplyComposerBar({
+    required this.quote,
+    required this.author,
+    required this.onCancel,
+  });
+
+  final ReplyQuote quote;
+  final String author;
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    final String preview = quote.preview.isEmpty ? '[消息]' : quote.preview;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+      child: ClipRRect(
+        key: ChatComposer.replyBarKey,
+        borderRadius: BorderRadius.circular(11),
+        child: Container(
+          width: double.infinity,
+          decoration: BoxDecoration(
+            color: AppColors.warningSurface,
+            borderRadius: BorderRadius.circular(11),
+            border: Border.all(color: AppColors.warningBorder),
+          ),
+          child: IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                Container(width: 3, color: const Color(0xFFB98A2E)),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(9, 6, 4, 6),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        Text(
+                          '回复 $author',
+                          key: ChatComposer.replyAuthorKey,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            height: 1.35,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF7A5100),
+                          ),
+                        ),
+                        const SizedBox(height: 1),
+                        Text(
+                          preview,
+                          key: ChatComposer.replyPreviewKey,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 11.5,
+                            height: 1.35,
+                            color: AppColors.inkMuted,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                Center(
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: Tooltip(
+                      message: '取消引用',
+                      child: Semantics(
+                        button: true,
+                        label: '取消引用',
+                        child: Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            key: ChatComposer.replyCancelKey,
+                            onTap: onCancel,
+                            customBorder: const CircleBorder(),
+                            child: SizedBox(
+                              width: 30,
+                              height: 30,
+                              child: Center(
+                                child: Container(
+                                  width: 24,
+                                  height: 24,
+                                  decoration: BoxDecoration(
+                                    color: AppColors.surface,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: AppColors.warningBorder,
+                                    ),
+                                  ),
+                                  child: const Icon(
+                                    Icons.close_rounded,
+                                    size: 14,
+                                    color: AppColors.warning,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }

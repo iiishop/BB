@@ -30,6 +30,7 @@ class _RetryApi extends ChatApiClient {
     required String targetAccount,
     required String clientNonce,
     required List<MessagePart> content,
+    String? replyToMessageId,
   }) async {
     attempts += 1;
     nonces.add(clientNonce);

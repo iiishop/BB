@@ -49,6 +49,7 @@ from bb_server import (
     chat_alerts,
     chat_media_gc,
     chat_mentions,
+    chat_replies,
     groups,
     space,
     space_media,
@@ -428,7 +429,9 @@ def create_app(
         current_session,
         clock,
     )
-    chat_alerts.install(app, path, current_session, no_query, chat_mentions.ROUTES)
+    chat_alerts.install(
+        app, path, current_session, no_query, chat_mentions.ROUTES | chat_replies.ROUTES
+    )
     space.install(app, path, media_root / "space", current_session, clock)
     groups.install(
         app,

@@ -5,7 +5,9 @@ import sys
 import threading
 from datetime import timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
+from bb_auth_contract import chat_v2 as v2
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
@@ -59,7 +61,9 @@ async def test_stdio_eight_tools_and_stateless_http(tmp_path):
         ):
             await session.initialize()
             tools = await session.list_tools()
-            assert {tool.name for tool in tools.tools} == set(TOOL_MODELS) | set(SPACE_TOOLS) | {
+            assert {tool.name for tool in tools.tools} == set(TOOL_MODELS) | set(
+                SPACE_TOOLS
+            ) | {
                 "register_account",
                 "login_account",
                 "view_avatar",
@@ -69,7 +73,10 @@ async def test_stdio_eight_tools_and_stateless_http(tmp_path):
                 "view_signature",
                 "update_signature",
             }
-            assert len([tool for tool in tools.tools if tool.name.startswith("space_")]) == 28
+            assert (
+                len([tool for tool in tools.tools if tool.name.startswith("space_")])
+                == 28
+            )
             rejected = await session.call_tool("space_read_events", {})
             assert rejected.isError and rejected.structuredContent["status"] == 404
             assert rejected.structuredContent["error"]["code"] == "unknown_tool"
@@ -118,3 +125,85 @@ async def test_stdio_eight_tools_and_stateless_http(tmp_path):
         http.server_close()
         worker.join(timeout=5)
         assert not worker.is_alive()
+
+
+async def test_quoted_reply_tools_use_guarded_stdio_without_read_acknowledgement(
+    tmp_path,
+):
+    names = ("list_unread_replies", "list_direct_replies", "send_reply")
+    fixtures = json.loads(
+        (Path(__file__).parents[2] / "server/contract/chat-v2-cases.json").read_text()
+    )
+    identity = fixtures["inputs"]["send_reply"]["expected_identity"]
+    owner = fixtures["owner_header"]["value"]
+    operations = {v2.BUSINESS[name][0]: (name, v2.BUSINESS[name]) for name in names}
+    calls = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *_):
+            pass
+
+        def do_POST(self):
+            name, (_, request, response, status, _) = operations[self.path]
+            assert self.headers[v2.OWNER_HEADER] == owner
+            assert "Authorization" not in self.headers
+            payload = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            parsed = request.model_validate(payload).model_dump(exclude_none=True)
+            expected = request.model_validate(fixtures["inputs"][name])
+            assert parsed == expected.model_dump(exclude_none=True)
+            calls.append(name)
+            body = response.model_validate(fixtures["outputs"][name]).model_dump()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(body).encode())
+
+    binding = tmp_path / "binding.json"
+    binding.touch(mode=0o600)
+    binding.write_text(json.dumps({"owner_key": owner, "identity": identity}))
+    with ThreadingHTTPServer(("127.0.0.1", 0), Handler) as http:
+        worker = threading.Thread(target=http.serve_forever)
+        worker.start()
+        try:
+            parameters = StdioServerParameters(
+                command=sys.executable,
+                args=["-m", "bb_dsh_plugin"],
+                cwd=str(tmp_path),
+                env={
+                    "BB_CLIENT_BASE_URL": f"http://127.0.0.1:{http.server_port}",
+                    "BB_CONSUMER_STATE_FILE": str(binding),
+                },
+            )
+            async with (
+                stdio_client(parameters) as (reader, writer),
+                ClientSession(
+                    reader, writer, read_timeout_seconds=timedelta(seconds=10)
+                ) as session,
+            ):
+                await session.initialize()
+                tools = {tool.name: tool for tool in (await session.list_tools()).tools}
+                for name in names:
+                    arguments = dict(fixtures["inputs"][name])
+                    arguments.pop("expected_identity")
+                    assert (
+                        "expected_identity" not in tools[name].inputSchema["properties"]
+                    )
+                    result = await session.call_tool(name, arguments)
+                    assert not result.isError
+                    assert (
+                        result.structuredContent == fixtures["outputs"][name]["result"]
+                    )
+                    assert owner not in result.model_dump_json()
+                invalid = await session.call_tool(
+                    "list_unread_replies",
+                    {
+                        "conversation_id": "dm:10000001:10000002",
+                        "account": identity["account"],
+                    },
+                )
+                assert invalid.isError and invalid.structuredContent["status"] == 422
+            assert calls == list(names)
+        finally:
+            http.shutdown()
+            worker.join(timeout=5)
+            assert not worker.is_alive()

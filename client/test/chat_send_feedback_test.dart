@@ -89,6 +89,7 @@ class _CommitThenFailService extends FakeChatService {
     required List<OutgoingAttachment> attachments,
     List<String> mentionedAccounts = const <String>[],
     String? operationSeed,
+    String? replyToMessageId,
   }) async {
     committed = await super.sendComposed(
       targetAccount: targetAccount,
@@ -96,6 +97,7 @@ class _CommitThenFailService extends FakeChatService {
       attachments: attachments,
       mentionedAccounts: mentionedAccounts,
       operationSeed: operationSeed,
+      replyToMessageId: replyToMessageId,
     );
     throw const AuthFailure(
       status: 502,
@@ -137,6 +139,7 @@ class _CommitThenFailService extends FakeChatService {
     List<String> mentionedAccounts = const <String>[],
     String? operationId,
     ExpectedIdentity? expectedIdentity,
+    String? replyToMessageId,
   }) async {
     final ChatMessage? message = committed?.body?.message;
     if (retryReturnsCommitted && message != null) {
@@ -153,6 +156,7 @@ class _CommitThenFailService extends FakeChatService {
       mentionedAccounts: mentionedAccounts,
       operationId: operationId,
       expectedIdentity: expectedIdentity,
+      replyToMessageId: replyToMessageId,
     );
   }
 }
@@ -255,6 +259,7 @@ class _TwoLookupService extends FakeChatService {
     required List<OutgoingAttachment> attachments,
     List<String> mentionedAccounts = const <String>[],
     String? operationSeed,
+    String? replyToMessageId,
   }) async {
     throw const AuthFailure(
       status: 502,
@@ -270,6 +275,7 @@ class _TwoLookupService extends FakeChatService {
     List<String> mentionedAccounts = const <String>[],
     String? operationId,
     ExpectedIdentity? expectedIdentity,
+    String? replyToMessageId,
   }) async {
     throw const AuthFailure(
       status: 502,
@@ -330,6 +336,7 @@ class _PendingThenCommittedService extends FakeChatService {
     required List<OutgoingAttachment> attachments,
     List<String> mentionedAccounts = const <String>[],
     String? operationSeed,
+    String? replyToMessageId,
   }) async {
     seed = operationSeed;
     this.body = body;

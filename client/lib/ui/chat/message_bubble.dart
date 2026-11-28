@@ -1,7 +1,11 @@
+import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../app.dart';
 import '../../models/chat_models.dart';
@@ -9,6 +13,7 @@ import '../../services/chat_service.dart';
 import '../widgets/profile_avatar.dart';
 import 'chat_avatars.dart';
 import 'chat_format.dart';
+import 'chat_reply_helpers.dart';
 import 'pending_send.dart';
 
 /// Plays the entrance for a genuinely new message.
@@ -84,6 +89,9 @@ class _MessageEntranceState extends State<MessageEntrance>
   }
 }
 
+/// Visual distinction for scroll-jump target pulses in [MessageBubble].
+enum MessageHighlightKind { quote, alert }
+
 /// One incoming/outgoing chat bubble with ordered text/image content or an
 /// independent attachment card.
 class MessageBubble extends StatelessWidget {
@@ -99,6 +107,10 @@ class MessageBubble extends StatelessWidget {
     this.onPlay,
     this.onOpenMedia,
     this.onAvatarTap,
+    this.onReply,
+    this.onTapQuote,
+    this.highlightKind,
+    this.composingReplyTarget = false,
     this.localMediaPreview,
     this.busy = false,
     this.sendState,
@@ -121,6 +133,20 @@ class MessageBubble extends StatelessWidget {
   final VoidCallback? onSaveAs;
   final VoidCallback? onDownload;
   final VoidCallback? onPlay;
+
+  /// Enters reply composition targeting this message (right-click, long-press,
+  /// or mobile left-swipe).
+  final VoidCallback? onReply;
+
+  /// Invoked when the user taps the quoted original block (`replyTo`) inside
+  /// this bubble. Receives the original message id.
+  final ValueChanged<String>? onTapQuote;
+
+  /// Temporary visual pulse after jumping to a quoted original vs unread alert.
+  final MessageHighlightKind? highlightKind;
+
+  /// True while the composer below is currently drafting a reply to this bubble.
+  final bool composingReplyTarget;
 
   /// Opens the full-screen viewer at this media slot; null disables the tap.
   final void Function(ChatMessage message, int? partIndex)? onOpenMedia;
@@ -166,9 +192,18 @@ class MessageBubble extends StatelessWidget {
   static const Key sendingKey = Key('chat-bubble-sending');
   static const Key failedKey = Key('chat-bubble-failed');
   static const Key tailKey = Key('chat-bubble-tail');
+  static const Key copyActionKey = Key('chat-message-action-copy');
+  static const Key replyActionKey = Key('chat-message-action-reply');
+  static const Key sheetCancelKey = Key('chat-message-sheet-cancel');
 
   static Key avatarKeyFor(String messageIdentity) =>
       ValueKey<String>('chat-message-avatar-$messageIdentity');
+  static Key quoteKeyFor(String messageIdentity) =>
+      ValueKey<String>('chat-bubble-quote-$messageIdentity');
+  static Key highlightKeyFor(String messageIdentity) =>
+      ValueKey<String>('chat-bubble-highlight-$messageIdentity');
+  static Key swipeAffordanceKeyFor(String messageIdentity) =>
+      ValueKey<String>('chat-bubble-swipe-$messageIdentity');
 
   bool get mine => message.senderAccount == selfAccount;
 
@@ -214,6 +249,40 @@ class MessageBubble extends StatelessWidget {
       340,
       MediaQuery.sizeOf(context).width * 0.74,
     );
+    final Border? bubbleBorder = failed
+        ? Border.all(
+            color: unconfirmed
+                ? AppColors.warningBorder
+                : AppColors.dangerBorder,
+          )
+        : highlightKind == MessageHighlightKind.quote
+        ? Border.all(color: const Color(0xFFB98A2E), width: 2)
+        : highlightKind == MessageHighlightKind.alert
+        ? Border.all(color: AppColors.accent, width: 2)
+        : composingReplyTarget
+        ? Border.all(
+            color: const Color(0xFF8A5B00).withValues(alpha: 0.5),
+            width: 1.5,
+          )
+        : null;
+    final List<BoxShadow>? highlightShadow =
+        highlightKind == MessageHighlightKind.quote
+        ? <BoxShadow>[
+            BoxShadow(
+              color: const Color(0xFFB98A2E).withValues(alpha: 0.28),
+              blurRadius: 10,
+              spreadRadius: 1,
+            ),
+          ]
+        : highlightKind == MessageHighlightKind.alert
+        ? <BoxShadow>[
+            BoxShadow(
+              color: AppColors.accent.withValues(alpha: 0.24),
+              blurRadius: 10,
+              spreadRadius: 1,
+            ),
+          ]
+        : null;
 
     final Widget bubble = ConstrainedBox(
       constraints: BoxConstraints(maxWidth: maxWidth),
@@ -224,13 +293,8 @@ class MessageBubble extends StatelessWidget {
           decoration: BoxDecoration(
             color: fill,
             borderRadius: BorderRadius.circular(18),
-            border: failed
-                ? Border.all(
-                    color: unconfirmed
-                        ? AppColors.warningBorder
-                        : AppColors.dangerBorder,
-                  )
-                : null,
+            border: bubbleBorder,
+            boxShadow: highlightShadow,
           ),
           child: Material(
             type: MaterialType.transparency,
@@ -238,6 +302,16 @@ class MessageBubble extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
+                if (message.replyTo != null)
+                  _BubbleReplyQuote(
+                    quoteKey: MessageBubble.quoteKeyFor(message.identity),
+                    quote: message.replyTo!,
+                    mine: mine,
+                    selfAccount: selfAccount,
+                    onTap: interactive && onTapQuote != null
+                        ? () => onTapQuote!(message.replyTo!.messageId)
+                        : null,
+                  ),
                 if (message.kind == ChatMessageKind.attachment)
                   _AttachmentCard(
                     message: message,
@@ -296,22 +370,33 @@ class MessageBubble extends StatelessWidget {
       ],
     );
 
-    final Widget tailedBubble = GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: failed ? onRetry : null,
-      onSecondaryTapDown: (TapDownDetails details) =>
-          _showMenu(context, details.globalPosition),
-      onLongPressStart: (LongPressStartDetails details) =>
-          _showMenu(context, details.globalPosition),
-      child: Semantics(
-        button: failed,
-        label: failed
+    final Widget tailedBubble = KeyedSubtree(
+      key: highlightKind != null
+          ? MessageBubble.highlightKeyFor(message.identity)
+          : null,
+      child: _BubbleActionSurface(
+        message: message,
+        selfAccount: selfAccount,
+        authorLabel: mine ? '我' : _resolvedSenderLabel(),
+        interactive: interactive,
+        onTap: failed ? onRetry : null,
+        onReply: interactive ? onReply : null,
+        onDownload: interactive ? onDownload : null,
+        onPlay:
+            interactive &&
+                onPlay != null &&
+                message.isAttachmentKind(AttachmentKind.video)
+            ? onPlay
+            : null,
+        onSaveAs: interactive ? onSaveAs : null,
+        semanticsLabel: failed
             ? unconfirmed
                   ? '消息状态待确认，点按重试'
                   : '消息未发送，点按重试'
             : sending
             ? '消息发送中'
             : null,
+        semanticsButton: failed,
         child: tailed,
       ),
     );
@@ -371,7 +456,21 @@ class MessageBubble extends StatelessWidget {
   }) {
     final double maxWidth =
         mediaMaxWidth ?? math.min(MediaQuery.sizeOf(context).width * 0.66, 420);
-    final List<Widget> blocks = <Widget>[];
+    final List<Widget> blocks = <Widget>[
+      if (message.replyTo != null)
+        ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: maxWidth),
+          child: _BubbleReplyQuote(
+            quoteKey: MessageBubble.quoteKeyFor(message.identity),
+            quote: message.replyTo!,
+            mine: mine,
+            selfAccount: selfAccount,
+            onTap: interactive && onTapQuote != null
+                ? () => onTapQuote!(message.replyTo!.messageId)
+                : null,
+          ),
+        ),
+    ];
     for (int index = 0; index < message.parts.length; index += 1) {
       final MessagePart part = message.parts[index];
       if (part is! ImagePart) {
@@ -404,6 +503,68 @@ class MessageBubble extends StatelessWidget {
         ),
       );
     }
+    final Widget photoColumn = Column(
+      crossAxisAlignment: mine
+          ? CrossAxisAlignment.end
+          : CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        if (!mine && showAvatar && showSenderName)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: Text(
+              _resolvedSenderLabel(),
+              style: const TextStyle(
+                fontSize: 11.5,
+                color: AppColors.inkMuted,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        KeyedSubtree(
+          key: highlightKind != null
+              ? MessageBubble.highlightKeyFor(message.identity)
+              : null,
+          child: _BubbleActionSurface(
+            message: message,
+            selfAccount: selfAccount,
+            authorLabel: mine ? '我' : _resolvedSenderLabel(),
+            interactive: interactive,
+            onReply: interactive ? onReply : null,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(14),
+                border: highlightKind == MessageHighlightKind.quote
+                    ? Border.all(color: const Color(0xFFB98A2E), width: 2)
+                    : highlightKind == MessageHighlightKind.alert
+                    ? Border.all(color: AppColors.accent, width: 2)
+                    : null,
+              ),
+              child: Column(
+                crossAxisAlignment: mine
+                    ? CrossAxisAlignment.end
+                    : CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: blocks,
+              ),
+            ),
+          ),
+        ),
+        if (sending || failed)
+          _StatusSlot(
+            message: message,
+            mine: mine,
+            sending: sending,
+            failed: failed,
+            unconfirmed: unconfirmed,
+            mutedColor: unconfirmed
+                ? AppColors.warning
+                : failed
+                ? AppColors.danger
+                : AppColors.inkMuted,
+          ),
+      ],
+    );
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisAlignment: mine ? MainAxisAlignment.end : MainAxisAlignment.start,
@@ -412,42 +573,7 @@ class MessageBubble extends StatelessWidget {
           _avatarSlot(false),
           const SizedBox(width: AppSpacing.sm),
         ],
-        Flexible(
-          child: Column(
-            crossAxisAlignment: mine
-                ? CrossAxisAlignment.end
-                : CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              if (!mine && showAvatar && showSenderName)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: Text(
-                    _resolvedSenderLabel(),
-                    style: const TextStyle(
-                      fontSize: 11.5,
-                      color: AppColors.inkMuted,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ...blocks,
-              if (sending || failed)
-                _StatusSlot(
-                  message: message,
-                  mine: mine,
-                  sending: sending,
-                  failed: failed,
-                  unconfirmed: unconfirmed,
-                  mutedColor: unconfirmed
-                      ? AppColors.warning
-                      : failed
-                      ? AppColors.danger
-                      : AppColors.inkMuted,
-                ),
-            ],
-          ),
-        ),
+        Flexible(child: photoColumn),
       ],
     );
   }
@@ -467,11 +593,19 @@ class MessageBubble extends StatelessWidget {
     );
   }
 
+  bool _useMobileSheet(BuildContext context) {
+    final bool compactViewport = MediaQuery.sizeOf(context).width < 600;
+    final bool touchPlatform =
+        !kIsWeb && (Platform.isAndroid || Platform.isIOS);
+    return compactViewport || touchPlatform;
+  }
+
   List<Widget> _bodyContent(
     BuildContext context,
     Color textColor,
     bool interactive,
   ) {
+    final bool allowTextSelection = interactive && !_useMobileSheet(context);
     final List<Widget> children = <Widget>[];
     for (int index = 0; index < message.parts.length; index += 1) {
       final MessagePart part = message.parts[index];
@@ -479,15 +613,21 @@ class MessageBubble extends StatelessWidget {
         children.add(
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 2),
-            child: SelectableText(
-              part.text,
-              // Both sides use dark ink at regular weight; the bubble fill, not
-              // the type, tells the sender apart.
-              style: TextStyle(
-                fontSize: 15.5,
-                height: 1.45,
-                fontWeight: FontWeight.w400,
-                color: textColor,
+            child: IgnorePointer(
+              ignoring: !allowTextSelection,
+              child: SelectableText(
+                part.text,
+                enableInteractiveSelection: allowTextSelection,
+                contextMenuBuilder: (BuildContext _, EditableTextState _) =>
+                    const SizedBox.shrink(),
+                // Both sides use dark ink at regular weight; the bubble fill, not
+                // the type, tells the sender apart.
+                style: TextStyle(
+                  fontSize: 15.5,
+                  height: 1.45,
+                  fontWeight: FontWeight.w400,
+                  color: textColor,
+                ),
               ),
             ),
           ),
@@ -520,14 +660,268 @@ class MessageBubble extends StatelessWidget {
     }
     return children;
   }
+}
 
-  void _showMenu(BuildContext context, Offset position) {
-    final bool hasAttachment = message.kind == ChatMessageKind.attachment;
-    if (!hasAttachment && onSaveAs == null) {
+/// Clickable original-message quote snippet rendered at the top of a reply
+/// bubble.
+class _BubbleReplyQuote extends StatelessWidget {
+  const _BubbleReplyQuote({
+    required this.quoteKey,
+    required this.quote,
+    required this.mine,
+    required this.selfAccount,
+    this.onTap,
+  });
+
+  final Key quoteKey;
+  final ReplyQuote quote;
+  final bool mine;
+  final String selfAccount;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final String author = replyQuoteAuthorLabel(quote, selfAccount);
+    final String preview = quote.preview.isEmpty ? '[消息]' : quote.preview;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 5),
+      child: Semantics(
+        button: onTap != null,
+        label: '跳转到原消息：$author，$preview',
+        child: Material(
+          color: Colors.white.withValues(alpha: mine ? 0.42 : 0.48),
+          borderRadius: BorderRadius.circular(6),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            key: quoteKey,
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(6),
+            child: IntrinsicHeight(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  ColoredBox(
+                    color: mine
+                        ? const Color(0xFFB9C9B0)
+                        : const Color(0xFFD6C39D),
+                    child: const SizedBox(width: 2.5),
+                  ),
+                  Flexible(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 7,
+                        vertical: 4,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          Text(
+                            author,
+                            style: const TextStyle(
+                              fontSize: 11.5,
+                              height: 1.35,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.accentDeep,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              preview,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 11.5,
+                                height: 1.35,
+                                color: AppColors.inkMuted,
+                              ),
+                            ),
+                          ),
+                          if (onTap != null) ...<Widget>[
+                            const SizedBox(width: 4),
+                            const Icon(
+                              Icons.north_east_rounded,
+                              size: 12,
+                              color: Color(0xFF8A6A34),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Interactive wrapper for a chat bubble supporting desktop right-click menu
+/// (with Esc focus restoration), mobile bottom action sheet on long-press,
+/// and horizontal left-swipe to reply.
+class _BubbleActionSurface extends StatefulWidget {
+  const _BubbleActionSurface({
+    required this.message,
+    required this.selfAccount,
+    required this.authorLabel,
+    required this.interactive,
+    required this.child,
+    this.onTap,
+    this.onReply,
+    this.onDownload,
+    this.onPlay,
+    this.onSaveAs,
+    this.semanticsLabel,
+    this.semanticsButton = false,
+  });
+
+  final ChatMessage message;
+  final String selfAccount;
+  final String authorLabel;
+  final bool interactive;
+  final Widget child;
+  final VoidCallback? onTap;
+  final VoidCallback? onReply;
+  final VoidCallback? onDownload;
+  final VoidCallback? onPlay;
+  final VoidCallback? onSaveAs;
+  final String? semanticsLabel;
+  final bool semanticsButton;
+
+  @override
+  State<_BubbleActionSurface> createState() => _BubbleActionSurfaceState();
+}
+
+class _BubbleActionSurfaceState extends State<_BubbleActionSurface>
+    with SingleTickerProviderStateMixin {
+  static const double _swipeCommitThreshold = 56.0;
+  static const double _swipeVisualCap = 40.0;
+
+  late final FocusNode _focusNode = FocusNode(
+    debugLabel: 'chat-bubble-${widget.message.identity}',
+  );
+  late final AnimationController _springController = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 160),
+  );
+
+  double _swipeDx = 0;
+  double _springStartOffset = 0;
+  bool _swiping = false;
+  int? _secondaryPointer;
+  Offset? _secondaryDownPosition;
+
+  @override
+  void initState() {
+    super.initState();
+    _springController.addListener(_onSpringTick);
+  }
+
+  @override
+  void dispose() {
+    _springController
+      ..removeListener(_onSpringTick)
+      ..dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  void _onSpringTick() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      final double t = Curves.easeOutCubic.transform(_springController.value);
+      _swipeDx = _springStartOffset * (1 - t);
+    });
+  }
+
+  void _resetSwipe({required bool animate}) {
+    final bool reducedMotion =
+        MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    if (!animate || reducedMotion || _swipeDx == 0) {
+      _springController.stop();
+      setState(() {
+        _swipeDx = 0;
+        _swiping = false;
+      });
+      return;
+    }
+    _springStartOffset = _swipeDx;
+    _swiping = false;
+    _springController
+      ..value = 0
+      ..forward();
+  }
+
+  bool _useMobileSheet(BuildContext context) {
+    final bool compactViewport = MediaQuery.sizeOf(context).width < 600;
+    final bool touchPlatform =
+        !kIsWeb && (Platform.isAndroid || Platform.isIOS);
+    return compactViewport || touchPlatform;
+  }
+
+  String? get _copyText => copyableMessageBodyText(widget.message);
+
+  bool get _hasAnyMenuAction =>
+      widget.onReply != null ||
+      _copyText != null ||
+      widget.onDownload != null ||
+      widget.onPlay != null ||
+      widget.onSaveAs != null;
+
+  Future<void> _copyWholeText() async {
+    final String? text = _copyText;
+    if (text == null) {
+      return;
+    }
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      SnackBar(
+        content: Text('已复制整条 · ${text.length} 字'),
+        duration: const Duration(milliseconds: 1800),
+      ),
+    );
+  }
+
+  void _handleAction(String? value, {required bool returnFocusOnDismiss}) {
+    if (!mounted) {
+      return;
+    }
+    if (value == null) {
+      if (returnFocusOnDismiss) {
+        _focusNode.requestFocus();
+      }
+      return;
+    }
+    switch (value) {
+      case 'reply':
+        widget.onReply?.call();
+      case 'copy':
+        unawaited(_copyWholeText());
+      case 'download':
+        widget.onDownload?.call();
+      case 'play':
+        widget.onPlay?.call();
+      case 'save':
+        widget.onSaveAs?.call();
+    }
+  }
+
+  void _showDesktopMenu(BuildContext context, Offset position) {
+    if (!_hasAnyMenuAction) {
       return;
     }
     final RenderBox overlay =
         Overlay.of(context).context.findRenderObject()! as RenderBox;
+    final String? copyText = _copyText;
     showMenu<String>(
       context: context,
       position: RelativeRect.fromRect(
@@ -535,26 +929,348 @@ class MessageBubble extends StatelessWidget {
         Offset.zero & overlay.size,
       ),
       items: <PopupMenuEntry<String>>[
-        if (onDownload != null)
+        if (widget.onReply != null)
+          PopupMenuItem<String>(
+            key: MessageBubble.replyActionKey,
+            value: 'reply',
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: const <Widget>[
+                Icon(
+                  Icons.reply_rounded,
+                  size: 18,
+                  color: AppColors.accentDeep,
+                ),
+                SizedBox(width: 8),
+                Text('回复'),
+              ],
+            ),
+          ),
+        if (copyText != null)
+          PopupMenuItem<String>(
+            key: MessageBubble.copyActionKey,
+            value: 'copy',
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: const <Widget>[
+                Icon(Icons.copy_rounded, size: 17, color: AppColors.inkMuted),
+                SizedBox(width: 8),
+                Text('复制整条'),
+              ],
+            ),
+          ),
+        if (widget.onDownload != null)
           const PopupMenuItem<String>(value: 'download', child: Text('下载')),
-        if (onPlay != null && message.isAttachmentKind(AttachmentKind.video))
+        if (widget.onPlay != null)
           const PopupMenuItem<String>(value: 'play', child: Text('播放')),
-        if (onSaveAs != null)
+        if (widget.onSaveAs != null)
           const PopupMenuItem<String>(value: 'save', child: Text('另存为')),
       ],
-    ).then((String? value) {
-      if (!context.mounted) {
-        return;
-      }
-      switch (value) {
-        case 'download':
-          onDownload?.call();
-        case 'play':
-          onPlay?.call();
-        case 'save':
-          onSaveAs?.call();
-      }
-    });
+    ).then((String? value) => _handleAction(value, returnFocusOnDismiss: true));
+  }
+
+  Future<void> _showMobileSheet(BuildContext context) async {
+    if (!_hasAnyMenuAction) {
+      return;
+    }
+    final String? copyText = _copyText;
+    final String preview = messageQuotePreview(widget.message);
+    final String? action = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (BuildContext sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Center(
+                child: Container(
+                  width: 38,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 10),
+                  decoration: BoxDecoration(
+                    color: AppColors.border,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+              ),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: AppColors.navShelf,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.navShelfBorder),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        widget.authorLabel,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.accentDeep,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          preview,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            height: 1.4,
+                            color: AppColors.inkMuted,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              if (widget.onReply != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Material(
+                    color: AppColors.accentSoft,
+                    borderRadius: BorderRadius.circular(12),
+                    child: InkWell(
+                      key: MessageBubble.replyActionKey,
+                      borderRadius: BorderRadius.circular(12),
+                      onTap: () => Navigator.of(sheetContext).pop('reply'),
+                      child: const SizedBox(
+                        height: 46,
+                        child: Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 12),
+                          child: Row(
+                            children: <Widget>[
+                              Icon(
+                                Icons.reply_rounded,
+                                size: 18,
+                                color: AppColors.accentDeep,
+                              ),
+                              SizedBox(width: 10),
+                              Text(
+                                '回复',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.accentDeep,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              if (copyText != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Material(
+                    color: AppColors.navShelf,
+                    borderRadius: BorderRadius.circular(12),
+                    child: InkWell(
+                      key: MessageBubble.copyActionKey,
+                      borderRadius: BorderRadius.circular(12),
+                      onTap: () => Navigator.of(sheetContext).pop('copy'),
+                      child: const SizedBox(
+                        height: 46,
+                        child: Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 12),
+                          child: Row(
+                            children: <Widget>[
+                              Icon(
+                                Icons.copy_rounded,
+                                size: 18,
+                                color: AppColors.inkMuted,
+                              ),
+                              SizedBox(width: 10),
+                              Text(
+                                '复制整条',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.ink,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              if (widget.onDownload != null)
+                ListTile(
+                  dense: true,
+                  leading: const Icon(Icons.download_rounded),
+                  title: const Text('下载'),
+                  onTap: () => Navigator.of(sheetContext).pop('download'),
+                ),
+              if (widget.onPlay != null)
+                ListTile(
+                  dense: true,
+                  leading: const Icon(Icons.play_arrow_rounded),
+                  title: const Text('播放'),
+                  onTap: () => Navigator.of(sheetContext).pop('play'),
+                ),
+              if (widget.onSaveAs != null)
+                ListTile(
+                  dense: true,
+                  leading: const Icon(Icons.save_alt_rounded),
+                  title: const Text('另存为'),
+                  onTap: () => Navigator.of(sheetContext).pop('save'),
+                ),
+              const SizedBox(height: 2),
+              OutlinedButton(
+                key: MessageBubble.sheetCancelKey,
+                onPressed: () => Navigator.of(sheetContext).pop(),
+                child: const Text('取消'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    _handleAction(action, returnFocusOnDismiss: false);
+  }
+
+  void _onLongPressStart(BuildContext context, LongPressStartDetails details) {
+    if (_useMobileSheet(context)) {
+      unawaited(_showMobileSheet(context));
+    } else {
+      _showDesktopMenu(context, details.globalPosition);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final double visualOffset = _swipeDx < 0
+        ? math.max(-_swipeVisualCap, _swipeDx * 0.58)
+        : 0;
+    final bool showSwipeIcon = _swiping && _swipeDx <= -12;
+    return Focus(
+      focusNode: _focusNode,
+      child: Listener(
+        behavior: HitTestBehavior.translucent,
+        onPointerDown: (PointerDownEvent event) {
+          if ((event.buttons & kSecondaryMouseButton) != 0) {
+            _secondaryPointer = event.pointer;
+            _secondaryDownPosition = event.position;
+          }
+        },
+        onPointerUp: (PointerUpEvent event) {
+          if (_secondaryPointer == event.pointer) {
+            final Offset? downPos = _secondaryDownPosition;
+            _secondaryPointer = null;
+            _secondaryDownPosition = null;
+            if (downPos != null &&
+                (event.position - downPos).distance <= 18.0) {
+              _showDesktopMenu(context, event.position);
+            }
+          }
+        },
+        onPointerCancel: (PointerCancelEvent event) {
+          if (_secondaryPointer == event.pointer) {
+            _secondaryPointer = null;
+            _secondaryDownPosition = null;
+          }
+        },
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: widget.onTap,
+          onLongPressStart: (LongPressStartDetails details) =>
+              _onLongPressStart(context, details),
+          onHorizontalDragStart: widget.onReply == null
+              ? null
+              : (_) {
+                  _springController.stop();
+                  setState(() {
+                    _swipeDx = 0;
+                    _swiping = false;
+                  });
+                },
+          onHorizontalDragUpdate: widget.onReply == null
+              ? null
+              : (DragUpdateDetails details) {
+                  setState(() {
+                    _swipeDx = (_swipeDx + details.delta.dx).clamp(
+                      -100.0,
+                      24.0,
+                    );
+                    if (_swipeDx <= -12) {
+                      _swiping = true;
+                    }
+                  });
+                },
+          onHorizontalDragEnd: widget.onReply == null
+              ? null
+              : (_) {
+                  final bool shouldReply =
+                      _swiping && _swipeDx <= -_swipeCommitThreshold;
+                  if (shouldReply) {
+                    _resetSwipe(animate: false);
+                    widget.onReply!.call();
+                  } else {
+                    _resetSwipe(animate: true);
+                  }
+                },
+          onHorizontalDragCancel: widget.onReply == null
+              ? null
+              : () => _resetSwipe(animate: true),
+          child: Semantics(
+            button: widget.semanticsButton,
+            label: widget.semanticsLabel,
+            child: Stack(
+              clipBehavior: Clip.none,
+              alignment: Alignment.centerRight,
+              children: <Widget>[
+                if (showSwipeIcon)
+                  Positioned(
+                    right: 2,
+                    child: DecoratedBox(
+                      key: MessageBubble.swipeAffordanceKeyFor(
+                        widget.message.identity,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.warningSurface,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: AppColors.warningBorder),
+                      ),
+                      child: const SizedBox(
+                        width: 30,
+                        height: 30,
+                        child: Icon(
+                          Icons.reply_rounded,
+                          size: 16,
+                          color: AppColors.warning,
+                        ),
+                      ),
+                    ),
+                  ),
+                Transform.translate(
+                  offset: Offset(visualOffset, 0),
+                  child: widget.child,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 

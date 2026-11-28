@@ -165,7 +165,7 @@ def run(
         "operation-result",
         "download-result",
     ]
-    if os.environ.get("BB_PRODUCT_CASES") in {"installed", "profile-cover", "groups"}:
+    if os.environ.get("BB_PRODUCT_CASES") in {"installed", "profile-cover", "groups", "replies"}:
         cuts = []
     if os.environ.get("BB_PRODUCT_CASES") == "cover":
         import secrets
@@ -270,6 +270,7 @@ def run(
     name = {
         "profile-cover": "installed-profile-cover",
         "groups": "installed-groups",
+        "replies": "installed-replies",
     }.get(os.environ.get("BB_PRODUCT_CASES"), "installed-product")
     if child.returncode:
         record(name, status="FAIL", detail=stderr[-3000:])

@@ -13,8 +13,11 @@ import '../../models/auth_models.dart';
 import '../../models/chat_media.dart';
 import '../../models/chat_models.dart';
 import '../../models/group_models.dart';
+import '../../models/mention_models.dart';
+import '../../services/chat_query.dart';
 import '../../services/chat_service.dart';
 import '../../services/conversation_access.dart';
+import '../../services/group_mention_controller.dart';
 import '../../services/group_service.dart';
 import '../../services/media_stream_proxy.dart';
 import '../../services/presence_directory.dart';
@@ -25,6 +28,7 @@ import 'chat_avatars.dart';
 import 'chat_composer.dart';
 import 'chat_format.dart';
 import 'chat_header.dart';
+import 'chat_reply_helpers.dart';
 import 'chat_system_entry.dart';
 import 'clipboard_paste.dart';
 import 'media_actions.dart';
@@ -44,6 +48,7 @@ class ChatPage extends StatefulWidget {
     required this.profile,
     this.shared,
     this.groups,
+    this.alerts,
     this.presence,
     this.openExternalStream,
     this.onMessagesChanged,
@@ -80,6 +85,9 @@ class ChatPage extends StatefulWidget {
   final ChatService chat;
   final SharedConversationService? shared;
   final GroupService? groups;
+
+  /// Shared account-level unread `@` / reply alert coordinator.
+  final MentionRecipientController? alerts;
 
   /// Navigates to a 1:1 direct chat when tapping a member in group profile.
   final Future<void> Function(ChatUser user)? onOpenDirectChat;
@@ -153,13 +161,16 @@ class ChatPage extends StatefulWidget {
   static const double headerAvatarSize = ChatHeader.headerAvatarSize;
   static const Key keyboardBodyKey = Key('chat-keyboard-body');
   static const Key mediaTransitionKey = Key('chat-media-transition');
+  static const Key alertJumpKey = Key('chat-alert-jump');
 
   @override
   State<ChatPage> createState() => _ChatPageState();
 }
 
-class _ChatPageState extends State<ChatPage> {
+class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
   final ScrollController _scrollController = ScrollController();
+  final GlobalKey _listViewportKey = GlobalKey();
+  final Map<String, GlobalKey> _rowKeys = <String, GlobalKey>{};
   final List<ChatMessage> _messages = <ChatMessage>[];
   final Set<String> _busyMedia = <String>{};
   final List<MediaStreamHandle> _streamHandles = <MediaStreamHandle>[];
@@ -169,6 +180,17 @@ class _ChatPageState extends State<ChatPage> {
   final ChatComposerController _composerController = ChatComposerController();
   List<PendingSend> _pending = <PendingSend>[];
   final Map<String, String> _operationByMessage = <String, String>{};
+  String? _composingReplyTargetId;
+  String? _highlightedMessageId;
+  MessageHighlightKind? _highlightedKind;
+  Timer? _highlightTimer;
+  Timer? _viewportAlertTimer;
+  Timer? _quoteSuppressTimer;
+  bool _jumpingToMessage = false;
+  bool _suppressViewportAlerts = false;
+  ({String conversation, int mentions, int replies, String? latest})?
+  _mixedBadgeKey;
+  Future<int?>? _mixedBadgeCount;
 
   /// Immutable page-level keys for the media thumbnails, so the viewer route
   /// can capture the tapped tile and expand it from its real position.
@@ -294,6 +316,25 @@ class _ChatPageState extends State<ChatPage> {
 
   ConversationRef? get _conversation => widget.group?.conversation;
 
+  ConversationRef? get _alertConversation {
+    if (_isGroup) {
+      return widget.group?.conversation;
+    }
+    final String? self = _selfAccount;
+    final String peer = widget._peer?.account ?? '';
+    if (self == null ||
+        peer.isEmpty ||
+        peer == self ||
+        !isValidAccount(self) ||
+        !isValidAccount(peer)) {
+      return null;
+    }
+    return ConversationRef.direct(self, peer);
+  }
+
+  GlobalKey _rowKeyFor(String identity) =>
+      _rowKeys.putIfAbsent(identity, () => GlobalKey());
+
   ConversationAccessController? get _access => widget.shared?.access;
 
   String get _consumerSession => 'ui:${widget.chat.selfAccount}:$_scopeId';
@@ -304,6 +345,7 @@ class _ChatPageState extends State<ChatPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // Both sides are requested once when the conversation opens. The AppBar and
     // every bubble read this same controller, so scrolling cannot add requests.
     final Iterable<String> initialAccounts = _isGroup
@@ -313,6 +355,8 @@ class _ChatPageState extends State<ChatPage> {
       profile: widget.profile,
       accounts: initialAccounts,
     )..addListener(_onAvatarsChanged);
+    widget.alerts?.addListener(_onAlertsChanged);
+    _refreshMixedBadge();
     _scrollController.addListener(_onScrolled);
     if (!_isGroup) {
       widget.presence?.addListener(_onPresenceChanged);
@@ -484,6 +528,9 @@ class _ChatPageState extends State<ChatPage> {
       _routeCurrent = current;
       if (current) {
         _flushDisplayed();
+        _scheduleViewportAlertCheck();
+      } else {
+        _clearAlertViewport();
       }
     }
   }
@@ -491,6 +538,12 @@ class _ChatPageState extends State<ChatPage> {
   @override
   void didUpdateWidget(covariant ChatPage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.alerts != widget.alerts) {
+      oldWidget.alerts?.removeListener(_onAlertsChanged);
+      widget.alerts?.addListener(_onAlertsChanged);
+      _mixedBadgeKey = null;
+    }
+    _refreshMixedBadge();
     final String oldScope =
         oldWidget.group?.conversation.id ?? oldWidget._peer!.account;
     final String newScope = _scopeId;
@@ -553,6 +606,14 @@ class _ChatPageState extends State<ChatPage> {
       _historyTicket += 1;
       _error = null;
       _loading = true;
+      _rowKeys.clear();
+      _composingReplyTargetId = null;
+      _highlightedMessageId = null;
+      _highlightedKind = null;
+      _highlightTimer?.cancel();
+      _viewportAlertTimer?.cancel();
+      _quoteSuppressTimer?.cancel();
+      _suppressViewportAlerts = false;
       if (_isGroup) {
         _attachGroupAccess();
         unawaited(_loadGroupAvatar());
@@ -584,6 +645,9 @@ class _ChatPageState extends State<ChatPage> {
         // The pane just became visible again: only now do the arrivals that
         // were staged while it was hidden become display facts.
         _flushDisplayed();
+        _scheduleViewportAlertCheck();
+      } else if (oldWidget.active && !widget.active) {
+        _clearAlertViewport();
       }
       if (_isGroup &&
           (becameActive || membershipChanged || groupsServiceChanged)) {
@@ -594,6 +658,12 @@ class _ChatPageState extends State<ChatPage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _clearAlertViewport();
+    widget.alerts?.removeListener(_onAlertsChanged);
+    _highlightTimer?.cancel();
+    _viewportAlertTimer?.cancel();
+    _quoteSuppressTimer?.cancel();
     unawaited(_groupUpdatesSub?.cancel());
     _groupUpdatesSub = null;
     if (widget._peer != null) {
@@ -619,6 +689,70 @@ class _ChatPageState extends State<ChatPage> {
   void _onAvatarsChanged() {
     if (mounted) {
       setState(() {});
+    }
+  }
+
+  void _onAlertsChanged() {
+    if (mounted) {
+      _refreshMixedBadge();
+      setState(() {});
+    }
+  }
+
+  void _refreshMixedBadge() {
+    final MentionRecipientController? alerts = widget.alerts;
+    final ConversationRef? conversation = _alertConversation;
+    if (alerts == null || conversation == null || !widget.active) {
+      _mixedBadgeKey = null;
+      _mixedBadgeCount = null;
+      return;
+    }
+    final AlertCounts counts = alerts.countsFor(conversation.id);
+    final UnreadAlert? latest = alerts.latestAlertFor(conversation.id);
+    if (counts.unreadMentionCount == 0 || counts.unreadReplyCount == 0) {
+      _mixedBadgeKey = null;
+      _mixedBadgeCount = null;
+      return;
+    }
+    final key = (
+      conversation: conversation.id,
+      mentions: counts.unreadMentionCount,
+      replies: counts.unreadReplyCount,
+      latest: latest?.messageId,
+    );
+    if (_mixedBadgeKey != key) {
+      _mixedBadgeKey = key;
+      _mixedBadgeCount = _countMixedAlerts(alerts.shared, conversation);
+    }
+  }
+
+  Future<int?> _countMixedAlerts(
+    SharedConversationService shared,
+    ConversationRef conversation,
+  ) async {
+    final identity = shared.session.identity;
+    if (identity == null) return null;
+    int count = 0;
+    int? before;
+    try {
+      do {
+        final AlertPage page = await shared.listConversationAlerts(
+          conversation: conversation,
+          beforePosition: before,
+          limit: 100,
+          captured: identity,
+        );
+        count += page.items.length;
+        final int? next = page.nextCursor;
+        if (next != null && before != null && next >= before) return null;
+        before = next;
+      } while (before != null &&
+          mounted &&
+          widget.active &&
+          _alertConversation == conversation);
+      return before == null ? count : null;
+    } on AuthFailure {
+      return null;
     }
   }
 
@@ -774,6 +908,7 @@ class _ChatPageState extends State<ChatPage> {
       _avatars.ensureAccounts(
         page.items.map((ChatMessage m) => m.senderAccount),
       );
+      _suppressViewportAlerts = true;
       setState(() {
         _mergeMessages(page.items);
         _fetchedThrough = page.items.isEmpty ? 0 : page.items.last.position;
@@ -787,7 +922,16 @@ class _ChatPageState extends State<ChatPage> {
       _forgetCommittedPending();
       widget.onMessagesChanged?.call(List<ChatMessage>.unmodifiable(_messages));
       _retryUnresolvedLookups();
-      _scrollToBottom(animate: false, force: true);
+      _scrollToBottom(
+        animate: false,
+        force: true,
+        onSettled: () {
+          if (mounted) {
+            _suppressViewportAlerts = false;
+            _scheduleViewportAlertCheck();
+          }
+        },
+      );
     } on AuthFailure catch (failure) {
       if (!_historyRequestCurrent(ticket, epoch, scope)) {
         return;
@@ -953,7 +1097,16 @@ class _ChatPageState extends State<ChatPage> {
         );
       }
       if (arrived.isNotEmpty && wasNearBottom) {
-        _scrollToBottom(force: true);
+        _scrollToBottom(
+          force: true,
+          onSettled: () {
+            if (mounted && !_suppressViewportAlerts) {
+              _scheduleViewportAlertCheck();
+            }
+          },
+        );
+      } else if (arrived.isNotEmpty) {
+        _scheduleViewportAlertCheck();
       }
     } catch (_) {
       // Polling is best effort; the explicit refresh keeps the error visible.
@@ -1138,20 +1291,51 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   bool get _canConfirmDisplayed {
+    final AppLifecycleState? lifecycle = WidgetsBinding.instance.lifecycleState;
     if (!mounted || !widget.active || _revoked || _modalCovers > 0) {
+      return false;
+    }
+    if (lifecycle != null && lifecycle != AppLifecycleState.resumed) {
       return false;
     }
     return _modalRoute?.isCurrent ?? true;
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _flushDisplayed();
+      _scheduleViewportAlertCheck();
+    } else {
+      _clearAlertViewport();
+    }
+  }
+
+  void _clearAlertViewport() {
+    _viewportAlertTimer?.cancel();
+    final MentionRecipientController? alerts = widget.alerts;
+    final ConversationRef? conversation = _alertConversation;
+    if (alerts != null && conversation != null) {
+      unawaited(
+        alerts.reportVisibleMessages(
+          conversation: conversation,
+          visibleMessages: const <ChatMessage>[],
+          isForegroundActive: false,
+        ),
+      );
+    }
+  }
+
   Future<T> _runCoveringRoute<T>(Future<T> Function() action) async {
     _modalCovers += 1;
+    _clearAlertViewport();
     try {
       return await action();
     } finally {
       if (mounted) {
         _modalCovers = math.max(0, _modalCovers - 1);
         _flushDisplayed();
+        _scheduleViewportAlertCheck();
       }
     }
   }
@@ -1436,27 +1620,44 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
-  void _scrollToBottom({bool animate = true, bool force = false}) {
+  void _scrollToBottom({
+    bool animate = true,
+    bool force = false,
+    VoidCallback? onSettled,
+  }) {
     if (!force && !_isNearBottom) {
+      onSettled?.call();
       return;
     }
     final int epoch = _scrollEpoch;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _applyBottomScroll(animate: animate, attempt: 0, epoch: epoch);
+      _applyBottomScroll(
+        animate: animate,
+        attempt: 0,
+        epoch: epoch,
+        onSettled: onSettled,
+      );
     });
   }
 
   void _goToLatest() {
     setState(() => _unseenNew = 0);
-    _scrollToBottom(animate: true, force: true);
+    _scrollToBottom(
+      animate: true,
+      force: true,
+      onSettled: _scheduleViewportAlertCheck,
+    );
   }
 
   bool _onScrollNotification(ScrollNotification notification) {
     if (notification is ScrollStartNotification &&
         notification.dragDetails != null) {
       _scrollEpoch += 1;
-      // The reader took over: stop following the keyboard.
+      // The reader took over: stop following the keyboard and allow normal
+      // viewport alert confirmation as the reader scrolls manually.
       _pinBottomOnKeyboard = false;
+      _quoteSuppressTimer?.cancel();
+      _suppressViewportAlerts = false;
     }
     // The list is chronological, so the top edge is where the past lives.
     // `_loadOlder` guards itself against repeat entry.
@@ -1464,6 +1665,12 @@ class _ChatPageState extends State<ChatPage> {
         notification.depth == 0 &&
         notification.metrics.pixels <= 240) {
       unawaited(_loadOlder());
+    }
+    if (notification.depth == 0 &&
+        !_suppressViewportAlerts &&
+        (notification is ScrollEndNotification ||
+            notification is ScrollUpdateNotification)) {
+      _scheduleViewportAlertCheck();
     }
     return false;
   }
@@ -1475,14 +1682,17 @@ class _ChatPageState extends State<ChatPage> {
     required bool animate,
     required int attempt,
     required int epoch,
+    VoidCallback? onSettled,
   }) {
     if (!mounted || !_scrollController.hasClients || epoch != _scrollEpoch) {
+      onSettled?.call();
       return;
     }
     final ScrollPosition position = _scrollController.position;
     final double target = position.maxScrollExtent;
     final double remaining = target - position.pixels;
     if (remaining.abs() <= 1) {
+      onSettled?.call();
       return;
     }
     if (animate && attempt == 0) {
@@ -1496,7 +1706,14 @@ class _ChatPageState extends State<ChatPage> {
             if (mounted &&
                 _scrollController.hasClients &&
                 epoch == _scrollEpoch) {
-              _applyBottomScroll(animate: false, attempt: 1, epoch: epoch);
+              _applyBottomScroll(
+                animate: false,
+                attempt: 1,
+                epoch: epoch,
+                onSettled: onSettled,
+              );
+            } else {
+              onSettled?.call();
             }
           });
       return;
@@ -1505,12 +1722,430 @@ class _ChatPageState extends State<ChatPage> {
     // over ~160ms; a short attempt budget would stop short of the bottom and
     // leave the newest message a few pixels below the fold.
     if (attempt >= 12) {
+      onSettled?.call();
       return;
     }
     _scrollController.jumpTo(target);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _applyBottomScroll(animate: false, attempt: attempt + 1, epoch: epoch);
+      _applyBottomScroll(
+        animate: false,
+        attempt: attempt + 1,
+        epoch: epoch,
+        onSettled: onSettled,
+      );
     });
+  }
+
+  void _enterReply(ChatMessage message) {
+    if (_revoked || message.id.isEmpty) {
+      return;
+    }
+    final String fallback = (message.senderUsername?.isNotEmpty ?? false)
+        ? message.senderUsername!
+        : _displayName;
+    final ReplyQuote quote = replyQuoteFromMessage(
+      message,
+      fallbackAuthor: fallback,
+    );
+    _composerController.setReplyTarget(quote);
+  }
+
+  void _setMessageHighlight(String messageId, MessageHighlightKind kind) {
+    _highlightTimer?.cancel();
+    setState(() {
+      _highlightedMessageId = messageId;
+      _highlightedKind = kind;
+    });
+    final bool reducedMotion =
+        MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    _highlightTimer = Timer(
+      Duration(milliseconds: reducedMotion ? 900 : 1400),
+      () {
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          if (_highlightedMessageId == messageId) {
+            _highlightedMessageId = null;
+            _highlightedKind = null;
+          }
+        });
+      },
+    );
+  }
+
+  Future<void> _nextFrame() {
+    final Completer<void> completer = Completer<void>();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!completer.isCompleted) {
+        completer.complete();
+      }
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+    return completer.future;
+  }
+
+  Future<bool> _scrollToMessage(
+    String messageId, {
+    required MessageHighlightKind highlightKind,
+  }) async {
+    final int epoch = _pageEpoch;
+    final double? previousOffset = _scrollController.hasClients
+        ? _scrollController.offset
+        : null;
+    bool onSamePage() => mounted && _pageEpoch == epoch && !_revoked;
+    bool restoreAfterFailure() {
+      if (onSamePage() &&
+          previousOffset != null &&
+          _scrollController.hasClients) {
+        final ScrollPosition position = _scrollController.position;
+        _scrollController.jumpTo(
+          previousOffset.clamp(
+            position.minScrollExtent,
+            position.maxScrollExtent,
+          ),
+        );
+      }
+      return false;
+    }
+
+    final ChatMessage? target = _messages.cast<ChatMessage?>().firstWhere(
+      (ChatMessage? m) => m?.id == messageId,
+      orElse: () => null,
+    );
+    if (target == null) {
+      return false;
+    }
+    final GlobalKey key = _rowKeyFor(target.identity);
+    await _nextFrame();
+    if (!mounted || !onSamePage()) {
+      return false;
+    }
+    final bool reducedMotion =
+        MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    if (key.currentContext == null && _scrollController.hasClients) {
+      final List<String> order = _timelineEntryIdentities();
+      final int targetIndex = order.indexOf(target.identity);
+      if (targetIndex < 0) {
+        return false;
+      }
+      final double initialEstimate = order.length <= 1
+          ? 0
+          : (targetIndex / (order.length - 1)) *
+                _scrollController.position.maxScrollExtent;
+      _scrollController.jumpTo(
+        initialEstimate.clamp(0.0, _scrollController.position.maxScrollExtent),
+      );
+      await _nextFrame();
+      for (int step = 0; step < 12; step += 1) {
+        if (!onSamePage() || !_scrollController.hasClients) {
+          return false;
+        }
+        if (key.currentContext != null) {
+          break;
+        }
+        int? minMounted;
+        int? maxMounted;
+        for (int i = 0; i < order.length; i += 1) {
+          if (_rowKeys[order[i]]?.currentContext != null) {
+            minMounted ??= i;
+            maxMounted = i;
+          }
+        }
+        final ScrollPosition pos = _scrollController.position;
+        final double stride = math.max(120.0, pos.viewportDimension * 0.7);
+        double nextOffset = pos.pixels;
+        if (minMounted != null && targetIndex < minMounted) {
+          nextOffset = pos.pixels - stride;
+        } else if (maxMounted != null && targetIndex > maxMounted) {
+          nextOffset = pos.pixels + stride;
+        } else {
+          break;
+        }
+        final double clamped = nextOffset.clamp(0.0, pos.maxScrollExtent);
+        if ((clamped - pos.pixels).abs() < 1.0) {
+          break;
+        }
+        _scrollController.jumpTo(clamped);
+        await _nextFrame();
+      }
+    }
+    final BuildContext? rowContext = key.currentContext;
+    if (rowContext == null || !rowContext.mounted) {
+      return restoreAfterFailure();
+    }
+    await Scrollable.ensureVisible(
+      rowContext,
+      alignment: 0.35,
+      duration: reducedMotion
+          ? Duration.zero
+          : const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+    );
+    if (!onSamePage()) {
+      return false;
+    }
+    await _nextFrame();
+    if (!onSamePage()) {
+      return false;
+    }
+    if (!_isMessageInForegroundViewport(target)) {
+      return restoreAfterFailure();
+    }
+    _setMessageHighlight(target.id, highlightKind);
+    return true;
+  }
+
+  List<String> _timelineEntryIdentities() {
+    return <String>[
+      for (final ChatMessage m in _messages) m.identity,
+      for (final PendingSend pending in _pending)
+        if (!_committedOperations.contains(pending.operationId))
+          pending.message.identity,
+    ];
+  }
+
+  bool _isMessageInForegroundViewport(ChatMessage message) {
+    final RenderBox? viewportBox =
+        _listViewportKey.currentContext?.findRenderObject() as RenderBox?;
+    final RenderBox? itemBox =
+        _rowKeys[message.identity]?.currentContext?.findRenderObject()
+            as RenderBox?;
+    if (viewportBox == null ||
+        itemBox == null ||
+        !viewportBox.hasSize ||
+        !itemBox.hasSize ||
+        !viewportBox.attached ||
+        !itemBox.attached) {
+      return false;
+    }
+    final Offset topLeft = itemBox.localToGlobal(
+      Offset.zero,
+      ancestor: viewportBox,
+    );
+    final double top = topLeft.dy;
+    final double bottom = top + itemBox.size.height;
+    final double height = viewportBox.size.height;
+    return bottom > 8 && top < height - 8;
+  }
+
+  void _scheduleViewportAlertCheck() {
+    if (!mounted ||
+        _suppressViewportAlerts ||
+        widget.alerts == null ||
+        _alertConversation == null) {
+      return;
+    }
+    _viewportAlertTimer?.cancel();
+    _viewportAlertTimer = Timer(const Duration(milliseconds: 80), () {
+      if (mounted) {
+        unawaited(_reportViewportVisibleAlerts());
+      }
+    });
+  }
+
+  Future<void> _reportViewportVisibleAlerts() async {
+    final MentionRecipientController? alerts = widget.alerts;
+    final ConversationRef? conversation = _alertConversation;
+    if (alerts == null ||
+        conversation == null ||
+        !_canConfirmDisplayed ||
+        _suppressViewportAlerts ||
+        _loading) {
+      return;
+    }
+    if (alerts.summaryLoadedOnce && !alerts.hasUnreadAlerts(conversation.id)) {
+      return;
+    }
+    final List<ChatMessage> visible = <ChatMessage>[
+      for (final ChatMessage message in _messages)
+        if (_isMessageInForegroundViewport(message)) message,
+    ];
+    if (visible.isEmpty) {
+      return;
+    }
+    try {
+      await alerts.reportVisibleMessages(
+        conversation: conversation,
+        visibleMessages: visible,
+        isForegroundActive: _canConfirmDisplayed,
+      );
+    } catch (_) {
+      // Unacknowledged alerts stay visible and retryable on subsequent view checks.
+    }
+  }
+
+  Future<List<ChatMessage>?> _fetchContextWindow(String messageId) async {
+    final ConversationRef? groupConv = _conversation;
+    if (groupConv != null && widget.shared != null) {
+      final MessageContextRecord? record = await widget.shared!
+          .loadMessageContext(conversation: groupConv, messageId: messageId);
+      return record?.items;
+    }
+    final ContextResult? result = await widget.chat.query.getContext(
+      messageId: messageId,
+      beforeLimit: 25,
+      afterLimit: 25,
+    );
+    if (result == null) {
+      return null;
+    }
+    if (_isGroup) {
+      if (result.conversation != groupConv) {
+        return null;
+      }
+    } else if (result.peerAccount.isNotEmpty &&
+        result.peerAccount != widget._peer?.account) {
+      return null;
+    }
+    return result.items;
+  }
+
+  Future<void> _jumpToQuotedOriginal(String originalId) async {
+    if (_jumpingToMessage || _revoked) {
+      return;
+    }
+    final int epoch = _pageEpoch;
+    final String scope = _scopeId;
+    _jumpingToMessage = true;
+    _suppressViewportAlerts = true;
+    _quoteSuppressTimer?.cancel();
+    try {
+      final bool loaded = _messages.any((ChatMessage m) => m.id == originalId);
+      if (!loaded) {
+        final List<ChatMessage>? contextItems = await _fetchContextWindow(
+          originalId,
+        );
+        if (!mounted || epoch != _pageEpoch || scope != _scopeId) {
+          return;
+        }
+        if (contextItems == null ||
+            !contextItems.any((ChatMessage m) => m.id == originalId)) {
+          _showJumpError('原消息定位失败，未标记已读');
+          return;
+        }
+        _avatars.ensureAccounts(
+          contextItems.map((ChatMessage m) => m.senderAccount),
+        );
+        // Contract: quote context jumps inspect history without updating
+        // unread or alert confirmation watermarks.
+        setState(() {
+          _mergeMessages(contextItems);
+        });
+        widget.onMessagesChanged?.call(
+          List<ChatMessage>.unmodifiable(_messages),
+        );
+      }
+      final bool landed = await _scrollToMessage(
+        originalId,
+        highlightKind: MessageHighlightKind.quote,
+      );
+      if (!mounted) {
+        return;
+      }
+      if (!landed) {
+        _showJumpError('原消息定位失败，未标记已读');
+        return;
+      }
+      _quoteSuppressTimer = Timer(const Duration(milliseconds: 600), () {
+        if (mounted) {
+          _suppressViewportAlerts = false;
+        }
+      });
+    } on AuthFailure catch (failure) {
+      if (mounted) {
+        _showJumpError(failure.message);
+      }
+    } catch (_) {
+      if (mounted) {
+        _showJumpError('原消息定位失败，未标记已读');
+      }
+    } finally {
+      _jumpingToMessage = false;
+      if (_quoteSuppressTimer == null ||
+          !(_quoteSuppressTimer?.isActive ?? false)) {
+        _suppressViewportAlerts = false;
+      }
+    }
+  }
+
+  Future<void> _jumpToNextAlert() async {
+    final MentionRecipientController? alerts = widget.alerts;
+    final ConversationRef? conversation = _alertConversation;
+    if (alerts == null ||
+        conversation == null ||
+        _jumpingToMessage ||
+        _revoked) {
+      return;
+    }
+    final int epoch = _pageEpoch;
+    final String scope = _scopeId;
+    _jumpingToMessage = true;
+    _suppressViewportAlerts = true;
+    _quoteSuppressTimer?.cancel();
+    try {
+      final Set<String> loadedIds = <String>{
+        for (final ChatMessage m in _messages)
+          if (m.id.isNotEmpty) m.id,
+      };
+      final AlertJumpResolution? resolution = await alerts
+          .resolveNextJumpTarget(
+            conversation: conversation,
+            loadedMessageIds: loadedIds,
+            resetCursor: true,
+          );
+      if (!mounted || epoch != _pageEpoch || scope != _scopeId) {
+        return;
+      }
+      if (resolution == null) {
+        _showJumpError('本会话没有未读提醒了');
+        return;
+      }
+      final MessageContextRecord? contextRecord = resolution.context;
+      if (contextRecord != null) {
+        _avatars.ensureAccounts(
+          contextRecord.items.map((ChatMessage m) => m.senderAccount),
+        );
+        setState(() {
+          _mergeMessages(contextRecord.items);
+        });
+        widget.onMessagesChanged?.call(
+          List<ChatMessage>.unmodifiable(_messages),
+        );
+      }
+      final bool landed = await _scrollToMessage(
+        resolution.alert.messageId,
+        highlightKind: MessageHighlightKind.alert,
+      );
+      if (!mounted || epoch != _pageEpoch || scope != _scopeId) {
+        return;
+      }
+      if (!landed) {
+        _showJumpError('定位失败 · 未标记已读');
+        return;
+      }
+      _suppressViewportAlerts = false;
+      await _reportViewportVisibleAlerts();
+    } on AuthFailure catch (failure) {
+      if (mounted) {
+        _showJumpError(failure.message);
+      }
+    } catch (_) {
+      if (mounted) {
+        _showJumpError('定位失败 · 未标记已读');
+      }
+    } finally {
+      _jumpingToMessage = false;
+      _suppressViewportAlerts = false;
+    }
+  }
+
+  void _showJumpError(String message) {
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.maybeOf(context)
+        ?.showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _saveAs(Attachment attachment) async {
@@ -2001,7 +2636,18 @@ class _ChatPageState extends State<ChatPage> {
             Expanded(
               child: Stack(
                 children: <Widget>[
-                  Positioned.fill(child: _buildBody()),
+                  Positioned.fill(
+                    child: KeyedSubtree(
+                      key: _listViewportKey,
+                      child: _buildBody(),
+                    ),
+                  ),
+                  if (_buildAlertOverlay() case final Widget alertOverlay)
+                    Positioned(
+                      top: AppSpacing.md,
+                      right: AppSpacing.md,
+                      child: alertOverlay,
+                    ),
                   if (_unseenNew > 0)
                     Positioned(
                       left: 0,
@@ -2031,6 +2677,13 @@ class _ChatPageState extends State<ChatPage> {
               onSent: _onSent,
               onSentOperations: _onSentOperations,
               onPendingChanged: _onPendingChanged,
+              onReplyTargetChanged: (ReplyQuote? target) {
+                if (mounted) {
+                  setState(() {
+                    _composingReplyTargetId = target?.messageId;
+                  });
+                }
+              },
             ),
           ],
         ),
@@ -2233,6 +2886,13 @@ class _ChatPageState extends State<ChatPage> {
             onRetry: entry.pending?.state == SendFeedbackState.failed
                 ? () => _composerController.retryFailed(entry.operationId!)
                 : null,
+            onReply: committed && !_revoked ? () => _enterReply(message) : null,
+            onTapQuote: committed ? _jumpToQuotedOriginal : null,
+            highlightKind: committed && _highlightedMessageId == message.id
+                ? _highlightedKind
+                : null,
+            composingReplyTarget:
+                committed && _composingReplyTargetId == message.id,
             showAvatar: runStart,
             isRunEnd: runEnd,
             originKeyFor: (ChatMessage message, int? partIndex) =>
@@ -2273,7 +2933,10 @@ class _ChatPageState extends State<ChatPage> {
                   animate: entry.pending != null
                       ? pendingFirstFrame
                       : _animateIdentities.contains(message.identity),
-                  child: bubble,
+                  child: KeyedSubtree(
+                    key: committed ? _rowKeyFor(message.identity) : null,
+                    child: bubble,
+                  ),
                 ),
               ),
             ),
@@ -2332,6 +2995,148 @@ class _ChatPageState extends State<ChatPage> {
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: _readingColumnMaxWidth),
         child: child,
+      ),
+    );
+  }
+
+  Widget? _buildAlertOverlay() {
+    final MentionRecipientController? alerts = widget.alerts;
+    final ConversationRef? conversation = _alertConversation;
+    if (alerts == null ||
+        conversation == null ||
+        _revoked ||
+        !alerts.hasUnreadAlerts(conversation.id)) {
+      return null;
+    }
+    final AlertCounts counts = alerts.countsFor(conversation.id);
+    final UnreadAlert? latest = alerts.latestAlertFor(conversation.id);
+    final bool showReply;
+    final bool showMention;
+    if (latest != null) {
+      showReply = latest.reply;
+      showMention = latest.mention;
+    } else {
+      showReply = counts.unreadReplyCount > 0;
+      showMention = counts.unreadMentionCount > 0;
+    }
+    final String label = showReply && showMention
+        ? '跳到回复 + @'
+        : (showReply ? '跳到回复' : '跳到 @');
+    return FutureBuilder<int?>(
+      future: _mixedBadgeCount,
+      builder: (_, snapshot) => _AlertJumpPill(
+        label: label,
+        count: counts.unreadMentionCount == 0 || counts.unreadReplyCount == 0
+            ? counts.unreadMentionCount + counts.unreadReplyCount
+            : snapshot.connectionState == ConnectionState.done
+            ? snapshot.data ?? 0
+            : 0,
+        hasReply: showReply,
+        onTap: _jumpToNextAlert,
+      ),
+    );
+  }
+}
+
+/// Shared right-middle-upper button jumping newest-to-oldest across unread `@`
+/// and reply alerts in this conversation.
+class _AlertJumpPill extends StatelessWidget {
+  const _AlertJumpPill({
+    required this.label,
+    required this.count,
+    required this.hasReply,
+    required this.onTap,
+  });
+
+  final String label;
+  final int count;
+  final bool hasReply;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color fg = hasReply ? AppColors.warning : AppColors.accentDeep;
+    final Color bg = hasReply ? AppColors.warningSurface : AppColors.surface;
+    final Color border = hasReply ? AppColors.warningBorder : AppColors.border;
+    final Icon icon = Icon(
+      hasReply ? Icons.reply_rounded : Icons.alternate_email_rounded,
+      size: 16,
+      color: fg,
+    );
+    if (MediaQuery.sizeOf(context).width < 600) {
+      final CircleBorder shape = CircleBorder(side: BorderSide(color: border));
+      return Tooltip(
+        message: label,
+        child: Material(
+          color: bg,
+          elevation: 3,
+          shape: shape,
+          child: InkWell(
+            key: ChatPage.alertJumpKey,
+            onTap: onTap,
+            customBorder: shape,
+            child: Badge(
+              label: Text('$count'),
+              isLabelVisible: count > 0,
+              backgroundColor: AppColors.accentDeep,
+              textColor: AppColors.surface,
+              child: SizedBox.square(dimension: 44, child: Center(child: icon)),
+            ),
+          ),
+        ),
+      );
+    }
+    return Material(
+      color: bg,
+      elevation: 3,
+      shape: StadiumBorder(side: BorderSide(color: border)),
+      child: InkWell(
+        key: ChatPage.alertJumpKey,
+        onTap: onTap,
+        customBorder: const StadiumBorder(),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 36),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                icon,
+                const SizedBox(width: 5),
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: fg,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                if (count > 0) ...<Widget>[
+                  const SizedBox(width: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.accentDeep,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      '$count',
+                      style: const TextStyle(
+                        color: AppColors.surface,
+                        fontSize: 10.5,
+                        height: 1.1,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

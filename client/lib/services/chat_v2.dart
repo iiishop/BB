@@ -6,6 +6,7 @@ import '../models/chat_models.dart';
 import '../models/group_models.dart';
 import '../models/mention_models.dart';
 import '../models/profile_models.dart';
+import '../models/reply_models.dart';
 import 'auth_session.dart';
 import 'chat_query.dart';
 import 'chat_delivery_remote.dart';
@@ -78,6 +79,18 @@ class ChatV2Router {
       'before_position',
       'limit',
     },
+    '/v2/chat/list_unread_replies': <String>{
+      'expected_identity',
+      'conversation_id',
+      'before_position',
+      'limit',
+    },
+    '/v2/chat/list_direct_replies': <String>{
+      'expected_identity',
+      'original_message_id',
+      'before_position',
+      'limit',
+    },
     '/v2/chat/get_message': <String>{'expected_identity', 'message_id'},
     '/v2/chat/get_context': <String>{
       'expected_identity',
@@ -102,6 +115,13 @@ class ChatV2Router {
       'conversation',
       'operation_id',
       'mentioned_accounts',
+      'content',
+    },
+    '/v2/chat/send_reply': <String>{
+      'expected_identity',
+      'conversation',
+      'reply_to_message_id',
+      'operation_id',
       'content',
     },
     '/v2/chat/send_attachment': <String>{
@@ -531,6 +551,38 @@ class ChatV2Router {
             return page.toJson();
           },
         );
+      case '/v2/chat/list_unread_replies':
+        return _queryReply(
+          expected,
+          service,
+          context.identity,
+          context.binding,
+          (_) async {
+            final page = await service.sharedConversations.listUnreadReplies(
+              conversationId: args.values['conversation_id'] as String,
+              beforePosition: args.values['before_position'] as int?,
+              limit: args.values['limit'] as int,
+              captured: context.identity,
+            );
+            return page.toJson((UnreadReply item) => item.toJson());
+          },
+        );
+      case '/v2/chat/list_direct_replies':
+        return _queryReply(
+          expected,
+          service,
+          context.identity,
+          context.binding,
+          (_) async {
+            final page = await service.sharedConversations.listDirectReplies(
+              originalMessageId: args.values['original_message_id'] as String,
+              beforePosition: args.values['before_position'] as int?,
+              limit: args.values['limit'] as int,
+              captured: context.identity,
+            );
+            return page.toJson((ReplyMessage item) => item.toJson());
+          },
+        );
       case '/v2/chat/get_message':
         return _queryReply(expected, service, context.identity, context.binding, (
           Set<String> created,
@@ -616,12 +668,14 @@ class ChatV2Router {
         return _reply(expected, page.toJson());
       case '/v2/chat/send_message':
       case '/v2/chat/send_group_mention':
+      case '/v2/chat/send_reply':
         final SendOutcome outcome = await service.sendBody(
           targetAccount: args.values['target_account'] as String,
           content: args.content!,
           mentionedAccounts:
               args.values['mentioned_accounts'] as List<String>? ??
               const <String>[],
+          replyToMessageId: args.values['reply_to_message_id'] as String?,
           operationId: args.values['operation_id'] as String,
           expectedIdentity: expected,
         );
@@ -927,6 +981,29 @@ class ChatV2Router {
           maxBindingRevision,
         );
         args.values['limit'] = request.optionalInteger('limit', 1, 100) ?? 50;
+      case '/v2/chat/list_unread_replies':
+        final String conversationId = request.string('conversation_id')!;
+        if (!isValidConversationId(conversationId)) {
+          throw _validation('conversation_id');
+        }
+        args.values['conversation_id'] = conversationId;
+        args.values['before_position'] = request.nullableInteger(
+          'before_position',
+          1,
+          maxBindingRevision,
+        );
+        args.values['limit'] = request.optionalInteger('limit', 1, 100) ?? 50;
+      case '/v2/chat/list_direct_replies':
+        args.values['original_message_id'] = request.pattern(
+          'original_message_id',
+          messageIdPattern,
+        );
+        args.values['before_position'] = request.nullableInteger(
+          'before_position',
+          1,
+          maxBindingRevision,
+        );
+        args.values['limit'] = request.optionalInteger('limit', 1, 100) ?? 50;
       case '/v2/chat/get_message':
         args.values['message_id'] = request.pattern(
           'message_id',
@@ -970,6 +1047,17 @@ class ChatV2Router {
           throw _validation('mentioned_accounts');
         }
         args.values['mentioned_accounts'] = recipients.cast<String>();
+        args.content = _content(request);
+      case '/v2/chat/send_reply':
+        args.values['target_account'] = _conversationTarget(
+          request,
+          args.expectedIdentity!.account,
+        );
+        args.values['reply_to_message_id'] = request.pattern(
+          'reply_to_message_id',
+          messageIdPattern,
+        );
+        args.values['operation_id'] = request.operationId('operation_id');
         args.content = _content(request);
       case '/v2/chat/send_attachment':
         args.values['target_account'] = _chatTarget(request, args.expectedIdentity!.account, 'target_account');
@@ -1235,6 +1323,10 @@ class ChatV2Router {
     final conversation = request.raw['conversation'];
     if ((account == null) == (conversation == null)) throw _validation('conversation');
     if (account != null) return request.account(legacy);
+    return _conversationTarget(request, self);
+  }
+
+  String _conversationTarget(_Request request, String self) {
     final ref = request.object('conversation', {'type', 'id'});
     final id = ref['id'];
     if (id is! String) throw _validation('conversation');

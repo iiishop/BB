@@ -21,6 +21,7 @@ class ChatOperationRecord {
     required this.sourceDigest,
     required this.parts,
     this.mentionedAccounts = const <String>[],
+    this.replyToMessageId,
     this.attachmentSource,
     this.resolvedMediaIds = const <String>[],
     this.resolvedMediaId,
@@ -54,6 +55,7 @@ class ChatOperationRecord {
 
   /// Persisted unique group mention accounts for body operations.
   final List<String> mentionedAccounts;
+  final String? replyToMessageId;
 
   /// Persisted original source for attachment operations.
   final Map<String, dynamic>? attachmentSource;
@@ -92,6 +94,7 @@ class ChatOperationRecord {
       sourceDigest: sourceDigest,
       parts: parts,
       mentionedAccounts: mentionedAccounts,
+      replyToMessageId: replyToMessageId,
       attachmentSource: attachmentSource,
       resolvedMediaIds: resolvedMediaIds ?? this.resolvedMediaIds,
       resolvedMediaId: resolvedMediaId ?? this.resolvedMediaId,
@@ -116,6 +119,7 @@ class ChatOperationRecord {
     'source_digest': sourceDigest,
     'parts': parts,
     if (mentionedAccounts.isNotEmpty) 'mentioned_accounts': mentionedAccounts,
+    if (replyToMessageId != null) 'reply_to_message_id': replyToMessageId,
     'attachment_source': attachmentSource,
     'resolved_media_ids': resolvedMediaIds,
     'resolved_media_id': resolvedMediaId,
@@ -167,6 +171,7 @@ class ChatOperationRecord {
       mentionedAccounts: List<String>.unmodifiable(
         json['mentioned_accounts'] as List<dynamic>? ?? const <String>[],
       ),
+      replyToMessageId: json['reply_to_message_id'] as String?,
       attachmentSource: json['attachment_source'] is Map<String, dynamic>
           ? Map<String, dynamic>.from(
               json['attachment_source'] as Map<String, dynamic>,
@@ -782,6 +787,7 @@ class ChatLedger {
           (previous.kind != record.kind ||
               previous.targetAccount != record.targetAccount ||
               previous.sourceDigest != record.sourceDigest ||
+              previous.replyToMessageId != record.replyToMessageId ||
               previous.expectedIdentity?.consumerId !=
                   record.expectedIdentity?.consumerId)) {
         throw const FormatException('operation intent mismatch');
