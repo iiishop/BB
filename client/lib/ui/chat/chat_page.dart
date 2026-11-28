@@ -1930,6 +1930,21 @@ class _ChatPageState extends State<ChatPage> {
     );
   }
 
+  Future<void> _openSenderProfile(String senderAccount) async {
+    if (_modalCovers > 0 ||
+        senderAccount.isEmpty ||
+        senderAccount == _selfAccount) {
+      return;
+    }
+    await _runCoveringRoute(
+      () => openPersonProfile(
+        context,
+        account: senderAccount,
+        gateway: widget.profile,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final double keyboardInset = MediaQuery.viewInsetsOf(context).bottom;
@@ -2235,6 +2250,12 @@ class _ChatPageState extends State<ChatPage> {
                 ? () => _play(attachment)
                 : null,
             onOpenMedia: committed ? _openMedia : null,
+            onAvatarTap:
+                !message.isSystem &&
+                    message.senderAccount.isNotEmpty &&
+                    message.senderAccount != _selfAccount
+                ? () => _openSenderProfile(message.senderAccount)
+                : null,
             localMediaPreview: _previewFor,
             mediaMaxWidth: mediaMaxWidth,
           );

@@ -20,6 +20,7 @@ class FakeProfileGateway implements ProfileGateway {
   });
 
   Profile profile;
+  final Map<String, Profile> profiles = <String, Profile>{};
   Uint8List avatar = _png;
 
   /// Avatar bytes per account; falls back to [avatar] for unknown accounts.
@@ -40,6 +41,7 @@ class FakeProfileGateway implements ProfileGateway {
   /// default (the page then renders its bundled asset), which widget tests do
   /// not need to decode from the server.
   CoverImage? cover;
+  final Map<String, CoverImage> covers = <String, CoverImage>{};
   AuthFailure? coverFailure;
   AuthFailure? coverUpdateFailure;
   Duration coverDelay = Duration.zero;
@@ -61,7 +63,8 @@ class FakeProfileGateway implements ProfileGateway {
     if (error != null) {
       throw error;
     }
-    return profile;
+    final String target = account ?? profile.account;
+    return profiles[target] ?? profile;
   }
 
   @override
@@ -228,7 +231,7 @@ class FakeProfileGateway implements ProfileGateway {
       throw error;
     }
     final String target = account ?? profile.account;
-    final CoverImage? current = cover;
+    final CoverImage? current = covers[target] ?? cover;
     if (current == null) {
       // Packaged default: empty bytes tell the page to draw its bundled crop.
       return CoverImage(

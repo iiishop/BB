@@ -98,6 +98,7 @@ class MessageBubble extends StatelessWidget {
     this.onDownload,
     this.onPlay,
     this.onOpenMedia,
+    this.onAvatarTap,
     this.localMediaPreview,
     this.busy = false,
     this.sendState,
@@ -123,6 +124,9 @@ class MessageBubble extends StatelessWidget {
 
   /// Opens the full-screen viewer at this media slot; null disables the tap.
   final void Function(ChatMessage message, int? partIndex)? onOpenMedia;
+
+  /// Opens the sender's profile when tapping a left-side message avatar.
+  final VoidCallback? onAvatarTap;
 
   /// Already-held bytes for a just-sent or still-pending image of the current
   /// account.
@@ -162,6 +166,9 @@ class MessageBubble extends StatelessWidget {
   static const Key sendingKey = Key('chat-bubble-sending');
   static const Key failedKey = Key('chat-bubble-failed');
   static const Key tailKey = Key('chat-bubble-tail');
+
+  static Key avatarKeyFor(String messageIdentity) =>
+      ValueKey<String>('chat-message-avatar-$messageIdentity');
 
   bool get mine => message.senderAccount == selfAccount;
 
@@ -452,9 +459,11 @@ class MessageBubble extends StatelessWidget {
       return const SizedBox(width: 32, height: 32);
     }
     return _MessageAvatar(
+      key: MessageBubble.avatarKeyFor(message.identity),
       avatars: avatars,
       account: message.senderAccount,
       semanticLabel: isMine ? '我的头像' : '$peerUsername 的头像',
+      onTap: !isMine && message.senderAccount.isNotEmpty ? onAvatarTap : null,
     );
   }
 
@@ -1006,23 +1015,85 @@ class _MediaImageState extends State<_MediaImage> {
 /// its explicit placeholder instead of an invented initial.
 class _MessageAvatar extends StatelessWidget {
   const _MessageAvatar({
+    super.key,
     required this.avatars,
     required this.account,
     required this.semanticLabel,
+    this.onTap,
   });
 
   final ChatAvatarController avatars;
   final String account;
   final String semanticLabel;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return ProfileAvatar(
+    final Widget avatar = ProfileAvatar(
       bytes: avatars.bytesFor(account),
       size: 32,
       showBorder: false,
       loading: avatars.isLoading(account),
       semanticLabel: semanticLabel,
+      onTap: onTap,
+    );
+    if (onTap == null) {
+      return avatar;
+    }
+    return _PressableMessageAvatar(child: avatar);
+  }
+}
+
+/// Tactile press (`0.94` over 120 ms) and hover ring for clickable message
+/// avatars, collapsing to instant feedback when reduced motion is enabled.
+class _PressableMessageAvatar extends StatefulWidget {
+  const _PressableMessageAvatar({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_PressableMessageAvatar> createState() =>
+      _PressableMessageAvatarState();
+}
+
+class _PressableMessageAvatarState extends State<_PressableMessageAvatar> {
+  bool _pressed = false;
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool reducedMotion =
+        MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    final Duration duration = reducedMotion
+        ? Duration.zero
+        : const Duration(milliseconds: 120);
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: Listener(
+        onPointerDown: (_) => setState(() => _pressed = true),
+        onPointerUp: (_) => setState(() => _pressed = false),
+        onPointerCancel: (_) => setState(() => _pressed = false),
+        child: AnimatedScale(
+          scale: _pressed && !reducedMotion ? 0.94 : 1.0,
+          duration: duration,
+          curve: Curves.easeOut,
+          child: AnimatedContainer(
+            duration: duration,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: _hovered
+                  ? Border.all(color: AppColors.accent, width: 2)
+                  : null,
+            ),
+            child: Material(
+              type: MaterialType.transparency,
+              child: widget.child,
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
