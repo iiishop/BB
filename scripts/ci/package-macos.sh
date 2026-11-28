@@ -17,9 +17,8 @@ codesign --verify --deep --strict --verbose=2 "$signed_app" 2>&1 \
 
 executable="$(plutil -extract CFBundleExecutable raw "$signed_app/Contents/Info.plist")"
 binary="$signed_app/Contents/MacOS/$executable"
-lipo -verify_arch x86_64 arm64 "$binary"
-architectures="$(lipo -archs "$binary")"
-for arch in $architectures; do
+lipo "$binary" -verify_arch x86_64 arm64
+for arch in x86_64 arm64; do
   codesign --display --arch "$arch" --verbose=4 --entitlements - --xml "$signed_app" \
     > "$evidence/entitlements-$arch.plist" 2> "$evidence/codesign-$arch.log"
   cat "$evidence/codesign-$arch.log" "$evidence/entitlements-$arch.plist"
