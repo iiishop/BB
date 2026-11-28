@@ -29,6 +29,7 @@ class _BlockingChatApi extends ChatApiClient {
     required String targetAccount,
     required String clientNonce,
     required List<MessagePart> content,
+    String? replyToMessageId,
   }) async {
     if (!entered.isCompleted) {
       entered.complete();
@@ -39,6 +40,7 @@ class _BlockingChatApi extends ChatApiClient {
       targetAccount: targetAccount,
       clientNonce: clientNonce,
       content: content,
+      replyToMessageId: replyToMessageId,
     );
   }
 }
@@ -54,6 +56,7 @@ class _UncertainChatApi extends ChatApiClient {
     required String targetAccount,
     required String clientNonce,
     required List<MessagePart> content,
+    String? replyToMessageId,
   }) async {
     attempts += 1;
     throw upstreamUnavailable;

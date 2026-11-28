@@ -19,6 +19,10 @@ const int chatMaxUploadBytes = 32 * 1024 * 1024;
 /// Local event schema version for the durable client feed.
 const int localEventVersion = 1;
 
+final RegExp messageIdPattern = RegExp(r'^[A-Za-z0-9_-]{1,200}$');
+
+bool isValidMessageId(String value) => messageIdPattern.hasMatch(value);
+
 enum ChatMessageKind {
   body,
   attachment,
@@ -275,6 +279,91 @@ class Attachment {
   };
 }
 
+/// Quoted original message metadata attached to a reply message (`reply_to`).
+class ReplyQuote {
+  const ReplyQuote({
+    required this.messageId,
+    required this.senderAccount,
+    required this.senderUsername,
+    required this.preview,
+  });
+
+  final String messageId;
+  final String? senderAccount;
+  final String? senderUsername;
+  final String preview;
+
+  factory ReplyQuote.fromJson(Object? json) {
+    if (json is! Map<String, dynamic>) {
+      throw const FormatException('reply_to must be an object');
+    }
+    final Object? messageId = json['message_id'];
+    final Object? senderAccount = json['sender_account'];
+    final Object? senderUsername = json['sender_username'];
+    final Object? preview = json['preview'];
+    if (messageId is! String ||
+        !isValidMessageId(messageId) ||
+        !json.containsKey('sender_account') ||
+        (senderAccount != null &&
+            (senderAccount is! String || !isValidAccount(senderAccount))) ||
+        !json.containsKey('sender_username') ||
+        (senderUsername != null && senderUsername is! String) ||
+        preview is! String) {
+      throw const FormatException('reply_to has invalid fields');
+    }
+    return ReplyQuote(
+      messageId: messageId,
+      senderAccount: senderAccount as String?,
+      senderUsername: senderUsername as String?,
+      preview: preview,
+    );
+  }
+
+  Map<String, dynamic> toJson() => <String, dynamic>{
+    'message_id': messageId,
+    'sender_account': senderAccount,
+    'sender_username': senderUsername,
+    'preview': preview,
+  };
+}
+
+({List<MessagePart> parts, Attachment? attachment})
+parseMessageContentAndAttachment(
+  Map<String, dynamic> json,
+  ChatMessageKind kind,
+) {
+  final List<MessagePart> parts = <MessagePart>[];
+  final Object? rawContent = json['content'];
+  if (rawContent != null) {
+    if (rawContent is! List) {
+      throw const FormatException('content must be a list');
+    }
+    for (final Object? raw in rawContent) {
+      final MessagePart? part = MessagePart.fromJson(raw);
+      if (part == null) {
+        throw const FormatException('invalid content part');
+      }
+      if (part is TextPart && part.text.isEmpty) {
+        throw const FormatException('empty text part');
+      }
+      parts.add(part);
+    }
+  }
+  final Attachment? attachment = json['attachment'] == null
+      ? null
+      : Attachment.fromJson(json['attachment']);
+  if (kind == ChatMessageKind.body && parts.isEmpty) {
+    throw const FormatException('body message without content');
+  }
+  if (kind == ChatMessageKind.attachment && attachment == null) {
+    throw const FormatException('attachment message without attachment');
+  }
+  return (
+    parts: List<MessagePart>.unmodifiable(parts),
+    attachment: attachment,
+  );
+}
+
 /// A committed server message (direct, group, or system entry).
 class ChatMessage {
   const ChatMessage({
@@ -286,6 +375,7 @@ class ChatMessage {
     required this.kind,
     this.parts = const <MessagePart>[],
     this.attachment,
+    this.replyTo,
     this.operationId,
     this.senderUsername,
     this.conversation,
@@ -301,6 +391,7 @@ class ChatMessage {
   final ChatMessageKind kind;
   final List<MessagePart> parts;
   final Attachment? attachment;
+  final ReplyQuote? replyTo;
 
   /// Sender display name supplied on group messages.
   final String? senderUsername;
@@ -373,6 +464,7 @@ class ChatMessage {
       kind: kind,
       parts: parts,
       attachment: attachment,
+      replyTo: replyTo,
       operationId: value,
       senderUsername: senderUsername,
       conversation: conversation,
@@ -416,6 +508,9 @@ class ChatMessage {
       if (operationId != null) {
         throw const FormatException('system message cannot carry operation_id');
       }
+      if (json['reply_to'] != null) {
+        throw const FormatException('system message cannot carry reply_to');
+      }
       final ConversationRef conversation = ConversationRef.fromJson(
         json['conversation'],
       );
@@ -455,32 +550,11 @@ class ChatMessage {
       throw const FormatException('message missing target_account');
     }
 
-    final List<MessagePart> parts = <MessagePart>[];
-    final Object? rawContent = json['content'];
-    if (rawContent != null) {
-      if (rawContent is! List) {
-        throw const FormatException('content must be a list');
-      }
-      for (final Object? raw in rawContent) {
-        final MessagePart? part = MessagePart.fromJson(raw);
-        if (part == null) {
-          throw const FormatException('invalid content part');
-        }
-        if (part is TextPart && part.text.isEmpty) {
-          throw const FormatException('empty text part');
-        }
-        parts.add(part);
-      }
-    }
-    final Attachment? attachment = json['attachment'] == null
+    final ({List<MessagePart> parts, Attachment? attachment}) body =
+        parseMessageContentAndAttachment(json, kind);
+    final ReplyQuote? replyTo = json['reply_to'] == null
         ? null
-        : Attachment.fromJson(json['attachment']);
-    if (kind == ChatMessageKind.body && parts.isEmpty) {
-      throw const FormatException('body message without content');
-    }
-    if (kind == ChatMessageKind.attachment && attachment == null) {
-      throw const FormatException('attachment message without attachment');
-    }
+        : ReplyQuote.fromJson(json['reply_to']);
     return ChatMessage(
       id: id,
       position: position,
@@ -488,8 +562,9 @@ class ChatMessage {
       targetAccount: conversation != null ? '' : target as String,
       createdAt: timestamp,
       kind: kind,
-      parts: List<MessagePart>.unmodifiable(parts),
-      attachment: attachment,
+      parts: body.parts,
+      attachment: body.attachment,
+      replyTo: replyTo,
       operationId: operationId as String?,
       senderUsername: conversation != null ? senderUsername as String : null,
       conversation: conversation,
@@ -1456,6 +1531,7 @@ Map<String, dynamic> _messageToJson(ChatMessage message) {
             .map((MessagePart part) => part.toJson())
             .toList(),
       'attachment': message.attachment?.toJson(),
+      if (message.replyTo != null) 'reply_to': message.replyTo!.toJson(),
     };
   }
   return <String, dynamic>{
@@ -1470,6 +1546,7 @@ Map<String, dynamic> _messageToJson(ChatMessage message) {
           .map((MessagePart part) => part.toJson())
           .toList(),
     'attachment': message.attachment?.toJson(),
+    if (message.replyTo != null) 'reply_to': message.replyTo!.toJson(),
   };
 }
 

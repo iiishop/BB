@@ -321,6 +321,7 @@ class FakeChatService extends ChatService {
     required List<OutgoingAttachment> attachments,
     String? operationSeed,
     List<String> mentionedAccounts = const <String>[],
+    String? replyToMessageId,
   }) async {
     final String seed = operationSeed ?? 'fake-${++_seq}';
     sendCalls += 1;
@@ -516,6 +517,7 @@ class FakeChatService extends ChatService {
     String? operationId,
     ExpectedIdentity? expectedIdentity,
     List<String> mentionedAccounts = const <String>[],
+    String? replyToMessageId,
   }) async {
     bodyOperationIds.add(operationId ?? '');
     if (failBodyRetry) {

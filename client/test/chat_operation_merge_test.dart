@@ -59,6 +59,7 @@ class PausedSend extends ChatApiClient {
     required String targetAccount,
     required String clientNonce,
     required List<MessagePart> content,
+    String? replyToMessageId,
   }) async {
     if (++calls == 1) {
       entered.complete();

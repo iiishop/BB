@@ -47,12 +47,14 @@ class _GatedApi extends ChatApiClient {
     required String targetAccount,
     required String clientNonce,
     required List<MessagePart> content,
+    String? replyToMessageId,
   }) async {
     final ChatMessage message = await super.sendMessage(
       token: token,
       targetAccount: targetAccount,
       clientNonce: clientNonce,
       content: content,
+      replyToMessageId: replyToMessageId,
     );
     await gate.pause();
     return message;
@@ -64,12 +66,14 @@ class _GatedApi extends ChatApiClient {
     required String targetAccount,
     required String clientNonce,
     required String mediaId,
+    String? replyToMessageId,
   }) async {
     final ChatMessage message = await super.sendAttachment(
       token: token,
       targetAccount: targetAccount,
       clientNonce: clientNonce,
       mediaId: mediaId,
+      replyToMessageId: replyToMessageId,
     );
     await gate.pause();
     return message;
