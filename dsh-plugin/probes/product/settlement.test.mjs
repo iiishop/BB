@@ -67,7 +67,23 @@ test("gap defers commit while retaining the successful turn's receipt", async ()
     "chat/ack_messages",
   ]);
 });
+test("expired group receipt does not block the next DM notification tick or send an ACK", async () => {
+  const s = settlement("chat/confirm_presentation", {status: 404, code: "group_receipt_expired"});
+  s.input.peer = "group:expired";
+  const notifications = [];
+  s.b.notifications.tick = async (peer) => notifications.push(peer);
+  const call = s.b.client.call;
+  s.b.client.call = (path, body) => path === "events/read" ? {items: []} : call(path, body);
+  await s.b.tick("10000002");
+  await s.b.tick("10000002");
+  assert.deepEqual(notifications, ["10000002", "10000002"]);
+  assert.deepEqual(s.requests, ["chat/confirm_presentation", "events/subscribe", "events/subscribe"]);
+  assert.equal(s.current().settlement, "group_receipt_expired");
+  assert.equal(s.current().receiptId, s.input.receiptId);
+});
 for (const [path, status, code] of [
+  ["chat/confirm_presentation", 404, "not_found"],
+  ["chat/confirm_presentation", 404, "group_receipt_expired"], // direct peer
   ["chat/ack_messages", 409, "stale_identity"],
   ["chat/ack_messages", 409, "stale_binding"],
   ["chat/ack_messages", 409, "migration_required"],

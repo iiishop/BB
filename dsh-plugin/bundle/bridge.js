@@ -587,11 +587,20 @@ export class Bridge {
       await this.flush();
       await this.checkpoint("turn-success");
       if (row.kind !== "download") {
-        await this.client.call("chat/confirm_presentation", {
-          attempt_id: row.attempt,
-          request_digest: row.requestDigest,
-          receipt_ids: [row.receiptId],
-        });
+        try {
+          await this.client.call("chat/confirm_presentation", {
+            attempt_id: row.attempt,
+            request_digest: row.requestDigest,
+            receipt_ids: [row.receiptId],
+          });
+        } catch (error) {
+          // Membership-scoped proof cannot be used again, even after rejoining.
+          // Close the local work item without advancing any BB watermark.
+          if (!row.peer?.startsWith("group:") || error.status !== 404 ||
+              error.code !== "group_receipt_expired") throw error;
+          await this.journal.put({ ...row, state: "completed", settlement: error.code });
+          return;
+        }
         await this.checkpoint("confirmed");
         await this.check();
         const cursor = await this.client.call("chat/consumption", queryTarget(row.peer));
