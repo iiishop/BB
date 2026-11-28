@@ -1047,8 +1047,9 @@ void main() {
       mixed['id'],
       olderReply['id'],
     ]);
-    final Finder originalBubble = find.byKey(
-      MessageBubble.avatarKeyFor(ChatMessage.fromJson(original).identity),
+    final Finder originalBubble = find.byWidgetPredicate(
+      (widget) =>
+          widget is MessageBubble && widget.message.id == original['id'],
     );
     expect(originalBubble, findsNothing);
     expect(find.text('跳到回复 + @'), findsOneWidget);
@@ -1072,7 +1073,15 @@ void main() {
     );
     await tester.tap(quote);
     await tester.pumpAndSettle();
-    expect(originalBubble.hitTestable(), findsOneWidget);
+    expect(
+      find
+          .descendant(
+            of: originalBubble,
+            matching: find.text('old-authored-anchor'),
+          )
+          .hitTestable(),
+      findsOneWidget,
+    );
     expect((await unread()).single['message_id'], olderReply['id']);
     await tester.tap(find.byKey(ChatComposer.sendKey));
     await tester.pumpAndSettle();
