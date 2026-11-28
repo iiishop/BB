@@ -32,6 +32,8 @@ abstract final class AppRadius {
 /// warm paper, ink text and a single teal accent.
 abstract final class AppColors {
   static const Color paper = Color(0xFFF7F5F1);
+  static const Color navShelf = Color(0xFFFBF8F2);
+  static const Color navShelfBorder = Color(0xFFE7E1D7);
   static const Color surface = Color(0xFFFFFFFF);
   static const Color ink = Color(0xFF161D1E);
   static const Color inkMuted = Color(0xFF5C6A6B);

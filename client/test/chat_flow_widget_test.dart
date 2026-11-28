@@ -216,7 +216,9 @@ void main() {
       await pumpAt(tester, const Size(390, 844));
       const oldEntryPoint = Offset(54, 790);
       expect(
-        tester.getRect(find.byType(NavigationBar)).contains(oldEntryPoint),
+        tester
+            .getRect(find.byKey(HomeView.bottomNavKey))
+            .contains(oldEntryPoint),
         isTrue,
       );
       await tester.tap(find.byKey(HomeView.navNotificationsKey));
